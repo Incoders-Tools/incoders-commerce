@@ -1,0 +1,175 @@
+<mxfile host="Electron" agent="Codex">
+  <diagram id="local-branch-lan" name="Scalable Local Branch">
+    <mxGraphModel dx="2020" dy="1201" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2200" pageHeight="1200" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=25;fontStyle=1;" value="Incoders Commerce — Scalable Local Branch Architecture" vertex="1">
+          <mxGeometry height="40" width="1400" x="50" y="20" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=13;fontColor=#666666;" value="Product baseline: 2 initial POS stations, designed to scale to N stations. Each station owns its peripherals; cloud is not required for local sales." vertex="1">
+          <mxGeometry height="25" width="1700" x="50" y="65" as="geometry" />
+        </mxCell>
+        <mxCell id="lan" parent="1" style="swimlane;html=1;rounded=1;startSize=34;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;fontSize=16;arcSize=50;" value="Local branch network (LAN)" vertex="1">
+          <mxGeometry height="670" width="1870" x="50" y="115" as="geometry" />
+        </mxCell>
+        <mxCell id="station1" parent="lan" style="swimlane;html=1;rounded=1;startSize=30;fillColor=#ffffff;strokeColor=#6c8ebf;fontStyle=1;" value="POS station 1" vertex="1">
+          <mxGeometry height="280" width="480" x="60" y="65" as="geometry" />
+        </mxCell>
+        <mxCell id="pc1" parent="station1" style="shape=mxgraph.networks.workstation;html=1;whiteSpace=wrap;aspect=fixed;verticalLabelPosition=bottom;verticalAlign=top;align=center;fontStyle=1;fillColor=#6c8ebf;strokeColor=#365f91;" value="POS 1" vertex="1">
+          <mxGeometry height="85" width="110" x="185" y="148.5" as="geometry" />
+        </mxCell>
+        <mxCell id="scanner1" parent="station1" style="shape=mxgraph.cisco19.rect;prIcon=inspection;html=1;whiteSpace=wrap;aspect=fixed;verticalLabelPosition=bottom;verticalAlign=top;align=center;fillColor=#fff2cc;strokeColor=#d6b656;" value="Barcode&#xa;scanner 1" vertex="1">
+          <mxGeometry height="60" width="80" x="45" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="scale1" parent="station1" style="shape=trapezoid;perimeter=trapezoidPerimeter;html=1;whiteSpace=wrap;verticalLabelPosition=bottom;verticalAlign=top;align=center;fillColor=#fff2cc;strokeColor=#d6b656;" value="Scale 1" vertex="1">
+          <mxGeometry height="55" width="90" x="193" y="42.5" as="geometry" />
+        </mxCell>
+        <mxCell id="printer1" parent="station1" style="shape=mxgraph.networks.printer;html=1;whiteSpace=wrap;aspect=fixed;verticalLabelPosition=bottom;verticalAlign=top;align=center;fillColor=#fff2cc;strokeColor=#d6b656;" value="Receipt printer 1" vertex="1">
+          <mxGeometry height="60" width="80" x="350" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="station2" parent="lan" style="swimlane;html=1;rounded=1;startSize=30;fillColor=#ffffff;strokeColor=#6c8ebf;fontStyle=1;" value="POS station 2" vertex="1">
+          <mxGeometry height="280" width="480" x="615" y="65" as="geometry" />
+        </mxCell>
+        <mxCell id="pc2" parent="station2" style="shape=mxgraph.networks.workstation;html=1;whiteSpace=wrap;aspect=fixed;verticalLabelPosition=bottom;verticalAlign=top;align=center;fontStyle=1;fillColor=#6c8ebf;strokeColor=#365f91;" value="POS 2" vertex="1">
+          <mxGeometry height="85" width="110" x="185" y="149.5" as="geometry" />
+        </mxCell>
+        <mxCell id="scanner2" parent="station2" style="shape=mxgraph.cisco19.rect;prIcon=inspection;html=1;whiteSpace=wrap;aspect=fixed;verticalLabelPosition=bottom;verticalAlign=top;align=center;fillColor=#fff2cc;strokeColor=#d6b656;" value="Barcode&#xa;scanner 2" vertex="1">
+          <mxGeometry height="60" width="80" x="45" y="42" as="geometry" />
+        </mxCell>
+        <mxCell id="scale2" parent="station2" style="shape=trapezoid;perimeter=trapezoidPerimeter;html=1;whiteSpace=wrap;verticalLabelPosition=bottom;verticalAlign=top;align=center;fillColor=#fff2cc;strokeColor=#d6b656;" value="Scale 2" vertex="1">
+          <mxGeometry height="55" width="90" x="195" y="43" as="geometry" />
+        </mxCell>
+        <mxCell id="printer2" parent="station2" style="shape=mxgraph.networks.printer;html=1;whiteSpace=wrap;aspect=fixed;verticalLabelPosition=bottom;verticalAlign=top;align=center;fillColor=#fff2cc;strokeColor=#d6b656;" value="Receipt printer 2" vertex="1">
+          <mxGeometry height="60" width="80" x="355" y="44" as="geometry" />
+        </mxCell>
+        <mxCell id="stationN" parent="lan" style="swimlane;html=1;rounded=1;startSize=30;fillColor=#ffffff;strokeColor=#6c8ebf;fontStyle=1;dashed=1;" value="POS station N" vertex="1">
+          <mxGeometry height="280" width="480" x="1170" y="65" as="geometry" />
+        </mxCell>
+        <mxCell id="pcN" parent="stationN" style="shape=mxgraph.networks.workstation;html=1;whiteSpace=wrap;aspect=fixed;verticalLabelPosition=bottom;verticalAlign=top;align=center;fontStyle=1;fillColor=#6c8ebf;strokeColor=#365f91;" value="POS n" vertex="1">
+          <mxGeometry height="85" width="110" x="185" y="153.5" as="geometry" />
+        </mxCell>
+        <mxCell id="scannerN" parent="stationN" style="shape=mxgraph.cisco19.rect;prIcon=inspection;html=1;whiteSpace=wrap;aspect=fixed;verticalLabelPosition=bottom;verticalAlign=top;align=center;fillColor=#fff2cc;strokeColor=#d6b656;" value="Barcode&#xa;scanner N" vertex="1">
+          <mxGeometry height="60" width="80" x="60" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="scaleN" parent="stationN" style="shape=trapezoid;perimeter=trapezoidPerimeter;html=1;whiteSpace=wrap;verticalLabelPosition=bottom;verticalAlign=top;align=center;fillColor=#fff2cc;strokeColor=#d6b656;" value="Scale N" vertex="1">
+          <mxGeometry height="55" width="90" x="195" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="printerN" parent="stationN" style="shape=mxgraph.networks.printer;html=1;whiteSpace=wrap;aspect=fixed;verticalLabelPosition=bottom;verticalAlign=top;align=center;fillColor=#fff2cc;strokeColor=#d6b656;" value="Receipt printer N" vertex="1">
+          <mxGeometry height="60" width="80" x="355" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="expand" parent="lan" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=18;fontStyle=1;fontColor=#666666;" value="…&#xa;Add stations&#xa;without changing&#xa;the topology" vertex="1">
+          <mxGeometry height="130" width="200" x="1667" y="145" as="geometry" />
+        </mxCell>
+        <mxCell id="switch" parent="lan" style="shape=mxgraph.cisco19.rect;prIcon=l2_switch;html=1;whiteSpace=wrap;aspect=fixed;verticalLabelPosition=bottom;verticalAlign=top;align=center;fontStyle=1;fillColor=#82b366;strokeColor=#4a7c59;" value="Wired LAN switch" vertex="1">
+          <mxGeometry height="85" width="150" x="940" y="395" as="geometry" />
+        </mxCell>
+        <mxCell id="wifi" parent="lan" style="shape=mxgraph.cisco19.rect;prIcon=wireless_router;html=1;whiteSpace=wrap;aspect=fixed;verticalLabelPosition=bottom;verticalAlign=top;align=center;fillColor=#d5e8d4;strokeColor=#82b366;" value="Wireless router / access point&#xa;For authorized mobile devices" vertex="1">
+          <mxGeometry height="85" width="150" x="1551" y="395" as="geometry" />
+        </mxCell>
+        <mxCell id="server" parent="lan" style="shape=mxgraph.cisco19.rect;prIcon=server;html=1;whiteSpace=wrap;aspect=fixed;verticalLabelPosition=bottom;verticalAlign=top;align=center;fontStyle=1;fillColor=#82b366;strokeColor=#4a7c59;" value="&lt;br&gt;Main local application server&lt;br&gt;Transactions and real-time updates" vertex="1">
+          <mxGeometry height="120" width="170" x="280" y="377.5" as="geometry" />
+        </mxCell>
+        <mxCell id="localdb" parent="lan" style="shape=cylinder3;html=1;whiteSpace=wrap;boundedLbl=1;backgroundOutline=1;verticalLabelPosition=bottom;verticalAlign=top;align=center;fontStyle=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="Local operational database&#xa;SQLite — provisional" vertex="1">
+          <mxGeometry height="100" width="185" x="15" y="387.5" as="geometry" />
+        </mxCell>
+        <mxCell id="consistency" parent="lan" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;" value="One authoritative local state&#xa;Each operation is validated and committed by the local node.&#xa;After commit, it publishes the change to every connected POS station.&#xa;POS stations do not maintain independent business databases." vertex="1">
+          <mxGeometry height="95" width="710" x="805" y="545" as="geometry" />
+        </mxCell>
+        <mxCell id="peripheralNote" parent="lan" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;" value="Phase 1 baseline: each POS station has one scanner, one scale, and one receipt printer.&#xa;Shared-device layouts are separate client deployment diagrams." vertex="1">
+          <mxGeometry height="70" width="475" x="100" y="585" as="geometry" />
+        </mxCell>
+        <mxCell id="4FAWdihR4C82iZ7TL-Jh-12" edge="1" parent="lan" source="pc2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.75;exitDx=0;exitDy=0;" target="switch">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="4FAWdihR4C82iZ7TL-Jh-13" edge="1" parent="lan" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.75;exitDx=0;exitDy=0;entryX=0.867;entryY=0.022;entryDx=0;entryDy=0;entryPerimeter=0;" target="switch">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1070.14" y="279.29" />
+            </Array>
+            <mxPoint x="1355" y="279.25" as="sourcePoint" />
+            <mxPoint x="1070.0500000000002" y="390.98" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="4FAWdihR4C82iZ7TL-Jh-17" edge="1" parent="lan" source="pc1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.75;exitDx=0;exitDy=0;entryX=0.2;entryY=-0.012;entryDx=0;entryDy=0;entryPerimeter=0;" target="switch">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="580" y="281.29" />
+              <mxPoint x="580" y="365" />
+              <mxPoint x="970" y="365" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="cloudGroup" parent="1" style="swimlane;html=1;rounded=1;startSize=30;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=1;dashed=1;" value="Cloud platform (outside the local sales critical path)" vertex="1">
+          <mxGeometry height="255" width="1870" x="50" y="860" as="geometry" />
+        </mxCell>
+        <mxCell id="cloud" parent="cloudGroup" style="shape=mxgraph.cisco19.rect;prIcon=cloud;html=1;whiteSpace=wrap;aspect=fixed;verticalLabelPosition=bottom;verticalAlign=top;align=center;fontStyle=1;fillColor=#9673a6;strokeColor=#684b7b;" value="Cloud services&#xa;Online orders • remote administration&#xa;Cross-branch synchronization" vertex="1">
+          <mxGeometry height="110" width="210" x="660" y="65" as="geometry" />
+        </mxCell>
+        <mxCell id="clouddb" parent="cloudGroup" style="shape=cylinder3;html=1;whiteSpace=wrap;boundedLbl=1;backgroundOutline=1;verticalLabelPosition=bottom;verticalAlign=top;align=center;fontStyle=1;fillColor=#e1d5e7;strokeColor=#9673a6;dashed=1;" value="Cloud operational database&#xa;PostgreSQL — proposed" vertex="1">
+          <mxGeometry height="100" width="200" x="1110" y="70" as="geometry" />
+        </mxCell>
+        <mxCell id="remote" parent="cloudGroup" style="shape=mxgraph.networks.workstation;html=1;whiteSpace=wrap;aspect=fixed;verticalLabelPosition=bottom;verticalAlign=top;align=center;fillColor=#e1d5e7;strokeColor=#9673a6;dashed=1;" value="Remote administration&#xa;Web / notebook / mobile" vertex="1">
+          <mxGeometry height="100" width="150" x="340" y="70" as="geometry" />
+        </mxCell>
+        <mxCell id="4FAWdihR4C82iZ7TL-Jh-3" edge="1" parent="cloudGroup" source="remote" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.014;entryY=0.491;entryDx=0;entryDy=0;entryPerimeter=0;" target="cloud">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ePc1" edge="1" parent="1" source="pc1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;dashed=1;" target="scanner1" value="">
+          <mxGeometry relative="1" x="0.0256" y="43" as="geometry">
+            <mxPoint x="8" y="25" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="eScale1" edge="1" parent="1" source="pc1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;dashed=1;" target="scale1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ePrint1" edge="1" parent="1" source="pc1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;dashed=1;" target="printer1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ePc2" edge="1" parent="1" source="pc2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;dashed=1;" target="scanner2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eScale2" edge="1" parent="1" source="pc2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;dashed=1;" target="scale2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ePrint2" edge="1" parent="1" source="pc2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;dashed=1;" target="printer2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ePcN" edge="1" parent="1" source="pcN" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;dashed=1;" target="scannerN">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eScaleN" edge="1" parent="1" source="pcN" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;dashed=1;" target="scaleN">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ePrintN" edge="1" parent="1" source="pcN" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;dashed=1;" target="printerN">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eServerLan" edge="1" parent="1" source="server" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;startArrow=block;strokeWidth=2;" target="switch" value="local API / publish">
+          <mxGeometry relative="1" x="0.0204" y="23" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="eDb" edge="1" parent="1" source="server" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;" target="localdb" value="commits">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eWifi" edge="1" parent="1" source="switch" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;dashed=1;" target="wifi" value="authorized wireless access">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eCloud" edge="1" parent="1" source="server" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;startArrow=block;strokeWidth=2;dashed=1;" target="cloud" value="bidirectional synchronization&#xa;does not block local sales">
+          <mxGeometry relative="1" x="0.6934" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="eCloudDb" edge="1" parent="1" source="cloud" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;dashed=1;" target="clouddb" value="persists / consolidates">
+          <mxGeometry relative="1" y="30" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="1050" y="980" />
+              <mxPoint x="1050" y="980" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

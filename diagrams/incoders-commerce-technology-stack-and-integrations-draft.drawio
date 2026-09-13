@@ -1,0 +1,169 @@
+<mxfile host="Electron" agent="Codex">
+  <diagram id="technology-stack-draft" name="Technology Stack — DRAFT">
+    <mxGraphModel dx="1768" dy="1051" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2200" pageHeight="1400" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=24;fontStyle=1;" value="Incoders Commerce — Recommended Technology Stack and Integrations [DRAFT]" vertex="1">
+          <mxGeometry height="40" width="1300" x="40" y="20" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=12;fontColor=#b85450;fontStyle=1;" value="Every named technology/provider is Proposed / To validate: the product documents explicitly state that stack, databases, infrastructure, and integration providers are not yet approved." vertex="1">
+          <mxGeometry height="25" width="1600" x="40" y="60" as="geometry" />
+        </mxCell>
+        <mxCell id="constraints" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" value="Confirmed architectural constraints&#xa;• Windows modern x64 local application&#xa;• Local sale, hardware, and printing work offline&#xa;• Multi-branch; three terminals per initial branch&#xa;• Cloud/web/mobile supports remote and online capabilities&#xa;• Modular, reusable commerce core; butchery is an enabled module" vertex="1">
+          <mxGeometry height="140" width="340" x="30" y="92.5" as="geometry" />
+        </mxCell>
+        <mxCell id="localstack" parent="1" style="swimlane;html=1;rounded=1;startSize=34;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;dashed=1;" value="" vertex="1">
+          <mxGeometry height="420" width="570" x="250" y="251" as="geometry" />
+        </mxCell>
+        <mxCell id="desktop" parent="localstack" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;dashed=1;" value="Desktop UI&#xa;Proposed: .NET LTS + WPF or WinUI 3&#xa;Validate: fast POS UX, printer/scale support, deployment" vertex="1">
+          <mxGeometry height="100" width="205" x="30" y="60" as="geometry" />
+        </mxCell>
+        <mxCell id="node" parent="localstack" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;dashed=1;" value="Branch node&#xa;Proposed: ASP.NET Core service&#xa;Owns local API, rules, sync, diagnostics and updates" vertex="1">
+          <mxGeometry height="100" width="205" x="350" y="60" as="geometry" />
+        </mxCell>
+        <mxCell id="localdata" parent="localstack" style="shape=cylinder;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;fillColor=#ffffff;strokeColor=#6c8ebf;dashed=1;" value="&lt;b&gt;&lt;font style=&quot;font-size: 14px;&quot;&gt;Local Storage&lt;/font&gt;&lt;/b&gt;" vertex="1">
+          <mxGeometry height="95" width="210" x="347.5" y="259" as="geometry" />
+        </mxCell>
+        <mxCell id="wfDVbH03_12ubA6BqGhW-7" parent="localstack" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" value="&lt;span style=&quot;font-weight: 400;&quot;&gt;Proposed alternatives: SQLite / local PostgreSQL&lt;/span&gt;&lt;br style=&quot;font-weight: 400;&quot;&gt;&lt;span style=&quot;font-weight: 400;&quot;&gt;ADR must compare locking, installation, backup, migrations, recovery&lt;/span&gt;" vertex="1">
+          <mxGeometry height="95" width="210" x="80" y="259" as="geometry" />
+        </mxCell>
+        <mxCell id="cloudstack" parent="1" style="swimlane;html=1;rounded=1;startSize=34;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=1;dashed=1;" value="" vertex="1">
+          <mxGeometry height="420" width="810" x="880" y="251" as="geometry" />
+        </mxCell>
+        <mxCell id="web" parent="cloudstack" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9673a6;dashed=1;" value="Responsive web / mobile administration&#xa;Proposed: React + TypeScript&#xa;Does not initially reproduce POS or control hardware" vertex="1">
+          <mxGeometry height="95" width="230" x="12" y="117" as="geometry" />
+        </mxCell>
+        <mxCell id="data" parent="cloudstack" style="shape=cylinder;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;fillColor=#ffffff;strokeColor=#9673a6;dashed=1;" value="Cloud operational + reporting data&#xa;Proposed: PostgreSQL&#xa;Tenancy model and reporting architecture: validate" vertex="1">
+          <mxGeometry height="95" width="210" x="12" y="230" as="geometry" />
+        </mxCell>
+        <mxCell id="api" parent="cloudstack" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9673a6;dashed=1;" value="Cloud API and sync service&#xa;Proposed: ASP.NET Core&#xa;Versioned APIs/contracts; authorization in services" vertex="1">
+          <mxGeometry height="95" width="225" x="399" y="230" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" edge="1" parent="cloudstack" source="web" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;dashed=1;" target="api" value="HTTPS API">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="410" y="159" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e5" edge="1" parent="cloudstack" source="api" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;dashed=1;" target="data" value="operations / reporting">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="integrations" parent="1" style="swimlane;html=1;rounded=1;startSize=34;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;dashed=1;" value="Proposed integrations — provider selection is open" vertex="1">
+          <mxGeometry height="234" width="1770" x="30" y="786" as="geometry" />
+        </mxCell>
+        <mxCell id="fiscal" parent="integrations" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d6b656;dashed=1;" value="Argentina e-invoicing&#xa;Fiscal API / certified integration&#xa;Regulatory detail + provider: To validate" vertex="1">
+          <mxGeometry height="100" width="178" x="799" y="65" as="geometry" />
+        </mxCell>
+        <mxCell id="notify" parent="integrations" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d6b656;dashed=1;" value="Notification providers&#xa;Email / SMS / WhatsApp&#xa;Channel provider and consent rules: To validate" vertex="1">
+          <mxGeometry height="100" width="210" x="291" y="65" as="geometry" />
+        </mxCell>
+        <mxCell id="devices" parent="integrations" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d6b656;dashed=1;" value="Hardware adapters&#xa;Scanner HID/keyboard • scale serial/network • ESC/POS printers&#xa;Exact models/protocols: To validate" vertex="1">
+          <mxGeometry height="100" width="240" x="23" y="65" as="geometry" />
+        </mxCell>
+        <mxCell id="romaneo" parent="integrations" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d6b656;dashed=1;" value="Independent automatic romaneo product&#xa;Proposed versioned API contract&#xa;Human confirmation before inventory movement" vertex="1">
+          <mxGeometry height="100" width="240" x="1249" y="65" as="geometry" />
+        </mxCell>
+        <mxCell id="imports" parent="integrations" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d6b656;dashed=1;" value="Excel and supplier documents&#xa;Validated import pipeline; OCR/AI suggestions require human review&#xa;Formats/providers: To validate" vertex="1">
+          <mxGeometry height="100" width="240" x="526" y="65" as="geometry" />
+        </mxCell>
+        <mxCell id="payments" parent="integrations" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d6b656;dashed=1;" value="Payment gateway&#xa;Online payment approval / webhooks&#xa;Provider and offline policy: To validate" vertex="1">
+          <mxGeometry height="100" width="210" x="1010" y="65" as="geometry" />
+        </mxCell>
+        <mxCell id="platform" parent="integrations" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9673a6;dashed=1;" value="Cross-cutting platform services&#xa;Proposed: OIDC/OAuth 2.0 identity • S3-compatible backups/files&#xa;OpenTelemetry logs/metrics/traces • managed containers + CI/CD" vertex="1">
+          <mxGeometry height="115" width="240" x="1510" y="57.5" as="geometry" />
+        </mxCell>
+        <mxCell id="decision" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;" value="ADR gates before commitment: local persistence/concurrency; desktop UI; cloud hosting and tenancy; payment, fiscal, notification, and hardware providers; sync conflict/authority model; remote identity continuity; backup/restore and update recovery." vertex="1">
+          <mxGeometry height="70" width="1170" x="280" y="1040" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" edge="1" parent="1" source="desktop" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;dashed=1;" target="node" value="LAN local API">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" edge="1" parent="1" source="node" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;dashed=1;" target="localdata" value="persisted operations + outbox">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" edge="1" parent="1" source="node" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;startArrow=block;dashed=1;strokeWidth=2;entryX=0.75;entryY=0;entryDx=0;entryDy=0;" target="api" value="bidirectional, idempotent sync">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1447.75" y="338" />
+            </Array>
+            <mxPoint x="915" y="337.9999999999998" as="sourcePoint" />
+            <mxPoint x="1500" y="468.0000000000002" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e6" edge="1" parent="1" source="api" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;dashed=1;" target="platform" value="identity, files, telemetry, delivery">
+          <mxGeometry relative="1" x="0.0053" y="-20" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="1660" y="530" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e7" edge="1" parent="1" source="api" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;dashed=1;exitX=0.75;exitY=1;exitDx=0;exitDy=0;" target="payments" value="payment initiation + confirmation">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1447.75" y="770" />
+              <mxPoint x="1235" y="770" />
+            </Array>
+            <mxPoint x="1730" y="510" as="sourcePoint" />
+            <mxPoint x="175" y="854" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e8" edge="1" parent="1" source="api" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;dashed=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;exitX=1.002;exitY=0.861;exitDx=0;exitDy=0;exitPerimeter=0;" target="fiscal" value="authorized documents">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1504.5" y="750" />
+              <mxPoint x="990" y="750" />
+              <mxPoint x="990" y="840" />
+              <mxPoint x="993" y="840" />
+              <mxPoint x="993" y="851" />
+            </Array>
+            <mxPoint x="1504" y="585" as="sourcePoint" />
+            <mxPoint x="1059" y="851.0000000000005" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e9" edge="1" parent="1" source="api" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;dashed=1;exitX=0.25;exitY=1;exitDx=0;exitDy=0;" target="notify" value="campaigns / alerts">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1370" y="585" />
+              <mxPoint x="1370" y="690" />
+              <mxPoint x="450" y="690" />
+            </Array>
+            <mxPoint x="1355" y="386.25" as="sourcePoint" />
+            <mxPoint x="960" y="920" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e10" edge="1" parent="1" source="desktop" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;dashed=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="devices" value="terminal adapters">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="190" y="360" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e12" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;dashed=1;exitX=0.75;exitY=0;exitDx=0;exitDy=0;" target="api" value="validated import / review">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="702" y="856" />
+              <mxPoint x="702" y="725" />
+              <mxPoint x="1414.5" y="725" />
+            </Array>
+            <mxPoint x="700" y="856.0000000000005" as="sourcePoint" />
+            <mxPoint x="1414.5" y="590" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="wfDVbH03_12ubA6BqGhW-1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;" value="&lt;span style=&quot;white-space: nowrap;&quot;&gt;Proposed cloud stack — validate through ADR&lt;/span&gt;&lt;br style=&quot;white-space: nowrap;&quot;&gt;&lt;span style=&quot;white-space: nowrap;&quot;&gt;API/sync: ASP.NET Core • Web: React + TypeScript&lt;/span&gt;&lt;br style=&quot;white-space: nowrap;&quot;&gt;&lt;span style=&quot;white-space: nowrap;&quot;&gt;Cloud data: PostgreSQL • Files/backups: S3-compatible object storage&lt;/span&gt;&lt;br style=&quot;white-space: nowrap;&quot;&gt;&lt;span style=&quot;white-space: nowrap;&quot;&gt;Identity: OIDC/OAuth 2.0 provider • Observability: OpenTelemetry&lt;/span&gt;&lt;br style=&quot;white-space: nowrap;&quot;&gt;&lt;span style=&quot;white-space: nowrap;&quot;&gt;Deployment: managed container platform + CI/CD&lt;/span&gt;&lt;br style=&quot;white-space: nowrap;&quot;&gt;&lt;span style=&quot;white-space: nowrap;&quot;&gt;All selections are provisional; keep contracts provider-neutral.&lt;/span&gt;" vertex="1">
+          <mxGeometry height="125" width="490" x="1060" y="100" as="geometry" />
+        </mxCell>
+        <mxCell id="wfDVbH03_12ubA6BqGhW-2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;" value="&lt;span style=&quot;background-color: light-dark(rgb(255, 242, 204), rgb(34, 34, 34));&quot;&gt;&lt;br&gt;&lt;span style=&quot;color: rgb(0, 0, 0); font-family: Helvetica; font-size: 12px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 700; letter-spacing: normal; orphans: 2; text-align: center; text-indent: 0px; text-transform: none; widows: 2; word-spacing: 0px; -webkit-text-stroke-width: 0px; white-space: nowrap; text-decoration-thickness: initial; text-decoration-style: initial; text-decoration-color: initial; float: none; display: inline !important;&quot;&gt;Proposed local stack — validate through ADR&lt;/span&gt;&lt;br style=&quot;forced-color-adjust: none; color: rgb(0, 0, 0); font-family: Helvetica; font-size: 12px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 700; letter-spacing: normal; orphans: 2; text-align: center; text-indent: 0px; text-transform: none; widows: 2; word-spacing: 0px; -webkit-text-stroke-width: 0px; white-space: nowrap; text-decoration-thickness: initial; text-decoration-style: initial; text-decoration-color: initial;&quot;&gt;&lt;span style=&quot;color: rgb(0, 0, 0); font-family: Helvetica; font-size: 12px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 700; letter-spacing: normal; orphans: 2; text-align: center; text-indent: 0px; text-transform: none; widows: 2; word-spacing: 0px; -webkit-text-stroke-width: 0px; white-space: nowrap; text-decoration-thickness: initial; text-decoration-style: initial; text-decoration-color: initial; float: none; display: inline !important;&quot;&gt;Windows desktop clients: .NET LTS + WPF or WinUI 3&lt;/span&gt;&lt;br style=&quot;forced-color-adjust: none; color: rgb(0, 0, 0); font-family: Helvetica; font-size: 12px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 700; letter-spacing: normal; orphans: 2; text-align: center; text-indent: 0px; text-transform: none; widows: 2; word-spacing: 0px; -webkit-text-stroke-width: 0px; white-space: nowrap; text-decoration-thickness: initial; text-decoration-style: initial; text-decoration-color: initial;&quot;&gt;&lt;span style=&quot;color: rgb(0, 0, 0); font-family: Helvetica; font-size: 12px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 700; letter-spacing: normal; orphans: 2; text-align: center; text-indent: 0px; text-transform: none; widows: 2; word-spacing: 0px; -webkit-text-stroke-width: 0px; white-space: nowrap; text-decoration-thickness: initial; text-decoration-style: initial; text-decoration-color: initial; float: none; display: inline !important;&quot;&gt;Branch node service: .NET LTS / ASP.NET Core&lt;/span&gt;&lt;br style=&quot;forced-color-adjust: none; color: rgb(0, 0, 0); font-family: Helvetica; font-size: 12px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 700; letter-spacing: normal; orphans: 2; text-align: center; text-indent: 0px; text-transform: none; widows: 2; word-spacing: 0px; -webkit-text-stroke-width: 0px; white-space: nowrap; text-decoration-thickness: initial; text-decoration-style: initial; text-decoration-color: initial;&quot;&gt;&lt;span style=&quot;color: rgb(0, 0, 0); font-family: Helvetica; font-size: 12px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 700; letter-spacing: normal; orphans: 2; text-align: center; text-indent: 0px; text-transform: none; widows: 2; word-spacing: 0px; -webkit-text-stroke-width: 0px; white-space: nowrap; text-decoration-thickness: initial; text-decoration-style: initial; text-decoration-color: initial; float: none; display: inline !important;&quot;&gt;Domain: modular monolith / clean boundaries&lt;/span&gt;&lt;br style=&quot;forced-color-adjust: none; color: rgb(0, 0, 0); font-family: Helvetica; font-size: 12px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 700; letter-spacing: normal; orphans: 2; text-align: center; text-indent: 0px; text-transform: none; widows: 2; word-spacing: 0px; -webkit-text-stroke-width: 0px; white-space: nowrap; text-decoration-thickness: initial; text-decoration-style: initial; text-decoration-color: initial;&quot;&gt;&lt;span style=&quot;color: rgb(0, 0, 0); font-family: Helvetica; font-size: 12px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 700; letter-spacing: normal; orphans: 2; text-align: center; text-indent: 0px; text-transform: none; widows: 2; word-spacing: 0px; -webkit-text-stroke-width: 0px; white-space: nowrap; text-decoration-thickness: initial; text-decoration-style: initial; text-decoration-color: initial; float: none; display: inline !important;&quot;&gt;Local data: SQLite OR local server DB (benchmark concurrency/recovery)&lt;/span&gt;&lt;br style=&quot;forced-color-adjust: none; color: rgb(0, 0, 0); font-family: Helvetica; font-size: 12px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 700; letter-spacing: normal; orphans: 2; text-align: center; text-indent: 0px; text-transform: none; widows: 2; word-spacing: 0px; -webkit-text-stroke-width: 0px; white-space: nowrap; text-decoration-thickness: initial; text-decoration-style: initial; text-decoration-color: initial;&quot;&gt;&lt;span style=&quot;color: rgb(0, 0, 0); font-family: Helvetica; font-size: 12px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 700; letter-spacing: normal; orphans: 2; text-align: center; text-indent: 0px; text-transform: none; widows: 2; word-spacing: 0px; -webkit-text-stroke-width: 0px; white-space: nowrap; text-decoration-thickness: initial; text-decoration-style: initial; text-decoration-color: initial; float: none; display: inline !important;&quot;&gt;Sync: durable outbox + versioned idempotent contracts&lt;/span&gt;&lt;br style=&quot;forced-color-adjust: none; color: rgb(0, 0, 0); font-family: Helvetica; font-size: 12px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 700; letter-spacing: normal; orphans: 2; text-align: center; text-indent: 0px; text-transform: none; widows: 2; word-spacing: 0px; -webkit-text-stroke-width: 0px; white-space: nowrap; text-decoration-thickness: initial; text-decoration-style: initial; text-decoration-color: initial;&quot;&gt;&lt;span style=&quot;color: rgb(0, 0, 0); font-family: Helvetica; font-size: 12px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 700; letter-spacing: normal; orphans: 2; text-align: center; text-indent: 0px; text-transform: none; widows: 2; word-spacing: 0px; -webkit-text-stroke-width: 0px; white-space: nowrap; text-decoration-thickness: initial; text-decoration-style: initial; text-decoration-color: initial; float: none; display: inline !important;&quot;&gt;Installer/updater: signed Windows packages + channel manifests&lt;/span&gt;&lt;br&gt;&lt;/span&gt;" vertex="1">
+          <mxGeometry height="125" width="490" x="450" y="100" as="geometry" />
+        </mxCell>
+        <mxCell id="wfDVbH03_12ubA6BqGhW-4" edge="1" parent="1" source="romaneo" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.75;exitY=0;exitDx=0;exitDy=0;entryX=0.924;entryY=0.979;entryDx=0;entryDy=0;entryPerimeter=0;" target="api">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1488.47" y="600" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

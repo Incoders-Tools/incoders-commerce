@@ -1,0 +1,36 @@
+<mxfile host="app.diagrams.net" modified="2026-09-11T00:00:00.000Z" agent="Codex" version="26.0.14" type="device">
+  <diagram id="architecture-overview" name="Architecture Overview">
+    <mxGraphModel dx="1600" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1800" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="title" value="Incoders Commerce — Architecture Overview" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=24;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="50" y="25" width="1000" height="40" as="geometry"/></mxCell>
+        <mxCell id="subtitle" value="Conceptual scope only — SQLite is the current provisional local database choice." style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=12;fontColor=#666666;" vertex="1" parent="1"><mxGeometry x="50" y="65" width="1000" height="25" as="geometry"/></mxCell>
+
+        <mxCell id="scope" value="Commerce scope&#xa;Sales • Orders • Inventory • Cash&#xa;Customers • Purchasing • Delivery&#xa;Butchery is an optional vertical module" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="50" y="150" width="300" height="145" as="geometry"/></mxCell>
+
+        <mxCell id="branch" value="Local branch (one per branch)" style="swimlane;html=1;rounded=1;startSize=34;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="460" y="120" width="500" height="410" as="geometry"/></mxCell>
+        <mxCell id="clients" value="POS and local operational clients&#xa;Cashier • Branch operations • Delivery" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;" vertex="1" parent="branch"><mxGeometry x="30" y="70" width="200" height="100" as="geometry"/></mxCell>
+        <mxCell id="node" value="Local node&#xa;Commerce rules • local operation&#xa;Hardware • synchronization" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;fontStyle=1;" vertex="1" parent="branch"><mxGeometry x="265" y="70" width="200" height="100" as="geometry"/></mxCell>
+        <mxCell id="database" value="Local operational data&#xa;SQLite (provisional)" style="shape=cylinder;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;fillColor=#ffffff;strokeColor=#6c8ebf;" vertex="1" parent="branch"><mxGeometry x="265" y="245" width="200" height="90" as="geometry"/></mxCell>
+        <mxCell id="hardware" value="Branch hardware&#xa;Scales • printers • scanners" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;" vertex="1" parent="branch"><mxGeometry x="30" y="250" width="200" height="80" as="geometry"/></mxCell>
+
+        <mxCell id="cloud" value="Cloud platform" style="swimlane;html=1;rounded=1;startSize=34;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="1110" y="120" width="500" height="410" as="geometry"/></mxCell>
+        <mxCell id="cloudservices" value="Cloud commerce services&#xa;Online orders • remote administration&#xa;Reporting • notifications • backups" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9673a6;fontStyle=1;" vertex="1" parent="cloud"><mxGeometry x="140" y="70" width="220" height="115" as="geometry"/></mxCell>
+        <mxCell id="clouddata" value="Cloud data&#xa;Consolidation between branches" style="shape=cylinder;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;fillColor=#ffffff;strokeColor=#9673a6;" vertex="1" parent="cloud"><mxGeometry x="140" y="245" width="220" height="90" as="geometry"/></mxCell>
+
+        <mxCell id="online" value="Online customers&#xa;Order and payment" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="1110" y="650" width="200" height="75" as="geometry"/></mxCell>
+        <mxCell id="remote" value="Remote administration&#xa;Web / mobile" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="1410" y="650" width="200" height="75" as="geometry"/></mxCell>
+
+        <mxCell id="e1" value="uses" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;" edge="1" parent="1" source="scope" target="clients"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e2" value="LAN" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;" edge="1" parent="1" source="clients" target="node"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e3" value="controls" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;" edge="1" parent="1" source="node" target="hardware"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e4" value="persists" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;" edge="1" parent="1" source="node" target="database"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e5" value="bidirectional synchronization&#xa;(not required to sell locally)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;startArrow=block;strokeWidth=2;" edge="1" parent="1" source="node" target="cloudservices"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e6" value="consolidates" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;" edge="1" parent="1" source="cloudservices" target="clouddata"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e7" value="uses" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;" edge="1" parent="1" source="online" target="cloudservices"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e8" value="uses" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;" edge="1" parent="1" source="remote" target="cloudservices"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
