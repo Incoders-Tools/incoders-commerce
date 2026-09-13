@@ -7,25 +7,25 @@
         <mxCell id="title" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=24;fontStyle=1;" value="Incoders Commerce — Architecture Overview" vertex="1">
           <mxGeometry height="40" width="1000" x="50" y="25" as="geometry" />
         </mxCell>
-        <mxCell id="subtitle" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=12;fontColor=#666666;" value="Conceptual scope only — SQLite is the current provisional local database choice." vertex="1">
+        <mxCell id="subtitle" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=12;fontColor=#666666;" value="Initial branch profile: the POS notebook co-locates the logical local node. SQLite remains provisional." vertex="1">
           <mxGeometry height="25" width="1000" x="50" y="65" as="geometry" />
         </mxCell>
         <mxCell id="scope" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" value="Commerce scope&#xa;Sales • Orders • Inventory • Cash&#xa;Customers • Purchasing • Delivery&#xa;Butchery is an optional vertical module" vertex="1">
           <mxGeometry height="145" width="300" x="70" y="320" as="geometry" />
         </mxCell>
-        <mxCell id="branch" parent="1" style="swimlane;html=1;rounded=1;startSize=34;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;" value="Local branch (one per branch)" vertex="1">
+        <mxCell id="branch" parent="1" style="swimlane;html=1;rounded=1;startSize=34;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;" value="Initial branch profile (one POS notebook per branch)" vertex="1">
           <mxGeometry height="410" width="560" x="420" y="120" as="geometry" />
         </mxCell>
         <mxCell id="GQCFZPxFEdtjf9-0IpfK-1" edge="1" parent="branch" source="clients" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="node" value="">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="clients" parent="branch" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;" value="POS and local operational clients&#xa;Cashier • Branch operations • Delivery" vertex="1">
+        <mxCell id="clients" parent="branch" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;" value="Windows POS notebook&#xa;POS • local administration • delivery" vertex="1">
           <mxGeometry height="100" width="200" x="30" y="70" as="geometry" />
         </mxCell>
-        <mxCell id="node" parent="branch" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;fontStyle=1;" value="Local node&#xa;Commerce rules • local operation&#xa;Hardware • synchronization" vertex="1">
+        <mxCell id="node" parent="branch" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;fontStyle=1;" value="Logical local node (co-located)&#xa;Commerce rules • local operation&#xa;Hardware • synchronization" vertex="1">
           <mxGeometry height="100" width="200" x="296" y="70" as="geometry" />
         </mxCell>
-        <mxCell id="database" parent="branch" style="shape=cylinder;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;fillColor=#ffffff;strokeColor=#6c8ebf;" value="Local operational data&#xa;SQLite (provisional)" vertex="1">
+        <mxCell id="database" parent="branch" style="shape=cylinder;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;fillColor=#ffffff;strokeColor=#6c8ebf;" value="Local operational data&#xa;SQLite — provisional" vertex="1">
           <mxGeometry height="90" width="200" x="296" y="245" as="geometry" />
         </mxCell>
         <mxCell id="hardware" parent="branch" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;" value="Branch hardware&#xa;Scales • printers • scanners" vertex="1">
@@ -43,13 +43,13 @@
         <mxCell id="clouddata" parent="cloud" style="shape=cylinder;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;fillColor=#ffffff;strokeColor=#9673a6;" value="Cloud data&#xa;Consolidation between branches" vertex="1">
           <mxGeometry height="90" width="220" x="145" y="260" as="geometry" />
         </mxCell>
-        <mxCell id="GQCFZPxFEdtjf9-0IpfK-2" edge="1" parent="1" source="online" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="clouddata">
+        <mxCell id="GQCFZPxFEdtjf9-0IpfK-2" edge="1" parent="1" source="online" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="cloudservices" value="online orders and payments">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="online" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" value="Online customers&#xa;Order and payment" vertex="1">
           <mxGeometry height="75" width="200" x="1100" y="770" as="geometry" />
         </mxCell>
-        <mxCell id="GQCFZPxFEdtjf9-0IpfK-3" edge="1" parent="1" source="remote" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="clouddata">
+        <mxCell id="GQCFZPxFEdtjf9-0IpfK-3" edge="1" parent="1" source="remote" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="cloudservices" value="web and mobile administration">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="remote" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" value="Remote administration&#xa;Web / mobile" vertex="1">
