@@ -4,7 +4,7 @@ evidence_revision: sha256:94259f1e294ef6e29a9c7b2ae6c55648b61008f2242ec5ebe8c28c
 verdict: pass
 blockers: 0
 critical_findings: 0
-requirements: 17/17
+requirements: 13/13
 scenarios: 25/25
 test_command: dotnet test Commerce.sln
 test_exit_code: 0
@@ -32,7 +32,7 @@ Re-run independently on the final merged `dev` (post PR #3-#8), matching every p
 
 ## Spec-to-Test Coverage
 
-17/17 requirements and 25/25 scenarios across the 4 capability specs (`tenant-access-foundation`, `branch-offline-sync`, `private-customer-ordering`, `safe-release-upgrades`) have at least one directly corresponding passing test. No coverage gaps found, including edge cases (offline revocation freshness, RLS-equivalent cross-org denial, both pre-reopen and post-reopen upgrade recovery boundaries, active-sale timing).
+13/13 requirements and 25/25 scenarios across the 4 capability specs (`tenant-access-foundation`, `branch-offline-sync`, `private-customer-ordering`, `safe-release-upgrades`) have at least one directly corresponding passing test. No coverage gaps found, including edge cases (offline revocation freshness, RLS-equivalent cross-org denial, both pre-reopen and post-reopen upgrade recovery boundaries, active-sale timing).
 
 ## Component Reuse Policy Compliance
 
@@ -76,6 +76,6 @@ Each PR was independently build/test-verified in isolation (future units' files 
 
 ## Recommendation
 
-**Ready for archive.** All 20 SDD tasks are genuinely complete with runtime-proven evidence: build is clean, the full 62-test suite passes, 17/17 requirements and 25/25 scenarios across all 4 capability specs have a passing covering test, the Component Reuse Policy is honored, both known production gaps are transparently documented in source, all 5 ADRs are Accepted and indexed, both line-budget exceptions are properly recorded as user-approved, and all PRs are merged to `dev`.
+**Ready for archive.** All 20 SDD tasks are genuinely complete with runtime-proven evidence: build is clean, the full 62-test suite passes, 13/13 requirements and 25/25 scenarios across all 4 capability specs have a passing covering test, the Component Reuse Policy is honored, both known production gaps are transparently documented in source, all 5 ADRs are Accepted and indexed, both line-budget exceptions are properly recorded as user-approved, and all PRs are merged to `dev`.
 
 **Engram reference**: prior narrative verification detail also recorded at `sdd/commerce-foundation/verify-report` (observation id 2049).
