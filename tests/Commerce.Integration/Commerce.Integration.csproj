@@ -23,6 +23,8 @@
     <ProjectReference Include="..\..\src\Commerce.Application\Commerce.Application.csproj" />
     <ProjectReference Include="..\..\src\Commerce.BranchNode\Commerce.BranchNode.csproj" />
     <ProjectReference Include="..\..\src\Commerce.Cloud.Api\Commerce.Cloud.Api.csproj" />
+    <ProjectReference Include="..\..\src\Commerce.Web\Commerce.Web.csproj" />
+    <ProjectReference Include="..\..\src\Commerce.Pos.Windows\Commerce.Pos.Windows.csproj" />
   </ItemGroup>
 
 </Project>
