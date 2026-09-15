@@ -97,8 +97,42 @@ jobs:
           Write-Host "Packaging pipeline placeholder: this walking skeleton stages build outputs only."
           Write-Host "Both an MSIX and a signed MSI artifact must be produced from this same source for channel '$env:RELEASE_CHANNEL', per ADR-005."
 
-      - name: Publication gate (release_publication_authorized)
-        shell: pwsh
+      - name: Publication gate (publication_authorized)
+        shell: bash
         run: |
-          Write-Host "Release publication remains gated by openspec/changes/commerce-foundation/state.yaml -> release_publication_authorized (ADR-004)."
-          Write-Host "This workflow builds, tests, and stages artifacts for channel '$env:RELEASE_CHANNEL' only; it does not publish an immutable release."
+          set -euo pipefail
+          POLICY_FILE=".github/release-authorization.yml"
+          CHANNEL="$RELEASE_CHANNEL"
+
+          if [ ! -f "$POLICY_FILE" ]; then
+            echo "::error::Publication policy file '$POLICY_FILE' is missing."
+            exit 1
+          fi
+
+          # Extract the boolean value nested under channels.<CHANNEL>.publication_authorized.
+          # release-authorization.yml is a hand-authored, fixed-shape file (see its own
+          # header comment) — this is a two-level indented lookup, not a general YAML parser.
+          FLAG=$(awk -v channel="$CHANNEL" '
+            $0 ~ "^  "channel":" { in_channel=1; next }
+            in_channel && /^  [a-zA-Z]/ { in_channel=0 }
+            in_channel && /publication_authorized:/ {
+              gsub(/^[ \t]+publication_authorized:[ \t]*/, "");
+              print;
+              exit
+            }
+          ' "$POLICY_FILE")
+
+          if [ -z "$FLAG" ]; then
+            echo "::error::No publication_authorized entry found for channel '$CHANNEL' in $POLICY_FILE."
+            exit 1
+          fi
+
+          echo "Release publication for channel '$CHANNEL' is gated by $POLICY_FILE -> channels.$CHANNEL.publication_authorized (ADR-004)."
+          echo "This workflow builds, tests, and stages artifacts for channel '$CHANNEL'; it does not publish an immutable release on its own."
+
+          if [ "$FLAG" != "true" ]; then
+            echo "::error::Publication for channel '$CHANNEL' is not authorized (publication_authorized: $FLAG). Flip the flag in $POLICY_FILE via a dedicated PR to authorize."
+            exit 1
+          fi
+
+          echo "Publication authorized for channel '$CHANNEL'."
