@@ -3,8 +3,11 @@
 # Client runtime (WPF POS, branch node) never touches Docker or this compose
 # file (design.md: "clients require no Docker"). This exists purely so
 # developers/CI can validate the real RLS policies in ./db/init-rls.sql
-# against a live PostgreSQL instance instead of the in-memory RLS-equivalent
-# test double used by `Commerce.Cloud.Api.CloudInboxStore` in SyncTests.cs.
+# against a live PostgreSQL instance, and to run `PostgresCloudInboxStore`
+# (real Npgsql adapter) plus the transaction-pooler proof-of-concept against
+# a realistic local approximation of Supabase's Supavisor transaction-mode
+# pooler (Unit 2's non-negotiable PoC task — see deploy/README.md for the
+# recorded pass/fail outcome).
 services:
   postgres:
     image: postgres:16
@@ -16,3 +19,43 @@ services:
       - "5432:5432"
     volumes:
       - ./db/init-rls.sql:/docker-entrypoint-initdb.d/init-rls.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U commerce_owner -d commerce_dev"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  # Local approximation of Supabase's Supavisor transaction-mode pooler
+  # (port 6543). Real Supabase project provisioning is a manual, out-of-repo
+  # step (deploy/README.md); PgBouncer in `pool_mode = transaction` is the
+  # closest realistic local stand-in for proving `set_config(..., true)`
+  # tenant scoping cannot leak across pooled connections.
+  pgbouncer:
+    image: pgbouncer/pgbouncer:latest
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASES_HOST: postgres
+      DATABASES_PORT: "5432"
+      DATABASES_DBNAME: commerce_dev
+      # NO fixed DATABASES_USER/PASSWORD here: this is deliberate. With no
+      # `user=` clause, PgBouncer passes each client's OWN authenticated
+      # username through to the Postgres backend, matching Supabase's real
+      # Supavisor per-role connection shape. A first PoC revision hardcoded
+      # `commerce_owner` here, which meant EVERY client — regardless of which
+      # role it claimed — ran queries as the superuser table owner, silently
+      # bypassing RLS entirely and producing a false "leak" (every org saw
+      # every other org's rows). That bug is exactly what this PoC exists to
+      # catch, and it is why the fix (per-role pass-through + userlist.txt)
+      # is documented here instead of only in a commit message.
+      PGBOUNCER_LISTEN_PORT: "6432"
+      PGBOUNCER_POOL_MODE: transaction
+      PGBOUNCER_MAX_CLIENT_CONN: "200"
+      PGBOUNCER_DEFAULT_POOL_SIZE: "20"
+      PGBOUNCER_AUTH_TYPE: plain
+      PGBOUNCER_AUTH_FILE: /etc/pgbouncer/userlist.txt
+    volumes:
+      - ./pgbouncer-userlist.txt:/etc/pgbouncer/userlist.txt:ro
+    ports:
+      - "6543:6432"

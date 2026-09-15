@@ -39,15 +39,15 @@ Reuse, never reimplement: `TenantAuthorizationService`, `IAuditSink`, `CatalogMa
 
 ## Unit 2: Cloud.Api Real Host
 
-- [ ] 2.1 RED `tests/Commerce.Integration/CloudApiHostTests.cs`: `/health` liveness without DB, `/health/ready` unhealthy on broken DB, `TenantScopeEndpointFilter` maps claim -> `CloudTenantScope` and rejects missing/spoofed org claims.
-- [ ] 2.2 GREEN: convert `Commerce.Cloud.Api.csproj` to `Microsoft.NET.Sdk.Web`; add `Program.cs`, `Endpoints/Sync.cs`, `Endpoints/Catalog.cs`, `Endpoints/Ordering.cs`, `Tenancy/TenantScopeEndpointFilter.cs`, `appsettings*.json`.
-- [ ] 2.3 REFACTOR: extract `ICloudInboxStore` port from existing `CloudInboxStore`; `CloudInboxStore` becomes the port's in-memory test-double implementation with no behavior change (`dotnet test Commerce.sln --filter SyncTests` still green).
-- [ ] 2.4 RED `tests/Commerce.Integration/PostgresCloudInboxStoreTests.cs`: deny/allow parity with `CloudInboxStore`; cross-org read returns zero rows against a live/pooled Postgres.
-- [ ] 2.5 GREEN `Persistence/PostgresCloudInboxStore.cs`: raw Npgsql, explicit `BeginTransaction` -> `set_config('app.current_org_id', $1, true)` -> query -> `Commit` per operation.
-- [ ] 2.6 RED/PoC `tests/Commerce.Integration/PoolerScopingTests.cs`: concurrent transaction-pooled connections issuing different `app.current_org_id` values must never observe another org's rows. Pass = zero cross-contamination across N concurrent scoped transactions; fail = any leak, triggering session/direct-connection fallback per design.
-- [ ] 2.7 GREEN: wire PoC against realistic pooled connection (Supabase pooler or local pgbouncer); record pass/fail and chosen connection mode in `deploy/README.md`.
-- [ ] 2.8 GREEN: add `Dockerfile` (repo-root build context, repo-root-relative `COPY`) and `railway.json` (`build.builder: DOCKERFILE`, `dockerfilePath`, `watchPatterns`, `deploy.startCommand/healthcheckPath/healthcheckTimeout/restartPolicyType/restartPolicyMaxRetries`).
-- [ ] 2.9 REFACTOR/verify: full suite `dotnet test Commerce.sln` stays 62/62 green; new Cloud.Api tests green; Kestrel binds `0.0.0.0` + env `PORT`.
+- [x] 2.1 RED `tests/Commerce.Integration/CloudApiHostTests.cs`: `/health` liveness without DB, `/health/ready` unhealthy on broken DB, `TenantScopeEndpointFilter` maps claim -> `CloudTenantScope` and rejects missing/spoofed org claims.
+- [x] 2.2 GREEN: convert `Commerce.Cloud.Api.csproj` to `Microsoft.NET.Sdk.Web`; add `Program.cs`, `Endpoints/Sync.cs`, `Endpoints/Catalog.cs`, `Endpoints/Ordering.cs`, `Tenancy/TenantScopeEndpointFilter.cs`, `appsettings*.json`.
+- [x] 2.3 REFACTOR: extract `ICloudInboxStore` port from existing `CloudInboxStore`; `CloudInboxStore` becomes the port's in-memory test-double implementation with no behavior change (`dotnet test Commerce.sln --filter SyncTests` still green).
+- [x] 2.4 RED `tests/Commerce.Integration/PostgresCloudInboxStoreTests.cs`: deny/allow parity with `CloudInboxStore`; cross-org read returns zero rows against a live/pooled Postgres.
+- [x] 2.5 GREEN `Persistence/PostgresCloudInboxStore.cs`: raw Npgsql, explicit `BeginTransaction` -> `set_config('app.current_org_id', $1, true)` -> query -> `Commit` per operation.
+- [x] 2.6 RED/PoC `tests/Commerce.Integration/PoolerScopingTests.cs`: concurrent transaction-pooled connections issuing different `app.current_org_id` values must never observe another org's rows. Pass = zero cross-contamination across N concurrent scoped transactions; fail = any leak, triggering session/direct-connection fallback per design.
+- [x] 2.7 GREEN: wire PoC against realistic pooled connection (Supabase pooler or local pgbouncer); record pass/fail and chosen connection mode in `deploy/README.md`.
+- [x] 2.8 GREEN: add `Dockerfile` (repo-root build context, repo-root-relative `COPY`) and `railway.json` (`build.builder: DOCKERFILE`, `dockerfilePath`, `watchPatterns`, `deploy.startCommand/healthcheckPath/healthcheckTimeout/restartPolicyType/restartPolicyMaxRetries`).
+- [x] 2.9 REFACTOR/verify: full suite `dotnet test Commerce.sln` stays 62/62 green (plus 12 new Unit 2 tests, 74/74 total); new Cloud.Api tests green; Kestrel binds `0.0.0.0` + env `PORT` (verified via built Docker image).
 
 ## Unit 3: Commerce.Web SPA
 

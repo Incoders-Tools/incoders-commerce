@@ -32,10 +32,18 @@ ALTER TABLE sync_inbox FORCE ROW LEVEL SECURITY;
 
 -- Non-owner runtime role: the application connects as this role, never as
 -- the table owner, so RLS cannot be bypassed by owner privilege.
+--
+-- LOGIN + a fixed password here is a LOCAL-DEV-ONLY convenience so
+-- PostgresCloudInboxStoreTests / PoolerScopingTests can connect as this role
+-- directly against `deploy/dev/compose.yaml`. Each real environment
+-- (staging/production) provisions its OWN `app_runtime` password as a
+-- Railway/Supabase secret per deploy/README.md — never this literal value.
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_runtime') THEN
-        CREATE ROLE app_runtime NOLOGIN;
+        CREATE ROLE app_runtime WITH LOGIN PASSWORD 'dev-only-password';
+    ELSE
+        ALTER ROLE app_runtime WITH LOGIN PASSWORD 'dev-only-password';
     END IF;
 END
 $$;
@@ -45,6 +53,20 @@ GRANT SELECT, INSERT, UPDATE ON sync_inbox TO app_runtime;
 
 -- Tenant isolation policy: every row read/write is scoped to the
 -- authenticated claim's organization, never a caller-submitted value.
+--
+-- NULLIF(..., ''): discovered during Unit 2's pooler PoC. Once a session has
+-- ever run a transaction-local `set_config('app.current_org_id', v, true)`
+-- (is_local = true, i.e. `SET LOCAL` semantics) and that transaction
+-- committed, PostgreSQL does NOT revert the custom placeholder GUC back to
+-- "unset"/NULL for the rest of the session — it reverts to an empty string
+-- ''. On a connection-pooled/reused session (exactly PgBouncer transaction
+-- pooling's shape), a query that forgets to re-apply tenant scope before
+-- running would otherwise hit `''::uuid`, which RAISES A POSTGRES ERROR
+-- rather than filtering to zero rows. `PostgresCloudInboxStore` always sets
+-- scope as the first statement of every transaction, so this never happens
+-- on the real code path — but the policy itself is hardened here so an
+-- unscoped query fails CLOSED (zero rows) instead of failing with a
+-- confusing cast error, regardless of caller discipline.
 CREATE POLICY sync_inbox_tenant_isolation ON sync_inbox
-    USING (organization_id = current_setting('app.current_org_id', true)::uuid)
-    WITH CHECK (organization_id = current_setting('app.current_org_id', true)::uuid);
+    USING (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid)
+    WITH CHECK (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid);

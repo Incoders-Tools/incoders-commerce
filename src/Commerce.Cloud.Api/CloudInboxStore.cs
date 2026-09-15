@@ -4,22 +4,23 @@ using Commerce.Domain.Sync;
 namespace Commerce.Cloud.Api;
 
 /// <summary>
-/// Cloud-side inbox/ACK receiver.
+/// In-memory RLS-EQUIVALENT test double implementation of
+/// <see cref="ICloudInboxStore"/> — not the real PostgreSQL adapter. It
+/// proves the exact same deny/allow semantics that
+/// `deploy/dev/db/init-rls.sql` enforces at the database level: default-deny
+/// (rows are invisible/rejected unless the row's `organization_id` matches
+/// the authenticated scope), and a non-owner runtime role that can never
+/// bypass that filter. Every method here takes a `CloudTenantScope` derived
+/// from authenticated claims and NEVER accepts a raw organization ID from the
+/// caller for row access — exactly mirroring
+/// `current_setting('app.current_org_id')` in the real policy.
 ///
-/// PRODUCTION NOTE: this is an in-memory RLS-EQUIVALENT test double, not the
-/// real PostgreSQL adapter. No live PostgreSQL instance was available in this
-/// sandboxed apply session (Docker daemon not running), so this class proves
-/// the exact same deny/allow semantics that `deploy/dev/db/init-rls.sql`
-/// enforces at the database level: default-deny (rows are invisible/rejected
-/// unless the row's `organization_id` matches the authenticated scope), and a
-/// non-owner runtime role that can never bypass that filter. Every method
-/// here takes a `CloudTenantScope` derived from authenticated claims and
-/// NEVER accepts a raw organization ID from the caller for row access —
-/// exactly mirroring `current_setting('app.current_org_id')` in the real
-/// policy. Wiring the real Npgsql-backed adapter against
-/// `deploy/dev/db/init-rls.sql` is tracked as follow-up production work.
+/// Unit 2 extracted this port so the existing 62 xUnit tests keep exercising
+/// this exact in-memory double unchanged, while
+/// <see cref="Persistence.PostgresCloudInboxStore"/> is the real
+/// Npgsql-backed production implementation registered in `Program.cs`.
 /// </summary>
-public sealed class CloudInboxStore
+public sealed class CloudInboxStore : ICloudInboxStore
 {
     private readonly object _gate = new();
     private readonly Dictionary<Guid, (Guid OrganizationId, SyncEnvelope Envelope)> _inbox = new();

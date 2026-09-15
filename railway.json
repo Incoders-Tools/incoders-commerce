@@ -1,0 +1,21 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "Dockerfile",
+    "watchPatterns": [
+      "src/Commerce.Cloud.Api/**",
+      "src/Commerce.Domain/**",
+      "src/Commerce.Application/**",
+      "src/Commerce.BranchNode/**",
+      "Dockerfile"
+    ]
+  },
+  "deploy": {
+    "startCommand": "dotnet Commerce.Cloud.Api.dll",
+    "healthcheckPath": "/health",
+    "healthcheckTimeout": 30,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 3
+  }
+}
