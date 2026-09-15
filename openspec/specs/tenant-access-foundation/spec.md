@@ -8,7 +8,7 @@ Define organization, branch, identity, authorization, audit, and offline-access 
 
 ### Requirement: Organization and Branch Isolation
 
-Every business record, action, and authorization decision MUST carry an organization context and MUST enforce the user’s permitted branch scope. A request from one organization or unauthorized branch MUST NOT disclose or mutate data in another scope.
+Every business record, action, and authorization decision MUST carry an organization context and MUST enforce the user's permitted branch scope. A request from one organization or unauthorized branch MUST NOT disclose or mutate data in another scope.
 
 #### Scenario: Authorized branch access
 

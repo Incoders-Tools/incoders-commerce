@@ -52,7 +52,7 @@ Explicit non-goals are the remaining business modules, public marketplace discov
 
 - Offline revocation and shared-master authority can create either unsafe access or unusable branches if left implicit.
 - Variable-weight ordering and payment adjustment can expand the slice; the foundation should preserve the model but defer provider settlement rules.
-- A “latest” download without compatibility metadata, signing, backup, and rollback is not a safe updater.
+- A "latest" download without compatibility metadata, signing, backup, and rollback is not a safe updater.
 - Building horizontal infrastructure without the walking-skeleton acceptance path would hide integration failures.
 
 ### Ready for Proposal

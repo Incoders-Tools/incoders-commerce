@@ -8,7 +8,7 @@ Define a private, enabled-customer catalogue-to-order walking slice bound to an 
 
 ### Requirement: Bound and Revocable Customer Access
 
-The ordering channel MUST use an unpredictable access credential bound to exactly one organization and customer. Access MUST be limited to the customer’s enabled state and MUST be revocable; cross-organization or unbound use MUST be denied. Remote revocation while a destination is offline remains subject to the approved offline-identity ADR and MUST NOT be represented as immediately observed.
+The ordering channel MUST use an unpredictable access credential bound to exactly one organization and customer. Access MUST be limited to the customer's enabled state and MUST be revocable; cross-organization or unbound use MUST be denied. Remote revocation while a destination is offline remains subject to the approved offline-identity ADR and MUST NOT be represented as immediately observed.
 
 #### Scenario: Enabled customer catalogue access
 
@@ -24,7 +24,7 @@ The ordering channel MUST use an unpredictable access credential bound to exactl
 
 ### Requirement: Reusable Catalogue Semantics
 
-The catalogue MUST represent Product, Presentation, Category, contextual units, and the presentation’s unit, measured-weight, or variable-weight behavior without turning vertical classifications into rigid product types. An order MUST retain the commercial meaning shown at submission; settlement and final variable-weight adjustment are outside this slice.
+The catalogue MUST represent Product, Presentation, Category, contextual units, and the presentation's unit, measured-weight, or variable-weight behavior without turning vertical classifications into rigid product types. An order MUST retain the commercial meaning shown at submission; settlement and final variable-weight adjustment are outside this slice.
 
 #### Scenario: Presentation-aware order draft
 
@@ -53,4 +53,3 @@ Order submission MUST have a stable business identity so retries cannot create d
 - GIVEN the destination branch is offline when an order is submitted
 - WHEN the cloud accepts the order origin
 - THEN the order remains visibly pending destination confirmation, shows freshness or unavailable availability, and makes no stock promise or final stock effect
-

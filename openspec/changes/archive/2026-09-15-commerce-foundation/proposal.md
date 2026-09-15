@@ -53,7 +53,7 @@ Use a modular-monolith walking skeleton with explicit cloud and branch-node boun
 
 ## Rollback Plan
 
-Planning rollback removes this change’s artifacts. Future slices remain independently reversible; migrations require verified backup/restore and stay separate from device replacement.
+Planning rollback removes this change's artifacts. Future slices remain independently reversible; migrations require verified backup/restore and stay separate from device replacement.
 
 ## Dependencies
 
