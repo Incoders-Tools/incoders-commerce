@@ -1,0 +1,18 @@
+# Development-only PostgreSQL container.
+#
+# Client runtime (WPF POS, branch node) never touches Docker or this compose
+# file (design.md: "clients require no Docker"). This exists purely so
+# developers/CI can validate the real RLS policies in ./db/init-rls.sql
+# against a live PostgreSQL instance instead of the in-memory RLS-equivalent
+# test double used by `Commerce.Cloud.Api.CloudInboxStore` in SyncTests.cs.
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: commerce_dev
+      POSTGRES_USER: commerce_owner
+      POSTGRES_PASSWORD: dev-only-password
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./db/init-rls.sql:/docker-entrypoint-initdb.d/init-rls.sql:ro
