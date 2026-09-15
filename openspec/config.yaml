@@ -21,19 +21,19 @@ metadata:
   settings_confirmed: true
   approval_scope: planning-only
   stop_after: tasks
-  product_implementation_authorized: false
+  product_implementation_authorized: true
   release_publication_authorized: false
   git_delivery_authorized: false
 
 testing:
-  availability: unavailable
-  test_command: null
+  availability: available
+  test_command: dotnet test Commerce.sln
   runner:
-    available: false
-    framework: null
-    command: null
+    available: true
+    framework: xunit
+    command: dotnet test Commerce.sln
   layers:
-    unit: {available: false, tool: null, command: null}
+    unit: {available: true, tool: xunit, command: "dotnet test Commerce.sln"}
     integration: {available: false, tool: null, command: null}
     e2e: {available: false, tool: null, command: null}
   coverage:
@@ -44,8 +44,8 @@ testing:
     type_checker: {available: false, tool: null, command: null}
     formatter: {available: false, tool: null, command: null}
   build:
-    available: false
-    command: null
+    available: true
+    command: dotnet build Commerce.sln
   ci:
     available: false
     command: null
@@ -71,17 +71,17 @@ rules:
     - Do not execute implementation tasks under the current planning authorization.
   apply:
     guidelines:
-      - Implementation is not authorized by the current planning approval.
-      - If later authorized, follow RED-GREEN-REFACTOR with a real failing test first.
+      - Product implementation is authorized per state.yaml (product_implementation_authorized: true), scoped to approved SDD tasks only.
+      - Follow RED-GREEN-REFACTOR with a real failing test first for every implementation task.
       - Resolve and record a real test command before any runtime attempt; never invent one.
     tdd: true
-    test_command: null
+    test_command: dotnet test Commerce.sln
   verify:
-    test_command: null
-    build_command: null
+    test_command: dotnet test Commerce.sln
+    build_command: dotnet build Commerce.sln
     coverage_threshold: null
     guidelines:
-      - No runtime verification is authorized in this configuration bootstrap.
+      - Runtime verification runs against the real dotnet test Commerce.sln harness scaffolded in Unit 1.
       - Unavailable tooling is not a passing result or permission to disable Strict TDD.
   archive:
     - Do not archive an unimplemented change as completed.
