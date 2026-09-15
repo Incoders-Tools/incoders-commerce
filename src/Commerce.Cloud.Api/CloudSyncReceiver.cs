@@ -10,9 +10,9 @@ namespace Commerce.Cloud.Api;
 /// </summary>
 public sealed class CloudSyncReceiver
 {
-    private readonly CloudInboxStore _store;
+    private readonly ICloudInboxStore _store;
 
-    public CloudSyncReceiver(CloudInboxStore store) => _store = store;
+    public CloudSyncReceiver(ICloudInboxStore store) => _store = store;
 
     public InboundApplyResult Receive(CloudTenantScope scope, SyncEnvelope envelope) =>
         _store.TryApplyInbound(scope, envelope);
