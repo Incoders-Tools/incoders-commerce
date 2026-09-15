@@ -1,0 +1,18 @@
+# Release publication authorization policy (ADR-004).
+#
+# This is a long-lived REPO POLICY file, not SDD change state. It MUST survive
+# any SDD change being archived. The release pipeline's publication gate step
+# (.github/workflows/release.yml) reads the `publication_authorized` flag for
+# the channel resolved from the branch->channel mapping (ADR-004):
+#   dev -> internal, staging -> pilot, main -> stable
+#
+# Flip a channel's flag to `true` in a dedicated PR when that channel's
+# release publication should be authorized. Until then, publication for that
+# channel is blocked even though build/test/staging still runs.
+channels:
+  internal:
+    publication_authorized: false
+  pilot:
+    publication_authorized: false
+  stable:
+    publication_authorized: false
