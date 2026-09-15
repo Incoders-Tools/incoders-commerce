@@ -1,9 +1,9 @@
 change: commerce-foundation
-phase: tasks
+phase: verify-complete
 artifact_store: hybrid
 execution_mode: auto
 delivery_strategy: ask-on-risk
-chain_strategy: pending
+chain_strategy: one-pr-per-unit
 approval_scope: planning-only
 stop_after: tasks
 artifacts:
@@ -20,17 +20,19 @@ phase_validation:
   specs: complete
   design: complete
   tasks: complete
+  apply: complete
+  verify: pass
 planning_status: complete
-next_action: obtain-implementation-authorization-and-delivery-decision
+next_action: deliver-6-pr-chain
 planning_blockers: []
 tasks_progress:
-  completed: []
-  pending: ["1.1","1.2","2.1","2.2","2.3","3.1","3.2","3.3","3.4","4.1","4.2","4.3","4.4","5.1","5.2","5.3","6.1","6.2","6.3","6.4"]
+  completed: ["1.1","1.2","2.1","2.2","2.3","3.1","3.2","3.3","3.4","4.1","4.2","4.3","4.4","5.1","5.2","5.3","6.1","6.2","6.3","6.4"]
+  pending: []
 native_routing:
-  next_recommended: apply
+  next_recommended: archive-after-pr-chain-merged
   blocked_reasons: []
-product_implementation_authorized: false
+product_implementation_authorized: true
 release_publication_authorized: false
 git_delivery_authorized: false
 rdd_mode: disabled
-last_updated: 2026-09-14
+last_updated: 2026-09-15
