@@ -1,0 +1,88 @@
+schema: spec-driven
+
+context: |
+  Project: documentation-only commerce platform; no runtime or test harness exists.
+  Initial profile: one Windows x64 POS notebook per branch with a logical local node.
+  Storage: SQLite is the requested planning input; existing documents still mark it provisional.
+  Channels: local POS/peripherals, local/web management parity, enabled-customer web/API orders.
+  Tenancy: organization, branch, user, role and permission boundaries are defined; physical isolation is pending.
+  Authority: local sales remain offline-first; synchronization is durable, idempotent and outside the sale path.
+  Stack: desktop, web, services, cloud storage and update mechanisms remain undecided.
+  Scope: approved planning only; no product implementation, publication or Git delivery.
+
+strict_tdd: true
+
+metadata:
+  project: incoders-commerce
+  initialized: "2026-09-13"
+  artifact_store: hybrid
+  execution_mode: auto
+  delivery_strategy: ask-on-risk
+  settings_confirmed: true
+  approval_scope: planning-only
+  stop_after: tasks
+  product_implementation_authorized: false
+  release_publication_authorized: false
+  git_delivery_authorized: false
+
+testing:
+  availability: unavailable
+  test_command: null
+  runner:
+    available: false
+    framework: null
+    command: null
+  layers:
+    unit: {available: false, tool: null, command: null}
+    integration: {available: false, tool: null, command: null}
+    e2e: {available: false, tool: null, command: null}
+  coverage:
+    available: false
+    command: null
+  quality:
+    linter: {available: false, tool: null, command: null}
+    type_checker: {available: false, tool: null, command: null}
+    formatter: {available: false, tool: null, command: null}
+  build:
+    available: false
+    command: null
+  ci:
+    available: false
+    command: null
+
+rules:
+  proposal:
+    - Ground scope and non-goals in the current PRD, domain and architecture documents.
+    - Distinguish confirmed requirements, proposed decisions and unresolved product questions.
+    - Keep this authorization limited to planning; do not implement or publish.
+  specs:
+    - Use RFC 2119 requirement keywords and Given/When/Then scenarios.
+    - Preserve organization isolation, offline authority and local/web management boundaries.
+    - Do not turn unresolved product choices into silently approved requirements.
+  design:
+    - Explain architecture choices with evidence, alternatives and operational tradeoffs.
+    - Preserve product/presentation domain distinctions and explicit local/cloud authority.
+    - Separate application upgrades from coordinated device replacement.
+    - Do not infer an approved stack from drafts, installed tools or ignore patterns.
+  tasks:
+    - Trace tasks to specifications and design, with bounded reviewable work units.
+    - Include test-infrastructure prerequisites while preserving explicit Strict TDD.
+    - Apply ask-on-risk delivery planning and stop after the task artifact.
+    - Do not execute implementation tasks under the current planning authorization.
+  apply:
+    guidelines:
+      - Implementation is not authorized by the current planning approval.
+      - If later authorized, follow RED-GREEN-REFACTOR with a real failing test first.
+      - Resolve and record a real test command before any runtime attempt; never invent one.
+    tdd: true
+    test_command: null
+  verify:
+    test_command: null
+    build_command: null
+    coverage_threshold: null
+    guidelines:
+      - No runtime verification is authorized in this configuration bootstrap.
+      - Unavailable tooling is not a passing result or permission to disable Strict TDD.
+  archive:
+    - Do not archive an unimplemented change as completed.
+    - Preserve prior artifacts and require the applicable delivery evidence.

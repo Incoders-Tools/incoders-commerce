@@ -24,3 +24,6 @@ coverage/
 .env.*
 !.env.example
 !.env.sample
+
+# Local agent registry and cache
+.atl/

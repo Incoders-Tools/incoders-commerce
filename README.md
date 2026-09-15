@@ -42,6 +42,7 @@ Editable source: [architecture overview (.drawio)](./diagrams/incoders-commerce-
 | Need | Source of truth |
 |---|---|
 | Product scope, roles, flows, and requirements | [PRD](./PRD.md) |
+| Reusable product-domain vocabulary and vertical boundaries | [Product domain](./docs/domain/product-domain.md) |
 | Architecture index and confirmed/provisional/pending status | [Architecture documentation](./docs/architecture/README.md) |
 | Initial notebook profile and replacement | [Deployment profiles](./docs/architecture/deployment-profiles.md) |
 | Synchronization principles and authority | [Synchronization](./docs/architecture/synchronization.md) |

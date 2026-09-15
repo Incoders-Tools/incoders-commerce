@@ -1,0 +1,36 @@
+change: commerce-foundation
+phase: tasks
+artifact_store: hybrid
+execution_mode: auto
+delivery_strategy: ask-on-risk
+chain_strategy: pending
+approval_scope: planning-only
+stop_after: tasks
+artifacts:
+  explore: true
+  proposal: true
+  specs: true
+  design: true
+  tasks: true
+  apply_progress: false
+  verify_report: false
+phase_validation:
+  explore: complete
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+planning_status: complete
+next_action: obtain-implementation-authorization-and-delivery-decision
+planning_blockers: []
+tasks_progress:
+  completed: []
+  pending: ["1.1","1.2","2.1","2.2","2.3","3.1","3.2","3.3","3.4","4.1","4.2","4.3","4.4","5.1","5.2","5.3","6.1","6.2","6.3","6.4"]
+native_routing:
+  next_recommended: apply
+  blocked_reasons: []
+product_implementation_authorized: false
+release_publication_authorized: false
+git_delivery_authorized: false
+rdd_mode: disabled
+last_updated: 2026-09-14
