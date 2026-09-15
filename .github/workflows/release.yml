@@ -1,0 +1,104 @@
+name: Release
+
+# ADR-004: provenance mapping is dev -> internal, staging -> pilot,
+# main -> stable. Only these three protected branches are authorized to
+# produce a release candidate; any other ref is not releasable.
+on:
+  push:
+    branches:
+      - dev
+      - staging
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  determine-channel:
+    runs-on: ubuntu-latest
+    outputs:
+      channel: ${{ steps.map.outputs.channel }}
+    steps:
+      - name: Map branch to release channel (ADR-004)
+        id: map
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${GITHUB_REF_NAME}" in
+            dev) echo "channel=internal" >> "$GITHUB_OUTPUT" ;;
+            staging) echo "channel=pilot" >> "$GITHUB_OUTPUT" ;;
+            main) echo "channel=stable" >> "$GITHUB_OUTPUT" ;;
+            *)
+              echo "::error::No release channel is mapped for ref '${GITHUB_REF_NAME}'. Only dev/staging/main are authorized release sources (ADR-004)." >&2
+              exit 1
+              ;;
+          esac
+
+  verify-protected-source:
+    needs: determine-channel
+    runs-on: ubuntu-latest
+    steps:
+      # A 404 from a branch-protection-style endpoint is INCONCLUSIVE, not
+      # proof that protection is absent — never treat it as "unprotected,
+      # safe to release" (consistent with this project's prior discovery
+      # about immutable-releases-style endpoints).
+      - name: Check branch protection state (404 is inconclusive, not proof of absence)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          http_status=$(gh api -i "repos/${GITHUB_REPOSITORY}/branches/${GITHUB_REF_NAME}/protection" 2>/tmp/gh-err.log \
+            | head -n1 | tr -d '\r' | awk '{print $2}')
+          rc=$?
+          set -e
+
+          if [ -z "${http_status}" ] || [ "${rc}" -ne 0 ]; then
+            echo "::warning::Could not query branch protection state for '${GITHUB_REF_NAME}' (see /tmp/gh-err.log). Treating as inconclusive, not as evidence of no protection."
+          elif [ "${http_status}" = "404" ]; then
+            echo "::notice::Branch protection endpoint returned 404 for '${GITHUB_REF_NAME}'. This is INCONCLUSIVE per ADR-004 — it does not prove protection is absent. Continuing without asserting protection state."
+          else
+            echo "Branch protection endpoint responded with HTTP ${http_status} for '${GITHUB_REF_NAME}'."
+          fi
+
+  build:
+    needs: [determine-channel, verify-protected-source]
+    runs-on: windows-latest
+    env:
+      RELEASE_CHANNEL: ${{ needs.determine-channel.outputs.channel }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore and build
+        shell: pwsh
+        run: |
+          Write-Host "Building for channel '$env:RELEASE_CHANNEL' from ref '${{ github.ref_name }}'."
+          dotnet restore Commerce.sln
+          dotnet build Commerce.sln -c Release --no-restore
+
+      - name: Run full test suite
+        shell: pwsh
+        run: dotnet test Commerce.sln -c Release --no-build
+
+      # ADR-005: packaging is conditional behind one manifest — MSIX where
+      # the target fleet meets the Windows 10 2004+/admin-install
+      # requirements, signed MSI otherwise. Both artifact types are built
+      # from the same versioned source so Commerce.Updater's
+      # PackageFormatSelector can pick the correct one per machine; neither
+      # format is published here (see below).
+      - name: Stage packaging inputs (MSIX + MSI, both signed per ADR-004/ADR-005)
+        shell: pwsh
+        run: |
+          Write-Host "Packaging pipeline placeholder: this walking skeleton stages build outputs only."
+          Write-Host "Both an MSIX and a signed MSI artifact must be produced from this same source for channel '$env:RELEASE_CHANNEL', per ADR-005."
+
+      - name: Publication gate (release_publication_authorized)
+        shell: pwsh
+        run: |
+          Write-Host "Release publication remains gated by openspec/changes/commerce-foundation/state.yaml -> release_publication_authorized (ADR-004)."
+          Write-Host "This workflow builds, tests, and stages artifacts for channel '$env:RELEASE_CHANNEL' only; it does not publish an immutable release."
