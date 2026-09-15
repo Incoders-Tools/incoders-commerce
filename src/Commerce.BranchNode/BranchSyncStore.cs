@@ -1,0 +1,302 @@
+using Commerce.Domain.Sync;
+using Microsoft.Data.Sqlite;
+
+namespace Commerce.BranchNode;
+
+public sealed record BranchOutboxCommitResult(bool WasNewlyCommitted, SaleEffect Effect);
+
+/// <summary>
+/// SQLite-owned branch state (ADR-002: only the branch node opens the file).
+/// Serialized writer, WAL, `synchronous=FULL` per design.md. Sale effect and
+/// outbox row are committed atomically, or neither is committed.
+/// </summary>
+public sealed class BranchSyncStore : IDisposable
+{
+    private readonly SqliteConnection _connection;
+    private readonly object _writeGate = new();
+
+    public BranchSyncStore(string connectionString)
+    {
+        _connection = new SqliteConnection(connectionString);
+        _connection.Open();
+
+        using (var pragma = _connection.CreateCommand())
+        {
+            pragma.CommandText = "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;";
+            pragma.ExecuteNonQuery();
+        }
+
+        using var create = _connection.CreateCommand();
+        create.CommandText = """
+            CREATE TABLE IF NOT EXISTS sale_effects (
+                sale_id TEXT PRIMARY KEY,
+                branch_id TEXT NOT NULL,
+                total_amount TEXT NOT NULL,
+                occurred_at_utc TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS outbox (
+                operation_id TEXT PRIMARY KEY,
+                branch_id TEXT NOT NULL,
+                organization_id TEXT NOT NULL,
+                aggregate_id TEXT NOT NULL,
+                aggregate_version INTEGER NOT NULL,
+                actor_id TEXT NOT NULL,
+                correlation_id TEXT NOT NULL,
+                occurred_at_utc TEXT NOT NULL,
+                payload_kind TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                sale_id TEXT NOT NULL,
+                total_amount TEXT NOT NULL,
+                status TEXT NOT NULL,
+                acknowledged_at_utc TEXT NULL
+            );
+            CREATE TABLE IF NOT EXISTS inbox (
+                operation_id TEXT PRIMARY KEY,
+                applied_at_utc TEXT NOT NULL
+            );
+            """;
+        create.ExecuteNonQuery();
+    }
+
+    public BranchOutboxCommitResult CommitSaleAtomically(SyncEnvelope envelope, SaleEffect effect)
+    {
+        lock (_writeGate)
+        {
+            using var transaction = _connection.BeginTransaction();
+
+            var existing = ReadExistingOutboxSale(envelope.OperationId, transaction);
+            if (existing is not null)
+            {
+                transaction.Commit();
+                return new BranchOutboxCommitResult(WasNewlyCommitted: false, existing);
+            }
+
+            using (var insertSale = _connection.CreateCommand())
+            {
+                insertSale.Transaction = transaction;
+                insertSale.CommandText = """
+                    INSERT INTO sale_effects (sale_id, branch_id, total_amount, occurred_at_utc)
+                    VALUES ($saleId, $branchId, $totalAmount, $occurredAt);
+                    """;
+                insertSale.Parameters.AddWithValue("$saleId", effect.SaleId.ToString());
+                insertSale.Parameters.AddWithValue("$branchId", effect.BranchId.ToString());
+                insertSale.Parameters.AddWithValue("$totalAmount", effect.TotalAmount.ToString());
+                insertSale.Parameters.AddWithValue("$occurredAt", effect.OccurredAtUtc.ToString("O"));
+                insertSale.ExecuteNonQuery();
+            }
+
+            InsertOutboxRow(envelope, effect, transaction);
+
+            transaction.Commit();
+            return new BranchOutboxCommitResult(WasNewlyCommitted: true, effect);
+        }
+    }
+
+    public void SimulateInterruptedCommit(SyncEnvelope envelope, SaleEffect effect)
+    {
+        lock (_writeGate)
+        {
+            using var transaction = _connection.BeginTransaction();
+
+            using (var insertSale = _connection.CreateCommand())
+            {
+                insertSale.Transaction = transaction;
+                insertSale.CommandText = """
+                    INSERT INTO sale_effects (sale_id, branch_id, total_amount, occurred_at_utc)
+                    VALUES ($saleId, $branchId, $totalAmount, $occurredAt);
+                    """;
+                insertSale.Parameters.AddWithValue("$saleId", effect.SaleId.ToString());
+                insertSale.Parameters.AddWithValue("$branchId", effect.BranchId.ToString());
+                insertSale.Parameters.AddWithValue("$totalAmount", effect.TotalAmount.ToString());
+                insertSale.Parameters.AddWithValue("$occurredAt", effect.OccurredAtUtc.ToString("O"));
+                insertSale.ExecuteNonQuery();
+            }
+
+            InsertOutboxRow(envelope, effect, transaction);
+
+            // Deliberately abandoned: no Commit(). Disposing an uncommitted
+            // SqliteTransaction rolls it back, proving atomicity across the
+            // "restart" that reopens the same file with a fresh connection.
+        }
+    }
+
+    public bool Acknowledge(Guid operationId)
+    {
+        lock (_writeGate)
+        {
+            using var command = _connection.CreateCommand();
+            command.CommandText = """
+                UPDATE outbox SET status = 'Acknowledged', acknowledged_at_utc = $now
+                WHERE operation_id = $operationId;
+                """;
+            command.Parameters.AddWithValue("$operationId", operationId.ToString());
+            command.Parameters.AddWithValue("$now", DateTimeOffset.UtcNow.ToString("O"));
+            var affected = command.ExecuteNonQuery();
+
+            if (affected > 0)
+            {
+                return true;
+            }
+
+            // Idempotent: acknowledging an already-acknowledged (or unknown-
+            // but-previously-seen) operation must not fail the retry.
+            return RowExists(operationId);
+        }
+    }
+
+    public IReadOnlyList<SyncEnvelope> GetPendingOutbox(Guid branchId)
+    {
+        using var command = _connection.CreateCommand();
+        command.CommandText = """
+            SELECT operation_id, branch_id, organization_id, aggregate_id, aggregate_version,
+                   actor_id, correlation_id, occurred_at_utc, payload_kind, payload
+            FROM outbox
+            WHERE branch_id = $branchId AND status = 'Pending';
+            """;
+        command.Parameters.AddWithValue("$branchId", branchId.ToString());
+
+        var results = new List<SyncEnvelope>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            results.Add(ReadEnvelope(reader));
+        }
+
+        return results;
+    }
+
+    public InboundApplyResult ApplyInbound(SyncEnvelope envelope)
+    {
+        lock (_writeGate)
+        {
+            using var transaction = _connection.BeginTransaction();
+
+            using (var exists = _connection.CreateCommand())
+            {
+                exists.Transaction = transaction;
+                exists.CommandText = "SELECT COUNT(1) FROM inbox WHERE operation_id = $operationId;";
+                exists.Parameters.AddWithValue("$operationId", envelope.OperationId.ToString());
+                var count = (long)exists.ExecuteScalar()!;
+                if (count > 0)
+                {
+                    transaction.Commit();
+                    return new InboundApplyResult(InboundApplyOutcome.DuplicateIgnored, envelope.OperationId);
+                }
+            }
+
+            using (var insert = _connection.CreateCommand())
+            {
+                insert.Transaction = transaction;
+                insert.CommandText = """
+                    INSERT INTO inbox (operation_id, applied_at_utc) VALUES ($operationId, $now);
+                    """;
+                insert.Parameters.AddWithValue("$operationId", envelope.OperationId.ToString());
+                insert.Parameters.AddWithValue("$now", DateTimeOffset.UtcNow.ToString("O"));
+                insert.ExecuteNonQuery();
+            }
+
+            transaction.Commit();
+            return new InboundApplyResult(InboundApplyOutcome.Applied, envelope.OperationId);
+        }
+    }
+
+    public SyncStatusSnapshot GetStatus(Guid branchId, bool isOffline)
+    {
+        using var pendingCommand = _connection.CreateCommand();
+        pendingCommand.CommandText = "SELECT COUNT(1) FROM outbox WHERE branch_id = $branchId AND status = 'Pending';";
+        pendingCommand.Parameters.AddWithValue("$branchId", branchId.ToString());
+        var pendingCount = (int)(long)pendingCommand.ExecuteScalar()!;
+
+        using var lastAckCommand = _connection.CreateCommand();
+        lastAckCommand.CommandText = """
+            SELECT MAX(acknowledged_at_utc) FROM outbox
+            WHERE branch_id = $branchId AND status = 'Acknowledged';
+            """;
+        lastAckCommand.Parameters.AddWithValue("$branchId", branchId.ToString());
+        var lastAckRaw = lastAckCommand.ExecuteScalar();
+
+        DateTimeOffset? lastAcknowledgedUtc = lastAckRaw is null or DBNull
+            ? null
+            : DateTimeOffset.Parse((string)lastAckRaw);
+
+        return new SyncStatusSnapshot(branchId, lastAcknowledgedUtc, pendingCount, isOffline);
+    }
+
+    private SaleEffect? ReadExistingOutboxSale(Guid operationId, SqliteTransaction transaction)
+    {
+        using var command = _connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT sale_id, branch_id, total_amount, occurred_at_utc FROM outbox
+            WHERE operation_id = $operationId;
+            """;
+        command.Parameters.AddWithValue("$operationId", operationId.ToString());
+
+        using var reader = command.ExecuteReader();
+        if (!reader.Read())
+        {
+            return null;
+        }
+
+        return new SaleEffect(
+            Guid.Parse(reader.GetString(0)),
+            Guid.Parse(reader.GetString(1)),
+            decimal.Parse(reader.GetString(2)),
+            DateTimeOffset.Parse(reader.GetString(3)));
+    }
+
+    private void InsertOutboxRow(SyncEnvelope envelope, SaleEffect effect, SqliteTransaction transaction)
+    {
+        using var insertOutbox = _connection.CreateCommand();
+        insertOutbox.Transaction = transaction;
+        insertOutbox.CommandText = """
+            INSERT INTO outbox (
+                operation_id, branch_id, organization_id, aggregate_id, aggregate_version,
+                actor_id, correlation_id, occurred_at_utc, payload_kind, payload,
+                sale_id, total_amount, status, acknowledged_at_utc)
+            VALUES (
+                $operationId, $branchId, $organizationId, $aggregateId, $aggregateVersion,
+                $actorId, $correlationId, $occurredAt, $payloadKind, $payload,
+                $saleId, $totalAmount, 'Pending', NULL);
+            """;
+        insertOutbox.Parameters.AddWithValue("$operationId", envelope.OperationId.ToString());
+        insertOutbox.Parameters.AddWithValue("$branchId", envelope.BranchId.ToString());
+        insertOutbox.Parameters.AddWithValue("$organizationId", envelope.OrganizationId.ToString());
+        insertOutbox.Parameters.AddWithValue("$aggregateId", envelope.AggregateId.ToString());
+        insertOutbox.Parameters.AddWithValue("$aggregateVersion", envelope.AggregateVersion);
+        insertOutbox.Parameters.AddWithValue("$actorId", envelope.ActorId.ToString());
+        insertOutbox.Parameters.AddWithValue("$correlationId", envelope.CorrelationId.ToString());
+        insertOutbox.Parameters.AddWithValue("$occurredAt", envelope.OccurredAtUtc.ToString("O"));
+        insertOutbox.Parameters.AddWithValue("$payloadKind", envelope.PayloadKind);
+        insertOutbox.Parameters.AddWithValue("$payload", envelope.Payload);
+        insertOutbox.Parameters.AddWithValue("$saleId", effect.SaleId.ToString());
+        insertOutbox.Parameters.AddWithValue("$totalAmount", effect.TotalAmount.ToString());
+        insertOutbox.ExecuteNonQuery();
+    }
+
+    private bool RowExists(Guid operationId)
+    {
+        using var command = _connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(1) FROM outbox WHERE operation_id = $operationId;";
+        command.Parameters.AddWithValue("$operationId", operationId.ToString());
+        return (long)command.ExecuteScalar()! > 0;
+    }
+
+    private static SyncEnvelope ReadEnvelope(SqliteDataReader reader) => new(
+        OperationId: Guid.Parse(reader.GetString(0)),
+        ContractVersion: 1,
+        BranchId: Guid.Parse(reader.GetString(1)),
+        OrganizationId: Guid.Parse(reader.GetString(2)),
+        AggregateId: Guid.Parse(reader.GetString(3)),
+        AggregateVersion: reader.GetInt64(4),
+        ActorId: Guid.Parse(reader.GetString(5)),
+        CorrelationId: Guid.Parse(reader.GetString(6)),
+        OccurredAtUtc: DateTimeOffset.Parse(reader.GetString(7)),
+        PayloadKind: reader.GetString(8),
+        Payload: reader.GetString(9));
+
+    public void Dispose()
+    {
+        _connection.Dispose();
+    }
+}

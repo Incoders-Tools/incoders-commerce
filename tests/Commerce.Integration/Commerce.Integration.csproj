@@ -21,6 +21,8 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Commerce.Domain\Commerce.Domain.csproj" />
     <ProjectReference Include="..\..\src\Commerce.Application\Commerce.Application.csproj" />
+    <ProjectReference Include="..\..\src\Commerce.BranchNode\Commerce.BranchNode.csproj" />
+    <ProjectReference Include="..\..\src\Commerce.Cloud.Api\Commerce.Cloud.Api.csproj" />
   </ItemGroup>
 
 </Project>
