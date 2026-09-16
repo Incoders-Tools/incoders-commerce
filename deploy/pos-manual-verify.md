@@ -9,7 +9,7 @@ actual observed outcomes (not hypothetical).
 
 ## Run script
 
-1. Ensure local Postgres is up: `docker compose -f deploy/dev/compose.yaml up -d` (or confirm `dev-postgres-1` / `dev-pgbouncer-1` are already running).
+1. Ensure local Postgres is up: `docker compose -f deploy/dev/compose.yaml up -d` (or confirm `commerce-postgres-1` / `commerce-pgbouncer-1` are already running).
 2. Start Cloud.Api with the Development environment so it picks up the local Postgres connection string:
    ```
    $env:ASPNETCORE_ENVIRONMENT = 'Development'
