@@ -7,16 +7,15 @@ import { useAuth } from '@/auth/AuthContext'
 
 export function SignInScreen() {
   const { signIn, error } = useAuth()
-  const [organizationId, setOrganizationId] = useState('')
-  const [userId, setUserId] = useState('')
-  const [displayName, setDisplayName] = useState('')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault()
     setSubmitting(true)
     try {
-      await signIn({ organizationId, userId, displayName })
+      await signIn({ email, password })
     } catch {
       // Error state rendered from useAuth().error below.
     } finally {
@@ -32,32 +31,23 @@ export function SignInScreen() {
       <CardContent>
         <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="organizationId">Organization ID</Label>
+            <Label htmlFor="email">Email</Label>
             <Input
-              id="organizationId"
-              value={organizationId}
-              onChange={(e) => setOrganizationId(e.target.value)}
-              placeholder="00000000-0000-0000-0000-000000000000"
+              id="email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="jane@example.com"
               required
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="userId">User ID</Label>
+            <Label htmlFor="password">Password</Label>
             <Input
-              id="userId"
-              value={userId}
-              onChange={(e) => setUserId(e.target.value)}
-              placeholder="00000000-0000-0000-0000-000000000000"
-              required
-            />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="displayName">Display name</Label>
-            <Input
-              id="displayName"
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              placeholder="Jane Doe"
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
               required
             />
           </div>

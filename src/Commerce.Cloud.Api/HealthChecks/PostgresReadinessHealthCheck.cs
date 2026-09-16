@@ -26,16 +26,34 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
             await using var cmd = new NpgsqlCommand(
                 """
                 SELECT
-                    EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'sync_inbox') AS table_exists,
+                    EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'sync_inbox') AS sync_inbox_table_exists,
                     EXISTS (
                         SELECT 1 FROM pg_class
                         WHERE relname = 'sync_inbox' AND relrowsecurity AND relforcerowsecurity
-                    ) AS rls_forced,
+                    ) AS sync_inbox_rls_forced,
                     EXISTS (
                         SELECT 1 FROM pg_policies
                         WHERE tablename = 'sync_inbox' AND policyname = 'sync_inbox_tenant_isolation'
-                    ) AS policy_exists,
-                    EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_runtime') AS role_exists
+                    ) AS sync_inbox_policy_exists,
+                    EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_runtime') AS role_exists,
+                    EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'users') AS users_table_exists,
+                    EXISTS (
+                        SELECT 1 FROM pg_class
+                        WHERE relname = 'users' AND relrowsecurity AND relforcerowsecurity
+                    ) AS users_rls_forced,
+                    EXISTS (
+                        SELECT 1 FROM pg_policies
+                        WHERE tablename = 'users' AND policyname = 'users_tenant_isolation'
+                    ) AS users_policy_exists,
+                    EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'user_directory') AS user_directory_table_exists,
+                    EXISTS (
+                        SELECT 1 FROM pg_class
+                        WHERE relname = 'user_directory' AND relrowsecurity AND relforcerowsecurity
+                    ) AS user_directory_rls_forced,
+                    EXISTS (
+                        SELECT 1 FROM pg_policies
+                        WHERE tablename = 'user_directory' AND policyname = 'user_directory_lookup'
+                    ) AS user_directory_policy_exists
                 """, connection);
 
             await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
@@ -44,19 +62,32 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
                 return HealthCheckResult.Unhealthy("Readiness query returned no row.");
             }
 
-            var tableExists = reader.GetBoolean(0);
-            var rlsForced = reader.GetBoolean(1);
-            var policyExists = reader.GetBoolean(2);
+            var syncInboxTableExists = reader.GetBoolean(0);
+            var syncInboxRlsForced = reader.GetBoolean(1);
+            var syncInboxPolicyExists = reader.GetBoolean(2);
             var roleExists = reader.GetBoolean(3);
+            var usersTableExists = reader.GetBoolean(4);
+            var usersRlsForced = reader.GetBoolean(5);
+            var usersPolicyExists = reader.GetBoolean(6);
+            var userDirectoryTableExists = reader.GetBoolean(7);
+            var userDirectoryRlsForced = reader.GetBoolean(8);
+            var userDirectoryPolicyExists = reader.GetBoolean(9);
 
-            if (tableExists && rlsForced && policyExists && roleExists)
+            var allHealthy = syncInboxTableExists && syncInboxRlsForced && syncInboxPolicyExists && roleExists
+                && usersTableExists && usersRlsForced && usersPolicyExists
+                && userDirectoryTableExists && userDirectoryRlsForced && userDirectoryPolicyExists;
+
+            if (allHealthy)
             {
-                return HealthCheckResult.Healthy("sync_inbox table, forced RLS, tenant-isolation policy, and app_runtime role all verified.");
+                return HealthCheckResult.Healthy(
+                    "sync_inbox, users, and user_directory tables, forced RLS, tenant-isolation policies, and app_runtime role all verified.");
             }
 
             return HealthCheckResult.Unhealthy(
-                $"Schema/RLS verification failed: table_exists={tableExists}, rls_forced={rlsForced}, " +
-                $"policy_exists={policyExists}, role_exists={roleExists}. Apply deploy/db/migrations/0001_init_rls.sql.");
+                $"Schema/RLS verification failed: sync_inbox(table={syncInboxTableExists}, rls_forced={syncInboxRlsForced}, policy={syncInboxPolicyExists}), " +
+                $"role_exists={roleExists}, users(table={usersTableExists}, rls_forced={usersRlsForced}, policy={usersPolicyExists}), " +
+                $"user_directory(table={userDirectoryTableExists}, rls_forced={userDirectoryRlsForced}, policy={userDirectoryPolicyExists}). " +
+                "Apply deploy/db/migrations/0001_init_rls.sql and 0002_users.sql.");
         }
         catch (Exception ex)
         {

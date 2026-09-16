@@ -1,0 +1,25 @@
+namespace Commerce.Cloud.Api.Persistence;
+
+/// <summary>
+/// Credential-free directory projection (design.md "Org resolution at
+/// sign-in"). Returned by the ONLY unscoped read method on
+/// <see cref="PostgresUserAccountStore"/> — resolves an email to the
+/// organization it belongs to, before any tenant scope exists.
+/// </summary>
+public sealed record UserDirectoryEntry(string EmailNormalized, Guid OrganizationId, Guid UserId);
+
+/// <summary>
+/// Org-scoped credential row used to verify a sign-in password.
+/// </summary>
+public sealed record UserCredentialRecord(Guid Id, Guid OrganizationId, string Email, string PasswordHash, bool IsRevoked);
+
+/// <summary>
+/// Input to <see cref="PostgresUserAccountStore.TryCreateAsync"/> — a new
+/// user to insert into both `users` and `user_directory` in one transaction.
+/// </summary>
+public sealed record NewUserAccount(
+    Guid Id,
+    string Email,
+    string PasswordHash,
+    IReadOnlyList<Guid> BranchScope,
+    IReadOnlyList<Endpoints.RoleDto> Roles);

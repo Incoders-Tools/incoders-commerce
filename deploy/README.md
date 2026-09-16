@@ -126,6 +126,34 @@ becomes that environment's `ConnectionStrings__Commerce` Railway variable —
 see `deploy/staging-runbook.md` for the full per-environment provisioning
 checklist and the complete list of required Railway variables.
 
+### commerce-user-credentials — `0002_users.sql`
+
+`deploy/db/migrations/0002_users.sql` adds the `users` and `user_directory`
+tables (real credential persistence, replacing the walking-skeleton sign-in).
+It has NO password placeholder to substitute — `app_runtime` already exists
+from `0001` — so it is applied directly:
+
+```bash
+psql "postgresql://postgres:<db-password>@<project-ref>.supabase.co:5432/postgres" \
+  -f deploy/db/migrations/0002_users.sql
+```
+
+**Migrate-before-deploy ordering, same as `0001`**: apply `0002_users.sql`
+to the target environment's database BEFORE deploying the Cloud.Api image
+that expects it. `/health/ready` verifies `users`/`user_directory`
+(FORCE RLS + policies) in addition to `sync_inbox`, so a deploy that runs
+ahead of the migration fails closed at readiness rather than serving
+requests against a missing schema. After migrating, deploy, then read the
+one-time bootstrap token from `railway logs` (`POST /account/bootstrap/request-token`
+followed by `POST /account/bootstrap` — see
+`openspec/changes/commerce-user-credentials/design.md` "Data Flow") to
+create the first admin user and confirm sign-in.
+
+Idempotency was confirmed locally by applying `0002_users.sql` twice against
+`deploy/dev/compose.yaml`'s Postgres container — the second apply is a clean
+no-op (`CREATE TABLE IF NOT EXISTS`, `DROP POLICY IF EXISTS` before
+`CREATE POLICY`), exactly like `0001`.
+
 ## Local full stack via Docker Compose
 
 `deploy/dev/compose.yaml` gained a `full` profile (Unit 5) that also

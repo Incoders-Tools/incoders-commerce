@@ -9,8 +9,10 @@ using Commerce.Cloud.Api.HealthChecks;
 using Commerce.Cloud.Api.Management;
 using Commerce.Cloud.Api.Ordering;
 using Commerce.Cloud.Api.Persistence;
+using Commerce.Domain.Identity;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Npgsql;
 
@@ -30,6 +32,16 @@ if (string.IsNullOrWhiteSpace(connectionString))
 }
 builder.Services.AddSingleton(NpgsqlDataSource.Create(connectionString));
 builder.Services.AddSingleton<ICloudInboxStore, PostgresCloudInboxStore>();
+builder.Services.AddSingleton<PostgresUserAccountStore>();
+
+// --- Credentials: PasswordHasher<UserAccount> is a framework type
+// (Microsoft.AspNetCore.Identity, part of the ASP.NET Core shared framework)
+// — build spike confirmed zero new PackageReference entries (design.md
+// "Build spike result"). BootstrapTokenRegistry is a singleton so its
+// in-memory per-org token state survives across requests within one process
+// (design.md "Bootstrap token storage").
+builder.Services.AddSingleton<PasswordHasher<UserAccount>>();
+builder.Services.AddSingleton<BootstrapTokenRegistry>();
 
 // --- Shared application services (Component Reuse Policy: reused, not
 // reimplemented) --------------------------------------------------------
