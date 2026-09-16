@@ -60,10 +60,10 @@ Reuse, never reimplement: `TenantAuthorizationService`, `IAuditSink`, `CatalogMa
 
 ## Unit 4: Commerce.Pos.Windows WPF Shell
 
-- [ ] 4.1 RED `tests/Commerce.Integration/PosCompositionRootTests.cs`: `App.xaml.cs` composition root resolves `BranchNodeService`, `TenantAuthorizationService`, `IAuditSink` from `HostApplicationBuilder` (the only unit-testable surface here).
-- [ ] 4.2 GREEN: convert `Commerce.Pos.Windows.csproj` to `Microsoft.NET.Sdk.Wpf`; add `ProjectReference` to `Commerce.BranchNode`; implement `App.xaml(.cs)` wiring `BranchSyncStore` at `%LOCALAPPDATA%\Incoders\Commerce\branch.db`.
-- [ ] 4.3 GREEN: `MainWindow.xaml(.cs)` minimal shell; `CloudSyncClient` (HttpClient, installation-bound bearer auth) against Unit 2's `/sync`.
-- [ ] 4.4 Manual verification (not CI-verifiable): write `deploy/pos-manual-verify.md` run script — launch on Windows machine/VM, confirm shell renders and BranchNode initializes in-process, commit one offline sale, verify sync against a running Cloud.Api. "Done" = checklist executed once and results recorded in the PR description, not a CI job.
+- [x] 4.1 RED `tests/Commerce.Integration/PosCompositionRootTests.cs`: `App.xaml.cs` composition root resolves `BranchNodeService`, `TenantAuthorizationService`, `IAuditSink` from `HostApplicationBuilder` (the only unit-testable surface here).
+- [x] 4.2 GREEN: convert `Commerce.Pos.Windows.csproj` to the WPF SDK (`Microsoft.NET.Sdk` + `<UseWPF>true</UseWPF>`, `net10.0-windows` — see deviation note below); add `ProjectReference` to `Commerce.BranchNode`; implement `App.xaml(.cs)` wiring `BranchSyncStore` at `%LOCALAPPDATA%\Incoders\Commerce\branch.db`.
+- [x] 4.3 GREEN: `MainWindow.xaml(.cs)` minimal shell; `CloudSyncClient` (HttpClient, installation-bound bearer auth) against Unit 2's `/sync`.
+- [x] 4.4 Manual verification (not CI-verifiable): write `deploy/pos-manual-verify.md` run script — launch on Windows machine/VM, confirm shell renders and BranchNode initializes in-process, commit one offline sale, verify sync against a running Cloud.Api. "Done" = checklist executed once and results recorded in the PR description, not a CI job. Executed live; see `deploy/pos-manual-verify.md` for full recorded results (all steps passed).
 
 ## Unit 5: DB Migration, Compose, Staging Runbook
 
