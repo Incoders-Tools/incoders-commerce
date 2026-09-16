@@ -67,9 +67,9 @@ Reuse, never reimplement: `TenantAuthorizationService`, `IAuditSink`, `CatalogMa
 
 ## Unit 5: DB Migration, Compose, Staging Runbook
 
-- [ ] 5.1 GREEN `deploy/db/migrations/0001_init_rls.sql`: idempotent, matches `deploy/dev/db/init-rls.sql` policy shape (FORCE RLS, `app_runtime` role, `current_setting('app.current_org_id')`).
-- [ ] 5.2 RED/GREEN: apply migration against a scratch Postgres, verify cross-org read denial and table-owner denial (reuses Unit 2's `PostgresCloudInboxStoreTests` fixture pattern).
-- [ ] 5.3 GREEN `deploy/README.md`: document one-time-per-environment `psql` migration apply and `app_runtime` role provisioning.
-- [ ] 5.4 GREEN `deploy/dev/compose.yaml`: add containerized Cloud.Api service under a `full` profile, building Unit 2's Dockerfile.
-- [ ] 5.5 GREEN `deploy/staging-runbook.md`: document manual out-of-repo steps only (Railway project creation, Supabase project creation, required env vars) — no task executes these steps; they remain the user's manual action.
-- [ ] 5.6 REFACTOR/verify: `docker compose --profile full up` serves Cloud.Api + Postgres + Web locally; POS runs without Docker requirement.
+- [x] 5.1 GREEN `deploy/db/migrations/0001_init_rls.sql`: idempotent, matches `deploy/dev/db/init-rls.sql` policy shape (FORCE RLS, `app_runtime` role, `current_setting('app.current_org_id')`).
+- [x] 5.2 RED/GREEN: apply migration against a scratch Postgres, verify cross-org read denial and table-owner denial (reuses Unit 2's `PostgresCloudInboxStoreTests` fixture pattern).
+- [x] 5.3 GREEN `deploy/README.md`: document one-time-per-environment `psql` migration apply and `app_runtime` role provisioning.
+- [x] 5.4 GREEN `deploy/dev/compose.yaml`: add containerized Cloud.Api service under a `full` profile, building Unit 2's Dockerfile.
+- [x] 5.5 GREEN `deploy/staging-runbook.md`: document manual out-of-repo steps only (Railway project creation, Supabase project creation, required env vars) — no task executes these steps; they remain the user's manual action.
+- [x] 5.6 REFACTOR/verify: `docker compose --profile full up` serves Cloud.Api + Postgres + Web locally; POS runs without Docker requirement.
