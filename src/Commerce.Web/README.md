@@ -111,25 +111,26 @@ self-signed). Point at a different already-running instance with
   vs. `TenantAuthorizationService` — a structurally different,
   customer-facing access check), so this is fully E2E-testable today with
   no test-only seam beyond a signed-in user.
-- **Catalog rename** (`e2e/catalog.spec.ts`) — two cases:
-  - **Denied**, using a bootstrap-shaped admin (empty branch scope): this
-    is the REAL, permanent behavior of every real bootstrap-created admin
-    today, since no branch-persistence feature exists anywhere in this
-    system (`Endpoints/Account.cs`'s bootstrap remarks) — a real admin can
-    never pass `TenantAuthorizationService`'s
-    `actor.BranchScope.Contains(targetBranchId)` check, for any branch.
-  - **Allowed**, using a user seeded with a non-empty branch scope via the
-    **test-only** `POST /internal/test-seed/user` endpoint
-    (`Endpoints/TestSeedEndpoints.cs`, mapped only when
-    `ASPNETCORE_ENVIRONMENT=Development`, never reachable in a real
-    deploy). This is a test seam, not a real onboarding flow — there is no
-    real way to grant a user a non-empty branch scope today. If a real
-    branch-assignment feature ships, this test should be rewritten against
-    that instead.
+- **Catalog rename** (`e2e/catalog.spec.ts`) — two genuine cross-branch
+  cases, both seeded via the **test-only**
+  `POST /internal/test-seed/user` endpoint (`Endpoints/TestSeedEndpoints.cs`,
+  mapped only when `ASPNETCORE_ENVIRONMENT=Development`, never reachable
+  in a real deploy) since bootstrap itself has no way to add a second
+  branch or a second user to an existing organization:
+  - **Allowed** — a user renaming a product on their OWN branch (real
+    `TenantAuthorizationService.Authorize` check, real persisted
+    `organizations`/`branches` rows via `commerce-organization-persistence`).
+  - **Denied** — a user renaming a product on a DIFFERENT organization's
+    branch, a genuine cross-branch/cross-org authorization denial, not an
+    empty-scope artifact.
 
 ### Known limitation
 
-Catalog rename's "allowed" path can only be exercised through the
-test-only seeding seam above — this is a real, documented product gap
-(no branch persistence exists), not a testing shortcut around a feature
-that actually works end to end through the product's own UI/API.
+Organization/branch persistence shipped in `commerce-organization-persistence`,
+so a real bootstrap admin now gets a real, non-empty branch scope and can
+pass catalog authorization for their own branch — the old "every admin is
+permanently denied" limitation is gone. What remains test-only is
+`TestSeedEndpoints.cs` itself: there is still no real product flow for
+creating a SECOND branch or a SECOND user within an existing organization
+(bootstrap creates exactly one branch and one admin), so the seam stays
+in place to set up the two-branch/two-user scenario this test needs.
