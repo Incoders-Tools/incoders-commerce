@@ -8,6 +8,12 @@
 # a realistic local approximation of Supabase's Supavisor transaction-mode
 # pooler (Unit 2's non-negotiable PoC task — see deploy/README.md for the
 # recorded pass/fail outcome).
+#
+# `name:` is explicit because this file lives at deploy/dev/, not the repo
+# root -- without it, Compose derives the project name from the containing
+# directory ("dev"), producing uninformative container names like
+# "dev-postgres-1" that say nothing about which project they belong to.
+name: incoders-commerce
 services:
   postgres:
     image: postgres:16

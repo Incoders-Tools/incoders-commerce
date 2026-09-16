@@ -46,8 +46,8 @@ cookie auth, real authorization checks) — no mocking anywhere.
 docker compose -f ../../deploy/dev/compose.yaml up -d
 ```
 
-(`dev-postgres-1` / `dev-pgbouncer-1`; skip if already running — check with
-`docker ps`.)
+(`incoders-commerce-postgres-1` / `incoders-commerce-pgbouncer-1`; skip if
+already running — check with `docker ps`.)
 
 ### 2. Build the SPA and copy it into Cloud.Api's `wwwroot`
 
