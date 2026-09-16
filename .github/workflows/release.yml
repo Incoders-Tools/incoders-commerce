@@ -61,6 +61,128 @@ jobs:
             echo "Branch protection endpoint responded with HTTP ${http_status} for '${GITHUB_REF_NAME}'."
           fi
 
+  web-tests:
+    # Commerce.Web (Vite/React SPA) has its own build/unit-test toolchain,
+    # independent of the .NET solution built in the `build` job below — this
+    # job never blocks or is blocked by it, it only adds coverage that was
+    # previously missing entirely from CI (no npm/vitest step existed here
+    # before). Vitest specs mock `fetch`; see `web-e2e` below for the real,
+    # browser-driven suite against a live backend.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/Commerce.Web
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: src/Commerce.Web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Vitest component tests
+        run: npm test
+
+      - name: Build SPA
+        run: npm run build
+
+  web-e2e:
+    # Real-browser Playwright E2E against a REAL Commerce.Cloud.Api (this
+    # Postgres service container + `dotnet run`), never a mocked fetch — see
+    # src/Commerce.Web/README.md "E2E tests" for the identical steps run
+    # locally. Independent of `build`/`web-tests`: a failure here does not
+    # block the .NET release build, matching this pass's scope (adding E2E
+    # coverage, not re-gating the existing release pipeline).
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: commerce_dev
+          POSTGRES_USER: commerce_owner
+          POSTGRES_PASSWORD: dev-only-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U commerce_owner -d commerce_dev"
+          --health-interval 2s
+          --health-timeout 2s
+          --health-retries 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: src/Commerce.Web/package-lock.json
+
+      - name: Apply RLS schema (same file deploy/dev/compose.yaml applies locally)
+        env:
+          PGPASSWORD: dev-only-password
+        run: psql -h localhost -U commerce_owner -d commerce_dev -f deploy/dev/db/init-rls.sql
+
+      - name: Install Commerce.Web dependencies
+        working-directory: src/Commerce.Web
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: src/Commerce.Web
+        run: npx playwright install --with-deps chromium
+
+      - name: Build SPA and copy into Cloud.Api wwwroot
+        working-directory: src/Commerce.Web
+        run: npm run test:e2e:build-backend-spa
+
+      - name: Start Commerce.Cloud.Api (Development, plain HTTP)
+        env:
+          ASPNETCORE_ENVIRONMENT: Development
+          ConnectionStrings__Commerce: "Host=localhost;Port=5432;Database=commerce_dev;Username=app_runtime;Password=dev-only-password"
+          PORT: "8080"
+        run: |
+          nohup dotnet run --project src/Commerce.Cloud.Api > cloud-api.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8080/health > /dev/null; then
+              echo "Cloud.Api is up."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::Cloud.Api did not become healthy in time."
+          cat cloud-api.log
+          exit 1
+
+      - name: Start local HTTPS proxy (Program.cs's sign-in cookie is Secure-only)
+        working-directory: src/Commerce.Web
+        run: |
+          nohup npx local-ssl-proxy --source 5443 --target 8080 > ../../proxy.log 2>&1 &
+          sleep 3
+
+      - name: Run Playwright E2E suite
+        working-directory: src/Commerce.Web
+        env:
+          E2E_BASE_URL: "https://localhost:5443"
+        run: npm run test:e2e
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: src/Commerce.Web/playwright-report/
+          retention-days: 7
+
   build:
     needs: [determine-channel, verify-protected-source]
     runs-on: windows-latest

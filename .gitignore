@@ -20,8 +20,13 @@ coverage/
 .npm/
 
 # Cloud.Api-copied SPA build output (Dockerfile Node stage produces this;
-# design.md "SPA delivery" — never hand-authored, never committed)
-src/Commerce.Cloud.Api/wwwroot/
+# design.md "SPA delivery" — never hand-authored, never committed). The
+# directory itself must stay tracked (via wwwroot/.gitkeep, not ignored
+# below) because Program.cs's UseStaticFiles() throws DirectoryNotFoundException
+# if wwwroot doesn't physically exist -- this bit WebApplicationFactory-based
+# integration tests in a clean checkout with no prior local SPA build.
+src/Commerce.Cloud.Api/wwwroot/*
+!src/Commerce.Cloud.Api/wwwroot/.gitkeep
 
 # Local secrets; keep documented examples versioned
 .env
@@ -31,3 +36,9 @@ src/Commerce.Cloud.Api/wwwroot/
 
 # Local agent registry and cache
 .atl/
+
+# Playwright E2E run artifacts (src/Commerce.Web/e2e)
+src/Commerce.Web/test-results/
+src/Commerce.Web/playwright-report/
+src/Commerce.Web/blob-report/
+src/Commerce.Web/playwright/.cache/

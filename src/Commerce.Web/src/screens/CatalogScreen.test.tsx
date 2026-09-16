@@ -36,7 +36,10 @@ describe('CatalogScreen', () => {
     fetchMock.mockResolvedValueOnce(
       new Response(
         JSON.stringify({
-          status: 'Allowed',
+          // Real Cloud.Api has no JsonStringEnumConverter, so this enum
+          // serializes as its numeric ordinal (0 = Allowed) — see
+          // api/types.ts's ManagementOutcomeStatus remarks.
+          status: 0,
           reason: 'allowed',
           updatedProduct: { id: '1', organizationId: '1', name: 'New Name', categoryId: '1', defaultUnitId: '1' },
         }),
