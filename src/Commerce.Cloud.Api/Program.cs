@@ -102,6 +102,14 @@ app.MapSyncEndpoints();
 app.MapCatalogEndpoints();
 app.MapOrderingEndpoints();
 
+// TEST-ONLY, Development-gated seeding for the Playwright E2E suite (see
+// TestSeedEndpoints.cs remarks) — never mapped outside ASPNETCORE_ENVIRONMENT
+// = Development, so never reachable in a real deploy.
+if (app.Environment.IsDevelopment())
+{
+    app.MapTestSeedEndpoints();
+}
+
 // --- SPA static hosting -------------------------------------------------
 // Same-origin SPA (design.md "SPA delivery"): the Dockerfile's Node build
 // stage copies the built Commerce.Web bundle into wwwroot. UseDefaultFiles

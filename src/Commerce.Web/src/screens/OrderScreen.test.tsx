@@ -36,7 +36,10 @@ describe('OrderScreen', () => {
   it('POSTs to the real /orders/ route with the exact request shape', async () => {
     fetchMock.mockResolvedValueOnce(
       new Response(
-        JSON.stringify({ status: 'Accepted', reason: 'allowed', order: { id: '1', organizationId: '1', status: 0 } }),
+        // Real Cloud.Api has no JsonStringEnumConverter, so this enum
+        // serializes as its numeric ordinal (0 = Accepted) — see
+        // api/types.ts's OrderSubmissionOutcomeStatus remarks.
+        JSON.stringify({ status: 0, reason: 'allowed', order: { id: '1', organizationId: '1', status: 0 } }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       ),
     )

@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { renameProduct } from '@/api/catalog'
 import { ApiError } from '@/api/client'
-import type { ManagementOutcome } from '@/api/types'
+import { ManagementOutcomeStatus, type ManagementOutcome } from '@/api/types'
 
 export function CatalogScreen() {
   const [productId, setProductId] = useState('')
@@ -62,7 +62,7 @@ export function CatalogScreen() {
           )}
           {outcome && (
             <p data-testid="catalog-outcome" className="text-sm text-neutral-700">
-              {outcome.status === 'Allowed'
+              {outcome.status === ManagementOutcomeStatus.Allowed
                 ? `Renamed to "${outcome.updatedProduct?.name}".`
                 : `Denied: ${outcome.reason}`}
             </p>

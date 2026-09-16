@@ -29,7 +29,20 @@ export interface RenameProductRequest {
   correlationId: string
 }
 
-export type ManagementOutcomeStatus = 'Allowed' | 'Denied'
+// Cloud.Api has no JsonStringEnumConverter registered, so C# enums (here,
+// Commerce.Application.Management.ManagementOutcomeStatus) serialize as
+// their raw numeric ordinal, NOT their name — a real-backend E2E test
+// (src/Commerce.Web/e2e/catalog.spec.ts) caught this: the screen used to
+// compare `outcome.status === 'Allowed'`, which is never true against a real
+// response and silently rendered every successful rename as "Denied:
+// allowed". The two mocked Vitest specs never caught it because they
+// fabricated the string literal directly. Keep this numeric and mirror the
+// C# enum's declared member order exactly (Management/ManagementOutcome.cs).
+export const ManagementOutcomeStatus = {
+  Allowed: 0,
+  Denied: 1,
+} as const
+export type ManagementOutcomeStatus = (typeof ManagementOutcomeStatus)[keyof typeof ManagementOutcomeStatus]
 
 export interface ManagementOutcome {
   status: ManagementOutcomeStatus
@@ -64,7 +77,14 @@ export interface SubmitOrderRequest {
   correlationId: string
 }
 
-export type OrderSubmissionOutcomeStatus = 'Accepted' | 'Denied'
+// Same real-numeric-enum shape as ManagementOutcomeStatus above — mirrors
+// Commerce.Cloud.Api.Ordering.OrderSubmissionOutcomeStatus's declared member
+// order exactly.
+export const OrderSubmissionOutcomeStatus = {
+  Accepted: 0,
+  Denied: 1,
+} as const
+export type OrderSubmissionOutcomeStatus = (typeof OrderSubmissionOutcomeStatus)[keyof typeof OrderSubmissionOutcomeStatus]
 
 export interface OrderSubmissionOutcome {
   status: OrderSubmissionOutcomeStatus

@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { submitOrder } from '@/api/orders'
 import { ApiError } from '@/api/client'
-import type { OrderSubmissionOutcome } from '@/api/types'
+import { OrderSubmissionOutcomeStatus, type OrderSubmissionOutcome } from '@/api/types'
 
 export function OrderScreen() {
   const [customerId, setCustomerId] = useState('')
@@ -81,7 +81,7 @@ export function OrderScreen() {
           )}
           {outcome && (
             <p data-testid="order-outcome" className="text-sm text-neutral-700">
-              {outcome.status === 'Accepted' ? 'Order accepted.' : `Denied: ${outcome.reason}`}
+              {outcome.status === OrderSubmissionOutcomeStatus.Accepted ? 'Order accepted.' : `Denied: ${outcome.reason}`}
             </p>
           )}
 
