@@ -70,3 +70,44 @@ GRANT SELECT, INSERT, UPDATE ON sync_inbox TO app_runtime;
 CREATE POLICY sync_inbox_tenant_isolation ON sync_inbox
     USING (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid)
     WITH CHECK (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid);
+
+-- Commerce user credentials (deploy/db/migrations/0002_users.sql), hand-synced
+-- verbatim here per the existing 0001/init-rls.sql convention. See 0002 for
+-- the asymmetric user_directory rationale.
+
+CREATE TABLE IF NOT EXISTS users (
+    id              uuid PRIMARY KEY,
+    organization_id uuid NOT NULL,
+    email           text NOT NULL,
+    password_hash   text NOT NULL,
+    branch_scope    uuid[] NOT NULL DEFAULT '{}',
+    roles           jsonb NOT NULL DEFAULT '[]',
+    is_revoked      boolean NOT NULL DEFAULT false,
+    created_at_utc  timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS users_org_email_unique ON users (organization_id, email);
+
+CREATE TABLE IF NOT EXISTS user_directory (
+    email_normalized text PRIMARY KEY,
+    organization_id  uuid NOT NULL,
+    user_id          uuid NOT NULL
+);
+
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE users FORCE ROW LEVEL SECURITY;
+ALTER TABLE user_directory ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_directory FORCE ROW LEVEL SECURITY;
+
+REVOKE ALL ON users, user_directory FROM PUBLIC;
+GRANT SELECT, INSERT, UPDATE ON users TO app_runtime;
+GRANT SELECT, INSERT ON user_directory TO app_runtime;
+
+DROP POLICY IF EXISTS users_tenant_isolation ON users;
+CREATE POLICY users_tenant_isolation ON users
+    USING (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid)
+    WITH CHECK (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid);
+
+DROP POLICY IF EXISTS user_directory_lookup ON user_directory;
+CREATE POLICY user_directory_lookup ON user_directory
+    USING (true)
+    WITH CHECK (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid);

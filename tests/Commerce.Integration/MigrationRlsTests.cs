@@ -44,6 +44,203 @@ public sealed class MigrationRlsTests
         cmd.ExecuteNonQuery();
     }
 
+    private static string ResolveUsersMigrationPath()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Commerce.sln")))
+        {
+            dir = dir.Parent;
+        }
+
+        if (dir is null)
+        {
+            throw new InvalidOperationException("Could not locate repo root (Commerce.sln) from " + AppContext.BaseDirectory);
+        }
+
+        return Path.Combine(dir.FullName, "deploy", "db", "migrations", "0002_users.sql");
+    }
+
+    private static void ApplyUsersMigration(NpgsqlConnection connection)
+    {
+        var sql = File.ReadAllText(ResolveUsersMigrationPath());
+        using var cmd = new NpgsqlCommand(sql, connection);
+        cmd.ExecuteNonQuery();
+    }
+
+    private static void ResetUsers()
+    {
+        using var connection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        connection.Open();
+        using var cmd = new NpgsqlCommand("TRUNCATE TABLE user_directory, users", connection);
+        cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>
+    /// Covers commerce-user-credentials task 1.1: `0002_users.sql` idempotency
+    /// and cross-org isolation for `users` (symmetric policy) and
+    /// `user_directory` (asymmetric: unscoped read allowed, scoped write
+    /// enforced) — spec "User row is isolated by organization".
+    /// </summary>
+    [Fact]
+    public void UsersMigration_IsIdempotent_AppliedTwiceWithoutError()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        using var connection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        connection.Open();
+        ApplyMigration(connection);
+
+        ApplyUsersMigration(connection);
+        ApplyUsersMigration(connection);
+    }
+
+    [Fact]
+    public void UsersMigration_CrossOrganizationRead_ReturnsZeroRows()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        var orgAId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+
+        using (var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            ownerConnection.Open();
+            ApplyMigration(ownerConnection);
+            ApplyUsersMigration(ownerConnection);
+            ResetUsers();
+
+            using var insertCmd = new NpgsqlCommand(
+                """
+                INSERT INTO users (id, organization_id, email, password_hash, branch_scope, roles)
+                VALUES ($1, $2, 'owner@example.com', 'hash', '{}', '[]')
+                """, ownerConnection);
+            insertCmd.Parameters.AddWithValue(userId);
+            insertCmd.Parameters.AddWithValue(orgAId);
+            insertCmd.ExecuteNonQuery();
+            // Owner connection is a superuser in the local postgres image, so
+            // RLS never applies to it regardless of FORCE — same documented
+            // local-fixture-only gap as the 0001 tests above.
+        }
+
+        using var scopedConnection = new NpgsqlConnection(PostgresTestFixture.DirectConnectionString);
+        scopedConnection.Open();
+        using var tx = scopedConnection.BeginTransaction();
+        using (var scopeCmd = new NpgsqlCommand("SELECT set_config('app.current_org_id', $1, true)", scopedConnection, tx))
+        {
+            scopeCmd.Parameters.AddWithValue(Guid.NewGuid().ToString());
+            scopeCmd.ExecuteNonQuery();
+        }
+
+        using var countCmd = new NpgsqlCommand("SELECT count(*) FROM users", scopedConnection, tx);
+        var count = (long)countCmd.ExecuteScalar()!;
+        tx.Commit();
+
+        Assert.Equal(0, count);
+    }
+
+    [Fact]
+    public void UsersMigration_UnscopedTransaction_FailsClosed_DefaultDeny()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        using (var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            ownerConnection.Open();
+            ApplyMigration(ownerConnection);
+            ApplyUsersMigration(ownerConnection);
+        }
+
+        ResetUsers();
+
+        using var connection = new NpgsqlConnection(PostgresTestFixture.DirectConnectionString);
+        connection.Open();
+        using var tx = connection.BeginTransaction();
+        using var cmd = new NpgsqlCommand("SELECT count(*) FROM users", connection, tx);
+        var count = (long)cmd.ExecuteScalar()!;
+        tx.Commit();
+
+        Assert.Equal(0, count);
+    }
+
+    [Fact]
+    public void UserDirectoryMigration_UnscopedRead_IsAllowed_ButWriteStaysOrgScoped()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        var orgAId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+
+        using (var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            ownerConnection.Open();
+            ApplyMigration(ownerConnection);
+            ApplyUsersMigration(ownerConnection);
+            ResetUsers();
+
+            using var insertCmd = new NpgsqlCommand(
+                "INSERT INTO user_directory (email_normalized, organization_id, user_id) VALUES ('lookup@example.com', $1, $2)",
+                ownerConnection);
+            insertCmd.Parameters.AddWithValue(orgAId);
+            insertCmd.Parameters.AddWithValue(userId);
+            insertCmd.ExecuteNonQuery();
+        }
+
+        // Unscoped read (no set_config at all): user_directory's USING(true)
+        // policy allows the sign-in email->org lookup before any tenant scope
+        // exists.
+        using (var readConnection = new NpgsqlConnection(PostgresTestFixture.DirectConnectionString))
+        {
+            readConnection.Open();
+            using var tx = readConnection.BeginTransaction();
+            using var readCmd = new NpgsqlCommand(
+                "SELECT organization_id FROM user_directory WHERE email_normalized = 'lookup@example.com'",
+                readConnection, tx);
+            var result = readCmd.ExecuteScalar();
+            tx.Commit();
+
+            Assert.NotNull(result);
+            Assert.Equal(orgAId, (Guid)result!);
+        }
+
+        // A write claiming a DIFFERENT org than the current scope is rejected
+        // by WITH CHECK — writes stay org-scoped even though reads are global.
+        using (var writeConnection = new NpgsqlConnection(PostgresTestFixture.DirectConnectionString))
+        {
+            writeConnection.Open();
+            using var tx = writeConnection.BeginTransaction();
+            using (var scopeCmd = new NpgsqlCommand("SELECT set_config('app.current_org_id', $1, true)", writeConnection, tx))
+            {
+                scopeCmd.Parameters.AddWithValue(Guid.NewGuid().ToString());
+                scopeCmd.ExecuteNonQuery();
+            }
+
+            using var insertCmd = new NpgsqlCommand(
+                "INSERT INTO user_directory (email_normalized, organization_id, user_id) VALUES ('other@example.com', $1, $2)",
+                writeConnection, tx);
+            insertCmd.Parameters.AddWithValue(orgAId); // claims org A while scoped to a different org
+            insertCmd.Parameters.AddWithValue(Guid.NewGuid());
+
+            Assert.Throws<PostgresException>(() => insertCmd.ExecuteNonQuery());
+            tx.Rollback();
+        }
+    }
+
     [Fact]
     public void Migration_IsIdempotent_AppliedTwiceWithoutError()
     {

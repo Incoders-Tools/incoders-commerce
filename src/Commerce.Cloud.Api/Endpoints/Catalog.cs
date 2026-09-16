@@ -1,5 +1,7 @@
+using System.Security.Claims;
 using Commerce.Application.Management;
 using Commerce.Cloud.Api.Management;
+using Commerce.Cloud.Api.Persistence;
 using Commerce.Cloud.Api.Tenancy;
 using Commerce.Domain.Catalog;
 using Commerce.Domain.Identity;
@@ -13,13 +15,14 @@ namespace Commerce.Cloud.Api.Endpoints;
 /// organization id is always <see cref="CloudTenantScope.OrganizationId"/>,
 /// never a request field.
 ///
-/// NOTE (deviation, documented): this walking-skeleton host has no
-/// persisted product/user-account repository yet, so the actor and current
-/// product state are supplied by the caller in the request body rather than
-/// loaded from a store. Wiring real product/identity persistence is
-/// follow-up work outside Unit 2's 9 tasks (host + tenant filter + Postgres
-/// inbox adapter); this endpoint proves the real HTTP -> shared-service call
-/// path that Unit 3's SPA will call.
+/// The actor's roles, branch scope, and revocation are loaded from
+/// <see cref="PostgresUserAccountStore"/> using the authenticated cookie's
+/// <see cref="ClaimTypes.NameIdentifier"/> claim (commerce-user-credentials
+/// design.md "Authenticated rename") — NEVER trusted from the request body.
+/// This closes the privilege-escalation hole the prior walking-skeleton
+/// version had, where <c>RenameProductRequest</c> carried
+/// <c>ActorId</c>/<c>ActorBranchScope</c>/<c>ActorRoles</c> directly from the
+/// caller.
 /// </summary>
 public static class CatalogEndpoints
 {
@@ -29,19 +32,27 @@ public static class CatalogEndpoints
             .RequireAuthorization()
             .AddEndpointFilter<TenantScopeEndpointFilter>();
 
-        group.MapPost("/products/{productId:guid}/rename", (
+        group.MapPost("/products/{productId:guid}/rename", async (
             Guid productId,
             RenameProductRequest request,
             HttpContext httpContext,
-            CloudCatalogManagementAdapter adapter) =>
+            CloudCatalogManagementAdapter adapter,
+            PostgresUserAccountStore store,
+            CancellationToken ct) =>
         {
             var scope = TenantScopeEndpointFilter.GetScope(httpContext);
 
-            var actor = new UserAccount(
-                request.ActorId,
-                scope.OrganizationId,
-                request.ActorBranchScope,
-                request.ActorRoles.Select(r => new Role(r.Name, r.Permissions)));
+            var userIdClaim = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (userIdClaim is null || !Guid.TryParse(userIdClaim, out var userId))
+            {
+                return Results.Forbid();
+            }
+
+            var actor = await store.LoadActorAsync(scope, userId, ct);
+            if (actor is null || actor.IsRevoked)
+            {
+                return Results.Forbid();
+            }
 
             var product = new Product(
                 productId,
@@ -69,9 +80,6 @@ public static class CatalogEndpoints
 }
 
 public sealed record RenameProductRequest(
-    Guid ActorId,
-    IReadOnlyList<Guid> ActorBranchScope,
-    IReadOnlyList<RoleDto> ActorRoles,
     Guid TargetBranchId,
     string CurrentName,
     Guid CategoryId,

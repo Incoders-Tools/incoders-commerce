@@ -24,7 +24,6 @@ describe('CatalogScreen', () => {
 
   async function fillAndSubmit(user: ReturnType<typeof userEvent.setup>) {
     await user.type(screen.getByLabelText('Product ID'), '11111111-1111-1111-1111-111111111111')
-    await user.type(screen.getByLabelText('Actor ID'), '22222222-2222-2222-2222-222222222222')
     await user.type(screen.getByLabelText('Target branch ID'), '33333333-3333-3333-3333-333333333333')
     await user.type(screen.getByLabelText('Current name'), 'Old Name')
     await user.type(screen.getByLabelText('Category ID'), '44444444-4444-4444-4444-444444444444')
@@ -58,7 +57,6 @@ describe('CatalogScreen', () => {
 
     const body = JSON.parse(init.body as string)
     expect(body).toMatchObject({
-      actorId: '22222222-2222-2222-2222-222222222222',
       targetBranchId: '33333333-3333-3333-3333-333333333333',
       currentName: 'Old Name',
       categoryId: '44444444-4444-4444-4444-444444444444',
@@ -66,6 +64,12 @@ describe('CatalogScreen', () => {
       newName: 'New Name',
       isOffline: false,
     })
+    // Privilege-escalation regression guard: the request body must carry NO
+    // actor identity/permission fields — the server loads the actor from the
+    // authenticated session, never from the request.
+    expect(body).not.toHaveProperty('actorId')
+    expect(body).not.toHaveProperty('actorBranchScope')
+    expect(body).not.toHaveProperty('actorRoles')
 
     await screen.findByTestId('catalog-outcome')
     expect(screen.getByTestId('catalog-outcome')).toHaveTextContent('Renamed to "New Name"')

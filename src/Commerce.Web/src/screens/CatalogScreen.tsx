@@ -7,11 +7,8 @@ import { renameProduct } from '@/api/catalog'
 import { ApiError } from '@/api/client'
 import type { ManagementOutcome } from '@/api/types'
 
-const MANAGE_CATALOG_PERMISSION = 1 << 1
-
 export function CatalogScreen() {
   const [productId, setProductId] = useState('')
-  const [actorId, setActorId] = useState('')
   const [targetBranchId, setTargetBranchId] = useState('')
   const [currentName, setCurrentName] = useState('')
   const [categoryId, setCategoryId] = useState('')
@@ -28,9 +25,6 @@ export function CatalogScreen() {
     setSubmitting(true)
     try {
       const result = await renameProduct(productId, {
-        actorId,
-        actorBranchScope: [targetBranchId],
-        actorRoles: [{ name: 'catalog-manager', permissions: MANAGE_CATALOG_PERMISSION }],
         targetBranchId,
         currentName,
         categoryId,
@@ -55,7 +49,6 @@ export function CatalogScreen() {
       <CardContent>
         <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
           <Field id="productId" label="Product ID" value={productId} onChange={setProductId} />
-          <Field id="actorId" label="Actor ID" value={actorId} onChange={setActorId} />
           <Field id="targetBranchId" label="Target branch ID" value={targetBranchId} onChange={setTargetBranchId} />
           <Field id="currentName" label="Current name" value={currentName} onChange={setCurrentName} />
           <Field id="categoryId" label="Category ID" value={categoryId} onChange={setCategoryId} />

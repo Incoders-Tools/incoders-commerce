@@ -4,9 +4,8 @@
 // or hardcoded data".
 
 export interface SignInRequest {
-  organizationId: string
-  userId: string
-  displayName: string
+  email: string
+  password: string
 }
 
 export interface SignedInResponse {
@@ -21,9 +20,6 @@ export interface RoleDto {
 }
 
 export interface RenameProductRequest {
-  actorId: string
-  actorBranchScope: string[]
-  actorRoles: RoleDto[]
   targetBranchId: string
   currentName: string
   categoryId: string
