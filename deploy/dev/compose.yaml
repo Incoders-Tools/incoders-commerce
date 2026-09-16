@@ -13,7 +13,7 @@
 # root -- without it, Compose derives the project name from the containing
 # directory ("dev"), producing uninformative container names like
 # "dev-postgres-1" that say nothing about which project they belong to.
-name: commerce
+name: incoders-commerce
 services:
   postgres:
     image: postgres:16
