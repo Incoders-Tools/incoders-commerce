@@ -75,6 +75,194 @@ public sealed class MigrationRlsTests
         cmd.ExecuteNonQuery();
     }
 
+    private static string ResolveOrganizationsMigrationPath()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Commerce.sln")))
+        {
+            dir = dir.Parent;
+        }
+
+        if (dir is null)
+        {
+            throw new InvalidOperationException("Could not locate repo root (Commerce.sln) from " + AppContext.BaseDirectory);
+        }
+
+        return Path.Combine(dir.FullName, "deploy", "db", "migrations", "0003_organizations_branches.sql");
+    }
+
+    private static void ApplyOrganizationsMigration(NpgsqlConnection connection)
+    {
+        var sql = File.ReadAllText(ResolveOrganizationsMigrationPath());
+        using var cmd = new NpgsqlCommand(sql, connection);
+        cmd.ExecuteNonQuery();
+    }
+
+    private static void ResetOrganizations()
+    {
+        using var connection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        connection.Open();
+        using var cmd = new NpgsqlCommand("TRUNCATE TABLE branches, organizations", connection);
+        cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>
+    /// Covers commerce-organization-persistence task 2.1: `0003` idempotency
+    /// and cross-org isolation for `organizations` (policy compares `id`,
+    /// not `organization_id`) and `branches` (symmetric policy on its own
+    /// `organization_id`).
+    /// </summary>
+    [Fact]
+    public void OrganizationsMigration_IsIdempotent_AppliedTwiceWithoutError()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        using var connection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        connection.Open();
+        ApplyMigration(connection);
+        ApplyUsersMigration(connection);
+
+        ApplyOrganizationsMigration(connection);
+        ApplyOrganizationsMigration(connection);
+    }
+
+    [Fact]
+    public void OrganizationsMigration_CrossOrganizationRead_ReturnsZeroRows_ForBothTables()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        var orgAId = Guid.NewGuid();
+        var branchId = Guid.NewGuid();
+
+        using (var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            ownerConnection.Open();
+            ApplyMigration(ownerConnection);
+            ApplyUsersMigration(ownerConnection);
+            ApplyOrganizationsMigration(ownerConnection);
+            ResetOrganizations();
+
+            using var insertOrgCmd = new NpgsqlCommand(
+                "INSERT INTO organizations (id, name) VALUES ($1, 'Org A')", ownerConnection);
+            insertOrgCmd.Parameters.AddWithValue(orgAId);
+            insertOrgCmd.ExecuteNonQuery();
+
+            using var insertBranchCmd = new NpgsqlCommand(
+                "INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, 'Main')", ownerConnection);
+            insertBranchCmd.Parameters.AddWithValue(branchId);
+            insertBranchCmd.Parameters.AddWithValue(orgAId);
+            insertBranchCmd.ExecuteNonQuery();
+            // Owner connection is a superuser in the local postgres image, so
+            // RLS never applies to it regardless of FORCE — same documented
+            // local-fixture-only gap as the 0001/0002 tests above.
+        }
+
+        using var scopedConnection = new NpgsqlConnection(PostgresTestFixture.DirectConnectionString);
+        scopedConnection.Open();
+        using var tx = scopedConnection.BeginTransaction();
+        using (var scopeCmd = new NpgsqlCommand("SELECT set_config('app.current_org_id', $1, true)", scopedConnection, tx))
+        {
+            scopeCmd.Parameters.AddWithValue(Guid.NewGuid().ToString());
+            scopeCmd.ExecuteNonQuery();
+        }
+
+        using var orgCountCmd = new NpgsqlCommand("SELECT count(*) FROM organizations", scopedConnection, tx);
+        var orgCount = (long)orgCountCmd.ExecuteScalar()!;
+
+        using var branchCountCmd = new NpgsqlCommand("SELECT count(*) FROM branches", scopedConnection, tx);
+        var branchCount = (long)branchCountCmd.ExecuteScalar()!;
+        tx.Commit();
+
+        Assert.Equal(0, orgCount);
+        Assert.Equal(0, branchCount);
+    }
+
+    [Fact]
+    public void OrganizationsMigration_UnscopedTransaction_FailsClosed_DefaultDeny()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        using (var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            ownerConnection.Open();
+            ApplyMigration(ownerConnection);
+            ApplyUsersMigration(ownerConnection);
+            ApplyOrganizationsMigration(ownerConnection);
+        }
+
+        ResetOrganizations();
+
+        using var connection = new NpgsqlConnection(PostgresTestFixture.DirectConnectionString);
+        connection.Open();
+        using var tx = connection.BeginTransaction();
+        using var orgCmd = new NpgsqlCommand("SELECT count(*) FROM organizations", connection, tx);
+        var orgCount = (long)orgCmd.ExecuteScalar()!;
+        using var branchCmd = new NpgsqlCommand("SELECT count(*) FROM branches", connection, tx);
+        var branchCount = (long)branchCmd.ExecuteScalar()!;
+        tx.Commit();
+
+        Assert.Equal(0, orgCount);
+        Assert.Equal(0, branchCount);
+    }
+
+    [Fact]
+    public void BranchesMigration_WithCheckViolatingInsert_Throws()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        var orgAId = Guid.NewGuid();
+
+        using (var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            ownerConnection.Open();
+            ApplyMigration(ownerConnection);
+            ApplyUsersMigration(ownerConnection);
+            ApplyOrganizationsMigration(ownerConnection);
+            ResetOrganizations();
+
+            using var insertOrgCmd = new NpgsqlCommand(
+                "INSERT INTO organizations (id, name) VALUES ($1, 'Org A')", ownerConnection);
+            insertOrgCmd.Parameters.AddWithValue(orgAId);
+            insertOrgCmd.ExecuteNonQuery();
+        }
+
+        using var writeConnection = new NpgsqlConnection(PostgresTestFixture.DirectConnectionString);
+        writeConnection.Open();
+        using var tx = writeConnection.BeginTransaction();
+        using (var scopeCmd = new NpgsqlCommand("SELECT set_config('app.current_org_id', $1, true)", writeConnection, tx))
+        {
+            // Scoped to a DIFFERENT org than orgAId, but the insert below
+            // claims orgAId — WITH CHECK must reject this.
+            scopeCmd.Parameters.AddWithValue(Guid.NewGuid().ToString());
+            scopeCmd.ExecuteNonQuery();
+        }
+
+        using var insertCmd = new NpgsqlCommand(
+            "INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, 'Rogue Branch')",
+            writeConnection, tx);
+        insertCmd.Parameters.AddWithValue(Guid.NewGuid());
+        insertCmd.Parameters.AddWithValue(orgAId);
+
+        Assert.Throws<PostgresException>(() => insertCmd.ExecuteNonQuery());
+        tx.Rollback();
+    }
+
     /// <summary>
     /// Covers commerce-user-credentials task 1.1: `0002_users.sql` idempotency
     /// and cross-org isolation for `users` (symmetric policy) and

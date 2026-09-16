@@ -33,6 +33,7 @@ if (string.IsNullOrWhiteSpace(connectionString))
 builder.Services.AddSingleton(NpgsqlDataSource.Create(connectionString));
 builder.Services.AddSingleton<ICloudInboxStore, PostgresCloudInboxStore>();
 builder.Services.AddSingleton<PostgresUserAccountStore>();
+builder.Services.AddSingleton<PostgresOrganizationStore>();
 
 // --- Credentials: PasswordHasher<UserAccount> is a framework type
 // (Microsoft.AspNetCore.Identity, part of the ASP.NET Core shared framework)

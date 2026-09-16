@@ -53,7 +53,25 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
                     EXISTS (
                         SELECT 1 FROM pg_policies
                         WHERE tablename = 'user_directory' AND policyname = 'user_directory_lookup'
-                    ) AS user_directory_policy_exists
+                    ) AS user_directory_policy_exists,
+                    EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'organizations') AS organizations_table_exists,
+                    EXISTS (
+                        SELECT 1 FROM pg_class
+                        WHERE relname = 'organizations' AND relrowsecurity AND relforcerowsecurity
+                    ) AS organizations_rls_forced,
+                    EXISTS (
+                        SELECT 1 FROM pg_policies
+                        WHERE tablename = 'organizations' AND policyname = 'organizations_tenant_isolation'
+                    ) AS organizations_policy_exists,
+                    EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'branches') AS branches_table_exists,
+                    EXISTS (
+                        SELECT 1 FROM pg_class
+                        WHERE relname = 'branches' AND relrowsecurity AND relforcerowsecurity
+                    ) AS branches_rls_forced,
+                    EXISTS (
+                        SELECT 1 FROM pg_policies
+                        WHERE tablename = 'branches' AND policyname = 'branches_tenant_isolation'
+                    ) AS branches_policy_exists
                 """, connection);
 
             await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
@@ -72,22 +90,33 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
             var userDirectoryTableExists = reader.GetBoolean(7);
             var userDirectoryRlsForced = reader.GetBoolean(8);
             var userDirectoryPolicyExists = reader.GetBoolean(9);
+            var organizationsTableExists = reader.GetBoolean(10);
+            var organizationsRlsForced = reader.GetBoolean(11);
+            var organizationsPolicyExists = reader.GetBoolean(12);
+            var branchesTableExists = reader.GetBoolean(13);
+            var branchesRlsForced = reader.GetBoolean(14);
+            var branchesPolicyExists = reader.GetBoolean(15);
 
             var allHealthy = syncInboxTableExists && syncInboxRlsForced && syncInboxPolicyExists && roleExists
                 && usersTableExists && usersRlsForced && usersPolicyExists
-                && userDirectoryTableExists && userDirectoryRlsForced && userDirectoryPolicyExists;
+                && userDirectoryTableExists && userDirectoryRlsForced && userDirectoryPolicyExists
+                && organizationsTableExists && organizationsRlsForced && organizationsPolicyExists
+                && branchesTableExists && branchesRlsForced && branchesPolicyExists;
 
             if (allHealthy)
             {
                 return HealthCheckResult.Healthy(
-                    "sync_inbox, users, and user_directory tables, forced RLS, tenant-isolation policies, and app_runtime role all verified.");
+                    "sync_inbox, users, user_directory, organizations, and branches tables, forced RLS, " +
+                    "tenant-isolation policies, and app_runtime role all verified.");
             }
 
             return HealthCheckResult.Unhealthy(
                 $"Schema/RLS verification failed: sync_inbox(table={syncInboxTableExists}, rls_forced={syncInboxRlsForced}, policy={syncInboxPolicyExists}), " +
                 $"role_exists={roleExists}, users(table={usersTableExists}, rls_forced={usersRlsForced}, policy={usersPolicyExists}), " +
-                $"user_directory(table={userDirectoryTableExists}, rls_forced={userDirectoryRlsForced}, policy={userDirectoryPolicyExists}). " +
-                "Apply deploy/db/migrations/0001_init_rls.sql and 0002_users.sql.");
+                $"user_directory(table={userDirectoryTableExists}, rls_forced={userDirectoryRlsForced}, policy={userDirectoryPolicyExists}), " +
+                $"organizations(table={organizationsTableExists}, rls_forced={organizationsRlsForced}, policy={organizationsPolicyExists}), " +
+                $"branches(table={branchesTableExists}, rls_forced={branchesRlsForced}, policy={branchesPolicyExists}). " +
+                "Apply deploy/db/migrations/0001_init_rls.sql, 0002_users.sql, and 0003_organizations_branches.sql.");
         }
         catch (Exception ex)
         {
