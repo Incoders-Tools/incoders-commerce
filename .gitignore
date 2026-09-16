@@ -19,6 +19,10 @@ build/
 coverage/
 .npm/
 
+# Cloud.Api-copied SPA build output (Dockerfile Node stage produces this;
+# design.md "SPA delivery" — never hand-authored, never committed)
+src/Commerce.Cloud.Api/wwwroot/
+
 # Local secrets; keep documented examples versioned
 .env
 .env.*

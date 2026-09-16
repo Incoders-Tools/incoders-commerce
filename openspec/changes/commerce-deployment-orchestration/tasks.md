@@ -51,12 +51,12 @@ Reuse, never reimplement: `TenantAuthorizationService`, `IAuditSink`, `CatalogMa
 
 ## Unit 3: Commerce.Web SPA
 
-- [ ] 3.1 GREEN (removal): delete `Commerce.Web.csproj`, `Management/WebCatalogManagementAdapter.cs`, `Ordering/WebOrderSubmissionAdapter.cs`, and the `Commerce.sln` entry.
-- [ ] 3.2 GREEN: scaffold Vite + React + TypeScript + Tailwind + shadcn/ui at `src/Commerce.Web/`.
-- [ ] 3.3 RED (component/e2e test): catalog rename and order submission flows fail against a mocked-down API (proves the SPA calls real HTTP, no hardcoded data).
-- [ ] 3.4 GREEN: implement cookie-based same-origin auth flow, catalog management screen, order submission screen calling Unit 2 endpoints.
-- [ ] 3.5 GREEN: wire wwwroot copy stage (Node build stage) into Unit 2's `Dockerfile`.
-- [ ] 3.6 REFACTOR/verify: `npm run build` succeeds; SPA completes catalog/order flow against a running Cloud.Api; visible error state when API is unreachable.
+- [x] 3.1 GREEN (removal): delete `Commerce.Web.csproj`, `Management/WebCatalogManagementAdapter.cs`, `Ordering/WebOrderSubmissionAdapter.cs`, and the `Commerce.sln` entry.
+- [x] 3.2 GREEN: scaffold Vite + React + TypeScript + Tailwind + shadcn/ui at `src/Commerce.Web/`.
+- [x] 3.3 RED (component/e2e test): catalog rename and order submission flows fail against a mocked-down API (proves the SPA calls real HTTP, no hardcoded data).
+- [x] 3.4 GREEN: implement cookie-based same-origin auth flow, catalog management screen, order submission screen calling Unit 2 endpoints.
+- [x] 3.5 GREEN: wire wwwroot copy stage (Node build stage) into Unit 2's `Dockerfile`.
+- [x] 3.6 REFACTOR/verify: `npm run build` succeeds; SPA completes catalog/order flow against a running Cloud.Api; visible error state when API is unreachable.
 
 ## Unit 4: Commerce.Pos.Windows WPF Shell
 

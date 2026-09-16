@@ -85,9 +85,21 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions
     Predicate = check => check.Tags.Contains("ready")
 });
 
+app.MapAccountEndpoints();
 app.MapSyncEndpoints();
 app.MapCatalogEndpoints();
 app.MapOrderingEndpoints();
+
+// --- SPA static hosting -------------------------------------------------
+// Same-origin SPA (design.md "SPA delivery"): the Dockerfile's Node build
+// stage copies the built Commerce.Web bundle into wwwroot. UseDefaultFiles
+// must run before UseStaticFiles so `/` resolves to index.html; the
+// fallback keeps client-side routes working on a hard refresh without
+// swallowing the API route groups mapped above (fallback only applies to
+// requests that don't match an existing endpoint).
+app.UseDefaultFiles();
+app.UseStaticFiles();
+app.MapFallbackToFile("index.html");
 
 app.Run();
 

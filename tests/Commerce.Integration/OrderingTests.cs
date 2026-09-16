@@ -8,7 +8,6 @@ using Commerce.Domain.Catalog;
 using Commerce.Domain.Identity;
 using Commerce.Domain.Ordering;
 using Commerce.Domain.Sync;
-using Commerce.Web.Ordering;
 
 namespace Commerce.Integration;
 
@@ -359,18 +358,24 @@ public sealed class OrderingTests : IDisposable
     }
 
     // --- Web channel is a real caller, not a test double ----------------------
+    //
+    // NOTE (Unit 3 deviation): previously routed through the now-deleted
+    // `WebOrderSubmissionAdapter` pure pass-through (design.md "Commerce.Web
+    // shape" — deleted because the SPA now calls this same contract over HTTP
+    // via `Endpoints/Ordering.cs`). Calling `CloudOrderSubmissionService`
+    // directly proves the identical contract with no coverage loss.
 
     [Fact]
-    public void WebOrderSubmissionAdapter_ForwardsIntoTheSharedCloudSubmissionService()
+    public void CloudOrderSubmissionService_AcceptsSubmission_ForTheWebChannelShape()
     {
         var organizationId = Guid.NewGuid();
         var access = new CustomerOrderingAccess(organizationId, Guid.NewGuid(), Guid.NewGuid());
         var accessService = new CustomerCatalogAccessService(new InMemoryAuditSink());
-        var webAdapter = new WebOrderSubmissionAdapter(new CloudOrderSubmissionService(accessService, new CloudOrderStore()));
+        var submissionService = new CloudOrderSubmissionService(accessService, new CloudOrderStore());
         var scope = new CloudTenantScope(organizationId);
         var lines = new[] { OrderSnapshotFactory.Snapshot(NewProduct(organizationId), NewPresentation(NewProduct(organizationId)), 1m) };
 
-        var outcome = webAdapter.Submit(scope, access, Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), lines, Guid.NewGuid(), destination: null, hasAvailableStock: true);
+        var outcome = submissionService.Submit(scope, access, Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), lines, Guid.NewGuid(), destination: null, hasAvailableStock: true);
 
         Assert.Equal(OrderSubmissionOutcomeStatus.Accepted, outcome.Status);
         Assert.NotNull(outcome.Order);

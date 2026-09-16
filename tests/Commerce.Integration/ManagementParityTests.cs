@@ -6,7 +6,6 @@ using Commerce.Cloud.Api.Tenancy;
 using Commerce.Domain.Catalog;
 using Commerce.Domain.Identity;
 using Commerce.Pos.Windows.Management;
-using Commerce.Web.Management;
 
 namespace Commerce.Integration;
 
@@ -16,6 +15,14 @@ namespace Commerce.Integration;
 /// authorized outcomes. Both adapters here are real classes calling the
 /// shared <see cref="CatalogManagementService"/> — not test doubles — so
 /// parity is proven end-to-end rather than assumed.
+///
+/// NOTE (Unit 3 deviation): the "web" side previously went through the now-
+/// deleted <c>WebCatalogManagementAdapter</c> pass-through
+/// (design.md "Commerce.Web shape" — deleted because the real web channel now
+/// calls this same endpoint over HTTP from the SPA, see
+/// <c>Endpoints/Catalog.cs</c>). It called <see cref="CloudCatalogManagementAdapter"/>
+/// with no logic of its own, so calling it directly here proves the identical
+/// contract with no coverage loss.
 /// </summary>
 public sealed class ManagementParityTests
 {
@@ -43,7 +50,7 @@ public sealed class ManagementParityTests
         var localOutcome = new LocalCatalogManagementAdapter(NewManagementService())
             .RenameProduct(actor, product, branchId, "Renamed via local", isOffline: false, Guid.NewGuid());
 
-        var webOutcome = new WebCatalogManagementAdapter(NewCloudAdapter())
+        var webOutcome = NewCloudAdapter()
             .RenameProduct(new CloudTenantScope(organizationId), actor, product, branchId, "Renamed via web", isOffline: false, Guid.NewGuid());
 
         Assert.Equal(ManagementOutcomeStatus.Allowed, localOutcome.Status);
@@ -65,7 +72,7 @@ public sealed class ManagementParityTests
         var localOutcome = new LocalCatalogManagementAdapter(NewManagementService())
             .RenameProduct(actor, product, foreignBranchId, "Should not apply", isOffline: false, Guid.NewGuid());
 
-        var webOutcome = new WebCatalogManagementAdapter(NewCloudAdapter())
+        var webOutcome = NewCloudAdapter()
             .RenameProduct(new CloudTenantScope(organizationId), actor, product, foreignBranchId, "Should not apply", isOffline: false, Guid.NewGuid());
 
         Assert.Equal(ManagementOutcomeStatus.Denied, localOutcome.Status);
@@ -90,7 +97,7 @@ public sealed class ManagementParityTests
 
         // Web scope claims a different organization than the actor's own grant
         // (e.g. a spoofed/misrouted claim) — must be denied, never trusted.
-        var webOutcome = new WebCatalogManagementAdapter(NewCloudAdapter())
+        var webOutcome = NewCloudAdapter()
             .RenameProduct(new CloudTenantScope(otherOrganizationId), actor, product, branchId, "Should not apply", isOffline: false, Guid.NewGuid());
 
         Assert.Equal(ManagementOutcomeStatus.Allowed, localOutcome.Status);
@@ -110,7 +117,7 @@ public sealed class ManagementParityTests
         var localOutcome = new LocalCatalogManagementAdapter(NewManagementService())
             .RenameProduct(actor, product, branchId, "Should not apply", isOffline: false, Guid.NewGuid());
 
-        var webOutcome = new WebCatalogManagementAdapter(NewCloudAdapter())
+        var webOutcome = NewCloudAdapter()
             .RenameProduct(new CloudTenantScope(organizationId), actor, product, branchId, "Should not apply", isOffline: false, Guid.NewGuid());
 
         Assert.Equal(ManagementOutcomeStatus.Denied, localOutcome.Status);
