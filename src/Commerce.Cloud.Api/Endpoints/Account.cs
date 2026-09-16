@@ -147,40 +147,58 @@ public static class AccountEndpoints
 
         group.MapPost("/bootstrap", async (
             BootstrapRequest request,
-            PostgresUserAccountStore store,
+            PostgresOrganizationStore organizationStore,
             BootstrapTokenRegistry registry,
             PasswordHasher<UserAccount> hasher,
             CancellationToken ct) =>
         {
+            // Validate BEFORE token consumption (design.md "Interfaces /
+            // Contracts"): a blank organizationName is a caller mistake, not
+            // a spent bootstrap attempt, so it must not burn the token.
+            if (string.IsNullOrWhiteSpace(request.OrganizationName))
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["organizationName"] = ["organizationName is required."],
+                });
+            }
+
+            // Bootstrap token vs. transaction ordering (design.md): TryConsume
+            // stays BEFORE the transaction. A failed transaction after this
+            // point therefore burns the token by design — single-use is the
+            // security property; re-usability after failure is not
+            // (rejected alternative: peek-then-consume-after-commit, which
+            // opens a replay window).
             if (!registry.TryConsume(request.OrganizationId, request.Token))
             {
                 return Results.Unauthorized();
             }
 
             var scope = new CloudTenantScope(request.OrganizationId);
+            var branchId = Guid.NewGuid();
             var userId = Guid.NewGuid();
+            var branchName = string.IsNullOrWhiteSpace(request.BranchName) ? "Main" : request.BranchName.Trim();
             var passwordHash = hasher.HashPassword(
                 new UserAccount(userId, request.OrganizationId, [], []), request.Password);
 
-            // Bootstrap admin is org-wide (empty branch_scope) because branch
-            // persistence is out of scope for this change (design.md
-            // "Interfaces / Contracts"). NOTE (documented limitation):
-            // TenantAuthorizationService.Authorize requires
-            // actor.BranchScope.Contains(request.TargetBranchId), so this
-            // org-wide admin cannot pass branch-scoped authorization checks
-            // until branch scope is seeded — tracked as a known follow-up,
-            // not resolved by this change (see design.md "Open Questions").
-            var created = await store.TryCreateAsync(
+            var outcome = await organizationStore.TryCreateBootstrapAsync(
                 scope,
-                new NewUserAccount(userId, request.Email, passwordHash, [], [new RoleDto("admin", Permission.ViewSales | Permission.ManageCatalog | Permission.ManageUsers | Permission.ManageBranchSettings)]),
+                new NewOrganization(request.OrganizationId, request.OrganizationName.Trim()),
+                new NewBranch(branchId, branchName),
+                new NewUserAccount(
+                    userId,
+                    request.Email,
+                    passwordHash,
+                    [branchId],
+                    [new RoleDto("admin", Permission.ViewSales | Permission.ManageCatalog | Permission.ManageUsers | Permission.ManageBranchSettings)]),
                 ct);
 
-            if (!created)
+            if (outcome != BootstrapOutcome.Created)
             {
                 return Results.Conflict();
             }
 
-            return Results.Ok();
+            return Results.Ok(new BootstrapResponse(request.OrganizationId, branchId, userId));
         }).AllowAnonymous();
 
         return group;
@@ -193,4 +211,7 @@ public sealed record SignedInResponse(Guid OrganizationId, Guid UserId, string D
 
 public sealed record BootstrapTokenRequest(Guid OrganizationId);
 
-public sealed record BootstrapRequest(Guid OrganizationId, string Token, string Email, string Password);
+public sealed record BootstrapRequest(
+    Guid OrganizationId, string Token, string OrganizationName, string? BranchName, string Email, string Password);
+
+public sealed record BootstrapResponse(Guid OrganizationId, Guid BranchId, Guid UserId);

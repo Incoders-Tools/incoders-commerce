@@ -111,3 +111,44 @@ DROP POLICY IF EXISTS user_directory_lookup ON user_directory;
 CREATE POLICY user_directory_lookup ON user_directory
     USING (true)
     WITH CHECK (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid);
+
+-- Commerce organization/branch persistence
+-- (deploy/db/migrations/0003_organizations_branches.sql), hand-synced
+-- verbatim here per the existing 0001/0002/init-rls.sql convention. Note the
+-- organizations policy compares `id`, not `organization_id` — the
+-- organization row IS the tenant; branches carries its own organization_id
+-- for a direct-column-comparison policy, symmetric with users_tenant_isolation.
+
+CREATE TABLE IF NOT EXISTS organizations (
+    id         uuid PRIMARY KEY,
+    name       text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS branches (
+    id              uuid PRIMARY KEY,
+    organization_id uuid NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+    name            text NOT NULL,
+    created_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS branches_org_name_unique ON branches (organization_id, name);
+CREATE INDEX IF NOT EXISTS branches_organization_id_idx ON branches (organization_id);
+
+ALTER TABLE organizations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE organizations FORCE ROW LEVEL SECURITY;
+ALTER TABLE branches      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE branches      FORCE ROW LEVEL SECURITY;
+
+REVOKE ALL ON organizations, branches FROM PUBLIC;
+GRANT SELECT, INSERT, UPDATE ON organizations TO app_runtime;
+GRANT SELECT, INSERT, UPDATE ON branches      TO app_runtime;
+
+DROP POLICY IF EXISTS organizations_tenant_isolation ON organizations;
+CREATE POLICY organizations_tenant_isolation ON organizations
+    USING (id = NULLIF(current_setting('app.current_org_id', true), '')::uuid)
+    WITH CHECK (id = NULLIF(current_setting('app.current_org_id', true), '')::uuid);
+
+DROP POLICY IF EXISTS branches_tenant_isolation ON branches;
+CREATE POLICY branches_tenant_isolation ON branches
+    USING (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid)
+    WITH CHECK (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid);

@@ -154,6 +154,31 @@ Idempotency was confirmed locally by applying `0002_users.sql` twice against
 no-op (`CREATE TABLE IF NOT EXISTS`, `DROP POLICY IF EXISTS` before
 `CREATE POLICY`), exactly like `0001`.
 
+### commerce-organization-persistence — `0003_organizations_branches.sql`
+
+`deploy/db/migrations/0003_organizations_branches.sql` adds the
+`organizations` and `branches` tables — the persisted tenancy roots that
+`/account/bootstrap` now creates transactionally alongside the first admin.
+It has NO password placeholder to substitute — `app_runtime` already exists
+from `0001` — so it is applied directly:
+
+```bash
+psql "postgresql://postgres:<db-password>@<project-ref>.supabase.co:5432/postgres" \
+  -f deploy/db/migrations/0003_organizations_branches.sql
+```
+
+**Migrate-before-deploy ordering, same as `0001`/`0002`**: apply
+`0003_organizations_branches.sql` to the target environment's database
+BEFORE deploying the Cloud.Api image that expects it. `/health/ready`
+verifies `organizations`/`branches` (FORCE RLS + policies) in addition to
+`sync_inbox`/`users`/`user_directory`, so a deploy that runs ahead of the
+migration fails closed at readiness rather than serving requests against a
+missing schema.
+
+Idempotency was confirmed locally by applying `0003_organizations_branches.sql`
+twice against `deploy/dev/compose.yaml`'s Postgres container — the second
+apply is a clean no-op, exactly like `0001`/`0002`.
+
 ## Local full stack via Docker Compose
 
 `deploy/dev/compose.yaml` gained a `full` profile (Unit 5) that also

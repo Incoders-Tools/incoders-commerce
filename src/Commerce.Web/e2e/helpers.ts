@@ -11,28 +11,33 @@ process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
 
 export interface SeededUser {
   organizationId: string
+  branchId: string
   email: string
   password: string
   userId: string
 }
 
 /**
- * Seeds a real Postgres-backed user via the TEST-ONLY, Development-gated
- * `/internal/test-seed/user` endpoint (Commerce.Cloud.Api/Endpoints/
- * TestSeedEndpoints.cs). Real product code never uses this endpoint — the
- * real user-creation path is `/account/bootstrap`, which (a) requires
- * reading a token off server stdout and (b) always seeds an EMPTY branch
- * scope. Neither is workable from an out-of-process browser test, and (b)
- * specifically makes the catalog-rename "allowed" path unreachable with a
- * bootstrap-only admin — see README.md's "Known limitation" section.
+ * Seeds a real Postgres-backed organization + branch + admin via the
+ * TEST-ONLY, Development-gated `/internal/test-seed/user` endpoint
+ * (Commerce.Cloud.Api/Endpoints/TestSeedEndpoints.cs). Real product code
+ * never uses this endpoint — the real user-creation path is
+ * `/account/bootstrap`, which requires reading a token off server stdout, a
+ * step this out-of-process browser test harness cannot perform without
+ * scraping process logs.
+ *
+ * As of commerce-organization-persistence, this seam routes through the
+ * SAME `PostgresOrganizationStore.TryCreateBootstrapAsync` transaction the
+ * real bootstrap endpoint uses and returns the REAL generated `branchId` —
+ * there is no more caller-fabricated branch scope. The seam's only
+ * remaining privilege is skipping the stdout token hop.
  *
  * A fresh, random `organizationId` is required per call: the real store's
- * bootstrap invariant (`PostgresUserAccountStore.TryCreateAsync`) allows
- * exactly one user per organization, ever.
+ * bootstrap invariant allows exactly one organization/admin per id, ever.
  */
 export async function seedUser(
   baseURL: string,
-  options: { email: string; password: string; branchScope?: string[] },
+  options: { email: string; password: string },
 ): Promise<SeededUser> {
   const organizationId = crypto.randomUUID()
   const response = await fetch(`${baseURL}/internal/test-seed/user`, {
@@ -42,7 +47,6 @@ export async function seedUser(
       organizationId,
       email: options.email,
       password: options.password,
-      branchScope: options.branchScope ?? [],
     }),
   })
 
@@ -53,8 +57,8 @@ export async function seedUser(
     )
   }
 
-  const body = (await response.json()) as { userId: string }
-  return { organizationId, email: options.email, password: options.password, userId: body.userId }
+  const body = (await response.json()) as { userId: string; branchId: string }
+  return { organizationId, branchId: body.branchId, email: options.email, password: options.password, userId: body.userId }
 }
 
 export function uniqueEmail(prefix: string): string {

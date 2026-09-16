@@ -59,7 +59,10 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
         var usersSql = File.ReadAllText(Path.Combine(repoRoot.FullName, "deploy", "db", "migrations", "0002_users.sql"));
         using (var cmd = new NpgsqlCommand(usersSql, owner)) cmd.ExecuteNonQuery();
 
-        using var resetCmd = new NpgsqlCommand("TRUNCATE TABLE user_directory, users", owner);
+        var orgsSql = File.ReadAllText(Path.Combine(repoRoot.FullName, "deploy", "db", "migrations", "0003_organizations_branches.sql"));
+        using (var cmd = new NpgsqlCommand(orgsSql, owner)) cmd.ExecuteNonQuery();
+
+        using var resetCmd = new NpgsqlCommand("TRUNCATE TABLE user_directory, users, branches, organizations", owner);
         resetCmd.ExecuteNonQuery();
     }
 
@@ -174,7 +177,7 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
     }
 
     [Fact]
-    public async Task Bootstrap_ValidToken_CreatesAdmin_WithFullPermissions()
+    public async Task Bootstrap_ValidToken_CreatesAdmin_WithFullPermissions_AndReturnsIds()
     {
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
 
@@ -185,12 +188,88 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
         var client = _factory.CreateClient();
         var response = await client.PostAsJsonAsync(
             "/account/bootstrap",
-            new BootstrapRequest(organizationId, token, "admin@example.com", "admin-password"));
+            new BootstrapRequest(organizationId, token, "Acme Corp", null, "admin@example.com", "admin-password"));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<BootstrapResponse>();
+        Assert.Equal(organizationId, body!.OrganizationId);
+        Assert.NotEqual(Guid.Empty, body.BranchId);
+        Assert.NotEqual(Guid.Empty, body.UserId);
 
         var signInResponse = await client.PostAsJsonAsync("/account/sign-in", new SignInRequest("admin@example.com", "admin-password"));
         Assert.Equal(HttpStatusCode.OK, signInResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task Bootstrap_OmittedBranchName_CreatesBranchNamed_Main()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var organizationId = Guid.NewGuid();
+        var registry = _factory.Services.GetRequiredService<Commerce.Cloud.Api.Authentication.BootstrapTokenRegistry>();
+        var token = registry.Issue(organizationId);
+
+        var client = _factory.CreateClient();
+        var response = await client.PostAsJsonAsync(
+            "/account/bootstrap",
+            new BootstrapRequest(organizationId, token, "Acme Corp", null, "mainbranch@example.com", "password"));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<BootstrapResponse>();
+
+        using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        owner.Open();
+        using var cmd = new NpgsqlCommand("SELECT name FROM branches WHERE id = $1", owner);
+        cmd.Parameters.AddWithValue(body!.BranchId);
+        var name = (string)cmd.ExecuteScalar()!;
+        Assert.Equal("Main", name);
+    }
+
+    [Fact]
+    public async Task Bootstrap_SecondBootstrapOnSameOrganization_Returns409()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var organizationId = Guid.NewGuid();
+        var registry = _factory.Services.GetRequiredService<Commerce.Cloud.Api.Authentication.BootstrapTokenRegistry>();
+        var firstToken = registry.Issue(organizationId);
+
+        var client = _factory.CreateClient();
+        var first = await client.PostAsJsonAsync(
+            "/account/bootstrap",
+            new BootstrapRequest(organizationId, firstToken, "Acme Corp", null, "second-boot-1@example.com", "password"));
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+
+        var secondToken = registry.Issue(organizationId);
+        var second = await client.PostAsJsonAsync(
+            "/account/bootstrap",
+            new BootstrapRequest(organizationId, secondToken, "Acme Corp Again", null, "second-boot-2@example.com", "password"));
+
+        Assert.Equal(HttpStatusCode.Conflict, second.StatusCode);
+    }
+
+    [Fact]
+    public async Task Bootstrap_BlankOrganizationName_Returns400_AndTokenStaysConsumable()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var organizationId = Guid.NewGuid();
+        var registry = _factory.Services.GetRequiredService<Commerce.Cloud.Api.Authentication.BootstrapTokenRegistry>();
+        var token = registry.Issue(organizationId);
+
+        var client = _factory.CreateClient();
+        var blankResponse = await client.PostAsJsonAsync(
+            "/account/bootstrap",
+            new BootstrapRequest(organizationId, token, "   ", null, "blankname@example.com", "password"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, blankResponse.StatusCode);
+
+        // The token must still be consumable — validation ran BEFORE
+        // TryConsume, so this mistake did not burn it.
+        var retry = await client.PostAsJsonAsync(
+            "/account/bootstrap",
+            new BootstrapRequest(organizationId, token, "Now A Real Name", null, "blankname@example.com", "password"));
+
+        Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
     }
 
     [Fact]
@@ -205,14 +284,14 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
         var client = _factory.CreateClient();
         var first = await client.PostAsJsonAsync(
             "/account/bootstrap",
-            new BootstrapRequest(organizationId, token, "replay1@example.com", "password"));
+            new BootstrapRequest(organizationId, token, "Acme Corp", null, "replay1@example.com", "password"));
         Assert.Equal(HttpStatusCode.OK, first.StatusCode);
 
         // Same org already has a user now, but the more specific assertion is
         // that the SAME token cannot be reused at all.
         var replay = await client.PostAsJsonAsync(
             "/account/bootstrap",
-            new BootstrapRequest(organizationId, token, "replay2@example.com", "password"));
+            new BootstrapRequest(organizationId, token, "Acme Corp", null, "replay2@example.com", "password"));
 
         Assert.Equal(HttpStatusCode.Unauthorized, replay.StatusCode);
     }
@@ -240,7 +319,7 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
 
         var response = await client.PostAsJsonAsync(
             "/account/bootstrap",
-            new BootstrapRequest(organizationId, token, "expired@example.com", "password"));
+            new BootstrapRequest(organizationId, token, "Acme Corp", null, "expired@example.com", "password"));
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
@@ -258,8 +337,55 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
         var client = _factory.CreateClient();
         var response = await client.PostAsJsonAsync(
             "/account/bootstrap",
-            new BootstrapRequest(otherOrganizationId, token, "wrongorg@example.com", "password"));
+            new BootstrapRequest(otherOrganizationId, token, "Acme Corp", null, "wrongorg@example.com", "password"));
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    /// <summary>
+    /// End-to-end authorization proof (design.md "Interfaces / Contracts" /
+    /// "Testing Strategy"): bootstrap -> sign in -> LoadActorAsync -> the
+    /// actor's BranchScope contains the REAL created branchId ->
+    /// TenantAuthorizationService.Authorize for a catalog-rename targeting
+    /// that branch returns allowed; a DIFFERENT branch id returns not-found.
+    /// </summary>
+    [Fact]
+    public async Task Bootstrap_ThenCatalogRename_OnCreatedBranch_IsAllowed_OnOtherBranch_IsNotFound()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var organizationId = Guid.NewGuid();
+        var registry = _factory.Services.GetRequiredService<Commerce.Cloud.Api.Authentication.BootstrapTokenRegistry>();
+        var token = registry.Issue(organizationId);
+
+        // BaseAddress MUST be https:// — the auth cookie has SecurePolicy =
+        // Always, so it is never sent back on a plain http:// TestServer
+        // client (see CatalogEndpointTests.cs's identical comment).
+        var client = _factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            HandleCookies = true,
+            BaseAddress = new Uri("https://localhost"),
+        });
+        var bootstrapResponse = await client.PostAsJsonAsync(
+            "/account/bootstrap",
+            new BootstrapRequest(organizationId, token, "Acme Corp", "HQ", "renamer@example.com", "rename-password"));
+        Assert.Equal(HttpStatusCode.OK, bootstrapResponse.StatusCode);
+        var bootstrapBody = await bootstrapResponse.Content.ReadFromJsonAsync<BootstrapResponse>();
+
+        var signInResponse = await client.PostAsJsonAsync(
+            "/account/sign-in", new SignInRequest("renamer@example.com", "rename-password"));
+        Assert.Equal(HttpStatusCode.OK, signInResponse.StatusCode);
+
+        var allowedResponse = await client.PostAsJsonAsync(
+            $"/catalog/products/{Guid.NewGuid()}/rename",
+            new RenameProductRequest(
+                bootstrapBody!.BranchId, "Original", Guid.NewGuid(), Guid.NewGuid(), "Renamed", false, Guid.NewGuid()));
+        Assert.Equal(HttpStatusCode.OK, allowedResponse.StatusCode);
+
+        var deniedResponse = await client.PostAsJsonAsync(
+            $"/catalog/products/{Guid.NewGuid()}/rename",
+            new RenameProductRequest(
+                Guid.NewGuid(), "Original", Guid.NewGuid(), Guid.NewGuid(), "Renamed", false, Guid.NewGuid()));
+        Assert.Equal(HttpStatusCode.Forbidden, deniedResponse.StatusCode);
     }
 }

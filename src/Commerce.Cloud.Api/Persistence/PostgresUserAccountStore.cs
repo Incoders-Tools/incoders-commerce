@@ -134,16 +134,13 @@ public sealed class PostgresUserAccountStore
     }
 
     /// <summary>
-    /// Inserts into `users` and `user_directory` inside ONE transaction,
-    /// after the scope statement, re-checking "zero users in this org" in
-    /// that same transaction. `user_directory`'s primary key makes a
-    /// duplicate email a clean `false`, never an exception surfaced to the
-    /// caller.
+    /// Thin wrapper (design.md "Transaction composition"): open -> begin ->
+    /// set tenant scope -> zero-users guard -> <see cref="InsertAsync"/> ->
+    /// commit. Behavior-preserving refactor extraction target — every
+    /// existing caller and test keeps its current behavior and signature.
     /// </summary>
     public async Task<bool> TryCreateAsync(CloudTenantScope scope, NewUserAccount user, CancellationToken ct)
     {
-        var normalizedEmail = Normalize(user.Email);
-
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
 
@@ -163,34 +160,9 @@ public sealed class PostgresUserAccountStore
             }
         }
 
-        var rolesJson = JsonSerializer.Serialize(user.Roles, RoleSerializerOptions);
-
         try
         {
-            await using (var insertUserCmd = new NpgsqlCommand(
-                """
-                INSERT INTO users (id, organization_id, email, password_hash, branch_scope, roles)
-                VALUES ($1, $2, $3, $4, $5, $6::jsonb)
-                """, connection, tx))
-            {
-                insertUserCmd.Parameters.AddWithValue(user.Id);
-                insertUserCmd.Parameters.AddWithValue(scope.OrganizationId);
-                insertUserCmd.Parameters.AddWithValue(normalizedEmail);
-                insertUserCmd.Parameters.AddWithValue(user.PasswordHash);
-                insertUserCmd.Parameters.AddWithValue(user.BranchScope.ToArray());
-                insertUserCmd.Parameters.AddWithValue(rolesJson);
-                await insertUserCmd.ExecuteNonQueryAsync(ct);
-            }
-
-            await using (var insertDirectoryCmd = new NpgsqlCommand(
-                "INSERT INTO user_directory (email_normalized, organization_id, user_id) VALUES ($1, $2, $3)",
-                connection, tx))
-            {
-                insertDirectoryCmd.Parameters.AddWithValue(normalizedEmail);
-                insertDirectoryCmd.Parameters.AddWithValue(scope.OrganizationId);
-                insertDirectoryCmd.Parameters.AddWithValue(user.Id);
-                await insertDirectoryCmd.ExecuteNonQueryAsync(ct);
-            }
+            await InsertAsync(connection, tx, scope, user, ct);
         }
         catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UniqueViolation)
         {
@@ -200,6 +172,51 @@ public sealed class PostgresUserAccountStore
 
         await tx.CommitAsync(ct);
         return true;
+    }
+
+    /// <summary>
+    /// Transaction-participating insert (design.md "Transaction composition"
+    /// — the core decision): carries the exact `users` + `user_directory`
+    /// insert bodies <see cref="TryCreateAsync"/> used to own inline, minus
+    /// ALL tx lifecycle and `set_config`. The caller owns the connection,
+    /// the transaction, and tenant scoping; this method never commits or
+    /// rolls back and never calls `set_config`. Throws
+    /// <see cref="PostgresException"/> (unique violation) on a duplicate
+    /// email so the OWNING transaction decides what to do — this lets
+    /// <see cref="PostgresOrganizationStore"/> participate in the same
+    /// transaction as its own organization/branch inserts (single owner of
+    /// the transaction, zero duplicated INSERT SQL).
+    /// </summary>
+    internal async Task InsertAsync(
+        NpgsqlConnection connection, NpgsqlTransaction tx, CloudTenantScope scope, NewUserAccount user, CancellationToken ct)
+    {
+        var normalizedEmail = Normalize(user.Email);
+        var rolesJson = JsonSerializer.Serialize(user.Roles, RoleSerializerOptions);
+
+        await using (var insertUserCmd = new NpgsqlCommand(
+            """
+            INSERT INTO users (id, organization_id, email, password_hash, branch_scope, roles)
+            VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+            """, connection, tx))
+        {
+            insertUserCmd.Parameters.AddWithValue(user.Id);
+            insertUserCmd.Parameters.AddWithValue(scope.OrganizationId);
+            insertUserCmd.Parameters.AddWithValue(normalizedEmail);
+            insertUserCmd.Parameters.AddWithValue(user.PasswordHash);
+            insertUserCmd.Parameters.AddWithValue(user.BranchScope.ToArray());
+            insertUserCmd.Parameters.AddWithValue(rolesJson);
+            await insertUserCmd.ExecuteNonQueryAsync(ct);
+        }
+
+        await using (var insertDirectoryCmd = new NpgsqlCommand(
+            "INSERT INTO user_directory (email_normalized, organization_id, user_id) VALUES ($1, $2, $3)",
+            connection, tx))
+        {
+            insertDirectoryCmd.Parameters.AddWithValue(normalizedEmail);
+            insertDirectoryCmd.Parameters.AddWithValue(scope.OrganizationId);
+            insertDirectoryCmd.Parameters.AddWithValue(user.Id);
+            await insertDirectoryCmd.ExecuteNonQueryAsync(ct);
+        }
     }
 
     private static string Normalize(string email) => email.Trim().ToLowerInvariant();
