@@ -59,3 +59,30 @@ services:
       - ./pgbouncer-userlist.txt:/etc/pgbouncer/userlist.txt:ro
     ports:
       - "6543:6432"
+
+  # Unit 5: containerized Cloud.Api (with the SPA it embeds in wwwroot),
+  # built from the SAME repo-root Dockerfile Railway deploys (Unit 2). Behind
+  # a profile so the default `docker compose up` (no --profile) stays
+  # Postgres+PgBouncer-only for the fast `dotnet run` inner loop — this
+  # service is strictly additive.
+  #
+  # `docker compose -f deploy/dev/compose.yaml --profile full up` gives a
+  # complete local stack (Cloud.Api + SPA + Postgres + pooler) with zero
+  # `dotnet run` / `npm run dev` needed.
+  cloud-api:
+    profiles: ["full"]
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      # Direct (non-pooled) local Postgres connection — matches
+      # appsettings.Development.json's shape. The transaction pooler
+      # (pgbouncer, above) is exercised by PoolerScopingTests, not by this
+      # everyday local-stack profile.
+      ConnectionStrings__Commerce: "Host=postgres;Port=5432;Database=commerce_dev;Username=app_runtime;Password=dev-only-password"
+    ports:
+      - "8080:8080"

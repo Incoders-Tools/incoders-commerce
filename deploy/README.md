@@ -78,9 +78,69 @@ line naming the unreachable target and return without asserting pass/fail —
 they never silently report false confidence, and they never hard-fail a
 runner that was never given the infrastructure to begin with.
 
-## Unit 5 (not yet implemented)
+## Unit 5 — One-time-per-environment schema/RLS migration
 
-Per-environment schema/RLS migration application (`psql` runbook),
-`app_runtime` role provisioning against a real Supabase project, and the
-`docker compose --profile full` end-to-end stack are Unit 5 scope and are
-not part of this document yet.
+`deploy/db/migrations/0001_init_rls.sql` is the repo-owned, idempotent
+migration that must be applied ONCE per real environment (staging now,
+production later) directly against that environment's own Supabase project —
+never auto-applied by Cloud.Api. `Program.cs`'s `/health/ready` only
+*verifies* the table/RLS/policy already exist and fails readiness otherwise
+(design.md "Schema/RLS application").
+
+### Applying the migration
+
+1. In the Supabase dashboard for the target project, copy the **direct**
+   (non-pooled, port `5432`) Postgres connection string — not the transaction
+   pooler (`6543`) one used at runtime by Cloud.Api. Applying DDL through the
+   pooler is unnecessary and the direct connection is the standard tool for
+   one-off admin operations.
+2. Generate a fresh, strong password for the `app_runtime` role (a password
+   manager or `openssl rand -base64 32`); this becomes a Railway environment
+   secret in the next step, never a repo commit.
+3. Substitute the migration's `__APP_RUNTIME_PASSWORD__` placeholder with
+   that password and pipe the result into `psql`, without ever writing the
+   substituted file to disk:
+
+   ```bash
+   # macOS/Linux/WSL:
+   sed "s/__APP_RUNTIME_PASSWORD__/$APP_RUNTIME_PASSWORD/" \
+     deploy/db/migrations/0001_init_rls.sql \
+     | psql "postgresql://postgres:<db-password>@<project-ref>.supabase.co:5432/postgres"
+   ```
+
+   ```powershell
+   # Windows PowerShell:
+   (Get-Content deploy/db/migrations/0001_init_rls.sql) `
+     -replace '__APP_RUNTIME_PASSWORD__', $env:APP_RUNTIME_PASSWORD |
+     psql "postgresql://postgres:<db-password>@<project-ref>.supabase.co:5432/postgres"
+   ```
+
+4. Confirm success: `psql ... -c "SELECT rolname FROM pg_roles WHERE rolname = 'app_runtime';"`
+   returns one row, and `SELECT polname FROM pg_policies WHERE tablename = 'sync_inbox';`
+   returns `sync_inbox_tenant_isolation`.
+5. Re-running the same command later (e.g. to rotate the password, or as a
+   drift check) is safe — every statement in the migration is idempotent.
+
+The `app_runtime` connection string (`Host=<pooler-host>;Port=6543;Database=postgres;Username=app_runtime;Password=<the-password-from-step-2>`)
+becomes that environment's `ConnectionStrings__Commerce` Railway variable —
+see `deploy/staging-runbook.md` for the full per-environment provisioning
+checklist and the complete list of required Railway variables.
+
+## Local full stack via Docker Compose
+
+`deploy/dev/compose.yaml` gained a `full` profile (Unit 5) that also
+containerizes Cloud.Api, building the same repo-root `Dockerfile` Unit 2
+already created, alongside the existing `postgres` + `pgbouncer` services:
+
+```bash
+docker compose -f deploy/dev/compose.yaml --profile full up
+```
+
+This serves Cloud.Api (with the SPA it embeds in `wwwroot`) at
+`http://localhost:8080`, backed by the same containerized Postgres, with zero
+`dotnet run` / `npm run dev` needed. The default (no `--profile full`)
+behavior — Postgres + PgBouncer only, for the fast `dotnet run` inner loop —
+is unchanged; `full` is strictly additive.
+
+Commerce.Pos.Windows never requires Docker: it only needs an already-running
+Cloud.Api (local, containerized, or staging) to sync against.
