@@ -122,6 +122,46 @@ public sealed class OrganizationStoreTests : IDisposable
         Assert.Equal("Main", reader.GetString(1));
     }
 
+    /// <summary>
+    /// organization-persistence spec: "Branch created with a caller-supplied
+    /// name" — the happy-path test above only ever exercises the default
+    /// "Main" branch name, so it never proves a caller-supplied, non-default
+    /// name actually persists (a hardcoded default could pass that test even
+    /// if the real `branchName` field were silently ignored). This test uses
+    /// a distinct name to close that gap.
+    /// </summary>
+    [Fact]
+    public async Task TryCreateBootstrapAsync_CallerSuppliedBranchName_PersistsExactly()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var userStore = new PostgresUserAccountStore(_dataSource!);
+        var store = new PostgresOrganizationStore(_dataSource!, userStore);
+
+        var orgId = Guid.NewGuid();
+        var branchId = Guid.NewGuid();
+        var scope = new CloudTenantScope(orgId);
+        const string callerSuppliedName = "Downtown Branch";
+
+        var outcome = await store.TryCreateBootstrapAsync(
+            scope,
+            new NewOrganization(orgId, "Named Branch Co"),
+            new NewBranch(branchId, callerSuppliedName),
+            NewAdmin(Guid.NewGuid(), "named-branch@example.com", [branchId]),
+            CancellationToken.None);
+
+        Assert.Equal(BootstrapOutcome.Created, outcome);
+
+        using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        owner.Open();
+        using var cmd = new NpgsqlCommand("SELECT name FROM branches WHERE id = $1", owner);
+        cmd.Parameters.AddWithValue(branchId);
+        using var reader = cmd.ExecuteReader();
+        Assert.True(reader.Read());
+        Assert.Equal(callerSuppliedName, reader.GetString(0));
+        Assert.NotEqual("Main", reader.GetString(0));
+    }
+
     [Fact]
     public async Task TryCreateBootstrapAsync_OrganizationAlreadyExists_RollsBack_ZeroNewRows()
     {
