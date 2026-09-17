@@ -24,7 +24,7 @@ namespace Commerce.Integration;
 /// roles/branch scope, never anything from the request body.
 /// </summary>
 [Collection("Postgres")]
-public sealed class CatalogEndpointTests : IClassFixture<WebApplicationFactory<Program>>
+public sealed class CatalogEndpointTests : IClassFixture<WebApplicationFactory<Program>>, IDisposable
 {
     private readonly bool _postgresAvailable = PostgresTestFixture.TryPing(PostgresTestFixture.DirectConnectionString);
     private readonly WebApplicationFactory<Program> _factory;
@@ -41,6 +41,8 @@ public sealed class CatalogEndpointTests : IClassFixture<WebApplicationFactory<P
             ApplyMigrationsAndReset();
         }
     }
+
+    public void Dispose() => _factory.Dispose();
 
     private static void ApplyMigrationsAndReset()
     {

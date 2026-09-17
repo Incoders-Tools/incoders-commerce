@@ -105,7 +105,34 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
                     EXISTS (
                         SELECT 1 FROM pg_policies
                         WHERE tablename = 'password_reset_tokens' AND policyname = 'password_reset_tokens_consume'
-                    ) AS password_reset_tokens_consume_policy_exists
+                    ) AS password_reset_tokens_consume_policy_exists,
+                    EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'platform_admins') AS platform_admins_table_exists,
+                    EXISTS (
+                        SELECT 1 FROM pg_class
+                        WHERE relname = 'platform_admins' AND relrowsecurity AND relforcerowsecurity
+                    ) AS platform_admins_rls_forced,
+                    EXISTS (
+                        SELECT 1 FROM pg_policies
+                        WHERE tablename = 'platform_admins' AND policyname = 'platform_admins_lookup'
+                    ) AS platform_admins_lookup_policy_exists,
+                    EXISTS (
+                        SELECT 1 FROM pg_policies
+                        WHERE tablename = 'platform_admins' AND policyname = 'platform_admins_touch'
+                    ) AS platform_admins_touch_policy_exists,
+                    EXISTS (
+                        SELECT 1 FROM pg_policies
+                        WHERE tablename = 'platform_admins' AND policyname = 'platform_admins_genesis'
+                    ) AS platform_admins_genesis_policy_exists,
+                    EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'audit_log') AS audit_log_table_exists,
+                    EXISTS (
+                        SELECT 1 FROM pg_class
+                        WHERE relname = 'audit_log' AND relrowsecurity AND relforcerowsecurity
+                    ) AS audit_log_rls_forced,
+                    EXISTS (
+                        SELECT 1 FROM pg_policies
+                        WHERE tablename = 'audit_log' AND policyname = 'audit_log_append'
+                    ) AS audit_log_append_policy_exists,
+                    EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'platform_readonly') AS platform_readonly_role_exists
                 """, connection);
 
             await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
@@ -140,6 +167,15 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
             var passwordResetTokensLookupPolicyExists = reader.GetBoolean(23);
             var passwordResetTokensIssuePolicyExists = reader.GetBoolean(24);
             var passwordResetTokensConsumePolicyExists = reader.GetBoolean(25);
+            var platformAdminsTableExists = reader.GetBoolean(26);
+            var platformAdminsRlsForced = reader.GetBoolean(27);
+            var platformAdminsLookupPolicyExists = reader.GetBoolean(28);
+            var platformAdminsTouchPolicyExists = reader.GetBoolean(29);
+            var platformAdminsGenesisPolicyExists = reader.GetBoolean(30);
+            var auditLogTableExists = reader.GetBoolean(31);
+            var auditLogRlsForced = reader.GetBoolean(32);
+            var auditLogAppendPolicyExists = reader.GetBoolean(33);
+            var platformReadonlyRoleExists = reader.GetBoolean(34);
 
             var allHealthy = syncInboxTableExists && syncInboxRlsForced && syncInboxPolicyExists && roleExists
                 && usersTableExists && usersRlsForced && usersPolicyExists
@@ -149,13 +185,18 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
                 && deviceCredentialsTableExists && deviceCredentialsRlsForced
                 && deviceCredentialsLookupPolicyExists && deviceCredentialsIssuePolicyExists && deviceCredentialsRevokePolicyExists
                 && passwordResetTokensTableExists && passwordResetTokensRlsForced
-                && passwordResetTokensLookupPolicyExists && passwordResetTokensIssuePolicyExists && passwordResetTokensConsumePolicyExists;
+                && passwordResetTokensLookupPolicyExists && passwordResetTokensIssuePolicyExists && passwordResetTokensConsumePolicyExists
+                && platformAdminsTableExists && platformAdminsRlsForced
+                && platformAdminsLookupPolicyExists && platformAdminsTouchPolicyExists && platformAdminsGenesisPolicyExists
+                && auditLogTableExists && auditLogRlsForced && auditLogAppendPolicyExists
+                && platformReadonlyRoleExists;
 
             if (allHealthy)
             {
                 return HealthCheckResult.Healthy(
-                    "sync_inbox, users, user_directory, organizations, branches, device_credentials, and " +
-                    "password_reset_tokens tables, forced RLS, tenant-isolation policies, and app_runtime role all verified.");
+                    "sync_inbox, users, user_directory, organizations, branches, device_credentials, " +
+                    "password_reset_tokens, platform_admins, and audit_log tables, forced RLS, tenant-isolation " +
+                    "policies, and app_runtime/platform_readonly roles all verified.");
             }
 
             return HealthCheckResult.Unhealthy(
@@ -167,8 +208,12 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
                 $"device_credentials(table={deviceCredentialsTableExists}, rls_forced={deviceCredentialsRlsForced}, " +
                 $"lookup_policy={deviceCredentialsLookupPolicyExists}, issue_policy={deviceCredentialsIssuePolicyExists}, revoke_policy={deviceCredentialsRevokePolicyExists}), " +
                 $"password_reset_tokens(table={passwordResetTokensTableExists}, rls_forced={passwordResetTokensRlsForced}, " +
-                $"lookup_policy={passwordResetTokensLookupPolicyExists}, issue_policy={passwordResetTokensIssuePolicyExists}, consume_policy={passwordResetTokensConsumePolicyExists}). " +
-                "Apply deploy/db/migrations/0001_init_rls.sql, 0002_users.sql, 0003_organizations_branches.sql, 0004_device_credentials.sql, and 0005_password_recovery.sql.");
+                $"lookup_policy={passwordResetTokensLookupPolicyExists}, issue_policy={passwordResetTokensIssuePolicyExists}, consume_policy={passwordResetTokensConsumePolicyExists}), " +
+                $"platform_admins(table={platformAdminsTableExists}, rls_forced={platformAdminsRlsForced}, " +
+                $"lookup_policy={platformAdminsLookupPolicyExists}, touch_policy={platformAdminsTouchPolicyExists}, genesis_policy={platformAdminsGenesisPolicyExists}), " +
+                $"audit_log(table={auditLogTableExists}, rls_forced={auditLogRlsForced}, append_policy={auditLogAppendPolicyExists}), " +
+                $"platform_readonly_role_exists={platformReadonlyRoleExists}. " +
+                "Apply deploy/db/migrations/0001_init_rls.sql through 0007_platform_administration.sql.");
         }
         catch (Exception ex)
         {

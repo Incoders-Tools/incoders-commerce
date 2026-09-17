@@ -227,3 +227,93 @@ CREATE POLICY password_reset_tokens_purge ON password_reset_tokens
     FOR DELETE USING (expires_at < now() - interval '7 days');
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS session_version integer NOT NULL DEFAULT 0;
+
+-- commerce-role-taxonomy: 0006_role_taxonomy.sql (data rewrite, hand-synced
+-- verbatim per the existing convention). See 0006 for the FORCE RLS toggle
+-- rationale. Fresh dev databases seed no legacy "admin" rows, so this is a
+-- no-op there — it exists for parity with `MigrationRlsTests`, which applies
+-- 0006 directly against seeded rows.
+DO $$
+BEGIN
+    ALTER TABLE users NO FORCE ROW LEVEL SECURITY;
+
+    UPDATE users
+       SET roles = (
+           SELECT jsonb_agg(
+               CASE WHEN e->>'name' = 'admin'
+                    THEN jsonb_set(e, '{name}', '"business-admin"')
+                    ELSE e END)
+           FROM jsonb_array_elements(roles) AS e)
+     WHERE roles @> '[{"name":"admin"}]';
+
+    ALTER TABLE users FORCE ROW LEVEL SECURITY;
+
+    IF EXISTS (SELECT 1 FROM users WHERE roles @> '[{"name":"admin"}]') THEN
+        RAISE EXCEPTION '0006: legacy "admin" role entries survived the rewrite';
+    END IF;
+END
+$$;
+
+-- commerce-role-taxonomy: 0007_platform_administration.sql, hand-synced
+-- verbatim per the existing convention. See 0007 for the asymmetric RLS
+-- rationale (platform_admins genesis-only INSERT; audit_log append-only;
+-- platform_readonly's column-scoped, TO-scoped organizations read).
+
+CREATE TABLE IF NOT EXISTS platform_admins (
+    id                  uuid PRIMARY KEY,
+    email               text NOT NULL UNIQUE,
+    password_hash       text NOT NULL,
+    created_at_utc      timestamptz NOT NULL DEFAULT now(),
+    last_sign_in_at_utc timestamptz NULL
+);
+
+CREATE TABLE IF NOT EXISTS audit_log (
+    id              bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    occurred_at_utc timestamptz NOT NULL DEFAULT now(),
+    actor_kind      text NOT NULL,
+    actor_id        uuid NOT NULL,
+    organization_id uuid NULL,
+    entity_type     text NOT NULL,
+    entity_id       uuid NOT NULL,
+    action          text NOT NULL,
+    old_value       jsonb NULL,
+    new_value       jsonb NULL
+);
+CREATE INDEX IF NOT EXISTS audit_log_entity_idx ON audit_log (entity_type, entity_id, occurred_at_utc DESC);
+CREATE INDEX IF NOT EXISTS audit_log_org_idx    ON audit_log (organization_id, occurred_at_utc DESC);
+
+ALTER TABLE platform_admins ENABLE ROW LEVEL SECURITY;
+ALTER TABLE platform_admins FORCE ROW LEVEL SECURITY;
+ALTER TABLE audit_log       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE audit_log       FORCE ROW LEVEL SECURITY;
+REVOKE ALL ON platform_admins, audit_log FROM PUBLIC;
+
+GRANT SELECT, INSERT ON platform_admins TO app_runtime;
+GRANT UPDATE (last_sign_in_at_utc) ON platform_admins TO app_runtime;
+GRANT INSERT ON audit_log TO app_runtime;
+
+DROP POLICY IF EXISTS platform_admins_lookup ON platform_admins;
+CREATE POLICY platform_admins_lookup ON platform_admins FOR SELECT USING (true);
+DROP POLICY IF EXISTS platform_admins_touch ON platform_admins;
+CREATE POLICY platform_admins_touch  ON platform_admins FOR UPDATE USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS platform_admins_genesis ON platform_admins;
+CREATE POLICY platform_admins_genesis ON platform_admins FOR INSERT
+    WITH CHECK (NOT EXISTS (SELECT 1 FROM platform_admins));
+
+DROP POLICY IF EXISTS audit_log_append ON audit_log;
+CREATE POLICY audit_log_append ON audit_log FOR INSERT
+    WITH CHECK (organization_id IS NULL
+                OR organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid);
+
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'platform_readonly') THEN
+        CREATE ROLE platform_readonly WITH LOGIN PASSWORD 'dev-only-platform-readonly-password';
+    ELSE
+        ALTER ROLE platform_readonly WITH LOGIN PASSWORD 'dev-only-platform-readonly-password';
+    END IF;
+END $$;
+GRANT USAGE ON SCHEMA public TO platform_readonly;
+GRANT SELECT (id, name, created_at) ON organizations TO platform_readonly;
+DROP POLICY IF EXISTS organizations_platform_read ON organizations;
+CREATE POLICY organizations_platform_read ON organizations
+    FOR SELECT TO platform_readonly USING (true);

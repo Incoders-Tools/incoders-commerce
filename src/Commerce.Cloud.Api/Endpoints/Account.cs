@@ -2,6 +2,8 @@ using System.Net;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
+using Commerce.Cloud.Api.Auditing;
 using Commerce.Cloud.Api.Authentication;
 using Commerce.Cloud.Api.Email;
 using Commerce.Cloud.Api.Persistence;
@@ -351,6 +353,142 @@ public static class AccountEndpoints
             return Results.NoContent();
         });
 
+        // --- Staff user creation and role assignment (commerce-role-taxonomy
+        // design.md "Data Flow"): reuses adminGroup's exact authorization
+        // shape (RequireAuthorization + TenantScopeEndpointFilter + a
+        // store-loaded caller + ManageUsers), plus RoleGrantPolicy's pure
+        // grant-cap check BEFORE any I/O. Permissions are read from
+        // RoleCatalog only — the request carries role NAMES, never a
+        // Permission set (spec: "Catalog permissions are used, not
+        // body-supplied ones").
+        adminGroup.MapPost("", async (
+            CreateUserRequest request,
+            HttpContext httpContext,
+            PostgresUserAccountStore userStore,
+            PasswordHasher<UserAccount> hasher,
+            CancellationToken ct) =>
+        {
+            if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.Password))
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["request"] = ["email and password are required."],
+                });
+            }
+
+            var scope = TenantScopeEndpointFilter.GetScope(httpContext);
+
+            var callerIdClaim = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (callerIdClaim is null || !Guid.TryParse(callerIdClaim, out var callerId))
+            {
+                return Results.Forbid();
+            }
+
+            var caller = await userStore.LoadActorAsync(scope, callerId, ct);
+            if (caller is null || caller.IsRevoked)
+            {
+                return Results.Forbid();
+            }
+
+            if (!caller.EffectivePermissions.HasFlag(Permission.ManageUsers))
+            {
+                return Results.Forbid();
+            }
+
+            // Pure, no I/O, checked BEFORE any write (design.md "Grant-cap
+            // location"): unknown role -> 400, reserved role or a grant that
+            // exceeds the caller's own permissions -> 403, regardless of
+            // what the caller otherwise holds.
+            if (!RoleGrantPolicy.TryAuthorize(caller, request.RoleNames ?? [], out var roles, out var denial))
+            {
+                return denial == GrantDenial.UnknownRole
+                    ? Results.ValidationProblem(new Dictionary<string, string[]>
+                    {
+                        ["roleNames"] = ["one or more role names are not recognized."],
+                    })
+                    : Results.Forbid();
+            }
+
+            var branchIds = request.BranchIds ?? [];
+            if (!await userStore.BranchesBelongToOrganizationAsync(scope, branchIds, ct))
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["branchIds"] = ["one or more branches do not belong to the caller's organization."],
+                });
+            }
+
+            var userId = Guid.NewGuid();
+            var passwordHash = hasher.HashPassword(new UserAccount(userId, scope.OrganizationId, [], []), request.Password);
+            var roleDtos = roles!.Select(r => new RoleDto(r.Name, r.Permissions)).ToList();
+            var newValueJson = JsonSerializer.Serialize(roleDtos.Select(r => r.Name));
+
+            var outcome = await userStore.CreateStaffUserAsync(
+                scope,
+                new NewUserAccount(userId, request.Email, passwordHash, branchIds, roleDtos),
+                new UserManagementAuditEntry(
+                    "org-user", callerId, scope.OrganizationId, "user", userId, "user.created", null, newValueJson),
+                ct);
+
+            if (outcome != CreateStaffUserOutcome.Created)
+            {
+                return Results.Conflict();
+            }
+
+            return Results.Created($"/account/users/{userId}", new CreateUserResponse(userId));
+        });
+
+        adminGroup.MapPut("/{userId:guid}/roles", async (
+            Guid userId,
+            AssignRolesRequest request,
+            HttpContext httpContext,
+            PostgresUserAccountStore userStore,
+            CancellationToken ct) =>
+        {
+            var scope = TenantScopeEndpointFilter.GetScope(httpContext);
+
+            var callerIdClaim = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (callerIdClaim is null || !Guid.TryParse(callerIdClaim, out var callerId))
+            {
+                return Results.Forbid();
+            }
+
+            var caller = await userStore.LoadActorAsync(scope, callerId, ct);
+            if (caller is null || caller.IsRevoked)
+            {
+                return Results.Forbid();
+            }
+
+            if (!caller.EffectivePermissions.HasFlag(Permission.ManageUsers))
+            {
+                return Results.Forbid();
+            }
+
+            // Scoped to the CALLER's org: a cross-org target is null
+            // identically to "no such user" (same pattern as
+            // /reset-password above).
+            var target = await userStore.LoadActorAsync(scope, userId, ct);
+            if (target is null)
+            {
+                return Results.NotFound();
+            }
+
+            if (!RoleGrantPolicy.TryAuthorize(caller, request.RoleNames ?? [], out var roles, out var denial))
+            {
+                return denial == GrantDenial.UnknownRole
+                    ? Results.ValidationProblem(new Dictionary<string, string[]>
+                    {
+                        ["roleNames"] = ["one or more role names are not recognized."],
+                    })
+                    : Results.Forbid();
+            }
+
+            var roleDtos = roles!.Select(r => new RoleDto(r.Name, r.Permissions)).ToList();
+            await userStore.ReplaceRolesAsync(scope, userId, roleDtos, "org-user", callerId, ct);
+
+            return Results.NoContent();
+        });
+
         group.MapPost("/sign-out", async (HttpContext httpContext) =>
         {
             await httpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
@@ -441,7 +579,7 @@ public static class AccountEndpoints
                     request.Email,
                     passwordHash,
                     [branchId],
-                    [new RoleDto("admin", Permission.ViewSales | Permission.ManageCatalog | Permission.ManageUsers | Permission.ManageBranchSettings)]),
+                    [new RoleDto(RoleCatalog.BusinessAdmin, Permission.ViewSales | Permission.ManageCatalog | Permission.ManageUsers | Permission.ManageBranchSettings)]),
                 ct);
 
             if (outcome != BootstrapOutcome.Created)
@@ -474,3 +612,9 @@ public sealed record BootstrapRequest(
     Guid OrganizationId, string Token, string OrganizationName, string? BranchName, string Email, string Password);
 
 public sealed record BootstrapResponse(Guid OrganizationId, Guid BranchId, Guid UserId);
+
+public sealed record CreateUserRequest(string Email, string Password, string[] RoleNames, Guid[] BranchIds);
+
+public sealed record CreateUserResponse(Guid UserId);
+
+public sealed record AssignRolesRequest(string[] RoleNames);

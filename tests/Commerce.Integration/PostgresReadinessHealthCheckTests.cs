@@ -11,7 +11,7 @@ namespace Commerce.Integration;
 /// every table, not only the one it originally shipped with.
 /// </summary>
 [Collection("Postgres")]
-public sealed class PostgresReadinessHealthCheckTests : IClassFixture<WebApplicationFactory<Program>>
+public sealed class PostgresReadinessHealthCheckTests : IClassFixture<WebApplicationFactory<Program>>, IDisposable
 {
     private readonly bool _postgresAvailable = PostgresTestFixture.TryPing(PostgresTestFixture.DirectConnectionString);
     private readonly WebApplicationFactory<Program> _factory;
@@ -23,6 +23,8 @@ public sealed class PostgresReadinessHealthCheckTests : IClassFixture<WebApplica
             builder.UseSetting("ConnectionStrings:Commerce", PostgresTestFixture.DirectConnectionString);
         });
     }
+
+    public void Dispose() => _factory.Dispose();
 
     private static string RepoRoot()
     {
@@ -107,12 +109,17 @@ public sealed class PostgresReadinessHealthCheckTests : IClassFixture<WebApplica
                  {
                      "0002_users.sql", "0003_organizations_branches.sql",
                      "0004_device_credentials.sql", "0005_password_recovery.sql",
+                     "0006_role_taxonomy.sql",
                  })
         {
             var sql = File.ReadAllText(Path.Combine(RepoRoot(), "deploy", "db", "migrations", file));
             using var cmd = new NpgsqlCommand(sql, owner);
             cmd.ExecuteNonQuery();
         }
+
+        var platformSql = File.ReadAllText(Path.Combine(RepoRoot(), "deploy", "db", "migrations", "0007_platform_administration.sql"))
+            .Replace("__PLATFORM_READONLY_PASSWORD__", "dev-only-platform-readonly-password");
+        using (var cmd = new NpgsqlCommand(platformSql, owner)) cmd.ExecuteNonQuery();
     }
 
     /// <summary>
@@ -154,6 +161,93 @@ public sealed class PostgresReadinessHealthCheckTests : IClassFixture<WebApplica
 
     [Fact]
     public async Task HealthReady_IsHealthy_WhenPasswordResetTokensTableExists_WithForcedRlsAndPolicies()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            owner.Open();
+            ApplyAllMigrations(owner);
+        }
+
+        var client = _factory.CreateClient();
+        var response = await client.GetAsync("/health/ready");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    /// <summary>
+    /// Covers commerce-role-taxonomy task 2.10: `/health/ready` must fail
+    /// closed when `platform_admins`/`audit_log` FORCE-RLS or any expected
+    /// policy is missing, even though every other table is fully correct.
+    /// </summary>
+    [Fact]
+    public async Task HealthReady_IsUnhealthy_WhenPlatformAdminsPolicyIsMissing()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            owner.Open();
+            ApplyAllMigrations(owner);
+
+            using var dropPolicyCmd = new NpgsqlCommand(
+                "DROP POLICY IF EXISTS platform_admins_genesis ON platform_admins", owner);
+            dropPolicyCmd.ExecuteNonQuery();
+        }
+
+        try
+        {
+            var client = _factory.CreateClient();
+            var response = await client.GetAsync("/health/ready");
+
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        }
+        finally
+        {
+            using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+            owner.Open();
+            var sql = File.ReadAllText(Path.Combine(RepoRoot(), "deploy", "db", "migrations", "0007_platform_administration.sql"))
+                .Replace("__PLATFORM_READONLY_PASSWORD__", "dev-only-platform-readonly-password");
+            using var cmd = new NpgsqlCommand(sql, owner);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    [Fact]
+    public async Task HealthReady_IsUnhealthy_WhenAuditLogPolicyIsMissing()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            owner.Open();
+            ApplyAllMigrations(owner);
+
+            using var dropPolicyCmd = new NpgsqlCommand("DROP POLICY IF EXISTS audit_log_append ON audit_log", owner);
+            dropPolicyCmd.ExecuteNonQuery();
+        }
+
+        try
+        {
+            var client = _factory.CreateClient();
+            var response = await client.GetAsync("/health/ready");
+
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        }
+        finally
+        {
+            using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+            owner.Open();
+            var sql = File.ReadAllText(Path.Combine(RepoRoot(), "deploy", "db", "migrations", "0007_platform_administration.sql"))
+                .Replace("__PLATFORM_READONLY_PASSWORD__", "dev-only-platform-readonly-password");
+            using var cmd = new NpgsqlCommand(sql, owner);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    [Fact]
+    public async Task HealthReady_IsHealthy_WhenPlatformAdminsAndAuditLogExist_WithForcedRlsAndPolicies()
     {
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
 
