@@ -88,7 +88,24 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
                     EXISTS (
                         SELECT 1 FROM pg_policies
                         WHERE tablename = 'device_credentials' AND policyname = 'device_credentials_revoke'
-                    ) AS device_credentials_revoke_policy_exists
+                    ) AS device_credentials_revoke_policy_exists,
+                    EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'password_reset_tokens') AS password_reset_tokens_table_exists,
+                    EXISTS (
+                        SELECT 1 FROM pg_class
+                        WHERE relname = 'password_reset_tokens' AND relrowsecurity AND relforcerowsecurity
+                    ) AS password_reset_tokens_rls_forced,
+                    EXISTS (
+                        SELECT 1 FROM pg_policies
+                        WHERE tablename = 'password_reset_tokens' AND policyname = 'password_reset_tokens_lookup'
+                    ) AS password_reset_tokens_lookup_policy_exists,
+                    EXISTS (
+                        SELECT 1 FROM pg_policies
+                        WHERE tablename = 'password_reset_tokens' AND policyname = 'password_reset_tokens_issue'
+                    ) AS password_reset_tokens_issue_policy_exists,
+                    EXISTS (
+                        SELECT 1 FROM pg_policies
+                        WHERE tablename = 'password_reset_tokens' AND policyname = 'password_reset_tokens_consume'
+                    ) AS password_reset_tokens_consume_policy_exists
                 """, connection);
 
             await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
@@ -118,6 +135,11 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
             var deviceCredentialsLookupPolicyExists = reader.GetBoolean(18);
             var deviceCredentialsIssuePolicyExists = reader.GetBoolean(19);
             var deviceCredentialsRevokePolicyExists = reader.GetBoolean(20);
+            var passwordResetTokensTableExists = reader.GetBoolean(21);
+            var passwordResetTokensRlsForced = reader.GetBoolean(22);
+            var passwordResetTokensLookupPolicyExists = reader.GetBoolean(23);
+            var passwordResetTokensIssuePolicyExists = reader.GetBoolean(24);
+            var passwordResetTokensConsumePolicyExists = reader.GetBoolean(25);
 
             var allHealthy = syncInboxTableExists && syncInboxRlsForced && syncInboxPolicyExists && roleExists
                 && usersTableExists && usersRlsForced && usersPolicyExists
@@ -125,13 +147,15 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
                 && organizationsTableExists && organizationsRlsForced && organizationsPolicyExists
                 && branchesTableExists && branchesRlsForced && branchesPolicyExists
                 && deviceCredentialsTableExists && deviceCredentialsRlsForced
-                && deviceCredentialsLookupPolicyExists && deviceCredentialsIssuePolicyExists && deviceCredentialsRevokePolicyExists;
+                && deviceCredentialsLookupPolicyExists && deviceCredentialsIssuePolicyExists && deviceCredentialsRevokePolicyExists
+                && passwordResetTokensTableExists && passwordResetTokensRlsForced
+                && passwordResetTokensLookupPolicyExists && passwordResetTokensIssuePolicyExists && passwordResetTokensConsumePolicyExists;
 
             if (allHealthy)
             {
                 return HealthCheckResult.Healthy(
-                    "sync_inbox, users, user_directory, organizations, branches, and device_credentials tables, " +
-                    "forced RLS, tenant-isolation policies, and app_runtime role all verified.");
+                    "sync_inbox, users, user_directory, organizations, branches, device_credentials, and " +
+                    "password_reset_tokens tables, forced RLS, tenant-isolation policies, and app_runtime role all verified.");
             }
 
             return HealthCheckResult.Unhealthy(
@@ -141,8 +165,10 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
                 $"organizations(table={organizationsTableExists}, rls_forced={organizationsRlsForced}, policy={organizationsPolicyExists}), " +
                 $"branches(table={branchesTableExists}, rls_forced={branchesRlsForced}, policy={branchesPolicyExists}), " +
                 $"device_credentials(table={deviceCredentialsTableExists}, rls_forced={deviceCredentialsRlsForced}, " +
-                $"lookup_policy={deviceCredentialsLookupPolicyExists}, issue_policy={deviceCredentialsIssuePolicyExists}, revoke_policy={deviceCredentialsRevokePolicyExists}). " +
-                "Apply deploy/db/migrations/0001_init_rls.sql, 0002_users.sql, 0003_organizations_branches.sql, and 0004_device_credentials.sql.");
+                $"lookup_policy={deviceCredentialsLookupPolicyExists}, issue_policy={deviceCredentialsIssuePolicyExists}, revoke_policy={deviceCredentialsRevokePolicyExists}), " +
+                $"password_reset_tokens(table={passwordResetTokensTableExists}, rls_forced={passwordResetTokensRlsForced}, " +
+                $"lookup_policy={passwordResetTokensLookupPolicyExists}, issue_policy={passwordResetTokensIssuePolicyExists}, consume_policy={passwordResetTokensConsumePolicyExists}). " +
+                "Apply deploy/db/migrations/0001_init_rls.sql, 0002_users.sql, 0003_organizations_branches.sql, 0004_device_credentials.sql, and 0005_password_recovery.sql.");
         }
         catch (Exception ex)
         {

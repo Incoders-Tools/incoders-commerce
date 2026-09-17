@@ -96,4 +96,76 @@ public sealed class PostgresReadinessHealthCheckTests : IClassFixture<WebApplica
             cmd.ExecuteNonQuery();
         }
     }
+
+    private static void ApplyAllMigrations(NpgsqlConnection owner)
+    {
+        var initSql = File.ReadAllText(Path.Combine(RepoRoot(), "deploy", "db", "migrations", "0001_init_rls.sql"))
+            .Replace("__APP_RUNTIME_PASSWORD__", "dev-only-password");
+        using (var cmd = new NpgsqlCommand(initSql, owner)) cmd.ExecuteNonQuery();
+
+        foreach (var file in new[]
+                 {
+                     "0002_users.sql", "0003_organizations_branches.sql",
+                     "0004_device_credentials.sql", "0005_password_recovery.sql",
+                 })
+        {
+            var sql = File.ReadAllText(Path.Combine(RepoRoot(), "deploy", "db", "migrations", file));
+            using var cmd = new NpgsqlCommand(sql, owner);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    /// <summary>
+    /// Covers commerce-password-recovery task 1.8: `/health/ready` must fail
+    /// closed when `password_reset_tokens` FORCE-RLS or its policies are
+    /// missing, even though every other table is fully correct.
+    /// </summary>
+    [Fact]
+    public async Task HealthReady_IsUnhealthy_WhenPasswordResetTokensPolicyIsMissing()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            owner.Open();
+            ApplyAllMigrations(owner);
+
+            using var dropPolicyCmd = new NpgsqlCommand(
+                "DROP POLICY IF EXISTS password_reset_tokens_issue ON password_reset_tokens", owner);
+            dropPolicyCmd.ExecuteNonQuery();
+        }
+
+        try
+        {
+            var client = _factory.CreateClient();
+            var response = await client.GetAsync("/health/ready");
+
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        }
+        finally
+        {
+            using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+            owner.Open();
+            var sql = File.ReadAllText(Path.Combine(RepoRoot(), "deploy", "db", "migrations", "0005_password_recovery.sql"));
+            using var cmd = new NpgsqlCommand(sql, owner);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    [Fact]
+    public async Task HealthReady_IsHealthy_WhenPasswordResetTokensTableExists_WithForcedRlsAndPolicies()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            owner.Open();
+            ApplyAllMigrations(owner);
+        }
+
+        var client = _factory.CreateClient();
+        var response = await client.GetAsync("/health/ready");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
 }

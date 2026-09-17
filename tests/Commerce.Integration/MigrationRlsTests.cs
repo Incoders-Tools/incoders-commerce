@@ -880,4 +880,266 @@ public sealed class MigrationRlsTests
 
         Assert.Equal(0, count);
     }
+
+    // --- commerce-password-recovery: 0005_password_recovery.sql -----------
+
+    private static string ResolvePasswordRecoveryMigrationPath()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Commerce.sln")))
+        {
+            dir = dir.Parent;
+        }
+
+        if (dir is null)
+        {
+            throw new InvalidOperationException("Could not locate repo root (Commerce.sln) from " + AppContext.BaseDirectory);
+        }
+
+        return Path.Combine(dir.FullName, "deploy", "db", "migrations", "0005_password_recovery.sql");
+    }
+
+    private static void ApplyPasswordRecoveryMigration(NpgsqlConnection connection)
+    {
+        var sql = File.ReadAllText(ResolvePasswordRecoveryMigrationPath());
+        using var cmd = new NpgsqlCommand(sql, connection);
+        cmd.ExecuteNonQuery();
+    }
+
+    private static void ResetPasswordRecovery()
+    {
+        using var connection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        connection.Open();
+        using var cmd = new NpgsqlCommand("TRUNCATE TABLE password_reset_tokens", connection);
+        cmd.ExecuteNonQuery();
+    }
+
+    private static void ApplyAllMigrationsThrough0005(NpgsqlConnection connection)
+    {
+        ApplyAllPriorMigrations(connection);
+        ApplyPasswordRecoveryMigration(connection);
+    }
+
+    /// <summary>
+    /// Covers commerce-password-recovery task 1.1: `0005` idempotency.
+    /// </summary>
+    [Fact]
+    public void PasswordRecoveryMigration_IsIdempotent_AppliedTwiceWithoutError()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        using var connection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        connection.Open();
+        ApplyAllPriorMigrations(connection);
+
+        ApplyPasswordRecoveryMigration(connection);
+        ApplyPasswordRecoveryMigration(connection);
+    }
+
+    /// <summary>
+    /// Cross-org INSERT must be rejected by `password_reset_tokens_issue`'s
+    /// WITH CHECK — a caller scoped to org B cannot insert a token claiming
+    /// org A.
+    /// </summary>
+    [Fact]
+    public void PasswordRecoveryMigration_CrossOrgInsert_Throws()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        var orgAId = Guid.NewGuid();
+
+        using (var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            ownerConnection.Open();
+            ApplyAllMigrationsThrough0005(ownerConnection);
+            ResetPasswordRecovery();
+            ResetOrganizations();
+
+            using var insertOrgCmd = new NpgsqlCommand(
+                "INSERT INTO organizations (id, name) VALUES ($1, 'Org A')", ownerConnection);
+            insertOrgCmd.Parameters.AddWithValue(orgAId);
+            insertOrgCmd.ExecuteNonQuery();
+        }
+
+        using var writeConnection = new NpgsqlConnection(PostgresTestFixture.DirectConnectionString);
+        writeConnection.Open();
+        using var tx = writeConnection.BeginTransaction();
+        using (var scopeCmd = new NpgsqlCommand("SELECT set_config('app.current_org_id', $1, true)", writeConnection, tx))
+        {
+            // Scoped to a DIFFERENT org than orgAId, but the insert claims orgAId.
+            scopeCmd.Parameters.AddWithValue(Guid.NewGuid().ToString());
+            scopeCmd.ExecuteNonQuery();
+        }
+
+        using var insertCmd = new NpgsqlCommand(
+            """
+            INSERT INTO password_reset_tokens (token_hash, user_id, organization_id, expires_at)
+            VALUES ('hash-cross-org-insert', $1, $2, now() + interval '1 hour')
+            """, writeConnection, tx);
+        insertCmd.Parameters.AddWithValue(Guid.NewGuid());
+        insertCmd.Parameters.AddWithValue(orgAId);
+
+        Assert.Throws<PostgresException>(() => insertCmd.ExecuteNonQuery());
+        tx.Rollback();
+    }
+
+    /// <summary>
+    /// The lookup asymmetry: an UNSCOPED SELECT (no `set_config` at all)
+    /// still resolves the row — confirm has no org until it reads the token.
+    /// </summary>
+    [Fact]
+    public void PasswordRecoveryMigration_UnscopedSelect_ReturnsRow()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        var orgId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+
+        using (var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            ownerConnection.Open();
+            ApplyAllMigrationsThrough0005(ownerConnection);
+            ResetPasswordRecovery();
+            ResetOrganizations();
+
+            using var insertOrgCmd = new NpgsqlCommand(
+                "INSERT INTO organizations (id, name) VALUES ($1, 'Org A')", ownerConnection);
+            insertOrgCmd.Parameters.AddWithValue(orgId);
+            insertOrgCmd.ExecuteNonQuery();
+
+            using var insertTokenCmd = new NpgsqlCommand(
+                """
+                INSERT INTO password_reset_tokens (token_hash, user_id, organization_id, expires_at)
+                VALUES ('hash-unscoped-read', $1, $2, now() + interval '1 hour')
+                """, ownerConnection);
+            insertTokenCmd.Parameters.AddWithValue(userId);
+            insertTokenCmd.Parameters.AddWithValue(orgId);
+            insertTokenCmd.ExecuteNonQuery();
+        }
+
+        using var readConnection = new NpgsqlConnection(PostgresTestFixture.DirectConnectionString);
+        readConnection.Open();
+        using var tx = readConnection.BeginTransaction();
+        using var readCmd = new NpgsqlCommand(
+            "SELECT organization_id FROM password_reset_tokens WHERE token_hash = 'hash-unscoped-read'",
+            readConnection, tx);
+        var result = readCmd.ExecuteScalar();
+        tx.Commit();
+
+        Assert.NotNull(result);
+        Assert.Equal(orgId, (Guid)result!);
+    }
+
+    /// <summary>
+    /// Unscoped UPDATE that consumes the token (sets `consumed_at`) MUST
+    /// succeed — confirm has no org scope until the token row is read.
+    /// </summary>
+    [Fact]
+    public void PasswordRecoveryMigration_UnscopedUpdateToConsumed_Succeeds()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        var orgId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+
+        using (var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            ownerConnection.Open();
+            ApplyAllMigrationsThrough0005(ownerConnection);
+            ResetPasswordRecovery();
+            ResetOrganizations();
+
+            using var insertOrgCmd = new NpgsqlCommand(
+                "INSERT INTO organizations (id, name) VALUES ($1, 'Org A')", ownerConnection);
+            insertOrgCmd.Parameters.AddWithValue(orgId);
+            insertOrgCmd.ExecuteNonQuery();
+
+            using var insertTokenCmd = new NpgsqlCommand(
+                """
+                INSERT INTO password_reset_tokens (token_hash, user_id, organization_id, expires_at)
+                VALUES ('hash-unscoped-consume', $1, $2, now() + interval '1 hour')
+                """, ownerConnection);
+            insertTokenCmd.Parameters.AddWithValue(userId);
+            insertTokenCmd.Parameters.AddWithValue(orgId);
+            insertTokenCmd.ExecuteNonQuery();
+        }
+
+        using var writeConnection = new NpgsqlConnection(PostgresTestFixture.DirectConnectionString);
+        writeConnection.Open();
+        using var tx = writeConnection.BeginTransaction();
+        using var updateCmd = new NpgsqlCommand(
+            "UPDATE password_reset_tokens SET consumed_at = now() WHERE token_hash = 'hash-unscoped-consume'",
+            writeConnection, tx);
+        var rows = updateCmd.ExecuteNonQuery();
+        tx.Commit();
+
+        Assert.Equal(1, rows);
+    }
+
+    /// <summary>
+    /// An unscoped UPDATE that does NOT set `consumed_at` (an un-consume, or
+    /// any other field rewrite) MUST be rejected — structurally
+    /// unrepresentable, not merely untested.
+    /// </summary>
+    [Fact]
+    public void PasswordRecoveryMigration_UnscopedUpdateNotConsuming_Throws()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        var orgId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+
+        using (var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            ownerConnection.Open();
+            ApplyAllMigrationsThrough0005(ownerConnection);
+            ResetPasswordRecovery();
+            ResetOrganizations();
+
+            using var insertOrgCmd = new NpgsqlCommand(
+                "INSERT INTO organizations (id, name) VALUES ($1, 'Org A')", ownerConnection);
+            insertOrgCmd.Parameters.AddWithValue(orgId);
+            insertOrgCmd.ExecuteNonQuery();
+
+            using var insertTokenCmd = new NpgsqlCommand(
+                """
+                INSERT INTO password_reset_tokens (token_hash, user_id, organization_id, expires_at, consumed_at)
+                VALUES ('hash-already-consumed', $1, $2, now() + interval '1 hour', now())
+                """, ownerConnection);
+            insertTokenCmd.Parameters.AddWithValue(userId);
+            insertTokenCmd.Parameters.AddWithValue(orgId);
+            insertTokenCmd.ExecuteNonQuery();
+        }
+
+        // Unscoped un-consume: the resulting row would NOT be consumed.
+        using var writeConnection = new NpgsqlConnection(PostgresTestFixture.DirectConnectionString);
+        writeConnection.Open();
+        using var tx = writeConnection.BeginTransaction();
+        using var updateCmd = new NpgsqlCommand(
+            "UPDATE password_reset_tokens SET consumed_at = NULL WHERE token_hash = 'hash-already-consumed'",
+            writeConnection, tx);
+
+        Assert.Throws<PostgresException>(() => updateCmd.ExecuteNonQuery());
+        tx.Rollback();
+    }
 }

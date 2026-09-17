@@ -64,7 +64,7 @@ public sealed class PostgresUserAccountStore
         await SetTenantScopeAsync(connection, tx, scope, ct);
 
         await using var cmd = new NpgsqlCommand(
-            "SELECT id, organization_id, email, password_hash, is_revoked FROM users WHERE email = $1",
+            "SELECT id, organization_id, email, password_hash, is_revoked, session_version FROM users WHERE email = $1",
             connection, tx);
         cmd.Parameters.AddWithValue(normalized);
 
@@ -74,7 +74,8 @@ public sealed class PostgresUserAccountStore
             if (await reader.ReadAsync(ct))
             {
                 record = new UserCredentialRecord(
-                    reader.GetGuid(0), reader.GetGuid(1), reader.GetString(2), reader.GetString(3), reader.GetBoolean(4));
+                    reader.GetGuid(0), reader.GetGuid(1), reader.GetString(2), reader.GetString(3), reader.GetBoolean(4),
+                    reader.GetInt32(5));
             }
         }
 

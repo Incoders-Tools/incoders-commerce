@@ -191,3 +191,39 @@ CREATE POLICY device_credentials_issue ON device_credentials
 DROP POLICY IF EXISTS device_credentials_revoke ON device_credentials;
 CREATE POLICY device_credentials_revoke ON device_credentials
     FOR UPDATE USING (true) WITH CHECK (is_revoked);
+
+-- commerce-password-recovery: password_reset_tokens (hand-kept sync of
+-- deploy/db/migrations/0005_password_recovery.sql — see that file's remarks).
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+    token_hash      text PRIMARY KEY,
+    user_id         uuid NOT NULL,
+    organization_id uuid NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+    requested_at    timestamptz NOT NULL DEFAULT now(),
+    expires_at      timestamptz NOT NULL,
+    consumed_at     timestamptz NULL
+);
+CREATE INDEX IF NOT EXISTS password_reset_tokens_user_active_idx
+    ON password_reset_tokens (user_id) WHERE consumed_at IS NULL;
+CREATE INDEX IF NOT EXISTS password_reset_tokens_expires_idx ON password_reset_tokens (expires_at);
+
+ALTER TABLE password_reset_tokens ENABLE ROW LEVEL SECURITY;
+ALTER TABLE password_reset_tokens FORCE ROW LEVEL SECURITY;
+REVOKE ALL ON password_reset_tokens FROM PUBLIC;
+GRANT SELECT, INSERT, UPDATE, DELETE ON password_reset_tokens TO app_runtime;
+
+DROP POLICY IF EXISTS password_reset_tokens_lookup ON password_reset_tokens;
+CREATE POLICY password_reset_tokens_lookup ON password_reset_tokens FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS password_reset_tokens_issue ON password_reset_tokens;
+CREATE POLICY password_reset_tokens_issue ON password_reset_tokens
+    FOR INSERT WITH CHECK (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid);
+
+DROP POLICY IF EXISTS password_reset_tokens_consume ON password_reset_tokens;
+CREATE POLICY password_reset_tokens_consume ON password_reset_tokens
+    FOR UPDATE USING (true) WITH CHECK (consumed_at IS NOT NULL);
+
+DROP POLICY IF EXISTS password_reset_tokens_purge ON password_reset_tokens;
+CREATE POLICY password_reset_tokens_purge ON password_reset_tokens
+    FOR DELETE USING (expires_at < now() - interval '7 days');
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS session_version integer NOT NULL DEFAULT 0;

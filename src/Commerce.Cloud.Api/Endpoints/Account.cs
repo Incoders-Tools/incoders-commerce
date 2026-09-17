@@ -1,5 +1,9 @@
+using System.Net;
 using System.Security.Claims;
+using System.Security.Cryptography;
+using System.Text;
 using Commerce.Cloud.Api.Authentication;
+using Commerce.Cloud.Api.Email;
 using Commerce.Cloud.Api.Persistence;
 using Commerce.Cloud.Api.Tenancy;
 using Commerce.Domain.Identity;
@@ -91,6 +95,7 @@ public static class AccountEndpoints
                 new Claim(TenantScopeResolver.OrganizationClaimType, credential.OrganizationId.ToString()),
                 new Claim(ClaimTypes.NameIdentifier, credential.Id.ToString()),
                 new Claim(ClaimTypes.Name, credential.Email),
+                new Claim("session_ver", credential.SessionVersion.ToString()),
             };
             var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
             var principal = new ClaimsPrincipal(identity);
@@ -98,6 +103,252 @@ public static class AccountEndpoints
             await httpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal);
 
             return Results.Ok(new SignedInResponse(credential.OrganizationId, credential.Id, credential.Email));
+        });
+
+        // --- Renew: authenticated, self-service, known-current-password
+        // change (commerce-password-recovery design.md "Renew (authenticated)").
+        group.MapPost("/renew-password", async (
+            RenewPasswordRequest request,
+            HttpContext httpContext,
+            PostgresUserAccountStore userStore,
+            PostgresPasswordRecoveryStore recoveryStore,
+            SessionVersionCache sessionVersionCache,
+            PasswordHasher<UserAccount> hasher,
+            CancellationToken ct) =>
+        {
+            if (string.IsNullOrWhiteSpace(request.CurrentPassword) || string.IsNullOrWhiteSpace(request.NewPassword))
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["request"] = ["currentPassword and newPassword are required."],
+                });
+            }
+
+            if (!TenantScopeResolver.TryResolve(httpContext.User, out var scope, out _))
+            {
+                return Results.Unauthorized();
+            }
+
+            var nameClaim = httpContext.User.FindFirst(ClaimTypes.Name)?.Value;
+            var userIdClaim = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (nameClaim is null || userIdClaim is null || !Guid.TryParse(userIdClaim, out var userId))
+            {
+                return Results.Unauthorized();
+            }
+
+            var credential = await userStore.FindByEmailAsync(scope!, nameClaim, ct);
+            if (credential is null || credential.IsRevoked)
+            {
+                return Results.Unauthorized();
+            }
+
+            var verification = hasher.VerifyHashedPassword(
+                new UserAccount(credential.Id, credential.OrganizationId, [], []), credential.PasswordHash, request.CurrentPassword);
+            if (verification == PasswordVerificationResult.Failed)
+            {
+                return Results.Unauthorized();
+            }
+
+            var newPasswordHash = hasher.HashPassword(
+                new UserAccount(credential.Id, credential.OrganizationId, [], []), request.NewPassword);
+            var newVersion = await recoveryStore.SetPasswordAsync(scope!, userId, newPasswordHash, ct);
+            sessionVersionCache.Set(userId, newVersion);
+
+            // Re-issue the acting browser's own cookie carrying the NEW
+            // session_ver — every OTHER cookie is now stale (design.md
+            // "Renew"). SignOutAsync then SignInAsync avoids stacking claims.
+            await httpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+            var refreshedClaims = new[]
+            {
+                new Claim(TenantScopeResolver.OrganizationClaimType, credential.OrganizationId.ToString()),
+                new Claim(ClaimTypes.NameIdentifier, credential.Id.ToString()),
+                new Claim(ClaimTypes.Name, credential.Email),
+                new Claim("session_ver", newVersion.ToString()),
+            };
+            var refreshedIdentity = new ClaimsIdentity(refreshedClaims, CookieAuthenticationDefaults.AuthenticationScheme);
+            await httpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(refreshedIdentity));
+
+            return Results.NoContent();
+        }).RequireAuthorization();
+
+        // --- Reset-request: anonymous, uniform-response forgot-password
+        // start (commerce-password-recovery design.md "Reset request
+        // (anonymous)"). Every branch returns the SAME empty-body 202 so the
+        // response never discloses whether the email matched a user.
+        group.MapPost("/reset-password/request", async (
+            ResetPasswordRequest request,
+            HttpContext httpContext,
+            PostgresUserAccountStore userStore,
+            PostgresPasswordRecoveryStore recoveryStore,
+            ResetRequestThrottle throttle,
+            IEmailSender emailSender,
+            EmailOptions emailOptions,
+            PasswordHasher<UserAccount> hasher,
+            ILoggerFactory loggerFactory,
+            CancellationToken ct) =>
+        {
+            if (string.IsNullOrWhiteSpace(request.Email))
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["email"] = ["email is required."],
+                });
+            }
+
+            var normalizedEmail = request.Email.Trim().ToLowerInvariant();
+            if (!throttle.TryAcquire(normalizedEmail, httpContext.Connection.RemoteIpAddress))
+            {
+                // Throttled: still 202, no token, no mail, no log of the
+                // address (design.md "Throttled response").
+                return Results.StatusCode(StatusCodes.Status202Accepted);
+            }
+
+            var directoryEntry = await userStore.FindDirectoryEntryAsync(request.Email, ct);
+            if (directoryEntry is null)
+            {
+                // Timing parity with the known-email path.
+                hasher.VerifyHashedPassword(
+                    new UserAccount(Guid.Empty, Guid.Empty, [], []), DummyPasswordHash, "dummy-password-for-timing-parity-only");
+                return Results.StatusCode(StatusCodes.Status202Accepted);
+            }
+
+            var scope = new CloudTenantScope(directoryEntry.OrganizationId);
+            var credential = await userStore.FindByEmailAsync(scope, request.Email, ct);
+            if (credential is null || credential.IsRevoked)
+            {
+                hasher.VerifyHashedPassword(
+                    new UserAccount(Guid.Empty, Guid.Empty, [], []), DummyPasswordHash, "dummy-password-for-timing-parity-only");
+                return Results.StatusCode(StatusCodes.Status202Accepted);
+            }
+
+            var tokenBytes = RandomNumberGenerator.GetBytes(32);
+            var token = Convert.ToBase64String(tokenBytes).Replace('+', '-').Replace('/', '_').TrimEnd('=');
+            var tokenHash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
+            var expiresAt = DateTimeOffset.UtcNow.AddHours(1);
+
+            await recoveryStore.IssueTokenAsync(scope, credential.Id, tokenHash, expiresAt, ct);
+
+            var link = $"{emailOptions.PublicBaseUrl}/reset-password?token={token}";
+            var textBody =
+                $"Reset your Commerce password by visiting {link}\n\n" +
+                "This link expires in 1 hour and can be used once. " +
+                "If you did not request this, ignore this email.";
+            var htmlBody =
+                $"<p>Reset your Commerce password by <a href=\"{link}\">clicking here</a>.</p>" +
+                "<p>This link expires in 1 hour and can be used once. " +
+                "If you did not request this, ignore this email.</p>";
+
+            var sent = await emailSender.SendAsync(
+                new EmailMessage(credential.Email, "Reset your Commerce password", htmlBody, textBody), ct);
+            if (!sent)
+            {
+                var logger = loggerFactory.CreateLogger("Commerce.Cloud.Api.PasswordRecovery");
+                logger.LogError("Failed to send a password-reset email; the token was still issued.");
+            }
+
+            return Results.StatusCode(StatusCodes.Status202Accepted);
+        }).AllowAnonymous();
+
+        // --- Confirm: anonymous, single-use token consumption
+        // (commerce-password-recovery design.md "Reset confirm
+        // (anonymous)"). Every failure branch returns the SAME generic 401.
+        group.MapPost("/reset-password/confirm", async (
+            ConfirmResetPasswordRequest request,
+            PostgresPasswordRecoveryStore recoveryStore,
+            SessionVersionCache sessionVersionCache,
+            PasswordHasher<UserAccount> hasher,
+            CancellationToken ct) =>
+        {
+            // Validate BEFORE consuming the token (design.md "Weak-input
+            // ordering") — a caller mistake must not burn a single-use token.
+            if (string.IsNullOrWhiteSpace(request.Token) || string.IsNullOrWhiteSpace(request.NewPassword))
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["request"] = ["token and newPassword are required."],
+                });
+            }
+
+            var tokenHash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(request.Token)));
+            var tokenRecord = await recoveryStore.FindTokenAsync(tokenHash, ct);
+            if (tokenRecord is null || tokenRecord.ConsumedAt is not null || tokenRecord.ExpiresAt <= DateTimeOffset.UtcNow)
+            {
+                return Results.Unauthorized();
+            }
+
+            var scope = new CloudTenantScope(tokenRecord.OrganizationId);
+            var newPasswordHash = hasher.HashPassword(
+                new UserAccount(tokenRecord.UserId, tokenRecord.OrganizationId, [], []), request.NewPassword);
+            var newVersion = await recoveryStore.ConsumeAndSetPasswordAsync(
+                scope, tokenRecord.UserId, tokenHash, newPasswordHash, ct);
+            sessionVersionCache.Set(tokenRecord.UserId, newVersion);
+
+            return Results.NoContent();
+        }).AllowAnonymous();
+
+        // --- Admin-forced reset: authenticated, ManageUsers-gated, same-org
+        // only (commerce-password-recovery design.md "Admin-forced reset" /
+        // "Admin authorization shape"). Catalog.cs's exact pattern:
+        // RequireAuthorization + TenantScopeEndpointFilter, actor loaded from
+        // the store, target loaded scoped to the CALLER's org so RLS makes a
+        // cross-org target indistinguishable from "no such user".
+        var adminGroup = app.MapGroup("/account/users")
+            .RequireAuthorization()
+            .AddEndpointFilter<TenantScopeEndpointFilter>();
+
+        adminGroup.MapPost("/{userId:guid}/reset-password", async (
+            Guid userId,
+            AdminResetPasswordRequest request,
+            HttpContext httpContext,
+            PostgresUserAccountStore userStore,
+            PostgresPasswordRecoveryStore recoveryStore,
+            SessionVersionCache sessionVersionCache,
+            PasswordHasher<UserAccount> hasher,
+            CancellationToken ct) =>
+        {
+            if (string.IsNullOrWhiteSpace(request.NewPassword))
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["newPassword"] = ["newPassword is required."],
+                });
+            }
+
+            var scope = TenantScopeEndpointFilter.GetScope(httpContext);
+
+            var callerIdClaim = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (callerIdClaim is null || !Guid.TryParse(callerIdClaim, out var callerId))
+            {
+                return Results.Forbid();
+            }
+
+            var caller = await userStore.LoadActorAsync(scope, callerId, ct);
+            if (caller is null || caller.IsRevoked)
+            {
+                return Results.Forbid();
+            }
+
+            if (!caller.EffectivePermissions.HasFlag(Permission.ManageUsers))
+            {
+                return Results.Forbid();
+            }
+
+            // Scoped to the CALLER's org: users_tenant_isolation RLS returns
+            // zero rows for a cross-org target, so this is null identically
+            // to "no such user" — no explicit organization_id comparison
+            // needed (design.md "Admin authorization shape").
+            var target = await userStore.LoadActorAsync(scope, userId, ct);
+            if (target is null)
+            {
+                return Results.NotFound();
+            }
+
+            var newPasswordHash = hasher.HashPassword(
+                new UserAccount(userId, scope.OrganizationId, [], []), request.NewPassword);
+            var newVersion = await recoveryStore.SetPasswordAsync(scope, userId, newPasswordHash, ct);
+            sessionVersionCache.Set(userId, newVersion);
+
+            return Results.NoContent();
         });
 
         group.MapPost("/sign-out", async (HttpContext httpContext) =>
@@ -206,6 +457,14 @@ public static class AccountEndpoints
 }
 
 public sealed record SignInRequest(string Email, string Password);
+
+public sealed record RenewPasswordRequest(string CurrentPassword, string NewPassword);
+
+public sealed record ResetPasswordRequest(string Email);
+
+public sealed record ConfirmResetPasswordRequest(string Token, string NewPassword);
+
+public sealed record AdminResetPasswordRequest(string NewPassword);
 
 public sealed record SignedInResponse(Guid OrganizationId, Guid UserId, string DisplayName);
 

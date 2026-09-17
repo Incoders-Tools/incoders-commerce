@@ -63,6 +63,9 @@ On the Railway service created in step 3, set:
 | `ConnectionStrings__Commerce` | `Host=<project-ref>.pooler.supabase.com;Port=6543;Database=postgres;Username=app_runtime;Password=<app_runtime password from step 2>` | Points at Supabase's **transaction-mode pooler** (port `6543`), per design.md's "Pooling + tenant scope" decision and the accepted pooler PoC outcome recorded in `deploy/README.md`. Never the `service_role` key, never the table owner. |
 | `ASPNETCORE_ENVIRONMENT` | `Staging` | Selects `appsettings.Staging.json` if/when one is added; falls back to `appsettings.json` otherwise. No literal `"staging"` string exists in application code — this is the only place the environment name is set (design.md "Environment config"). |
 | `PORT` | *(do not set manually)* | Railway injects this automatically; `Program.cs` reads it and binds Kestrel to `0.0.0.0:$PORT`. Do not hardcode a port. |
+| `RESEND_API_KEY` | *(Resend dashboard API key)* | Used by `ResendEmailSender` to deliver forgot-password reset emails. If absent, Cloud.Api falls back to `LogOnlyEmailSender` (stdout only) — safe for staging smoke tests, not for a real user-facing environment. |
+| `EMAIL_FROM_ADDRESS` | *(a Resend-verified sender address)* | The `From` address on reset emails. Must belong to a domain verified in the Resend dashboard or delivery fails. |
+| `PUBLIC_BASE_URL` | `https://<railway-domain>` | The public origin the reset email's link points back to (`{PUBLIC_BASE_URL}/reset-password?token=...`). |
 
 No other environment variables are currently read by `Program.cs` or
 `appsettings*.json`. If a future change adds configuration (e.g. an
