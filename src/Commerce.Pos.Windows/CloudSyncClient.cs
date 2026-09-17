@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
 using Commerce.Domain.Sync;
@@ -6,10 +7,17 @@ namespace Commerce.Pos.Windows;
 
 /// <summary>
 /// HttpClient-based sync client from Pos.Windows to Cloud.Api's `/sync`
-/// endpoint (design.md "Device auth"). Authenticates with the installation-
-/// bound bearer token shape `Bearer {organizationId}.{installationId}` that
-/// <c>DeviceBearerAuthenticationHandler</c> parses server-side. No IPC, no
-/// separate service — this runs in-process inside the WPF app.
+/// endpoint (design.md "Data Flow" — SYNC). Authenticates with the
+/// server-issued device credential; the identity claims are read
+/// server-side, from `DeviceBearerAuthenticationHandler`'s stored row, never
+/// from anything sent here. No IPC, no separate service — this runs
+/// in-process inside the WPF app.
+///
+/// Sync-blocked-not-sales-blocked (design.md "Why revocation cannot block a
+/// sale"): this class is referenced ONLY from `MainWindow.SyncButton_Click`.
+/// `CommitSaleButton_Click` never reads `DeviceToken` and never calls this
+/// class — a revoked/invalid credential can only ever fail a sync, never a
+/// local sale.
 /// </summary>
 public sealed class CloudSyncClient
 {
@@ -20,7 +28,7 @@ public sealed class CloudSyncClient
         _httpClient = httpClient;
     }
 
-    public async Task<SyncPushResult> PushAsync(SyncEnvelope envelope, Guid organizationId, Guid installationId, CancellationToken ct = default)
+    public async Task<SyncPushResult> PushAsync(SyncEnvelope envelope, string deviceToken, CancellationToken ct = default)
     {
         try
         {
@@ -28,10 +36,15 @@ public sealed class CloudSyncClient
             {
                 Content = JsonContent.Create(envelope)
             };
-            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
-                "Bearer", $"{organizationId}.{installationId}");
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", deviceToken);
 
             using var response = await _httpClient.SendAsync(request, ct);
+
+            if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+            {
+                return SyncPushResult.CredentialRejected(
+                    $"HTTP {(int)response.StatusCode}: device credential rejected. Re-pair this terminal.");
+            }
 
             if (!response.IsSuccessStatusCode)
             {
@@ -49,9 +62,16 @@ public sealed class CloudSyncClient
     }
 }
 
-public sealed record SyncPushResult(bool Success, InboundApplyResult? Result, string? Error)
+public sealed record SyncPushResult(bool Success, bool CredentialWasRejected, InboundApplyResult? Result, string? Error)
 {
-    public static SyncPushResult Succeeded(InboundApplyResult? result) => new(true, result, null);
+    public static SyncPushResult Succeeded(InboundApplyResult? result) => new(true, false, result, null);
 
-    public static SyncPushResult Failed(string error) => new(false, null, error);
+    public static SyncPushResult Failed(string error) => new(false, false, null, error);
+
+    /// <summary>
+    /// Distinguishes "credential rejected" (401/403 — re-pair required) from
+    /// a generic network failure (design.md "Re-pairing"), so the UI can show
+    /// a targeted hint instead of a generic sync-failure message.
+    /// </summary>
+    public static SyncPushResult CredentialRejected(string error) => new(false, true, null, error);
 }

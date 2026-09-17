@@ -71,7 +71,24 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
                     EXISTS (
                         SELECT 1 FROM pg_policies
                         WHERE tablename = 'branches' AND policyname = 'branches_tenant_isolation'
-                    ) AS branches_policy_exists
+                    ) AS branches_policy_exists,
+                    EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'device_credentials') AS device_credentials_table_exists,
+                    EXISTS (
+                        SELECT 1 FROM pg_class
+                        WHERE relname = 'device_credentials' AND relrowsecurity AND relforcerowsecurity
+                    ) AS device_credentials_rls_forced,
+                    EXISTS (
+                        SELECT 1 FROM pg_policies
+                        WHERE tablename = 'device_credentials' AND policyname = 'device_credentials_lookup'
+                    ) AS device_credentials_lookup_policy_exists,
+                    EXISTS (
+                        SELECT 1 FROM pg_policies
+                        WHERE tablename = 'device_credentials' AND policyname = 'device_credentials_issue'
+                    ) AS device_credentials_issue_policy_exists,
+                    EXISTS (
+                        SELECT 1 FROM pg_policies
+                        WHERE tablename = 'device_credentials' AND policyname = 'device_credentials_revoke'
+                    ) AS device_credentials_revoke_policy_exists
                 """, connection);
 
             await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
@@ -96,18 +113,25 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
             var branchesTableExists = reader.GetBoolean(13);
             var branchesRlsForced = reader.GetBoolean(14);
             var branchesPolicyExists = reader.GetBoolean(15);
+            var deviceCredentialsTableExists = reader.GetBoolean(16);
+            var deviceCredentialsRlsForced = reader.GetBoolean(17);
+            var deviceCredentialsLookupPolicyExists = reader.GetBoolean(18);
+            var deviceCredentialsIssuePolicyExists = reader.GetBoolean(19);
+            var deviceCredentialsRevokePolicyExists = reader.GetBoolean(20);
 
             var allHealthy = syncInboxTableExists && syncInboxRlsForced && syncInboxPolicyExists && roleExists
                 && usersTableExists && usersRlsForced && usersPolicyExists
                 && userDirectoryTableExists && userDirectoryRlsForced && userDirectoryPolicyExists
                 && organizationsTableExists && organizationsRlsForced && organizationsPolicyExists
-                && branchesTableExists && branchesRlsForced && branchesPolicyExists;
+                && branchesTableExists && branchesRlsForced && branchesPolicyExists
+                && deviceCredentialsTableExists && deviceCredentialsRlsForced
+                && deviceCredentialsLookupPolicyExists && deviceCredentialsIssuePolicyExists && deviceCredentialsRevokePolicyExists;
 
             if (allHealthy)
             {
                 return HealthCheckResult.Healthy(
-                    "sync_inbox, users, user_directory, organizations, and branches tables, forced RLS, " +
-                    "tenant-isolation policies, and app_runtime role all verified.");
+                    "sync_inbox, users, user_directory, organizations, branches, and device_credentials tables, " +
+                    "forced RLS, tenant-isolation policies, and app_runtime role all verified.");
             }
 
             return HealthCheckResult.Unhealthy(
@@ -115,8 +139,10 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
                 $"role_exists={roleExists}, users(table={usersTableExists}, rls_forced={usersRlsForced}, policy={usersPolicyExists}), " +
                 $"user_directory(table={userDirectoryTableExists}, rls_forced={userDirectoryRlsForced}, policy={userDirectoryPolicyExists}), " +
                 $"organizations(table={organizationsTableExists}, rls_forced={organizationsRlsForced}, policy={organizationsPolicyExists}), " +
-                $"branches(table={branchesTableExists}, rls_forced={branchesRlsForced}, policy={branchesPolicyExists}). " +
-                "Apply deploy/db/migrations/0001_init_rls.sql, 0002_users.sql, and 0003_organizations_branches.sql.");
+                $"branches(table={branchesTableExists}, rls_forced={branchesRlsForced}, policy={branchesPolicyExists}), " +
+                $"device_credentials(table={deviceCredentialsTableExists}, rls_forced={deviceCredentialsRlsForced}, " +
+                $"lookup_policy={deviceCredentialsLookupPolicyExists}, issue_policy={deviceCredentialsIssuePolicyExists}, revoke_policy={deviceCredentialsRevokePolicyExists}). " +
+                "Apply deploy/db/migrations/0001_init_rls.sql, 0002_users.sql, 0003_organizations_branches.sql, and 0004_device_credentials.sql.");
         }
         catch (Exception ex)
         {

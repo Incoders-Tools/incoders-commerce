@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.Encodings.Web;
+using Commerce.Cloud.Api.Persistence;
 using Commerce.Cloud.Api.Tenancy;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Options;
@@ -14,56 +15,71 @@ public static class CloudAuthenticationSchemes
 public sealed class DeviceBearerAuthenticationOptions : AuthenticationSchemeOptions;
 
 /// <summary>
-/// Minimal installation-bound bearer scheme for Pos.Windows -> Cloud.Api
-/// `/sync` (design.md "Device auth"). A desktop process carries no browser
-/// cookie, so `/sync` selects this scheme by authorization policy instead of
-/// the Identity cookie scheme used by the SPA.
+/// Installation-bound bearer scheme for Pos.Windows -> Cloud.Api `/sync`
+/// (design.md "Device auth"). A desktop process carries no browser cookie, so
+/// `/sync` selects this scheme by authorization policy instead of the
+/// Identity cookie scheme used by the SPA.
 ///
-/// Token shape for Unit 2 is intentionally minimal:
-/// `Bearer {organizationId}.{installationId}` (both GUIDs). Full
-/// installation-bound credential issuance/rotation against
-/// `InstallationIdentityService` is an explicit open question in design.md
-/// ("may deserve its own ADR") and is wired end-to-end alongside the real
-/// `CloudSyncClient` in Unit 4 (Pos.Windows WPF shell) — this handler proves
-/// the scheme-selection shape (claim -> <see cref="CloudTenantScope"/>, never
-/// a caller-submitted org id) that Unit 4 will issue real tokens against.
+/// Full rewrite (commerce-pos-installation-identity): the token carries ZERO
+/// claims. It hashes the presented bearer, looks the row up via
+/// <see cref="PostgresDeviceCredentialStore.FindByTokenHashAsync"/> (UNSCOPED
+/// — the org is not known until this lookup resolves it), checks revocation,
+/// and mints every claim from the STORED ROW — never from the presented
+/// string. The prior self-signed `Bearer {organizationId}.{installationId}`
+/// shape is rejected outright: it fails to hash to any known row.
 /// </summary>
 public sealed class DeviceBearerAuthenticationHandler : AuthenticationHandler<DeviceBearerAuthenticationOptions>
 {
+    public const string BranchClaimType = "branch_id";
     public const string InstallationClaimType = "installation_id";
+
+    private readonly PostgresDeviceCredentialStore _credentialStore;
 
     public DeviceBearerAuthenticationHandler(
         IOptionsMonitor<DeviceBearerAuthenticationOptions> options,
         ILoggerFactory logger,
-        UrlEncoder encoder)
+        UrlEncoder encoder,
+        PostgresDeviceCredentialStore credentialStore)
         : base(options, logger, encoder)
     {
+        _credentialStore = credentialStore;
     }
 
-    protected override Task<AuthenticateResult> HandleAuthenticateAsync()
+    protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
     {
         if (!Request.Headers.TryGetValue("Authorization", out var header)
             || !header.ToString().StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
         {
-            return Task.FromResult(AuthenticateResult.NoResult());
+            return AuthenticateResult.NoResult();
         }
 
         var token = header.ToString()["Bearer ".Length..].Trim();
-        var parts = token.Split('.', 2);
-        if (parts.Length != 2
-            || !Guid.TryParse(parts[0], out var organizationId) || organizationId == Guid.Empty
-            || !Guid.TryParse(parts[1], out var installationId) || installationId == Guid.Empty)
+        if (string.IsNullOrEmpty(token))
         {
-            return Task.FromResult(AuthenticateResult.Fail("Malformed device bearer token."));
+            return AuthenticateResult.Fail("Malformed device bearer token.");
+        }
+
+        var tokenHash = DeviceTokenHasher.Hash(token);
+        var record = await _credentialStore.FindByTokenHashAsync(tokenHash, Context.RequestAborted);
+
+        if (record is null)
+        {
+            return AuthenticateResult.Fail("Unknown device credential.");
+        }
+
+        if (record.IsRevoked)
+        {
+            return AuthenticateResult.Fail("Device credential revoked.");
         }
 
         var claims = new[]
         {
-            new Claim(TenantScopeResolver.OrganizationClaimType, organizationId.ToString()),
-            new Claim(InstallationClaimType, installationId.ToString())
+            new Claim(TenantScopeResolver.OrganizationClaimType, record.OrganizationId.ToString()),
+            new Claim(BranchClaimType, record.BranchId.ToString()),
+            new Claim(InstallationClaimType, record.InstallationId.ToString())
         };
         var identity = new ClaimsIdentity(claims, Scheme.Name);
         var ticket = new AuthenticationTicket(new ClaimsPrincipal(identity), Scheme.Name);
-        return Task.FromResult(AuthenticateResult.Success(ticket));
+        return AuthenticateResult.Success(ticket);
     }
 }

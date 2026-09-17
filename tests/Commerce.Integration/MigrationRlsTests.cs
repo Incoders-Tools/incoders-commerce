@@ -102,7 +102,10 @@ public sealed class MigrationRlsTests
     {
         using var connection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
         connection.Open();
-        using var cmd = new NpgsqlCommand("TRUNCATE TABLE branches, organizations", connection);
+        // CASCADE: device_credentials (0004) carries FKs to both organizations
+        // and branches, so a plain TRUNCATE of these two tables fails once
+        // any device_credentials row references them.
+        using var cmd = new NpgsqlCommand("TRUNCATE TABLE branches, organizations CASCADE", connection);
         cmd.ExecuteNonQuery();
     }
 
@@ -504,6 +507,351 @@ public sealed class MigrationRlsTests
         tx.Commit();
 
         Assert.Equal(0, count);
+    }
+
+    private static string ResolveDeviceCredentialsMigrationPath()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Commerce.sln")))
+        {
+            dir = dir.Parent;
+        }
+
+        if (dir is null)
+        {
+            throw new InvalidOperationException("Could not locate repo root (Commerce.sln) from " + AppContext.BaseDirectory);
+        }
+
+        return Path.Combine(dir.FullName, "deploy", "db", "migrations", "0004_device_credentials.sql");
+    }
+
+    private static void ApplyDeviceCredentialsMigration(NpgsqlConnection connection)
+    {
+        var sql = File.ReadAllText(ResolveDeviceCredentialsMigrationPath());
+        using var cmd = new NpgsqlCommand(sql, connection);
+        cmd.ExecuteNonQuery();
+    }
+
+    private static void ResetDeviceCredentials()
+    {
+        using var connection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        connection.Open();
+        using var cmd = new NpgsqlCommand("TRUNCATE TABLE device_credentials", connection);
+        cmd.ExecuteNonQuery();
+    }
+
+    private static void ApplyAllPriorMigrations(NpgsqlConnection connection)
+    {
+        ApplyMigration(connection);
+        ApplyUsersMigration(connection);
+        ApplyOrganizationsMigration(connection);
+        ApplyDeviceCredentialsMigration(connection);
+    }
+
+    /// <summary>
+    /// Covers commerce-pos-installation-identity task 1.3: `0004` idempotency.
+    /// </summary>
+    [Fact]
+    public void DeviceCredentialsMigration_IsIdempotent_AppliedTwiceWithoutError()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        using var connection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        connection.Open();
+        ApplyAllPriorMigrations(connection);
+
+        ApplyDeviceCredentialsMigration(connection);
+    }
+
+    /// <summary>
+    /// The asymmetry that makes verification possible: an UNSCOPED SELECT
+    /// (no `set_config` at all) still returns the row.
+    /// </summary>
+    [Fact]
+    public void DeviceCredentialsMigration_UnscopedSelect_ReturnsRow()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        var orgId = Guid.NewGuid();
+        var branchId = Guid.NewGuid();
+        var credentialId = Guid.NewGuid();
+
+        using (var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            ownerConnection.Open();
+            ApplyAllPriorMigrations(ownerConnection);
+            ResetDeviceCredentials();
+            ResetOrganizations();
+
+            using var insertOrgCmd = new NpgsqlCommand(
+                "INSERT INTO organizations (id, name) VALUES ($1, 'Org A')", ownerConnection);
+            insertOrgCmd.Parameters.AddWithValue(orgId);
+            insertOrgCmd.ExecuteNonQuery();
+
+            using var insertBranchCmd = new NpgsqlCommand(
+                "INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, 'Main')", ownerConnection);
+            insertBranchCmd.Parameters.AddWithValue(branchId);
+            insertBranchCmd.Parameters.AddWithValue(orgId);
+            insertBranchCmd.ExecuteNonQuery();
+
+            using var insertCredentialCmd = new NpgsqlCommand(
+                """
+                INSERT INTO device_credentials
+                    (token_hash, id, organization_id, branch_id, installation_id, issued_to_user_id)
+                VALUES ('hash-unscoped-read', $1, $2, $3, $4, $5)
+                """, ownerConnection);
+            insertCredentialCmd.Parameters.AddWithValue(credentialId);
+            insertCredentialCmd.Parameters.AddWithValue(orgId);
+            insertCredentialCmd.Parameters.AddWithValue(branchId);
+            insertCredentialCmd.Parameters.AddWithValue(Guid.NewGuid());
+            insertCredentialCmd.Parameters.AddWithValue(Guid.NewGuid());
+            insertCredentialCmd.ExecuteNonQuery();
+        }
+
+        using var readConnection = new NpgsqlConnection(PostgresTestFixture.DirectConnectionString);
+        readConnection.Open();
+        using var tx = readConnection.BeginTransaction();
+        using var readCmd = new NpgsqlCommand(
+            "SELECT organization_id FROM device_credentials WHERE token_hash = 'hash-unscoped-read'",
+            readConnection, tx);
+        var result = readCmd.ExecuteScalar();
+        tx.Commit();
+
+        Assert.NotNull(result);
+        Assert.Equal(orgId, (Guid)result!);
+    }
+
+    /// <summary>
+    /// Cross-org INSERT must be rejected by `device_credentials_issue`'s
+    /// WITH CHECK — a caller scoped to org B cannot insert a credential
+    /// claiming org A.
+    /// </summary>
+    [Fact]
+    public void DeviceCredentialsMigration_CrossOrgInsert_Throws()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        var orgAId = Guid.NewGuid();
+        var branchAId = Guid.NewGuid();
+
+        using (var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            ownerConnection.Open();
+            ApplyAllPriorMigrations(ownerConnection);
+            ResetDeviceCredentials();
+            ResetOrganizations();
+
+            using var insertOrgCmd = new NpgsqlCommand(
+                "INSERT INTO organizations (id, name) VALUES ($1, 'Org A')", ownerConnection);
+            insertOrgCmd.Parameters.AddWithValue(orgAId);
+            insertOrgCmd.ExecuteNonQuery();
+
+            using var insertBranchCmd = new NpgsqlCommand(
+                "INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, 'Main')", ownerConnection);
+            insertBranchCmd.Parameters.AddWithValue(branchAId);
+            insertBranchCmd.Parameters.AddWithValue(orgAId);
+            insertBranchCmd.ExecuteNonQuery();
+        }
+
+        using var writeConnection = new NpgsqlConnection(PostgresTestFixture.DirectConnectionString);
+        writeConnection.Open();
+        using var tx = writeConnection.BeginTransaction();
+        using (var scopeCmd = new NpgsqlCommand("SELECT set_config('app.current_org_id', $1, true)", writeConnection, tx))
+        {
+            // Scoped to a DIFFERENT org than orgAId, but the insert claims orgAId.
+            scopeCmd.Parameters.AddWithValue(Guid.NewGuid().ToString());
+            scopeCmd.ExecuteNonQuery();
+        }
+
+        using var insertCmd = new NpgsqlCommand(
+            """
+            INSERT INTO device_credentials
+                (token_hash, id, organization_id, branch_id, installation_id, issued_to_user_id)
+            VALUES ('hash-cross-org-insert', $1, $2, $3, $4, $5)
+            """, writeConnection, tx);
+        insertCmd.Parameters.AddWithValue(Guid.NewGuid());
+        insertCmd.Parameters.AddWithValue(orgAId);
+        insertCmd.Parameters.AddWithValue(branchAId);
+        insertCmd.Parameters.AddWithValue(Guid.NewGuid());
+        insertCmd.Parameters.AddWithValue(Guid.NewGuid());
+
+        Assert.Throws<PostgresException>(() => insertCmd.ExecuteNonQuery());
+        tx.Rollback();
+    }
+
+    /// <summary>
+    /// The revoke policy's core trick: an UNSCOPED UPDATE (no `set_config` at
+    /// all) that sets `is_revoked = true` MUST succeed — this is exactly what
+    /// cross-org re-pairing needs (revoke the org-A row while scoped to org B,
+    /// i.e. before any org-A scope is representable).
+    /// </summary>
+    [Fact]
+    public void DeviceCredentialsMigration_UnscopedUpdateToRevoked_Succeeds()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        var orgId = Guid.NewGuid();
+        var branchId = Guid.NewGuid();
+
+        using (var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            ownerConnection.Open();
+            ApplyAllPriorMigrations(ownerConnection);
+            ResetDeviceCredentials();
+            ResetOrganizations();
+
+            using var insertOrgCmd = new NpgsqlCommand(
+                "INSERT INTO organizations (id, name) VALUES ($1, 'Org A')", ownerConnection);
+            insertOrgCmd.Parameters.AddWithValue(orgId);
+            insertOrgCmd.ExecuteNonQuery();
+
+            using var insertBranchCmd = new NpgsqlCommand(
+                "INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, 'Main')", ownerConnection);
+            insertBranchCmd.Parameters.AddWithValue(branchId);
+            insertBranchCmd.Parameters.AddWithValue(orgId);
+            insertBranchCmd.ExecuteNonQuery();
+
+            using var insertCredentialCmd = new NpgsqlCommand(
+                """
+                INSERT INTO device_credentials
+                    (token_hash, id, organization_id, branch_id, installation_id, issued_to_user_id)
+                VALUES ('hash-unscoped-revoke', $1, $2, $3, $4, $5)
+                """, ownerConnection);
+            insertCredentialCmd.Parameters.AddWithValue(Guid.NewGuid());
+            insertCredentialCmd.Parameters.AddWithValue(orgId);
+            insertCredentialCmd.Parameters.AddWithValue(branchId);
+            insertCredentialCmd.Parameters.AddWithValue(Guid.NewGuid());
+            insertCredentialCmd.Parameters.AddWithValue(Guid.NewGuid());
+            insertCredentialCmd.ExecuteNonQuery();
+        }
+
+        // No set_config at all: fully unscoped session/transaction.
+        using var writeConnection = new NpgsqlConnection(PostgresTestFixture.DirectConnectionString);
+        writeConnection.Open();
+        using var tx = writeConnection.BeginTransaction();
+        using var updateCmd = new NpgsqlCommand(
+            "UPDATE device_credentials SET is_revoked = true, revoked_at = now() WHERE token_hash = 'hash-unscoped-revoke'",
+            writeConnection, tx);
+        var rows = updateCmd.ExecuteNonQuery();
+        tx.Commit();
+
+        Assert.Equal(1, rows);
+    }
+
+    /// <summary>
+    /// The structural half of the trick: an UNSCOPED UPDATE that would leave
+    /// the row NOT revoked (an un-revoke, or any field rewrite that doesn't
+    /// also revoke) MUST be rejected by `WITH CHECK (is_revoked)` — this is
+    /// what makes an unscoped un-revoke/rewrite unrepresentable, not merely
+    /// untested.
+    /// </summary>
+    [Fact]
+    public void DeviceCredentialsMigration_UnscopedUpdateToUnrevokeOrRewrite_Throws()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        var orgId = Guid.NewGuid();
+        var branchId = Guid.NewGuid();
+        var otherBranchId = Guid.NewGuid();
+
+        using (var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            ownerConnection.Open();
+            ApplyAllPriorMigrations(ownerConnection);
+            ResetDeviceCredentials();
+            ResetOrganizations();
+
+            using var insertOrgCmd = new NpgsqlCommand(
+                "INSERT INTO organizations (id, name) VALUES ($1, 'Org A')", ownerConnection);
+            insertOrgCmd.Parameters.AddWithValue(orgId);
+            insertOrgCmd.ExecuteNonQuery();
+
+            using var insertBranch1Cmd = new NpgsqlCommand(
+                "INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, 'Main')", ownerConnection);
+            insertBranch1Cmd.Parameters.AddWithValue(branchId);
+            insertBranch1Cmd.Parameters.AddWithValue(orgId);
+            insertBranch1Cmd.ExecuteNonQuery();
+
+            using var insertBranch2Cmd = new NpgsqlCommand(
+                "INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, 'Second')", ownerConnection);
+            insertBranch2Cmd.Parameters.AddWithValue(otherBranchId);
+            insertBranch2Cmd.Parameters.AddWithValue(orgId);
+            insertBranch2Cmd.ExecuteNonQuery();
+
+            using var insertRevokedCmd = new NpgsqlCommand(
+                """
+                INSERT INTO device_credentials
+                    (token_hash, id, organization_id, branch_id, installation_id, issued_to_user_id, is_revoked, revoked_at)
+                VALUES ('hash-already-revoked', $1, $2, $3, $4, $5, true, now())
+                """, ownerConnection);
+            insertRevokedCmd.Parameters.AddWithValue(Guid.NewGuid());
+            insertRevokedCmd.Parameters.AddWithValue(orgId);
+            insertRevokedCmd.Parameters.AddWithValue(branchId);
+            insertRevokedCmd.Parameters.AddWithValue(Guid.NewGuid());
+            insertRevokedCmd.Parameters.AddWithValue(Guid.NewGuid());
+            insertRevokedCmd.ExecuteNonQuery();
+
+            using var insertLiveCmd = new NpgsqlCommand(
+                """
+                INSERT INTO device_credentials
+                    (token_hash, id, organization_id, branch_id, installation_id, issued_to_user_id)
+                VALUES ('hash-live-rewrite-target', $1, $2, $3, $4, $5)
+                """, ownerConnection);
+            insertLiveCmd.Parameters.AddWithValue(Guid.NewGuid());
+            insertLiveCmd.Parameters.AddWithValue(orgId);
+            insertLiveCmd.Parameters.AddWithValue(branchId);
+            insertLiveCmd.Parameters.AddWithValue(Guid.NewGuid());
+            insertLiveCmd.Parameters.AddWithValue(Guid.NewGuid());
+            insertLiveCmd.ExecuteNonQuery();
+        }
+
+        // Attempt 1: unscoped un-revoke — the resulting row is NOT revoked.
+        using (var unrevokeConnection = new NpgsqlConnection(PostgresTestFixture.DirectConnectionString))
+        {
+            unrevokeConnection.Open();
+            using var tx = unrevokeConnection.BeginTransaction();
+            using var updateCmd = new NpgsqlCommand(
+                "UPDATE device_credentials SET is_revoked = false WHERE token_hash = 'hash-already-revoked'",
+                unrevokeConnection, tx);
+
+            Assert.Throws<PostgresException>(() => updateCmd.ExecuteNonQuery());
+            tx.Rollback();
+        }
+
+        // Attempt 2: unscoped field rewrite (branch_id) that does NOT also
+        // revoke the row — must be rejected too, not just an un-revoke.
+        using (var rewriteConnection = new NpgsqlConnection(PostgresTestFixture.DirectConnectionString))
+        {
+            rewriteConnection.Open();
+            using var tx = rewriteConnection.BeginTransaction();
+            using var updateCmd = new NpgsqlCommand(
+                "UPDATE device_credentials SET branch_id = $1 WHERE token_hash = 'hash-live-rewrite-target'",
+                rewriteConnection, tx);
+            updateCmd.Parameters.AddWithValue(otherBranchId);
+
+            Assert.Throws<PostgresException>(() => updateCmd.ExecuteNonQuery());
+            tx.Rollback();
+        }
     }
 
     [Fact]

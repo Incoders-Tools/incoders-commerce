@@ -32,15 +32,22 @@ public static class PosHostBuilder
         builder.Services.AddSingleton<IAuditSink, InMemoryAuditSink>();
         builder.Services.AddSingleton<TenantAuthorizationService>();
         builder.Services.AddSingleton<BranchNodeService>();
-        builder.Services.AddSingleton<InstallationIdentityService>();
         builder.Services.AddSingleton(_ => new LocalInstallationStore(Path.Combine(dataDirectory, "installation.json")));
 
         builder.Services.AddHttpClient<CloudSyncClient>(client =>
         {
             client.BaseAddress = new Uri(cloudApiBaseUrl);
         });
+        builder.Services.AddHttpClient<DevicePairingClient>(client =>
+        {
+            client.BaseAddress = new Uri(cloudApiBaseUrl);
+        });
 
-        builder.Services.AddSingleton<MainWindow>();
+        // MainWindow is NOT registered here: it requires an already-paired
+        // LocalInstallationRecord, which App.xaml.cs resolves via
+        // PairingWindow before MainWindow can be constructed (design.md
+        // "Data Flow" — "MainWindow is not created; there is no branch to
+        // sell into" when unpaired).
 
         return builder.Build();
     }

@@ -1,13 +1,15 @@
 using System.Windows;
+using Commerce.BranchNode;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
 namespace Commerce.Pos.Windows;
 
 /// <summary>
-/// Composition root entry point (design.md "BranchNode hosting"). Delegates
-/// the actual DI wiring to <see cref="PosHostBuilder"/> so it stays
-/// unit-testable outside the WPF application lifecycle.
+/// Composition root entry point (design.md "Data Flow" — PAIRING). If the
+/// terminal is unpaired (fresh install, or a decrypt failure treated as
+/// unpaired), <see cref="PairingWindow"/> is shown modally FIRST; on cancel,
+/// the app shuts down — an unpaired terminal has no branch to sell into.
 /// </summary>
 // Fully qualified: this namespace (Commerce.Pos.Windows) sits under the
 // enclosing Commerce namespace alongside Commerce.Application, so the bare
@@ -23,7 +25,40 @@ public partial class App : System.Windows.Application
         _host = PosHostBuilder.Build();
         _host.Start();
 
-        var mainWindow = _host.Services.GetRequiredService<MainWindow>();
+        var localInstallationStore = _host.Services.GetRequiredService<LocalInstallationStore>();
+        var identity = localInstallationStore.LoadOrCreate();
+
+        if (identity.Pairing is null)
+        {
+            var pairingClient = _host.Services.GetRequiredService<DevicePairingClient>();
+            var pairingWindow = new PairingWindow(pairingClient, localInstallationStore, identity.InstallationId);
+            var paired = pairingWindow.ShowDialog();
+
+            if (paired != true || pairingWindow.PairedRecord is null)
+            {
+                Shutdown();
+                return;
+            }
+
+            identity = pairingWindow.PairedRecord;
+        }
+
+        var mainWindow = new MainWindow(
+            _host.Services.GetRequiredService<BranchSyncStore>(),
+            _host.Services.GetRequiredService<BranchNodeService>(),
+            _host.Services.GetRequiredService<CloudSyncClient>(),
+            _host.Services.GetRequiredService<DevicePairingClient>(),
+            localInstallationStore,
+            identity);
+
+        // ShutdownMode is OnExplicitShutdown (App.xaml) specifically so that
+        // PairingWindow.Close() above (when it was shown) does not drop the
+        // open-window count to zero and shut the whole app down BEFORE
+        // MainWindow ever appears. Now that MainWindow exists, hand shutdown
+        // control back to the normal "closing the main window exits the app"
+        // behavior.
+        MainWindow = mainWindow;
+        ShutdownMode = ShutdownMode.OnMainWindowClose;
         mainWindow.Show();
     }
 

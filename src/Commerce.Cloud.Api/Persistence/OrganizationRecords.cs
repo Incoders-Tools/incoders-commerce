@@ -24,3 +24,10 @@ public enum BootstrapOutcome
     OrganizationAlreadyHasUsers,
     EmailAlreadyRegistered,
 }
+
+/// <summary>
+/// One selectable branch option surfaced by `POST /device/pair` when an
+/// operator's branch scope has more than one branch (design.md "Pairing
+/// flow").
+/// </summary>
+public sealed record BranchOption(Guid Id, string Name);

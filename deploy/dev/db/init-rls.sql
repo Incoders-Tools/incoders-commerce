@@ -152,3 +152,42 @@ DROP POLICY IF EXISTS branches_tenant_isolation ON branches;
 CREATE POLICY branches_tenant_isolation ON branches
     USING (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid)
     WITH CHECK (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid);
+
+-- Commerce POS installation identity (deploy/db/migrations/0004_device_credentials.sql),
+-- hand-synced verbatim here per the existing 0001/0002/0003/init-rls.sql
+-- convention. See 0004 for the asymmetric RLS rationale (same class of
+-- problem as user_directory_lookup: verification resolves the credential
+-- BEFORE any tenant scope is known).
+
+CREATE TABLE IF NOT EXISTS device_credentials (
+    token_hash             text PRIMARY KEY,
+    id                     uuid NOT NULL UNIQUE,
+    organization_id        uuid NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+    branch_id              uuid NOT NULL REFERENCES branches (id) ON DELETE CASCADE,
+    installation_id        uuid NOT NULL,
+    issued_to_user_id      uuid NOT NULL,
+    replaces_credential_id uuid NULL,
+    is_revoked             boolean NOT NULL DEFAULT false,
+    issued_at              timestamptz NOT NULL DEFAULT now(),
+    revoked_at             timestamptz NULL
+);
+CREATE INDEX IF NOT EXISTS device_credentials_installation_idx
+    ON device_credentials (installation_id) WHERE NOT is_revoked;
+
+ALTER TABLE device_credentials ENABLE ROW LEVEL SECURITY;
+ALTER TABLE device_credentials FORCE ROW LEVEL SECURITY;
+
+REVOKE ALL ON device_credentials FROM PUBLIC;
+GRANT SELECT, INSERT, UPDATE ON device_credentials TO app_runtime;
+
+DROP POLICY IF EXISTS device_credentials_lookup ON device_credentials;
+CREATE POLICY device_credentials_lookup ON device_credentials
+    FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS device_credentials_issue ON device_credentials;
+CREATE POLICY device_credentials_issue ON device_credentials
+    FOR INSERT WITH CHECK (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid);
+
+DROP POLICY IF EXISTS device_credentials_revoke ON device_credentials;
+CREATE POLICY device_credentials_revoke ON device_credentials
+    FOR UPDATE USING (true) WITH CHECK (is_revoked);
