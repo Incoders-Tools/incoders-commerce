@@ -23,13 +23,13 @@ test.describe('order submission', () => {
     // deliberately to prove ordering does NOT depend on it.
     const user = await seedUser(baseURL!, { email: uniqueEmail('order-submit'), password })
 
-    await page.goto('/')
+    await page.goto('/login')
     await page.getByLabel('Email').fill(user.email)
     await page.getByLabel('Password').fill(password)
     await page.getByRole('button', { name: /sign in/i }).click()
     await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible()
 
-    await page.getByRole('button', { name: 'Orders' }).click()
+    await page.getByRole('link', { name: 'Orders' }).click()
 
     await page.locator('#customerId').fill(crypto.randomUUID())
     await page.locator('#accessCredential').fill(crypto.randomUUID())

@@ -583,7 +583,7 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
 
     private static string ExtractToken(string linkContainingBody)
     {
-        var marker = "token=";
+        var marker = "/reset-password/";
         var start = linkContainingBody.IndexOf(marker, StringComparison.Ordinal) + marker.Length;
         var end = start;
         while (end < linkContainingBody.Length && !char.IsWhiteSpace(linkContainingBody[end]) && linkContainingBody[end] != '"')

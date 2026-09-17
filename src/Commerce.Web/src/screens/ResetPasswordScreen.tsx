@@ -6,12 +6,19 @@ import { Label } from '@/components/ui/label'
 import * as accountApi from '@/api/account'
 
 /**
- * Anonymous reset confirm (commerce-password-recovery design.md "Reset
- * link, no router"). The token is supplied by `useResetToken()` (read once
- * from `?token=` at mount); on success this screen clears the token via
- * `clear()`, which scrubs the URL/history and drops back to sign-in — no
- * router dependency.
+ * Anonymous reset confirm (commerce-web-routing design.md "`useResetToken`
+ * retirement"). The token is supplied by the route layer (`ResetPasswordRoute`,
+ * reading `useParams().token` from `/reset-password/:token`) — this screen's
+ * `{ token, onSuccess }` props are unchanged and it stays router-free.
  */
+
+/**
+ * Shared with `ResetPasswordRoute`'s bare-`/reset-password` (no token)
+ * treatment, so the two error states can't drift (design.md "`useResetToken`
+ * retirement").
+ */
+export const INVALID_RESET_LINK_MESSAGE = 'This reset link is invalid or has expired.'
+
 export function ResetPasswordScreen({ token, onSuccess }: { token: string; onSuccess: () => void }) {
   const [newPassword, setNewPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -27,7 +34,7 @@ export function ResetPasswordScreen({ token, onSuccess }: { token: string; onSuc
     } catch {
       // Generic message: the endpoint returns the same 401 for an unknown,
       // expired, or already-used token, so this screen must not guess which.
-      setError('This reset link is invalid or has expired.')
+      setError(INVALID_RESET_LINK_MESSAGE)
     } finally {
       setSubmitting(false)
     }
