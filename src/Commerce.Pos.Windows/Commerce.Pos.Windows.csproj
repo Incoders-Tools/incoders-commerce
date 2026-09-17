@@ -11,11 +11,15 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.0" />
-    <!-- First new PackageReference in this repo (design.md "Device token at
-         rest on the terminal"): a thin, first-party Microsoft wrapper over
-         the Windows DPAPI syscall. No crypto is hand-rolled here; the OS
-         derives the key from the current Windows user's credentials. -->
-    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.0" />
+    <!-- Device token at rest (design.md "Device token at rest on the
+         terminal") uses System.Security.Cryptography.ProtectedData -- a
+         thin, first-party Microsoft wrapper over the Windows DPAPI syscall,
+         no hand-rolled crypto, key derived by the OS from the current
+         Windows user's credentials. No explicit PackageReference is needed:
+         under net10.0-windows/UseWPF, this assembly ships as part of the
+         Windows Desktop shared framework (confirmed: an explicit reference
+         here produced an NU1510 "will not be pruned" warning and removing
+         it builds/tests identically). -->
   </ItemGroup>
 
   <ItemGroup>
