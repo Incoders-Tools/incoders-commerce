@@ -1,3 +1,4 @@
+using Commerce.Cloud.Api.Auditing;
 using Commerce.Cloud.Api.Tenancy;
 using Npgsql;
 
@@ -30,8 +31,21 @@ public sealed class PostgresOrganizationStore
         _userStore = userStore;
     }
 
+    public Task<BootstrapOutcome> TryCreateBootstrapAsync(
+        CloudTenantScope scope, NewOrganization organization, NewBranch branch, NewUserAccount admin, CancellationToken ct) =>
+        TryCreateBootstrapAsync(scope, organization, branch, admin, audit: null, ct);
+
+    /// <summary>
+    /// SQL otherwise unchanged from the original overload (design.md "File
+    /// Changes"): <paramref name="audit"/> is optional so the anonymous
+    /// `/account/bootstrap` flow keeps zero behavior change, while
+    /// `POST /platform/organizations` supplies a `platform-admin` audit row
+    /// written inside this SAME transaction — the audit row and the
+    /// created organization/branch/admin commit together or not at all.
+    /// </summary>
     public async Task<BootstrapOutcome> TryCreateBootstrapAsync(
-        CloudTenantScope scope, NewOrganization organization, NewBranch branch, NewUserAccount admin, CancellationToken ct)
+        CloudTenantScope scope, NewOrganization organization, NewBranch branch, NewUserAccount admin,
+        UserManagementAuditEntry? audit, CancellationToken ct)
     {
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
@@ -104,6 +118,11 @@ public sealed class PostgresOrganizationStore
         {
             await tx.RollbackAsync(ct);
             return BootstrapOutcome.EmailAlreadyRegistered;
+        }
+
+        if (audit is not null)
+        {
+            await AuditLogWriter.InsertAsync(connection, tx, audit, ct);
         }
 
         await tx.CommitAsync(ct);

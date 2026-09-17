@@ -66,6 +66,7 @@ On the Railway service created in step 3, set:
 | `RESEND_API_KEY` | *(Resend dashboard API key)* | Used by `ResendEmailSender` to deliver forgot-password reset emails. If absent, Cloud.Api falls back to `LogOnlyEmailSender` (stdout only) — safe for staging smoke tests, not for a real user-facing environment. |
 | `EMAIL_FROM_ADDRESS` | *(a Resend-verified sender address)* | The `From` address on reset emails. Must belong to a domain verified in the Resend dashboard or delivery fails. |
 | `PUBLIC_BASE_URL` | `https://<railway-domain>` | The public origin the reset email's link points back to (`{PUBLIC_BASE_URL}/reset-password?token=...`). |
+| `ConnectionStrings__CommercePlatformRead` | `Host=<project-ref>.pooler.supabase.com;Port=6543;Database=postgres;Username=platform_readonly;Password=<platform_readonly password from 0007>` | commerce-role-taxonomy: the ONLY cross-organization read capability in the system — a distinct, column-scoped least-privilege login provisioned by `0007_platform_administration.sql` (see `deploy/README.md`'s `0006`/`0007` section). Absent, `GET /platform/organizations` fails closed with `503` and NEVER falls back to `app_runtime`. Generate its password with the same discipline as `app_runtime`'s in step 2 — a fresh, strong, per-environment secret, never a repo commit. |
 
 No other environment variables are currently read by `Program.cs` or
 `appsettings*.json`. If a future change adds configuration (e.g. an
