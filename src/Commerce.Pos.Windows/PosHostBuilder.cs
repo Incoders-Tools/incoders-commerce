@@ -33,12 +33,18 @@ public static class PosHostBuilder
         builder.Services.AddSingleton<TenantAuthorizationService>();
         builder.Services.AddSingleton<BranchNodeService>();
         builder.Services.AddSingleton(_ => new LocalInstallationStore(Path.Combine(dataDirectory, "installation.json")));
+        builder.Services.AddSingleton(_ => new LocalOperatorStore(Path.Combine(dataDirectory, "operators.json")));
+        builder.Services.AddSingleton<CurrentOperator>();
 
         builder.Services.AddHttpClient<CloudSyncClient>(client =>
         {
             client.BaseAddress = new Uri(cloudApiBaseUrl);
         });
         builder.Services.AddHttpClient<DevicePairingClient>(client =>
+        {
+            client.BaseAddress = new Uri(cloudApiBaseUrl);
+        });
+        builder.Services.AddHttpClient<OperatorProvisioningClient>(client =>
         {
             client.BaseAddress = new Uri(cloudApiBaseUrl);
         });
