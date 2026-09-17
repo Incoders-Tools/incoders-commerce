@@ -66,10 +66,14 @@ public sealed class OrganizationStoreTests : IDisposable
         var deviceSql = File.ReadAllText(Path.Combine(repoRoot, "deploy", "db", "migrations", "0004_device_credentials.sql"));
         using (var cmd = new NpgsqlCommand(deviceSql, owner)) cmd.ExecuteNonQuery();
 
-        // device_credentials (0004) carries FKs to organizations/branches, so
-        // it must be truncated before/alongside them.
+        var recoverySql = File.ReadAllText(Path.Combine(repoRoot, "deploy", "db", "migrations", "0005_password_recovery.sql"));
+        using (var cmd = new NpgsqlCommand(recoverySql, owner)) cmd.ExecuteNonQuery();
+
+        // device_credentials (0004) and password_reset_tokens (0005) carry
+        // FKs to organizations/branches, so they must be truncated
+        // before/alongside them.
         using var resetCmd = new NpgsqlCommand(
-            "TRUNCATE TABLE user_directory, users, device_credentials, branches, organizations", owner);
+            "TRUNCATE TABLE password_reset_tokens, user_directory, users, device_credentials, branches, organizations", owner);
         resetCmd.ExecuteNonQuery();
     }
 

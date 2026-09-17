@@ -14,6 +14,25 @@ export interface SignedInResponse {
   displayName: string
 }
 
+// commerce-password-recovery design.md "Interfaces / Contracts"
+export interface ResetPasswordRequest {
+  email: string
+}
+
+export interface ConfirmResetPasswordRequest {
+  token: string
+  newPassword: string
+}
+
+export interface RenewPasswordRequest {
+  currentPassword: string
+  newPassword: string
+}
+
+export interface AdminResetPasswordRequest {
+  newPassword: string
+}
+
 export interface RoleDto {
   name: string
   permissions: number

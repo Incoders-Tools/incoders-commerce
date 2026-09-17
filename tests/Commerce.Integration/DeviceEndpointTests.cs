@@ -75,8 +75,11 @@ public sealed class DeviceEndpointTests : IClassFixture<WebApplicationFactory<Pr
         var deviceSql = File.ReadAllText(Path.Combine(repoRoot, "deploy", "db", "migrations", "0004_device_credentials.sql"));
         using (var cmd = new NpgsqlCommand(deviceSql, owner)) cmd.ExecuteNonQuery();
 
+        var recoverySql = File.ReadAllText(Path.Combine(repoRoot, "deploy", "db", "migrations", "0005_password_recovery.sql"));
+        using (var cmd = new NpgsqlCommand(recoverySql, owner)) cmd.ExecuteNonQuery();
+
         using var resetCmd = new NpgsqlCommand(
-            "TRUNCATE TABLE sync_inbox, user_directory, users, device_credentials, branches, organizations", owner);
+            "TRUNCATE TABLE password_reset_tokens, sync_inbox, user_directory, users, device_credentials, branches, organizations", owner);
         resetCmd.ExecuteNonQuery();
     }
 

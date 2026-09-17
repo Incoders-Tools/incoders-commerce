@@ -4,6 +4,7 @@ using Commerce.Application.Management;
 using Commerce.Application.Ordering;
 using Commerce.Cloud.Api;
 using Commerce.Cloud.Api.Authentication;
+using Commerce.Cloud.Api.Email;
 using Commerce.Cloud.Api.Endpoints;
 using Commerce.Cloud.Api.HealthChecks;
 using Commerce.Cloud.Api.Management;
@@ -35,6 +36,7 @@ builder.Services.AddSingleton<ICloudInboxStore, PostgresCloudInboxStore>();
 builder.Services.AddSingleton<PostgresUserAccountStore>();
 builder.Services.AddSingleton<PostgresOrganizationStore>();
 builder.Services.AddSingleton<PostgresDeviceCredentialStore>();
+builder.Services.AddSingleton<PostgresPasswordRecoveryStore>();
 
 // --- Credentials: PasswordHasher<UserAccount> is a framework type
 // (Microsoft.AspNetCore.Identity, part of the ASP.NET Core shared framework)
@@ -44,6 +46,38 @@ builder.Services.AddSingleton<PostgresDeviceCredentialStore>();
 // (design.md "Bootstrap token storage").
 builder.Services.AddSingleton<PasswordHasher<UserAccount>>();
 builder.Services.AddSingleton<BootstrapTokenRegistry>();
+
+// --- Session invalidation (commerce-password-recovery design.md "Session
+// invalidation"): a 60s-TTL cache backs OnValidatePrincipal so a stale
+// `session_ver` claim (set by any password change) is rejected without a DB
+// round-trip on every authenticated request. ---------------------------
+builder.Services.AddSingleton<SessionVersionCache>();
+builder.Services.AddSingleton<SessionVersionValidator>();
+
+// --- Anti-abuse (commerce-password-recovery design.md "Anti-abuse
+// mechanism"): in-memory fixed-window throttle, accepted single-Railway-
+// replica assumption, the same one BootstrapTokenRegistry already
+// documents. -----------------------------------------------------------
+builder.Services.AddSingleton<ResetRequestThrottle>();
+
+// --- Email (commerce-password-recovery design.md "Email seam" / "Missing
+// RESEND_API_KEY"): a typed Resend client backs the real sender; when the
+// key is absent, LogOnlyEmailSender is registered instead so local dev and
+// CI stay usable without a Resend account. -------------------------------
+var emailOptions = EmailOptions.FromEnvironment();
+builder.Services.AddSingleton(emailOptions);
+builder.Services.AddHttpClient<ResendEmailSender>(client =>
+{
+    client.BaseAddress = new Uri("https://api.resend.com");
+});
+if (string.IsNullOrWhiteSpace(emailOptions.ResendApiKey))
+{
+    builder.Services.AddSingleton<IEmailSender, LogOnlyEmailSender>();
+}
+else
+{
+    builder.Services.AddSingleton<IEmailSender>(sp => sp.GetRequiredService<ResendEmailSender>());
+}
 
 // --- Shared application services (Component Reuse Policy: reused, not
 // reimplemented) --------------------------------------------------------
@@ -68,6 +102,15 @@ builder.Services
         options.Cookie.HttpOnly = true;
         options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
         options.Cookie.SameSite = SameSiteMode.Lax;
+        // commerce-password-recovery design.md "Session invalidation": every
+        // authenticated request re-validates the `session_ver` claim against
+        // SessionVersionCache; missing claim (pre-change cookie) or mismatch
+        // (post-password-change cookie) is rejected fail-closed.
+        options.Events.OnValidatePrincipal = context =>
+        {
+            var validator = context.HttpContext.RequestServices.GetRequiredService<SessionVersionValidator>();
+            return validator.ValidateAsync(context);
+        };
     })
     .AddScheme<DeviceBearerAuthenticationOptions, DeviceBearerAuthenticationHandler>(
         CloudAuthenticationSchemes.DeviceBearer, _ => { });

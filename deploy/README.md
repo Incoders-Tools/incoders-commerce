@@ -179,6 +179,43 @@ Idempotency was confirmed locally by applying `0003_organizations_branches.sql`
 twice against `deploy/dev/compose.yaml`'s Postgres container — the second
 apply is a clean no-op, exactly like `0001`/`0002`.
 
+### commerce-password-recovery — `0005_password_recovery.sql`
+
+`deploy/db/migrations/0005_password_recovery.sql` adds the
+`password_reset_tokens` table (single-use, hash-at-rest, 1-hour-expiry reset
+tokens) and a `users.session_version` column used to invalidate existing
+cookie sessions on any password change. It has NO password placeholder to
+substitute — `app_runtime` already exists from `0001` — so it is applied
+directly:
+
+```bash
+psql "postgresql://postgres:<db-password>@<project-ref>.supabase.co:5432/postgres" \
+  -f deploy/db/migrations/0005_password_recovery.sql
+```
+
+**Migrate-before-deploy ordering, same as `0001`–`0004`**: apply
+`0005_password_recovery.sql` to the target environment's database BEFORE
+deploying the Cloud.Api image that expects it. `/health/ready` verifies
+`password_reset_tokens` (FORCE RLS + policies) in addition to every prior
+table, so a deploy that runs ahead of the migration fails closed at readiness
+rather than serving requests against a missing schema.
+
+**Deploying this change signs out every existing session once**: every
+cookie issued before this change lacks the `session_ver` claim added by this
+slice and is rejected at the next request — a one-time, self-healing,
+fail-closed side effect. Call this out to users/support before deploying.
+
+Idempotency was confirmed locally by applying `0005_password_recovery.sql`
+twice against `deploy/dev/compose.yaml`'s Postgres container — the second
+apply is a clean no-op, exactly like `0001`–`0004`.
+
+Before smoke-testing one real reset, confirm the required Railway variables
+below are set: `RESEND_API_KEY`, `EMAIL_FROM_ADDRESS` (a Resend-verified
+sender domain), and `PUBLIC_BASE_URL` (the public origin the reset email
+links back to). If `RESEND_API_KEY` is absent, Cloud.Api falls back to
+`LogOnlyEmailSender`, which writes the reset link to stdout instead of
+sending real email — safe for local/dev, not for production.
+
 ## Local full stack via Docker Compose
 
 `deploy/dev/compose.yaml` gained a `full` profile (Unit 5) that also
