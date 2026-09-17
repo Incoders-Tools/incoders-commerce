@@ -109,4 +109,39 @@ public sealed class PostgresOrganizationStore
         await tx.CommitAsync(ct);
         return BootstrapOutcome.Created;
     }
+
+    /// <summary>
+    /// Org-scoped, ordered lookup of branches by id (design.md "File
+    /// Changes"). Used by `POST /device/pair` to resolve the operator's
+    /// `branch_scope` guids into display names — a caller-submitted branch id
+    /// outside this list is never trusted, so the caller must intersect
+    /// against `branch_scope` BEFORE calling this.
+    /// </summary>
+    public async Task<IReadOnlyList<BranchOption>> ListBranchesAsync(CloudTenantScope scope, Guid[] branchIds, CancellationToken ct)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+
+        await using (var scopeCmd = new NpgsqlCommand(
+            "SELECT set_config('app.current_org_id', $1, true)", connection, tx))
+        {
+            scopeCmd.Parameters.AddWithValue(scope.OrganizationId.ToString());
+            await scopeCmd.ExecuteNonQueryAsync(ct);
+        }
+
+        var results = new List<BranchOption>();
+        await using (var cmd = new NpgsqlCommand(
+            "SELECT id, name FROM branches WHERE id = ANY($1) ORDER BY name", connection, tx))
+        {
+            cmd.Parameters.AddWithValue(branchIds);
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+            {
+                results.Add(new BranchOption(reader.GetGuid(0), reader.GetString(1)));
+            }
+        }
+
+        await tx.CommitAsync(ct);
+        return results;
+    }
 }

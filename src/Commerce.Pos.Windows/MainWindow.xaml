@@ -3,8 +3,13 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Commerce Pos.Windows" Height="420" Width="560">
     <StackPanel Margin="16">
-        <TextBlock Text="Branch Node Identity" FontWeight="Bold" FontSize="16" Margin="0,0,0,8" />
-        <TextBlock x:Name="IdentityText" TextWrapping="Wrap" Margin="0,0,0,16" />
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+            <StackPanel>
+                <TextBlock Text="Terminal Identity" FontWeight="Bold" FontSize="16" Margin="0,0,0,8" />
+                <TextBlock x:Name="IdentityText" TextWrapping="Wrap" />
+            </StackPanel>
+            <Button x:Name="RepairButton" Content="Re-pair terminal" VerticalAlignment="Top" Margin="24,0,0,0" Click="RepairButton_Click" />
+        </StackPanel>
 
         <TextBlock Text="Branch Status" FontWeight="Bold" FontSize="16" Margin="0,0,0,8" />
         <TextBlock x:Name="StatusText" TextWrapping="Wrap" Margin="0,0,0,16" />

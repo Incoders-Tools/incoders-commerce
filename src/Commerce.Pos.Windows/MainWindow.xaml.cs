@@ -1,50 +1,67 @@
 using System.Globalization;
 using System.Windows;
-using Commerce.Application.Access;
 using Commerce.BranchNode;
 using Commerce.Domain.Sync;
 
 namespace Commerce.Pos.Windows;
 
 /// <summary>
-/// Minimal but functionally real shell (design.md "POS Shell with In-Process
-/// Branch Node"): proves the app launches, BranchNode initializes in-process,
-/// an offline sale lands in the local SQLite branch.db, and sync against
-/// Cloud.Api is visibly attempted and its outcome shown. Not production UX —
-/// a walking-skeleton proof, matching commerce-foundation's own precedent.
+/// Minimal but functionally real shell (design.md "Data Flow"): proves the
+/// app launches, BranchNode initializes in-process, an offline sale lands in
+/// the local SQLite branch.db, and sync against Cloud.Api is visibly
+/// attempted and its outcome shown.
+///
+/// Sync-blocked-not-sales-blocked (structural, design.md): `DeviceToken` is
+/// read in exactly ONE expression — the `PushAsync` call inside
+/// <see cref="SyncButton_Click"/>. <see cref="CommitSaleButton_Click"/> never
+/// reads it and never calls <see cref="CloudSyncClient"/> — a revoked
+/// credential therefore cannot reach the local-write path even in principle.
 /// </summary>
 public partial class MainWindow : Window
 {
     private readonly BranchSyncStore _store;
     private readonly BranchNodeService _branchNodeService;
     private readonly CloudSyncClient _syncClient;
-    private readonly LocalInstallationRecord _identity;
+    private readonly DevicePairingClient _pairingClient;
+    private readonly LocalInstallationStore _localInstallationStore;
+    private readonly Guid _installationId;
+    private DevicePairing _pairing;
 
     public MainWindow(
         BranchSyncStore store,
         BranchNodeService branchNodeService,
         CloudSyncClient syncClient,
-        InstallationIdentityService installationIdentityService,
-        LocalInstallationStore localInstallationStore)
+        DevicePairingClient pairingClient,
+        LocalInstallationStore localInstallationStore,
+        LocalInstallationRecord identity)
     {
         InitializeComponent();
 
         _store = store;
         _branchNodeService = branchNodeService;
         _syncClient = syncClient;
-        _identity = localInstallationStore.LoadOrCreate(installationIdentityService);
+        _pairingClient = pairingClient;
+        _localInstallationStore = localInstallationStore;
+        _installationId = identity.InstallationId;
+        _pairing = identity.Pairing
+            ?? throw new InvalidOperationException("MainWindow requires an already-paired identity; App.xaml.cs must pair first.");
 
-        IdentityText.Text =
-            $"Organization: {_identity.OrganizationId}\n" +
-            $"Branch: {_identity.BranchId}\n" +
-            $"Installation: {_identity.InstallationId}";
-
+        RefreshIdentityText();
         RefreshStatus();
+    }
+
+    private void RefreshIdentityText()
+    {
+        IdentityText.Text =
+            $"Organization: {_pairing.OrganizationId}\n" +
+            $"Branch: {_pairing.BranchName} ({_pairing.BranchId})\n" +
+            $"Operator: {_pairing.OperatorEmail}\n" +
+            $"Installation: {_installationId}";
     }
 
     private void RefreshStatus()
     {
-        var status = _branchNodeService.GetStatus(_identity.BranchId, isOffline: true);
+        var status = _branchNodeService.GetStatus(_pairing.BranchId, isOffline: true);
         StatusText.Text =
             $"Pending outbox operations: {status.PendingOperationCount}\n" +
             $"Last acknowledged: {(status.LastAcknowledgedUtc?.ToString("O") ?? "never")}";
@@ -58,10 +75,12 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Zero references to DeviceToken, zero HTTP, zero credential validity
+        // check — a fully revoked device credential never reaches this path.
         var result = _branchNodeService.CompleteOfflineSale(
-            organizationId: _identity.OrganizationId,
-            branchId: _identity.BranchId,
-            actorId: _identity.InstallationId,
+            organizationId: _pairing.OrganizationId,
+            branchId: _pairing.BranchId,
+            actorId: _installationId,
             saleId: Guid.NewGuid(),
             totalAmount: amount,
             operationId: Guid.NewGuid(),
@@ -78,7 +97,7 @@ public partial class MainWindow : Window
     {
         SyncResultText.Text = "Syncing...";
 
-        var pending = _store.GetPendingOutbox(_identity.BranchId);
+        var pending = _store.GetPendingOutbox(_pairing.BranchId);
         if (pending.Count == 0)
         {
             SyncResultText.Text = "Nothing pending to sync.";
@@ -87,10 +106,11 @@ public partial class MainWindow : Window
 
         var succeeded = 0;
         var failures = new List<string>();
+        var credentialRejected = false;
 
         foreach (var envelope in pending)
         {
-            var pushResult = await _syncClient.PushAsync(envelope, _identity.OrganizationId, _identity.InstallationId);
+            var pushResult = await _syncClient.PushAsync(envelope, _pairing.DeviceToken);
             if (pushResult.Success)
             {
                 _branchNodeService.Acknowledge(envelope.OperationId);
@@ -99,13 +119,44 @@ public partial class MainWindow : Window
             else
             {
                 failures.Add($"{envelope.OperationId}: {pushResult.Error}");
+                credentialRejected |= pushResult.CredentialWasRejected;
             }
         }
 
-        SyncResultText.Text = failures.Count == 0
+        var summary = failures.Count == 0
             ? $"Synced {succeeded} operation(s) successfully."
             : $"Synced {succeeded} operation(s); {failures.Count} failed:\n{string.Join("\n", failures)}";
 
+        if (credentialRejected)
+        {
+            summary += "\n\nDevice credential rejected — click \"Re-pair terminal\" to continue syncing.";
+        }
+
+        SyncResultText.Text = summary;
         RefreshStatus();
+    }
+
+    /// <summary>
+    /// Always-visible button (design.md "Re-pairing": NOT an automatic
+    /// interrupt-the-sale modal) opening <see cref="PairingWindow"/> modally
+    /// and reloading identity on success. Never blocks
+    /// <see cref="CommitSaleButton_Click"/> — the operator chooses when to
+    /// re-pair.
+    /// </summary>
+    private void RepairButton_Click(object sender, RoutedEventArgs e)
+    {
+        var pairingWindow = new PairingWindow(_pairingClient, _localInstallationStore, _installationId)
+        {
+            Owner = this
+        };
+
+        var result = pairingWindow.ShowDialog();
+        if (result == true && pairingWindow.PairedRecord?.Pairing is not null)
+        {
+            _pairing = pairingWindow.PairedRecord.Pairing;
+            RefreshIdentityText();
+            RefreshStatus();
+            SyncResultText.Text = "Re-paired. Previously pending outbox items will flush on the next sync.";
+        }
     }
 }

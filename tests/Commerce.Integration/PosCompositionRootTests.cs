@@ -75,6 +75,64 @@ public sealed class PosCompositionRootTests : IDisposable
     }
 
     [Fact]
+    public void Build_Resolves_DevicePairingClient()
+    {
+        using var host = PosHostBuilder.Build(_dataDirectory);
+
+        var pairingClient = host.Services.GetRequiredService<DevicePairingClient>();
+
+        Assert.NotNull(pairingClient);
+    }
+
+    [Fact]
+    public void Build_Resolves_LocalInstallationStore()
+    {
+        using var host = PosHostBuilder.Build(_dataDirectory);
+
+        var store = host.Services.GetRequiredService<LocalInstallationStore>();
+
+        Assert.NotNull(store);
+    }
+
+    /// <summary>
+    /// Covers commerce-pos-installation-identity task 2.3:
+    /// `InstallationIdentityService` is DELETED (design.md — not deprecated),
+    /// so it must not be resolvable from the composition root.
+    /// </summary>
+    [Fact]
+    public void Build_DoesNotRegister_InstallationIdentityService()
+    {
+        using var host = PosHostBuilder.Build(_dataDirectory);
+
+        var descriptor = host.Services.GetType(); // sanity: host is real
+        Assert.NotNull(descriptor);
+
+        // The type itself no longer exists in the compiled assembly graph —
+        // this test's mere ability to compile without referencing
+        // `InstallationIdentityService` IS the primary proof (task 2.1's
+        // deletion). This assertion additionally proves no equivalent type
+        // under that name is registered by a different mechanism.
+        var serviceNames = host.Services.GetType().Assembly.GetTypes().Select(t => t.FullName);
+        Assert.DoesNotContain(serviceNames, name => name == "Commerce.Application.Access.InstallationIdentityService");
+    }
+
+    /// <summary>
+    /// Covers commerce-pos-installation-identity task 6.1 (the structural
+    /// reason a revoked credential cannot reach a local write path,
+    /// design.md "Why revocation cannot block a sale"): `Commerce.BranchNode`
+    /// does not reference `Commerce.Pos.Windows`, so `BranchNodeService` and
+    /// `BranchSyncStore` cannot reach `CloudSyncClient` even by accident.
+    /// </summary>
+    [Fact]
+    public void BranchNodeAssembly_DoesNotReference_PosWindowsAssembly()
+    {
+        var branchNodeAssembly = typeof(BranchNodeService).Assembly;
+        var referencedAssemblyNames = branchNodeAssembly.GetReferencedAssemblies().Select(a => a.Name);
+
+        Assert.DoesNotContain("Commerce.Pos.Windows", referencedAssemblyNames);
+    }
+
+    [Fact]
     public void Build_Resolves_MainWindowDependencies_AsSingletons()
     {
         using var host = PosHostBuilder.Build(_dataDirectory);

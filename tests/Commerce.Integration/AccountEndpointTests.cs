@@ -62,7 +62,13 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
         var orgsSql = File.ReadAllText(Path.Combine(repoRoot.FullName, "deploy", "db", "migrations", "0003_organizations_branches.sql"));
         using (var cmd = new NpgsqlCommand(orgsSql, owner)) cmd.ExecuteNonQuery();
 
-        using var resetCmd = new NpgsqlCommand("TRUNCATE TABLE user_directory, users, branches, organizations", owner);
+        var deviceSql = File.ReadAllText(Path.Combine(repoRoot.FullName, "deploy", "db", "migrations", "0004_device_credentials.sql"));
+        using (var cmd = new NpgsqlCommand(deviceSql, owner)) cmd.ExecuteNonQuery();
+
+        // device_credentials (0004) carries FKs to organizations/branches, so
+        // it must be truncated before/alongside them.
+        using var resetCmd = new NpgsqlCommand(
+            "TRUNCATE TABLE user_directory, users, device_credentials, branches, organizations", owner);
         resetCmd.ExecuteNonQuery();
     }
 

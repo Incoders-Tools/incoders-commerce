@@ -11,6 +11,11 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.0" />
+    <!-- First new PackageReference in this repo (design.md "Device token at
+         rest on the terminal"): a thin, first-party Microsoft wrapper over
+         the Windows DPAPI syscall. No crypto is hand-rolled here; the OS
+         derives the key from the current Windows user's credentials. -->
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.0" />
   </ItemGroup>
 
   <ItemGroup>

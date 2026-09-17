@@ -215,21 +215,4 @@ public sealed class TenantAccessTests
 
         Assert.Empty(auditSink.Entries);
     }
-
-    [Fact]
-    public void InstallationReplacement_MintsNewIdentity_AndKeepsPriorRevocableAndTraceable()
-    {
-        var branchId = Guid.NewGuid();
-        var identityService = new InstallationIdentityService();
-        var original = identityService.Register(branchId);
-
-        var replacement = identityService.ReplaceForHardwareChange(original);
-
-        Assert.NotEqual(original.Id, replacement.Id);
-        Assert.Equal(branchId, replacement.BranchId);
-        Assert.Equal(original.Id, replacement.ReplacesInstallationId);
-        Assert.True(original.IsRevoked);
-        Assert.False(replacement.IsRevoked);
-        Assert.Same(original, identityService.Find(original.Id));
-    }
 }
