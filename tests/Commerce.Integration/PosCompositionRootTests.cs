@@ -143,6 +143,31 @@ public sealed class PosCompositionRootTests : IDisposable
         Assert.Same(first, second);
     }
 
+    /// <summary>
+    /// Covers commerce-pos-user-login task 3.2: <see cref="LocalOperatorStore"/>
+    /// and <see cref="CurrentOperator"/> resolve as singletons (same pattern as
+    /// <see cref="Build_Resolves_MainWindowDependencies_AsSingletons"/>), and
+    /// <see cref="OperatorProvisioningClient"/> resolves as a typed
+    /// <c>HttpClient</c> on the same composition root (design.md "File Changes"
+    /// — PosHostBuilder.cs).
+    /// </summary>
+    [Fact]
+    public void Build_Resolves_OperatorLoginDependencies_AsSingletonsAndTypedClient()
+    {
+        using var host = PosHostBuilder.Build(_dataDirectory);
+
+        var storeFirst = host.Services.GetRequiredService<LocalOperatorStore>();
+        var storeSecond = host.Services.GetRequiredService<LocalOperatorStore>();
+        Assert.Same(storeFirst, storeSecond);
+
+        var currentOperatorFirst = host.Services.GetRequiredService<CurrentOperator>();
+        var currentOperatorSecond = host.Services.GetRequiredService<CurrentOperator>();
+        Assert.Same(currentOperatorFirst, currentOperatorSecond);
+
+        var provisioningClient = host.Services.GetRequiredService<OperatorProvisioningClient>();
+        Assert.NotNull(provisioningClient);
+    }
+
     public void Dispose()
     {
         // BranchSyncStore holds a SQLite connection that pools the file handle

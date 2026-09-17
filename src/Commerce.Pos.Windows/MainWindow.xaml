@@ -9,6 +9,7 @@
                 <TextBlock x:Name="IdentityText" TextWrapping="Wrap" />
             </StackPanel>
             <Button x:Name="RepairButton" Content="Re-pair terminal" VerticalAlignment="Top" Margin="24,0,0,0" Click="RepairButton_Click" />
+            <Button x:Name="SwitchOperatorButton" Content="Switch operator" VerticalAlignment="Top" Margin="8,0,0,0" Click="SwitchOperatorButton_Click" />
         </StackPanel>
 
         <TextBlock Text="Branch Status" FontWeight="Bold" FontSize="16" Margin="0,0,0,8" />

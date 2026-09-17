@@ -43,12 +43,32 @@ public partial class App : System.Windows.Application
             identity = pairingWindow.PairedRecord;
         }
 
+        // Unlike PairingWindow, cancel/close of OperatorLoginWindow does NOT
+        // Shutdown(): an unidentified operator still has a branch to sell
+        // into (design.md "Cancel does not shut down; actorId is total").
+        // Both "Continue without operator" and cancel/close leave
+        // CurrentOperator unset, and MainWindow opens regardless.
+        var currentOperator = _host.Services.GetRequiredService<CurrentOperator>();
+        var operatorLoginWindow = new OperatorLoginWindow(
+            _host.Services.GetRequiredService<OperatorProvisioningClient>(),
+            _host.Services.GetRequiredService<LocalOperatorStore>(),
+            identity.Pairing!.DeviceToken);
+
+        var loggedIn = operatorLoginWindow.ShowDialog();
+        if (loggedIn == true && operatorLoginWindow.ActiveOperator is not null)
+        {
+            currentOperator.Set(operatorLoginWindow.ActiveOperator);
+        }
+
         var mainWindow = new MainWindow(
             _host.Services.GetRequiredService<BranchSyncStore>(),
             _host.Services.GetRequiredService<BranchNodeService>(),
             _host.Services.GetRequiredService<CloudSyncClient>(),
             _host.Services.GetRequiredService<DevicePairingClient>(),
+            _host.Services.GetRequiredService<OperatorProvisioningClient>(),
             localInstallationStore,
+            _host.Services.GetRequiredService<LocalOperatorStore>(),
+            currentOperator,
             identity);
 
         // ShutdownMode is OnExplicitShutdown (App.xaml) specifically so that

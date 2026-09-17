@@ -134,6 +134,104 @@ public static class DeviceEndpoints
                 issued.PlaintextToken));
         }).AllowAnonymous();
 
+        // Operator provisioning/status (design.md "Provisioning endpoint" and
+        // "Staleness TTL and reconciliation trigger"): both device-bearer
+        // authenticated, so org and branch come from the STORED
+        // device_credentials row (via the claims DeviceBearerAuthenticationHandler
+        // mints from it), never from the request body.
+        var operatorsGroup = group.MapGroup("/operators")
+            .RequireAuthorization("DeviceBearer")
+            .AddEndpointFilter<TenantScopeEndpointFilter>();
+
+        operatorsGroup.MapPost("/verify", async (
+            OperatorVerifyRequest request,
+            HttpContext httpContext,
+            PostgresUserAccountStore userStore,
+            PasswordHasher<UserAccount> hasher,
+            CancellationToken ct) =>
+        {
+            var scope = TenantScopeEndpointFilter.GetScope(httpContext);
+            if (!DeviceIdentity.TryResolve(httpContext.User, out var deviceIdentity) || deviceIdentity is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            // Identical chain to /device/pair, byte for byte: every
+            // credential-failure path returns the same generic 401, and the
+            // unknown-email/unknown-user paths still run the dummy hash for
+            // timing parity.
+            var directoryEntry = await userStore.FindDirectoryEntryAsync(request.Email, ct);
+            if (directoryEntry is null)
+            {
+                hasher.VerifyHashedPassword(
+                    new UserAccount(Guid.Empty, Guid.Empty, [], []), DummyPasswordHash, request.Password);
+                return Results.Unauthorized();
+            }
+
+            var credential = await userStore.FindByEmailAsync(scope, request.Email, ct);
+            if (credential is null)
+            {
+                hasher.VerifyHashedPassword(
+                    new UserAccount(Guid.Empty, Guid.Empty, [], []), DummyPasswordHash, request.Password);
+                return Results.Unauthorized();
+            }
+
+            var verification = hasher.VerifyHashedPassword(
+                new UserAccount(credential.Id, credential.OrganizationId, [], []), credential.PasswordHash, request.Password);
+            if (verification == PasswordVerificationResult.Failed)
+            {
+                return Results.Unauthorized();
+            }
+
+            if (credential.IsRevoked)
+            {
+                return Results.Unauthorized();
+            }
+
+            var actor = await userStore.LoadActorAsync(scope, credential.Id, ct);
+            if (actor is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            // Server-side assertion the design calls out: the operator's
+            // BranchScope must contain THIS terminal's branch, read from the
+            // stored device row via the claim, never the request body.
+            if (!actor.BranchScope.Contains(deviceIdentity.BranchId))
+            {
+                return Results.Json(
+                    new OperatorVerifyResponse("branch-not-in-scope", null, null, null),
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+
+            // No SignInAsync: no cookie, no session, no server-side state —
+            // the response is the minimum the client needs to mint a local
+            // PIN verifier.
+            return Results.Ok(new OperatorVerifyResponse("verified", credential.Id, credential.Email, scope.OrganizationId));
+        });
+
+        operatorsGroup.MapGet("/{userId:guid}/status", async (
+            Guid userId,
+            HttpContext httpContext,
+            PostgresUserAccountStore userStore,
+            CancellationToken ct) =>
+        {
+            var scope = TenantScopeEndpointFilter.GetScope(httpContext);
+            if (!DeviceIdentity.TryResolve(httpContext.User, out var deviceIdentity) || deviceIdentity is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            // Scoped by the terminal's own organization: a foreign-org
+            // userId is invisible under RLS, so `actor` resolves to null and
+            // the response is "inactive" — 200, never 404, so this route
+            // cannot be used to probe cross-tenant account existence.
+            var actor = await userStore.LoadActorAsync(scope, userId, ct);
+            var isActive = actor is not null && !actor.IsRevoked && actor.BranchScope.Contains(deviceIdentity.BranchId);
+
+            return Results.Ok(new OperatorStatusResponse(isActive ? "active" : "inactive"));
+        });
+
         return group;
     }
 }
@@ -155,3 +253,17 @@ public sealed record DevicePairResponse(
     string? BranchName,
     Guid? InstallationId,
     string? DeviceToken);
+
+public sealed record OperatorVerifyRequest(string Email, string Password);
+
+/// <summary>
+/// status: "verified" (200) | "branch-not-in-scope" (403); every credential
+/// failure is a bare 401 with no body shape of its own.
+/// </summary>
+public sealed record OperatorVerifyResponse(string Status, Guid? UserId, string? Email, Guid? OrganizationId);
+
+/// <summary>
+/// status: "active" | "inactive" — 200 in both cases; "inactive" is an
+/// answer, not an error, and is also returned for a foreign-org user id.
+/// </summary>
+public sealed record OperatorStatusResponse(string Status);
