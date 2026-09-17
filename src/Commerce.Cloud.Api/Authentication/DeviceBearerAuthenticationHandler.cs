@@ -10,6 +10,15 @@ namespace Commerce.Cloud.Api.Authentication;
 public static class CloudAuthenticationSchemes
 {
     public const string DeviceBearer = "DeviceBearer";
+
+    /// <summary>
+    /// Platform-admin cookie scheme (commerce-role-taxonomy design.md
+    /// "Scheme mutual exclusivity") — its own <c>Cookie.Name</c> and
+    /// <c>Cookie.Path = "/platform"</c>, named explicitly by the
+    /// "PlatformAdmin" authorization policy so the default org cookie
+    /// authenticates nothing under <c>/platform</c> and vice versa.
+    /// </summary>
+    public const string PlatformAdminCookie = "PlatformAdminCookie";
 }
 
 public sealed class DeviceBearerAuthenticationOptions : AuthenticationSchemeOptions;

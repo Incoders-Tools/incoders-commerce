@@ -13,9 +13,15 @@ namespace Commerce.Integration;
 /// "Device auth"). The host tests use a deliberately unreachable connection
 /// string so they never depend on `deploy/dev/compose.yaml` being up; the
 /// live-Postgres and pooler PoC scenarios are covered separately by
-/// `PostgresCloudInboxStoreTests` and `PoolerScopingTests`.
+/// `PostgresCloudInboxStoreTests` and `PoolerScopingTests`. Joined to the
+/// shared "Postgres" collection (even though it needs no live database
+/// itself) so its `WebApplicationFactory<Program>` host — which still boots
+/// every other DI-registered connection pool at startup — never runs
+/// concurrently with the rest of the live-Postgres test suite and spikes
+/// `max_connections`.
 /// </summary>
-public sealed class CloudApiHostTests : IClassFixture<WebApplicationFactory<Program>>
+[Collection("Postgres")]
+public sealed class CloudApiHostTests : IClassFixture<WebApplicationFactory<Program>>, IDisposable
 {
     private readonly WebApplicationFactory<Program> _factory;
 
@@ -31,6 +37,8 @@ public sealed class CloudApiHostTests : IClassFixture<WebApplicationFactory<Prog
                 "Host=169.254.0.1;Port=5432;Database=nope;Username=nope;Password=nope;Timeout=1");
         });
     }
+
+    public void Dispose() => _factory.Dispose();
 
     [Fact]
     public async Task Health_Liveness_Succeeds_WithoutDatabase()

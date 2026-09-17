@@ -216,6 +216,91 @@ links back to). If `RESEND_API_KEY` is absent, Cloud.Api falls back to
 `LogOnlyEmailSender`, which writes the reset link to stdout instead of
 sending real email — safe for local/dev, not for production.
 
+### commerce-role-taxonomy — `0006_role_taxonomy.sql` and `0007_platform_administration.sql`
+
+Two separate, sequential files land together for this change (design.md
+"Migration file split"):
+
+- `deploy/db/migrations/0006_role_taxonomy.sql` — a ONE-SHOT, transactional
+  data rewrite: every persisted `"admin"` role entry is renamed to
+  `"business-admin"`, with the exact same permission set. It temporarily
+  toggles `users` to `NO FORCE ROW LEVEL SECURITY` for the migration owner
+  ONLY, inside one transaction, and self-asserts (`RAISE EXCEPTION`) that no
+  `"admin"` entry survives before committing. It has NO password placeholder.
+- `deploy/db/migrations/0007_platform_administration.sql` — additive DDL:
+  `platform_admins`, `audit_log`, and the `platform_readonly` login. It DOES
+  carry a password placeholder, `__PLATFORM_READONLY_PASSWORD__`, following
+  `0001`'s `__APP_RUNTIME_PASSWORD__` convention exactly.
+
+Apply both, in order, against the direct (non-pooled, port `5432`)
+connection — never the pooler:
+
+```bash
+# 0006: no placeholder to substitute.
+psql "postgresql://postgres:<db-password>@<project-ref>.supabase.co:5432/postgres" \
+  -f deploy/db/migrations/0006_role_taxonomy.sql
+
+# 0007: generate a FRESH password for platform_readonly (never reuse
+# app_runtime's), same handling as step 2 of the 0001 walkthrough above.
+sed "s/__PLATFORM_READONLY_PASSWORD__/$PLATFORM_READONLY_PASSWORD/" \
+  deploy/db/migrations/0007_platform_administration.sql \
+  | psql "postgresql://postgres:<db-password>@<project-ref>.supabase.co:5432/postgres"
+```
+
+```powershell
+# Windows PowerShell, 0007:
+(Get-Content deploy/db/migrations/0007_platform_administration.sql) `
+  -replace '__PLATFORM_READONLY_PASSWORD__', $env:PLATFORM_READONLY_PASSWORD |
+  psql "postgresql://postgres:<db-password>@<project-ref>.supabase.co:5432/postgres"
+```
+
+**Migrate-before-deploy ordering, same as `0001`–`0005`**: apply BOTH files
+to the target environment's database BEFORE deploying the Cloud.Api image
+that expects them. `/health/ready` verifies `platform_admins`/`audit_log`
+(FORCE RLS + policies) in addition to every prior table, so a deploy that
+runs ahead of the migration fails closed at readiness rather than serving
+requests against a missing schema.
+
+Idempotency: `0007` was confirmed locally by applying it twice against
+`deploy/dev/compose.yaml`'s Postgres container — a clean no-op, exactly like
+`0001`–`0005`. `0006` is NOT idempotent in the usual `CREATE ... IF NOT
+EXISTS` sense — it is a one-shot data rewrite — but re-running it is still
+safe: the second run's `UPDATE` matches zero rows (no `"admin"` entries
+remain), and the post-condition assertion still passes.
+
+**New Railway variable**: `ConnectionStrings__CommercePlatformRead` — the
+`platform_readonly` login's connection string
+(`Host=<pooler-host>;Port=6543;Database=postgres;Username=platform_readonly;Password=<the-password-from-0007>`).
+Absent, `GET /platform/organizations` fails closed with `503` and NEVER
+falls back to the shared `app_runtime` pool — see
+`deploy/staging-runbook.md` for the full per-environment checklist.
+
+**Platform-genesis runbook** (run ONCE, immediately after the first deploy
+that includes this change — the window does not close itself until the
+first platform admin exists):
+
+1. `POST /platform/bootstrap/request-token` (anonymous, empty body).
+2. Read the plaintext token from `railway logs` — it is NEVER returned over
+   HTTP, identical to `/account/bootstrap`'s existing token delivery.
+3. `POST /platform/bootstrap` with that token plus the new platform admin's
+   email/password. The response is an empty-body `202` either way; a second
+   genesis attempt is rejected twice over — once by the token registry
+   (already consumed) and, even if called directly against the store, again
+   by the database's `NOT EXISTS` INSERT policy.
+4. Confirm `POST /platform/sign-in` with those credentials returns `200` and
+   sets the `commerce.platform` cookie.
+
+**`/account/bootstrap` deprecation note**: the anonymous
+`/account/bootstrap/request-token` + `/account/bootstrap` pair remains
+byte-identical (apart from the `"admin"` → `"business-admin"` literal) and
+still works — it is not removed by this change. It is, however, now the
+**deprecated operator path**: `POST /platform/organizations` (an
+authenticated platform-admin action, reusing the exact same
+`TryCreateBootstrapAsync` transaction) is the intended path for creating new
+organizations going forward. Prefer it for every new organization; the
+anonymous pair remains only for environments that have not yet run platform
+genesis.
+
 ## Local full stack via Docker Compose
 
 `deploy/dev/compose.yaml` gained a `full` profile (Unit 5) that also

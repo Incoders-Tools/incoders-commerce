@@ -1,4 +1,6 @@
 using System.IO;
+using Commerce.Domain.Identity;
+using Microsoft.AspNetCore.Identity;
 using Npgsql;
 
 namespace Commerce.Integration;
@@ -1141,5 +1143,350 @@ public sealed class MigrationRlsTests
 
         Assert.Throws<PostgresException>(() => updateCmd.ExecuteNonQuery());
         tx.Rollback();
+    }
+
+    // --- commerce-role-taxonomy: 0006_role_taxonomy.sql --------------------
+
+    private static string ResolveRoleTaxonomyMigrationPath()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Commerce.sln")))
+        {
+            dir = dir.Parent;
+        }
+
+        if (dir is null)
+        {
+            throw new InvalidOperationException("Could not locate repo root (Commerce.sln) from " + AppContext.BaseDirectory);
+        }
+
+        return Path.Combine(dir.FullName, "deploy", "db", "migrations", "0006_role_taxonomy.sql");
+    }
+
+    private static void ApplyRoleTaxonomyMigration(NpgsqlConnection connection)
+    {
+        var sql = File.ReadAllText(ResolveRoleTaxonomyMigrationPath());
+        using var cmd = new NpgsqlCommand(sql, connection);
+        cmd.ExecuteNonQuery();
+    }
+
+    private static void ApplyAllMigrationsThrough0006(NpgsqlConnection connection)
+    {
+        ApplyAllMigrationsThrough0005(connection);
+        ApplyRoleTaxonomyMigration(connection);
+    }
+
+    /// <summary>
+    /// Covers commerce-role-taxonomy task 1.6: a pre-seeded `"admin"` user is
+    /// renamed to `"business-admin"` with a byte-identical permission set,
+    /// still signs in (same password hash, untouched by the migration), and a
+    /// second `0006` run is a no-op (matches zero rows / stays renamed).
+    /// </summary>
+    [Fact]
+    public void RoleTaxonomyMigration_RenamesAdminToBusinessAdmin_PreservingPermissionsAndPasswordHash()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        var orgId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        const string plainTextPassword = "correct horse battery staple";
+        var hasher = new PasswordHasher<UserAccount>();
+        var passwordHash = hasher.HashPassword(new UserAccount(userId, orgId, [], []), plainTextPassword);
+
+        using (var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            ownerConnection.Open();
+            ApplyAllMigrationsThrough0005(ownerConnection);
+            ResetUsers();
+
+            using var insertCmd = new NpgsqlCommand(
+                """
+                INSERT INTO users (id, organization_id, email, password_hash, branch_scope, roles)
+                VALUES ($1, $2, 'legacy-admin@example.com', $3, '{}',
+                        '[{"name":"admin","permissions":15}]'::jsonb)
+                """, ownerConnection);
+            insertCmd.Parameters.AddWithValue(userId);
+            insertCmd.Parameters.AddWithValue(orgId);
+            insertCmd.Parameters.AddWithValue(passwordHash);
+            insertCmd.ExecuteNonQuery();
+
+            // First 0006 application: the actual rewrite.
+            ApplyRoleTaxonomyMigration(ownerConnection);
+
+            using var readCmd = new NpgsqlCommand("SELECT roles, password_hash FROM users WHERE id = $1", ownerConnection);
+            readCmd.Parameters.AddWithValue(userId);
+            using (var reader = readCmd.ExecuteReader())
+            {
+                Assert.True(reader.Read());
+                var rolesJson = reader.GetString(0);
+                var storedHash = reader.GetString(1);
+
+                Assert.Contains("\"business-admin\"", rolesJson);
+                Assert.DoesNotContain("\"admin\"", rolesJson);
+                Assert.Contains("15", rolesJson);
+                Assert.Equal(passwordHash, storedHash);
+
+                // Untouched password hash still verifies — "still signs in".
+                var verification = hasher.VerifyHashedPassword(
+                    new UserAccount(userId, orgId, [], []), storedHash, plainTextPassword);
+                Assert.Equal(PasswordVerificationResult.Success, verification);
+            }
+
+            // Second 0006 application: must be a no-op (matches zero "admin"
+            // rows) and must not throw the post-condition assertion, and must
+            // leave the row renamed.
+            ApplyRoleTaxonomyMigration(ownerConnection);
+
+            using var rereadCmd = new NpgsqlCommand("SELECT roles FROM users WHERE id = $1", ownerConnection);
+            rereadCmd.Parameters.AddWithValue(userId);
+            var rolesAfterSecondRun = (string)rereadCmd.ExecuteScalar()!;
+            Assert.Contains("\"business-admin\"", rolesAfterSecondRun);
+            Assert.DoesNotContain("\"admin\"", rolesAfterSecondRun);
+        }
+    }
+
+    // --- commerce-role-taxonomy: 0007_platform_administration.sql ----------
+
+    public const string PlatformReadonlyPassword = "dev-only-platform-readonly-password";
+
+    public const string PlatformReadonlyConnectionString =
+        "Host=localhost;Port=5432;Database=commerce_dev;Username=platform_readonly;Password=" +
+        PlatformReadonlyPassword + ";Timeout=3";
+
+    private static string ResolvePlatformAdministrationMigrationPath()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Commerce.sln")))
+        {
+            dir = dir.Parent;
+        }
+
+        if (dir is null)
+        {
+            throw new InvalidOperationException("Could not locate repo root (Commerce.sln) from " + AppContext.BaseDirectory);
+        }
+
+        return Path.Combine(dir.FullName, "deploy", "db", "migrations", "0007_platform_administration.sql");
+    }
+
+    private static void ApplyPlatformAdministrationMigration(NpgsqlConnection connection)
+    {
+        var sql = File.ReadAllText(ResolvePlatformAdministrationMigrationPath())
+            .Replace("__PLATFORM_READONLY_PASSWORD__", PlatformReadonlyPassword);
+        using var cmd = new NpgsqlCommand(sql, connection);
+        cmd.ExecuteNonQuery();
+    }
+
+    private static void ApplyAllMigrationsThrough0007(NpgsqlConnection connection)
+    {
+        ApplyAllMigrationsThrough0006(connection);
+        ApplyPlatformAdministrationMigration(connection);
+    }
+
+    private static void ResetPlatformAdministration()
+    {
+        using var connection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        connection.Open();
+        using var cmd = new NpgsqlCommand("TRUNCATE TABLE platform_admins, audit_log RESTART IDENTITY", connection);
+        cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>
+    /// Covers commerce-role-taxonomy task 2.1: `platform_admins` and
+    /// `audit_log` exist with FORCE ROW LEVEL SECURITY, and `0007` re-applies
+    /// cleanly (idempotent `CREATE ... IF NOT EXISTS`).
+    /// </summary>
+    [Fact]
+    public void PlatformAdministrationMigration_IsIdempotent_AppliedTwiceWithoutError()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        using var connection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        connection.Open();
+        ApplyAllMigrationsThrough0006(connection);
+
+        ApplyPlatformAdministrationMigration(connection);
+        ApplyPlatformAdministrationMigration(connection);
+
+        using var cmd = new NpgsqlCommand(
+            """
+            SELECT
+                EXISTS (SELECT 1 FROM pg_class WHERE relname = 'platform_admins' AND relrowsecurity AND relforcerowsecurity),
+                EXISTS (SELECT 1 FROM pg_class WHERE relname = 'audit_log' AND relrowsecurity AND relforcerowsecurity)
+            """, connection);
+        using var reader = cmd.ExecuteReader();
+        Assert.True(reader.Read());
+        Assert.True(reader.GetBoolean(0));
+        Assert.True(reader.GetBoolean(1));
+    }
+
+    /// <summary>
+    /// Covers commerce-role-taxonomy task 2.4: `platform_readonly` can
+    /// `SELECT id, name, created_at` from `organizations` with no
+    /// `app.current_org_id` set across two seeded orgs, but fails with a
+    /// privilege error on every other table and on any write against
+    /// `organizations` (design.md "Platform-admin cross-org read").
+    /// </summary>
+    [Fact]
+    public void PlatformReadonly_CanReadOrganizationSummaryColumns_ButNothingElse()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        var orgAId = Guid.NewGuid();
+        var orgBId = Guid.NewGuid();
+
+        using (var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            ownerConnection.Open();
+            ApplyAllMigrationsThrough0007(ownerConnection);
+            ResetOrganizations();
+            ResetPlatformAdministration();
+
+            using var insertOrgACmd = new NpgsqlCommand(
+                "INSERT INTO organizations (id, name) VALUES ($1, 'Org A')", ownerConnection);
+            insertOrgACmd.Parameters.AddWithValue(orgAId);
+            insertOrgACmd.ExecuteNonQuery();
+
+            using var insertOrgBCmd = new NpgsqlCommand(
+                "INSERT INTO organizations (id, name) VALUES ($1, 'Org B')", ownerConnection);
+            insertOrgBCmd.Parameters.AddWithValue(orgBId);
+            insertOrgBCmd.ExecuteNonQuery();
+        }
+
+        using var readonlyConnection = new NpgsqlConnection(PlatformReadonlyConnectionString);
+        readonlyConnection.Open();
+
+        // Allowed: SELECT id, name, created_at FROM organizations, unscoped.
+        using (var selectCmd = new NpgsqlCommand("SELECT id, name, created_at FROM organizations ORDER BY name", readonlyConnection))
+        using (var reader = selectCmd.ExecuteReader())
+        {
+            var rows = 0;
+            while (reader.Read())
+            {
+                rows++;
+            }
+            Assert.Equal(2, rows);
+        }
+
+        // Denied: any other column/table, and any write against organizations.
+        void AssertPrivilegeError(string sql)
+        {
+            using var cmd = new NpgsqlCommand(sql, readonlyConnection);
+            var ex = Assert.Throws<PostgresException>(() => cmd.ExecuteNonQuery());
+            Assert.Equal("42501", ex.SqlState); // insufficient_privilege
+        }
+
+        // NOTE: organizations' only columns ARE id/name/created_at (0003), so
+        // `SELECT *` is equivalent to the granted column set and is NOT a
+        // privilege boundary here — the real boundary is every OTHER table.
+        AssertPrivilegeError("SELECT * FROM users LIMIT 1");
+        AssertPrivilegeError("SELECT * FROM user_directory LIMIT 1");
+        AssertPrivilegeError("SELECT * FROM branches LIMIT 1");
+        AssertPrivilegeError("SELECT * FROM password_reset_tokens LIMIT 1");
+        AssertPrivilegeError("SELECT * FROM device_credentials LIMIT 1");
+        AssertPrivilegeError("SELECT * FROM sync_inbox LIMIT 1");
+        AssertPrivilegeError("SELECT * FROM platform_admins LIMIT 1");
+        AssertPrivilegeError("SELECT * FROM audit_log LIMIT 1");
+        AssertPrivilegeError($"INSERT INTO organizations (id, name) VALUES ('{Guid.NewGuid()}', 'Rogue')");
+        AssertPrivilegeError($"UPDATE organizations SET name = 'Rogue' WHERE id = '{orgAId}'");
+        AssertPrivilegeError($"DELETE FROM organizations WHERE id = '{orgAId}'");
+    }
+
+    /// <summary>
+    /// Covers commerce-role-taxonomy task 2.5: `app_runtime` cannot `SELECT`
+    /// from `audit_log` at all, cannot `UPDATE` it, cannot insert an audit
+    /// row for another organization, and cannot `UPDATE
+    /// platform_admins.password_hash` (design.md "Audit table shape and RLS"
+    /// / "`platform_admins` table shape and RLS").
+    /// </summary>
+    [Fact]
+    public void AppRuntime_CannotReadAuditLog_CannotWriteCrossOrgAuditRow_CannotUpdatePlatformAdminPasswordHash()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        var orgAId = Guid.NewGuid();
+        var platformAdminId = Guid.NewGuid();
+
+        using (var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            ownerConnection.Open();
+            ApplyAllMigrationsThrough0007(ownerConnection);
+            ResetOrganizations();
+            ResetPlatformAdministration();
+
+            using var insertOrgCmd = new NpgsqlCommand(
+                "INSERT INTO organizations (id, name) VALUES ($1, 'Org A')", ownerConnection);
+            insertOrgCmd.Parameters.AddWithValue(orgAId);
+            insertOrgCmd.ExecuteNonQuery();
+
+            using var insertAdminCmd = new NpgsqlCommand(
+                "INSERT INTO platform_admins (id, email, password_hash) VALUES ($1, 'operator@incoders.dev', 'hash')",
+                ownerConnection);
+            insertAdminCmd.Parameters.AddWithValue(platformAdminId);
+            insertAdminCmd.ExecuteNonQuery();
+        }
+
+        using var appRuntimeConnection = new NpgsqlConnection(PostgresTestFixture.DirectConnectionString);
+        appRuntimeConnection.Open();
+
+        // No SELECT grant on audit_log at all.
+        using (var selectCmd = new NpgsqlCommand("SELECT * FROM audit_log LIMIT 1", appRuntimeConnection))
+        {
+            var ex = Assert.Throws<PostgresException>(() => selectCmd.ExecuteReader().Dispose());
+            Assert.Equal("42501", ex.SqlState);
+        }
+
+        // No UPDATE grant on audit_log at all (append-only).
+        using (var updateCmd = new NpgsqlCommand("UPDATE audit_log SET action = 'tampered' WHERE id = 1", appRuntimeConnection))
+        {
+            var ex = Assert.Throws<PostgresException>(() => updateCmd.ExecuteNonQuery());
+            Assert.Equal("42501", ex.SqlState);
+        }
+
+        // Insert claiming a DIFFERENT organization than the current scope is rejected.
+        using (var tx = appRuntimeConnection.BeginTransaction())
+        {
+            using (var scopeCmd = new NpgsqlCommand("SELECT set_config('app.current_org_id', $1, true)", appRuntimeConnection, tx))
+            {
+                scopeCmd.Parameters.AddWithValue(Guid.NewGuid().ToString());
+                scopeCmd.ExecuteNonQuery();
+            }
+
+            using var insertCmd = new NpgsqlCommand(
+                """
+                INSERT INTO audit_log (actor_kind, actor_id, organization_id, entity_type, entity_id, action)
+                VALUES ('org-user', $1, $2, 'user', $1, 'user.created')
+                """, appRuntimeConnection, tx);
+            insertCmd.Parameters.AddWithValue(Guid.NewGuid());
+            insertCmd.Parameters.AddWithValue(orgAId);
+
+            Assert.Throws<PostgresException>(() => insertCmd.ExecuteNonQuery());
+            tx.Rollback();
+        }
+
+        // Column-scoped UPDATE grant excludes password_hash.
+        using (var updatePasswordCmd = new NpgsqlCommand(
+            "UPDATE platform_admins SET password_hash = 'rogue' WHERE id = $1", appRuntimeConnection))
+        {
+            updatePasswordCmd.Parameters.AddWithValue(platformAdminId);
+            var ex = Assert.Throws<PostgresException>(() => updatePasswordCmd.ExecuteNonQuery());
+            Assert.Equal("42501", ex.SqlState);
+        }
     }
 }

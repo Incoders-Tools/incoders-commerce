@@ -56,7 +56,7 @@ public static class TestSeedEndpoints
                     passwordHash,
                     [branchId],
                     [new RoleDto(
-                        "admin",
+                        RoleCatalog.BusinessAdmin,
                         Permission.ViewSales | Permission.ManageCatalog | Permission.ManageUsers | Permission.ManageBranchSettings)]),
                 ct);
 
