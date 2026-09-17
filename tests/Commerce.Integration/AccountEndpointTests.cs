@@ -35,7 +35,7 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
         }
     }
 
-    public void Dispose() { }
+    public void Dispose() => _factory.Dispose();
 
     private static void ApplyMigrationsAndReset()
     {
@@ -371,7 +371,7 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
         var token = registry.Issue(organizationId);
         clockBox[0] = now.AddMinutes(16);
 
-        var factory = _factory.WithWebHostBuilder(builder =>
+        using var factory = _factory.WithWebHostBuilder(builder =>
         {
             builder.ConfigureServices(services =>
             {
@@ -623,7 +623,8 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
         await SeedUserAsync(organizationId, userId, "reset-known@example.com", "old-password");
 
         var sender = new FakeEmailSender();
-        var client = CreateFactoryWithFakeEmailSender(sender).CreateClient();
+        using var factory = CreateFactoryWithFakeEmailSender(sender);
+        var client = factory.CreateClient();
 
         var response = await client.PostAsJsonAsync(
             "/account/reset-password/request", new Commerce.Cloud.Api.Endpoints.ResetPasswordRequest("reset-known@example.com"));
@@ -643,7 +644,8 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
 
         var sender = new FakeEmailSender();
-        var client = CreateFactoryWithFakeEmailSender(sender).CreateClient();
+        using var factory = CreateFactoryWithFakeEmailSender(sender);
+        var client = factory.CreateClient();
 
         var response = await client.PostAsJsonAsync(
             "/account/reset-password/request", new Commerce.Cloud.Api.Endpoints.ResetPasswordRequest("nobody-reset@example.com"));
@@ -664,7 +666,8 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
         await SeedUserAsync(organizationId, userId, "reset-revoked@example.com", "old-password", revoked: true);
 
         var sender = new FakeEmailSender();
-        var client = CreateFactoryWithFakeEmailSender(sender).CreateClient();
+        using var factory = CreateFactoryWithFakeEmailSender(sender);
+        var client = factory.CreateClient();
 
         var response = await client.PostAsJsonAsync(
             "/account/reset-password/request", new Commerce.Cloud.Api.Endpoints.ResetPasswordRequest("reset-revoked@example.com"));
@@ -684,7 +687,8 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
         await SeedUserAsync(organizationId, userId, "reset-throttled@example.com", "old-password");
 
         var sender = new FakeEmailSender();
-        var client = CreateFactoryWithFakeEmailSender(sender).CreateClient();
+        using var factory = CreateFactoryWithFakeEmailSender(sender);
+        var client = factory.CreateClient();
 
         var first = await client.PostAsJsonAsync(
             "/account/reset-password/request", new Commerce.Cloud.Api.Endpoints.ResetPasswordRequest("reset-throttled@example.com"));
@@ -713,7 +717,7 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
         await SeedUserAsync(organizationId, userId, "confirm-valid@example.com", "old-password");
 
         var sender = new FakeEmailSender();
-        var factory = CreateFactoryWithFakeEmailSender(sender);
+        using var factory = CreateFactoryWithFakeEmailSender(sender);
 
         // A prior client signs in and holds a cookie from BEFORE the reset.
         var priorClient = factory.CreateClient(new WebApplicationFactoryClientOptions
@@ -755,7 +759,8 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
         await SeedUserAsync(organizationId, userId, "confirm-replay@example.com", "old-password");
 
         var sender = new FakeEmailSender();
-        var client = CreateFactoryWithFakeEmailSender(sender).CreateClient();
+        using var factory = CreateFactoryWithFakeEmailSender(sender);
+        var client = factory.CreateClient();
 
         await client.PostAsJsonAsync(
             "/account/reset-password/request", new Commerce.Cloud.Api.Endpoints.ResetPasswordRequest("confirm-replay@example.com"));
@@ -786,7 +791,8 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
         await SeedUserAsync(organizationId, userId, "confirm-expired@example.com", "old-password");
 
         var sender = new FakeEmailSender();
-        var client = CreateFactoryWithFakeEmailSender(sender).CreateClient();
+        using var factory = CreateFactoryWithFakeEmailSender(sender);
+        var client = factory.CreateClient();
 
         await client.PostAsJsonAsync(
             "/account/reset-password/request", new Commerce.Cloud.Api.Endpoints.ResetPasswordRequest("confirm-expired@example.com"));
@@ -822,7 +828,8 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
         await SeedUserAsync(organizationId, userId, "confirm-blank@example.com", "old-password");
 
         var sender = new FakeEmailSender();
-        var client = CreateFactoryWithFakeEmailSender(sender).CreateClient();
+        using var factory = CreateFactoryWithFakeEmailSender(sender);
+        var client = factory.CreateClient();
 
         await client.PostAsJsonAsync(
             "/account/reset-password/request", new Commerce.Cloud.Api.Endpoints.ResetPasswordRequest("confirm-blank@example.com"));

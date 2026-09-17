@@ -25,6 +25,16 @@ services:
       - "5432:5432"
     volumes:
       - ./db/init-rls.sql:/docker-entrypoint-initdb.d/init-rls.sql:ro
+    # The integration test suite spins up a short-lived WebApplicationFactory
+    # (and its own Npgsql connection pool) per test method rather than
+    # sharing one pool across the run. Pool teardown isn't instantaneous at
+    # the socket level, so hundreds of these in quick succession can briefly
+    # overshoot Postgres 16's default max_connections=100 before the backlog
+    # drains, producing SqlState 53300 ("remaining connection slots are
+    # reserved for roles with the SUPERUSER attribute"). Dev/CI-only
+    # workaround for that overshoot — not a production concern, since Railway
+    # sits behind PgBouncer with far fewer, longer-lived connections.
+    command: ["postgres", "-c", "max_connections=300"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U commerce_owner -d commerce_dev"]
       interval: 2s

@@ -39,7 +39,7 @@ public sealed class DeviceEndpointTests : IClassFixture<WebApplicationFactory<Pr
         }
     }
 
-    public void Dispose() { }
+    public void Dispose() => _factory.Dispose();
 
     private static string RepoRoot()
     {
