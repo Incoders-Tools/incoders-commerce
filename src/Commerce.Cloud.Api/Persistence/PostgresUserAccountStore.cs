@@ -102,7 +102,7 @@ public sealed class PostgresUserAccountStore
         await SetTenantScopeAsync(connection, tx, scope, ct);
 
         await using var cmd = new NpgsqlCommand(
-            "SELECT organization_id, branch_scope, roles, is_revoked FROM users WHERE id = $1",
+            "SELECT organization_id, branch_scope, roles, is_revoked, customer_id FROM users WHERE id = $1",
             connection, tx);
         cmd.Parameters.AddWithValue(userId);
 
@@ -115,11 +115,17 @@ public sealed class PostgresUserAccountStore
                 var branchScope = reader.GetFieldValue<Guid[]>(1);
                 var rolesJson = reader.GetString(2);
                 var isRevoked = reader.GetBoolean(3);
+                var customerId = reader.IsDBNull(4) ? (Guid?)null : reader.GetGuid(4);
 
                 var roleDtos = JsonSerializer.Deserialize<List<RoleDto>>(rolesJson, RoleSerializerOptions) ?? [];
                 var roles = roleDtos.Select(r => new Role(r.Name, r.Permissions));
 
-                actor = new UserAccount(userId, organizationId, branchScope, roles);
+                // commerce-customer-identity: CustomerId must be loaded here so
+                // every authorization site reading LoadActorAsync's result
+                // (sign-in, /account/me, ManageUsers-gated endpoints) sees the
+                // same denied-by-construction EffectivePermissions the domain
+                // guard already enforces.
+                actor = new UserAccount(userId, organizationId, branchScope, roles, customerId);
                 if (isRevoked)
                 {
                     actor.Revoke();
@@ -207,8 +213,8 @@ public sealed class PostgresUserAccountStore
 
         await using (var insertUserCmd = new NpgsqlCommand(
             """
-            INSERT INTO users (id, organization_id, email, password_hash, branch_scope, roles)
-            VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+            INSERT INTO users (id, organization_id, email, password_hash, branch_scope, roles, customer_id)
+            VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)
             """, connection, tx))
         {
             insertUserCmd.Parameters.AddWithValue(user.Id);
@@ -217,6 +223,7 @@ public sealed class PostgresUserAccountStore
             insertUserCmd.Parameters.AddWithValue(user.PasswordHash);
             insertUserCmd.Parameters.AddWithValue(user.BranchScope.ToArray());
             insertUserCmd.Parameters.AddWithValue(rolesJson);
+            insertUserCmd.Parameters.AddWithValue((object?)user.CustomerId ?? DBNull.Value);
             await insertUserCmd.ExecuteNonQueryAsync(ct);
         }
 

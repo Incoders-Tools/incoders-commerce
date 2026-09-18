@@ -301,6 +301,58 @@ organizations going forward. Prefer it for every new organization; the
 anonymous pair remains only for environments that have not yet run platform
 genesis.
 
+### commerce-customer-identity — `0008_customer_registry.sql`
+
+`deploy/db/migrations/0008_customer_registry.sql` adds `customers` and
+`customer_ordering_access` (the `Customer` commercial-party aggregate),
+`users.customer_id` (nullable FK), and the `users_customer_has_no_roles`
+CHECK — the database half of the "a customer login cannot exercise staff
+permissions" guard (the in-memory half is
+`UserAccount.EffectivePermissions`). It has NO password placeholder to
+substitute — `app_runtime` already exists from `0001` — so it is applied
+directly:
+
+```bash
+psql "postgresql://postgres:<db-password>@<project-ref>.supabase.co:5432/postgres" \
+  -f deploy/db/migrations/0008_customer_registry.sql
+```
+
+**Verified deviation from the original proposal**: there is no `orders`
+table in this repo (orders live in `CloudOrderStore`'s in-memory dictionary),
+so `0008` contains NO `ALTER TABLE orders` statement and deletes no rows —
+see the migration file's own header comment and design.md's "Verified
+deviation 1" for the full rationale. The invariant is enforced in
+`CloudOrderSubmissionService.SubmitAsync` instead.
+
+**Migrate-before-deploy ordering, same as `0001`–`0007`**: apply
+`0008_customer_registry.sql` to the target environment's database BEFORE
+deploying the Cloud.Api image that expects it. `/health/ready` verifies
+`customers`/`customer_ordering_access` (FORCE RLS + policies) in addition to
+every prior table, so a deploy that runs ahead of the migration fails closed
+at readiness rather than serving requests against a missing schema.
+
+`ALTER TABLE users ADD CONSTRAINT users_customer_has_no_roles` validates
+existing rows; every current row has `customer_id IS NULL`, so it passes
+trivially — no `NOT VALID`/`VALIDATE` split is needed.
+
+Idempotency was confirmed locally by applying `0008_customer_registry.sql`
+twice against `deploy/dev/compose.yaml`'s Postgres container — the second
+apply is a clean no-op, exactly like `0001`–`0007`.
+
+**Inverse (rollback)**, shipped as comments in the migration file itself —
+NOT executed automatically:
+
+```sql
+ALTER TABLE users DROP CONSTRAINT users_customer_has_no_roles;
+ALTER TABLE users DROP COLUMN customer_id;
+DROP TABLE customer_ordering_access;
+DROP TABLE customers;
+```
+
+Rolling back re-opens the authorization defect this change fixes (the
+mandatory security fix landing in Unit 3); prefer forward-fix. If only the
+`users` constraint/column is a problem, drop it alone and keep the aggregate.
+
 ## Local full stack via Docker Compose
 
 `deploy/dev/compose.yaml` gained a `full` profile (Unit 5) that also

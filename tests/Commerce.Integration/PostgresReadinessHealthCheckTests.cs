@@ -120,6 +120,9 @@ public sealed class PostgresReadinessHealthCheckTests : IClassFixture<WebApplica
         var platformSql = File.ReadAllText(Path.Combine(RepoRoot(), "deploy", "db", "migrations", "0007_platform_administration.sql"))
             .Replace("__PLATFORM_READONLY_PASSWORD__", "dev-only-platform-readonly-password");
         using (var cmd = new NpgsqlCommand(platformSql, owner)) cmd.ExecuteNonQuery();
+
+        var customerSql = File.ReadAllText(Path.Combine(RepoRoot(), "deploy", "db", "migrations", "0008_customer_registry.sql"));
+        using (var cmd = new NpgsqlCommand(customerSql, owner)) cmd.ExecuteNonQuery();
     }
 
     /// <summary>
@@ -248,6 +251,61 @@ public sealed class PostgresReadinessHealthCheckTests : IClassFixture<WebApplica
 
     [Fact]
     public async Task HealthReady_IsHealthy_WhenPlatformAdminsAndAuditLogExist_WithForcedRlsAndPolicies()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            owner.Open();
+            ApplyAllMigrations(owner);
+        }
+
+        var client = _factory.CreateClient();
+        var response = await client.GetAsync("/health/ready");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    /// <summary>
+    /// Covers commerce-customer-identity task 1.5: `/health/ready` must fail
+    /// closed when `customers`/`customer_ordering_access` FORCE-RLS or any
+    /// expected policy is missing, even though every other table is fully
+    /// correct, and must pass once `0008` is (re-)applied.
+    /// </summary>
+    [Fact]
+    public async Task HealthReady_IsUnhealthy_WhenCustomersPolicyIsMissing()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            owner.Open();
+            ApplyAllMigrations(owner);
+
+            using var dropPolicyCmd = new NpgsqlCommand(
+                "DROP POLICY IF EXISTS customers_tenant_isolation ON customers", owner);
+            dropPolicyCmd.ExecuteNonQuery();
+        }
+
+        try
+        {
+            var client = _factory.CreateClient();
+            var response = await client.GetAsync("/health/ready");
+
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        }
+        finally
+        {
+            using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+            owner.Open();
+            var sql = File.ReadAllText(Path.Combine(RepoRoot(), "deploy", "db", "migrations", "0008_customer_registry.sql"));
+            using var cmd = new NpgsqlCommand(sql, owner);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    [Fact]
+    public async Task HealthReady_IsHealthy_WhenCustomersAndCustomerOrderingAccessExist_WithForcedRlsAndPolicies()
     {
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
 

@@ -317,3 +317,88 @@ GRANT SELECT (id, name, created_at) ON organizations TO platform_readonly;
 DROP POLICY IF EXISTS organizations_platform_read ON organizations;
 CREATE POLICY organizations_platform_read ON organizations
     FOR SELECT TO platform_readonly USING (true);
+
+-- commerce-customer-identity: customers, customer_ordering_access,
+-- users.customer_id (hand-synced verbatim from
+-- deploy/db/migrations/0008_customer_registry.sql per the existing
+-- convention). See 0008 for the "no orders table" verified deviation and the
+-- asymmetric customer_ordering_access RLS rationale (the device_credentials
+-- precedent).
+
+CREATE TABLE IF NOT EXISTS customers (
+    id                  uuid PRIMARY KEY,
+    organization_id     uuid NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+    customer_kind       text NOT NULL CHECK (customer_kind IN ('Retail','Wholesale')),
+    display_name        text NOT NULL,
+    legal_name          text NULL,
+    tax_id_type         text NOT NULL DEFAULT 'None'
+                             CHECK (tax_id_type IN ('None','Cuit','Cuil')),
+    tax_id              text NULL,
+    tax_condition       text NOT NULL DEFAULT 'NoAplica'
+                             CHECK (tax_condition IN ('ConsumidorFinal','ResponsableInscripto',
+                                                      'Monotributo','Exento','NoAplica')),
+    phone               text NULL,
+    email               text NULL,
+    address_street      text NULL,
+    address_number      text NULL,
+    neighborhood        text NULL,
+    locality            text NULL,
+    province            text NULL,
+    postal_code         text NULL,
+    delivery_notes      text NULL,
+    discount_percentage numeric(5,2) NULL,
+    payment_terms       text NULL,
+    notes               text NULL,
+    is_enabled          boolean NOT NULL DEFAULT true,
+    created_at_utc      timestamptz NOT NULL DEFAULT now(),
+    created_by_user_id  uuid NOT NULL,
+    updated_at_utc      timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT customers_tax_id_requires_type
+        CHECK ((tax_id_type = 'None' AND tax_id IS NULL) OR
+               (tax_id_type <> 'None' AND tax_id IS NOT NULL))
+);
+CREATE INDEX IF NOT EXISTS customers_org_idx     ON customers (organization_id);
+CREATE INDEX IF NOT EXISTS customers_org_updated ON customers (organization_id, updated_at_utc);
+
+CREATE TABLE IF NOT EXISTS customer_ordering_access (
+    credential_hash text PRIMARY KEY,
+    organization_id uuid NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+    customer_id     uuid NOT NULL REFERENCES customers (id) ON DELETE CASCADE,
+    is_enabled      boolean NOT NULL DEFAULT true,
+    issued_at_utc   timestamptz NOT NULL DEFAULT now(),
+    issued_by_user_id uuid NOT NULL,
+    revoked_at_utc  timestamptz NULL
+);
+CREATE INDEX IF NOT EXISTS customer_ordering_access_customer_idx
+    ON customer_ordering_access (customer_id) WHERE is_enabled;
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS customer_id uuid NULL
+    REFERENCES customers (id) ON DELETE RESTRICT;
+CREATE INDEX IF NOT EXISTS users_customer_idx ON users (customer_id) WHERE customer_id IS NOT NULL;
+
+ALTER TABLE users DROP CONSTRAINT IF EXISTS users_customer_has_no_roles;
+ALTER TABLE users ADD CONSTRAINT users_customer_has_no_roles
+    CHECK (customer_id IS NULL OR roles = '[]'::jsonb);
+
+ALTER TABLE customers                ENABLE ROW LEVEL SECURITY;
+ALTER TABLE customers                FORCE  ROW LEVEL SECURITY;
+ALTER TABLE customer_ordering_access ENABLE ROW LEVEL SECURITY;
+ALTER TABLE customer_ordering_access FORCE  ROW LEVEL SECURITY;
+REVOKE ALL ON customers, customer_ordering_access FROM PUBLIC;
+GRANT SELECT, INSERT, UPDATE ON customers                TO app_runtime;
+GRANT SELECT, INSERT, UPDATE ON customer_ordering_access TO app_runtime;
+
+DROP POLICY IF EXISTS customers_tenant_isolation ON customers;
+CREATE POLICY customers_tenant_isolation ON customers
+    USING      (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid)
+    WITH CHECK (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid);
+
+DROP POLICY IF EXISTS customer_ordering_access_lookup ON customer_ordering_access;
+CREATE POLICY customer_ordering_access_lookup ON customer_ordering_access
+    FOR SELECT USING (true);
+DROP POLICY IF EXISTS customer_ordering_access_issue ON customer_ordering_access;
+CREATE POLICY customer_ordering_access_issue ON customer_ordering_access
+    FOR INSERT WITH CHECK (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid);
+DROP POLICY IF EXISTS customer_ordering_access_revoke ON customer_ordering_access;
+CREATE POLICY customer_ordering_access_revoke ON customer_ordering_access
+    FOR UPDATE USING (true) WITH CHECK (NOT is_enabled);

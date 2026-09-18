@@ -37,6 +37,11 @@ builder.Services.AddSingleton<PostgresUserAccountStore>();
 builder.Services.AddSingleton<PostgresOrganizationStore>();
 builder.Services.AddSingleton<PostgresDeviceCredentialStore>();
 builder.Services.AddSingleton<PostgresPasswordRecoveryStore>();
+builder.Services.AddSingleton<PostgresCustomerStore>();
+// commerce-customer-identity security fix: the resolver is the ONLY source of
+// a CustomerOrderingAccess instance CustomerCatalogAccessService can act on.
+builder.Services.AddSingleton<PostgresCustomerOrderingAccessStore>();
+builder.Services.AddSingleton<ICustomerOrderingAccessResolver>(sp => sp.GetRequiredService<PostgresCustomerOrderingAccessStore>());
 
 // --- Platform-read datasource (commerce-role-taxonomy design.md
 // "Platform-admin cross-org read"): the ONLY cross-organization read
@@ -194,6 +199,7 @@ app.MapDeviceEndpoints();
 app.MapSyncEndpoints();
 app.MapCatalogEndpoints();
 app.MapOrderingEndpoints();
+app.MapCustomerEndpoints();
 
 // TEST-ONLY, Development-gated seeding for the Playwright E2E suite (see
 // TestSeedEndpoints.cs remarks) — never mapped outside ASPNETCORE_ENVIRONMENT

@@ -25,4 +25,5 @@ public sealed record NewUserAccount(
     string Email,
     string PasswordHash,
     IReadOnlyList<Guid> BranchScope,
-    IReadOnlyList<Endpoints.RoleDto> Roles);
+    IReadOnlyList<Endpoints.RoleDto> Roles,
+    Guid? CustomerId = null);

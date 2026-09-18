@@ -119,54 +119,17 @@ public sealed class OrderingTests : IDisposable
         Assert.False(access.IsEnabled);
     }
 
-    [Fact]
-    public void EnabledCustomer_CanAccessOwnOrganizationCatalogue()
-    {
-        var accessService = new CustomerCatalogAccessService(new InMemoryAuditSink());
-        var organizationId = Guid.NewGuid();
-        var access = new CustomerOrderingAccess(organizationId, Guid.NewGuid(), Guid.NewGuid());
-        var catalogue = new[] { NewProduct(organizationId) };
-
-        var result = accessService.GetPermittedCatalogue(access, organizationId, catalogue, Guid.NewGuid());
-
-        Assert.True(result.Allowed);
-        Assert.Single(result.Products);
-    }
-
-    [Fact]
-    public void RevokedCustomer_IsDeniedCatalogueAccess_AndDenialIsAudited()
-    {
-        var auditSink = new InMemoryAuditSink();
-        var accessService = new CustomerCatalogAccessService(auditSink);
-        var organizationId = Guid.NewGuid();
-        var access = new CustomerOrderingAccess(organizationId, Guid.NewGuid(), Guid.NewGuid(), isEnabled: false);
-        var catalogue = new[] { NewProduct(organizationId) };
-
-        var result = accessService.GetPermittedCatalogue(access, organizationId, catalogue, Guid.NewGuid());
-
-        Assert.False(result.Allowed);
-        Assert.Equal("credential-revoked", result.Reason);
-        Assert.Empty(result.Products);
-        var entry = Assert.Single(auditSink.Entries);
-        Assert.Equal("denied", entry.Outcome);
-    }
-
-    [Fact]
-    public void CredentialPresentedAgainstAnotherOrganization_IsDenied_AndAudited()
-    {
-        var auditSink = new InMemoryAuditSink();
-        var accessService = new CustomerCatalogAccessService(auditSink);
-        var organizationId = Guid.NewGuid();
-        var otherOrganizationId = Guid.NewGuid();
-        var access = new CustomerOrderingAccess(organizationId, Guid.NewGuid(), Guid.NewGuid());
-
-        var result = accessService.Authorize(access, otherOrganizationId, Guid.NewGuid());
-
-        Assert.False(result.Allowed);
-        Assert.Equal("not-found", result.Reason);
-        var entry = Assert.Single(auditSink.Entries);
-        Assert.Equal("denied", entry.Outcome);
-    }
+    // NOTE (Unit 3 deviation, documented): the three tests that used to live
+    // here (EnabledCustomer_CanAccessOwnOrganizationCatalogue,
+    // RevokedCustomer_IsDeniedCatalogueAccess_AndDenialIsAudited,
+    // CredentialPresentedAgainstAnotherOrganization_IsDenied_AndAudited)
+    // called the now-DELETED `CustomerCatalogAccessService.Authorize(CustomerOrderingAccess, ...)`
+    // overloads — the exact shape the security fix makes unrepresentable
+    // (design.md "The security fix, made unrepresentable rather than
+    // validated-away"). Their coverage moved to
+    // `CustomerCatalogAccessServiceTests.cs` (stub-resolver unit tests,
+    // task 3.1) and `CustomerOrderingAccessTests.cs` (live-store integration
+    // tests, task 3.4).
 
     // --- Presentation-aware snapshot / historical meaning -------------------
 
@@ -247,23 +210,15 @@ public sealed class OrderingTests : IDisposable
         Assert.Equal(organizationId, submission.Order.OrganizationId);
     }
 
-    [Fact]
-    public void RevokedCustomer_CannotSubmitANewOrder_ButExistingOrderIsUnaffected()
-    {
-        var organizationId = Guid.NewGuid();
-        var access = new CustomerOrderingAccess(organizationId, Guid.NewGuid(), Guid.NewGuid());
-        var accessService = new CustomerCatalogAccessService(new InMemoryAuditSink());
-        var submissionService = new CloudOrderSubmissionService(accessService, new CloudOrderStore());
-        var scope = new CloudTenantScope(organizationId);
-        var lines = new[] { OrderSnapshotFactory.Snapshot(NewProduct(organizationId), NewPresentation(NewProduct(organizationId)), 1m) };
-
-        access.Revoke();
-        var outcome = submissionService.Submit(scope, access, Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), lines, Guid.NewGuid(), destination: null, hasAvailableStock: true);
-
-        Assert.Equal(OrderSubmissionOutcomeStatus.Denied, outcome.Status);
-        Assert.Equal("credential-revoked", outcome.Reason);
-        Assert.Null(outcome.Order);
-    }
+    // NOTE (Unit 3 deviation, documented): `RevokedCustomer_CannotSubmitANewOrder_ButExistingOrderIsUnaffected`
+    // used to call `CloudOrderSubmissionService.Submit(scope, access, ...)` —
+    // the now-DELETED overload that took a body-built `CustomerOrderingAccess`
+    // directly. `CloudOrderSubmissionService.SubmitAsync` now resolves access
+    // AND the customer row through real stores, so this scenario (and the
+    // credential-binding / cross-org / customer-disabled scenarios) moved to
+    // `CustomerOrderingAccessTests.cs`, a live-Postgres integration test
+    // (task 3.4), where a real `PostgresCustomerOrderingAccessStore.RevokeAsync`
+    // call can be proven to deny the very next submission.
 
     // --- Provisional pending: offline destination / no stock -----------------
 
@@ -357,27 +312,9 @@ public sealed class OrderingTests : IDisposable
         Assert.Equal(InboundApplyOutcome.DuplicateIgnored, directReapply.Outcome);
     }
 
-    // --- Web channel is a real caller, not a test double ----------------------
-    //
-    // NOTE (Unit 3 deviation): previously routed through the now-deleted
-    // `WebOrderSubmissionAdapter` pure pass-through (design.md "Commerce.Web
-    // shape" — deleted because the SPA now calls this same contract over HTTP
-    // via `Endpoints/Ordering.cs`). Calling `CloudOrderSubmissionService`
-    // directly proves the identical contract with no coverage loss.
-
-    [Fact]
-    public void CloudOrderSubmissionService_AcceptsSubmission_ForTheWebChannelShape()
-    {
-        var organizationId = Guid.NewGuid();
-        var access = new CustomerOrderingAccess(organizationId, Guid.NewGuid(), Guid.NewGuid());
-        var accessService = new CustomerCatalogAccessService(new InMemoryAuditSink());
-        var submissionService = new CloudOrderSubmissionService(accessService, new CloudOrderStore());
-        var scope = new CloudTenantScope(organizationId);
-        var lines = new[] { OrderSnapshotFactory.Snapshot(NewProduct(organizationId), NewPresentation(NewProduct(organizationId)), 1m) };
-
-        var outcome = submissionService.Submit(scope, access, Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), lines, Guid.NewGuid(), destination: null, hasAvailableStock: true);
-
-        Assert.Equal(OrderSubmissionOutcomeStatus.Accepted, outcome.Status);
-        Assert.NotNull(outcome.Order);
-    }
+    // NOTE (Unit 3 deviation, documented): `CloudOrderSubmissionService_AcceptsSubmission_ForTheWebChannelShape`
+    // used to call the now-DELETED `Submit(scope, access, ...)` overload. The
+    // full accept path (real credential + real enabled customer, both from
+    // live Postgres) is now proven end-to-end by
+    // `CustomerOrderingAccessTests.ValidEnabledSameOrgCredential_Succeeds`.
 }

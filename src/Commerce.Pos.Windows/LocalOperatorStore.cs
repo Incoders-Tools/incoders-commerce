@@ -88,6 +88,7 @@ public sealed class LocalOperatorStore
             Email = op.Email,
             OrganizationId = op.OrganizationId,
             LastVerifiedUtc = op.LastVerifiedUtc,
+            Permissions = op.Permissions,
             ProtectedVerifier = Convert.ToBase64String(ProtectedData.Protect(
                 CombineSaltAndSubkey(op.Salt, op.Subkey),
                 optionalEntropy: null,
@@ -111,7 +112,7 @@ public sealed class LocalOperatorStore
             var plainBytes = ProtectedData.Unprotect(cipherBytes, optionalEntropy: null, DataProtectionScope.CurrentUser);
             var (salt, subkey) = SplitSaltAndSubkey(plainBytes);
 
-            return new CachedOperator(dto.UserId, dto.Email, dto.OrganizationId, salt, subkey, dto.LastVerifiedUtc);
+            return new CachedOperator(dto.UserId, dto.Email, dto.OrganizationId, salt, subkey, dto.LastVerifiedUtc, dto.Permissions);
         }
         catch (Exception ex) when (ex is CryptographicException or FormatException)
         {
@@ -142,6 +143,7 @@ public sealed class LocalOperatorStore
         public string Email { get; set; } = "";
         public Guid OrganizationId { get; set; }
         public DateTimeOffset LastVerifiedUtc { get; set; }
+        public int Permissions { get; set; }
         public string ProtectedVerifier { get; set; } = "";
     }
 }

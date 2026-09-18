@@ -71,9 +71,12 @@ public sealed class OrganizationStoreTests : IDisposable
 
         // device_credentials (0004) and password_reset_tokens (0005) carry
         // FKs to organizations/branches, so they must be truncated
-        // before/alongside them.
+        // before/alongside them. CASCADE additionally covers `customers`
+        // (0008), which may already exist in this shared database from
+        // another test class in the same run even though this class never
+        // applies 0008 itself.
         using var resetCmd = new NpgsqlCommand(
-            "TRUNCATE TABLE password_reset_tokens, user_directory, users, device_credentials, branches, organizations", owner);
+            "TRUNCATE TABLE password_reset_tokens, user_directory, users, device_credentials, branches, organizations CASCADE", owner);
         resetCmd.ExecuteNonQuery();
     }
 

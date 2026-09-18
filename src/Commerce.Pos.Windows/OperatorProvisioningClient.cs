@@ -40,7 +40,7 @@ public sealed class OperatorProvisioningClient
 
             return body.Status switch
             {
-                "verified" => OperatorVerifyOutcome.Verified(body.UserId!.Value, body.Email!, body.OrganizationId!.Value),
+                "verified" => OperatorVerifyOutcome.Verified(body.UserId!.Value, body.Email!, body.OrganizationId!.Value, body.Permissions),
                 "branch-not-in-scope" => OperatorVerifyOutcome.Failed("This operator is not assigned to this terminal's branch."),
                 _ => OperatorVerifyOutcome.InvalidCredentials(),
             };
@@ -76,21 +76,27 @@ public sealed class OperatorProvisioningClient
 
 public sealed record OperatorVerifyRequestDto(string Email, string Password);
 
-public sealed record OperatorVerifyResponseDto(string Status, Guid? UserId, string? Email, Guid? OrganizationId);
+/// <summary>
+/// `Permissions` (commerce-customer-identity design.md "Desktop authorization
+/// for customer create/edit") is server-derived from `actor.EffectivePermissions`,
+/// never body-supplied — used ONLY to show/hide the terminal's "Manage
+/// customers" button.
+/// </summary>
+public sealed record OperatorVerifyResponseDto(string Status, Guid? UserId, string? Email, Guid? OrganizationId, int Permissions = 0);
 
 public sealed record OperatorStatusResponseDto(string Status);
 
 public sealed record OperatorVerifyOutcome(
-    OperatorVerifyOutcomeKind Kind, Guid? UserId, string? Email, Guid? OrganizationId, string? ErrorMessage)
+    OperatorVerifyOutcomeKind Kind, Guid? UserId, string? Email, Guid? OrganizationId, int Permissions, string? ErrorMessage)
 {
-    public static OperatorVerifyOutcome Verified(Guid userId, string email, Guid organizationId) =>
-        new(OperatorVerifyOutcomeKind.Verified, userId, email, organizationId, null);
+    public static OperatorVerifyOutcome Verified(Guid userId, string email, Guid organizationId, int permissions) =>
+        new(OperatorVerifyOutcomeKind.Verified, userId, email, organizationId, permissions, null);
 
     public static OperatorVerifyOutcome InvalidCredentials() =>
-        new(OperatorVerifyOutcomeKind.InvalidCredentials, null, null, null, "Invalid email or password.");
+        new(OperatorVerifyOutcomeKind.InvalidCredentials, null, null, null, 0, "Invalid email or password.");
 
     public static OperatorVerifyOutcome Failed(string message) =>
-        new(OperatorVerifyOutcomeKind.Failed, null, null, null, message);
+        new(OperatorVerifyOutcomeKind.Failed, null, null, null, 0, message);
 }
 
 public enum OperatorVerifyOutcomeKind

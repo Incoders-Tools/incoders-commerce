@@ -70,9 +70,12 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
 
         // device_credentials (0004) and password_reset_tokens (0005) carry
         // FKs to organizations/branches, so they must be truncated
-        // before/alongside them.
+        // before/alongside them. CASCADE additionally covers `customers`
+        // (0008), which may already exist in this shared database from
+        // another test class in the same run even though this class never
+        // applies 0008 itself.
         using var resetCmd = new NpgsqlCommand(
-            "TRUNCATE TABLE password_reset_tokens, user_directory, users, device_credentials, branches, organizations", owner);
+            "TRUNCATE TABLE password_reset_tokens, user_directory, users, device_credentials, branches, organizations CASCADE", owner);
         resetCmd.ExecuteNonQuery();
     }
 
@@ -169,6 +172,41 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
         var body = await response.Content.ReadFromJsonAsync<SignedInResponse>();
         Assert.Equal(organizationId, body!.OrganizationId);
         Assert.Equal(userId, body.UserId);
+    }
+
+    /// <summary>
+    /// commerce-customer-identity task 4.3: `permissions` on the sign-in
+    /// response and on `/account/me` is server-derived from the store
+    /// (`actor.EffectivePermissions`), never baked into the cookie.
+    /// </summary>
+    [Fact]
+    public async Task SignIn_AndMe_ReturnPermissions_ReflectingStoredRoles()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var organizationId = Guid.NewGuid();
+        await SeedUserAsync(
+            organizationId, Guid.NewGuid(), "permissions-check@example.com", "correct-password",
+            permissions: Commerce.Domain.Identity.Permission.ManageUsers | Commerce.Domain.Identity.Permission.ManageCatalog);
+
+        var client = _factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            HandleCookies = true,
+            BaseAddress = new Uri("https://localhost"),
+        });
+
+        var signIn = await client.PostAsJsonAsync(
+            "/account/sign-in", new SignInRequest("permissions-check@example.com", "correct-password"));
+        Assert.Equal(HttpStatusCode.OK, signIn.StatusCode);
+        var signInBody = await signIn.Content.ReadFromJsonAsync<SignedInResponse>();
+        Assert.Equal(
+            (int)(Commerce.Domain.Identity.Permission.ManageUsers | Commerce.Domain.Identity.Permission.ManageCatalog),
+            signInBody!.Permissions);
+
+        var me = await client.GetAsync("/account/me");
+        Assert.Equal(HttpStatusCode.OK, me.StatusCode);
+        var meBody = await me.Content.ReadFromJsonAsync<SignedInResponse>();
+        Assert.Equal(signInBody.Permissions, meBody!.Permissions);
     }
 
     [Fact]

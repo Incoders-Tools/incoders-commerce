@@ -132,7 +132,33 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
                         SELECT 1 FROM pg_policies
                         WHERE tablename = 'audit_log' AND policyname = 'audit_log_append'
                     ) AS audit_log_append_policy_exists,
-                    EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'platform_readonly') AS platform_readonly_role_exists
+                    EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'platform_readonly') AS platform_readonly_role_exists,
+                    EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'customers') AS customers_table_exists,
+                    EXISTS (
+                        SELECT 1 FROM pg_class
+                        WHERE relname = 'customers' AND relrowsecurity AND relforcerowsecurity
+                    ) AS customers_rls_forced,
+                    EXISTS (
+                        SELECT 1 FROM pg_policies
+                        WHERE tablename = 'customers' AND policyname = 'customers_tenant_isolation'
+                    ) AS customers_policy_exists,
+                    EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'customer_ordering_access') AS customer_ordering_access_table_exists,
+                    EXISTS (
+                        SELECT 1 FROM pg_class
+                        WHERE relname = 'customer_ordering_access' AND relrowsecurity AND relforcerowsecurity
+                    ) AS customer_ordering_access_rls_forced,
+                    EXISTS (
+                        SELECT 1 FROM pg_policies
+                        WHERE tablename = 'customer_ordering_access' AND policyname = 'customer_ordering_access_lookup'
+                    ) AS customer_ordering_access_lookup_policy_exists,
+                    EXISTS (
+                        SELECT 1 FROM pg_policies
+                        WHERE tablename = 'customer_ordering_access' AND policyname = 'customer_ordering_access_issue'
+                    ) AS customer_ordering_access_issue_policy_exists,
+                    EXISTS (
+                        SELECT 1 FROM pg_policies
+                        WHERE tablename = 'customer_ordering_access' AND policyname = 'customer_ordering_access_revoke'
+                    ) AS customer_ordering_access_revoke_policy_exists
                 """, connection);
 
             await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
@@ -176,6 +202,14 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
             var auditLogRlsForced = reader.GetBoolean(32);
             var auditLogAppendPolicyExists = reader.GetBoolean(33);
             var platformReadonlyRoleExists = reader.GetBoolean(34);
+            var customersTableExists = reader.GetBoolean(35);
+            var customersRlsForced = reader.GetBoolean(36);
+            var customersPolicyExists = reader.GetBoolean(37);
+            var customerOrderingAccessTableExists = reader.GetBoolean(38);
+            var customerOrderingAccessRlsForced = reader.GetBoolean(39);
+            var customerOrderingAccessLookupPolicyExists = reader.GetBoolean(40);
+            var customerOrderingAccessIssuePolicyExists = reader.GetBoolean(41);
+            var customerOrderingAccessRevokePolicyExists = reader.GetBoolean(42);
 
             var allHealthy = syncInboxTableExists && syncInboxRlsForced && syncInboxPolicyExists && roleExists
                 && usersTableExists && usersRlsForced && usersPolicyExists
@@ -189,14 +223,18 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
                 && platformAdminsTableExists && platformAdminsRlsForced
                 && platformAdminsLookupPolicyExists && platformAdminsTouchPolicyExists && platformAdminsGenesisPolicyExists
                 && auditLogTableExists && auditLogRlsForced && auditLogAppendPolicyExists
-                && platformReadonlyRoleExists;
+                && platformReadonlyRoleExists
+                && customersTableExists && customersRlsForced && customersPolicyExists
+                && customerOrderingAccessTableExists && customerOrderingAccessRlsForced
+                && customerOrderingAccessLookupPolicyExists && customerOrderingAccessIssuePolicyExists
+                && customerOrderingAccessRevokePolicyExists;
 
             if (allHealthy)
             {
                 return HealthCheckResult.Healthy(
                     "sync_inbox, users, user_directory, organizations, branches, device_credentials, " +
-                    "password_reset_tokens, platform_admins, and audit_log tables, forced RLS, tenant-isolation " +
-                    "policies, and app_runtime/platform_readonly roles all verified.");
+                    "password_reset_tokens, platform_admins, audit_log, customers, and customer_ordering_access " +
+                    "tables, forced RLS, tenant-isolation policies, and app_runtime/platform_readonly roles all verified.");
             }
 
             return HealthCheckResult.Unhealthy(
@@ -212,8 +250,11 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
                 $"platform_admins(table={platformAdminsTableExists}, rls_forced={platformAdminsRlsForced}, " +
                 $"lookup_policy={platformAdminsLookupPolicyExists}, touch_policy={platformAdminsTouchPolicyExists}, genesis_policy={platformAdminsGenesisPolicyExists}), " +
                 $"audit_log(table={auditLogTableExists}, rls_forced={auditLogRlsForced}, append_policy={auditLogAppendPolicyExists}), " +
-                $"platform_readonly_role_exists={platformReadonlyRoleExists}. " +
-                "Apply deploy/db/migrations/0001_init_rls.sql through 0007_platform_administration.sql.");
+                $"platform_readonly_role_exists={platformReadonlyRoleExists}, " +
+                $"customers(table={customersTableExists}, rls_forced={customersRlsForced}, policy={customersPolicyExists}), " +
+                $"customer_ordering_access(table={customerOrderingAccessTableExists}, rls_forced={customerOrderingAccessRlsForced}, " +
+                $"lookup_policy={customerOrderingAccessLookupPolicyExists}, issue_policy={customerOrderingAccessIssuePolicyExists}, revoke_policy={customerOrderingAccessRevokePolicyExists}). " +
+                "Apply deploy/db/migrations/0001_init_rls.sql through 0008_customer_registry.sql.");
         }
         catch (Exception ex)
         {

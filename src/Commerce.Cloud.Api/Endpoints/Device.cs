@@ -200,14 +200,17 @@ public static class DeviceEndpoints
             if (!actor.BranchScope.Contains(deviceIdentity.BranchId))
             {
                 return Results.Json(
-                    new OperatorVerifyResponse("branch-not-in-scope", null, null, null),
+                    new OperatorVerifyResponse("branch-not-in-scope", null, null, null, 0),
                     statusCode: StatusCodes.Status403Forbidden);
             }
 
             // No SignInAsync: no cookie, no session, no server-side state —
             // the response is the minimum the client needs to mint a local
-            // PIN verifier.
-            return Results.Ok(new OperatorVerifyResponse("verified", credential.Id, credential.Email, scope.OrganizationId));
+            // PIN verifier. Permissions is server-derived (never
+            // body-supplied), used ONLY as a UX affordance on the terminal —
+            // the real gate is the server re-checking on every subsequent call.
+            return Results.Ok(new OperatorVerifyResponse(
+                "verified", credential.Id, credential.Email, scope.OrganizationId, (int)actor.EffectivePermissions));
         });
 
         operatorsGroup.MapGet("/{userId:guid}/status", async (
@@ -230,6 +233,37 @@ public static class DeviceEndpoints
             var isActive = actor is not null && !actor.IsRevoked && actor.BranchScope.Contains(deviceIdentity.BranchId);
 
             return Results.Ok(new OperatorStatusResponse(isActive ? "active" : "inactive"));
+        });
+
+        // Minimum viable cloud->local customer pull (design.md "BranchNode
+        // cloud->local customer replication (built, not reused)"): device
+        // bearer required, org/branch come from the STORED device_credentials
+        // row via the minted claim, never from the request. `since` filters
+        // to changed rows only; `disabledIds` propagates revocation.
+        var customersGroup = group.MapGroup("/customers")
+            .RequireAuthorization("DeviceBearer")
+            .AddEndpointFilter<TenantScopeEndpointFilter>();
+
+        customersGroup.MapGet("/sync", async (
+            DateTimeOffset since,
+            HttpContext httpContext,
+            PostgresCustomerStore customerStore,
+            CancellationToken ct) =>
+        {
+            var scope = TenantScopeEndpointFilter.GetScope(httpContext);
+            if (!DeviceIdentity.TryResolve(httpContext.User, out var deviceIdentity) || deviceIdentity is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            // Captured BEFORE the reads so the next cursor never skips a row
+            // that changed while this request was in flight.
+            var serverTimeUtc = DateTimeOffset.UtcNow;
+
+            var changed = await customerStore.ListChangedSinceAsync(scope, since, ct);
+            var disabledIds = await customerStore.ListDisabledSinceAsync(scope, since, ct);
+
+            return Results.Ok(new CustomerSyncResponse(changed, disabledIds, serverTimeUtc));
         });
 
         return group;
@@ -258,12 +292,27 @@ public sealed record OperatorVerifyRequest(string Email, string Password);
 
 /// <summary>
 /// status: "verified" (200) | "branch-not-in-scope" (403); every credential
-/// failure is a bare 401 with no body shape of its own.
+/// failure is a bare 401 with no body shape of its own. `Permissions` is the
+/// server-derived `int` from `actor.EffectivePermissions` (commerce-customer-
+/// identity design.md "Desktop authorization for customer create/edit") —
+/// used ONLY to show/hide the terminal's "Manage customers" button, never as
+/// the authorization boundary itself.
 /// </summary>
-public sealed record OperatorVerifyResponse(string Status, Guid? UserId, string? Email, Guid? OrganizationId);
+public sealed record OperatorVerifyResponse(string Status, Guid? UserId, string? Email, Guid? OrganizationId, int Permissions);
 
 /// <summary>
 /// status: "active" | "inactive" — 200 in both cases; "inactive" is an
 /// answer, not an error, and is also returned for a foreign-org user id.
 /// </summary>
 public sealed record OperatorStatusResponse(string Status);
+
+/// <summary>
+/// `GET /device/customers/sync` response (design.md "Interfaces / Contracts").
+/// `DisabledIds` carries ids that BECAME disabled since `since`, distinct
+/// from `Customers` (which only ever carries enabled rows) — the replica
+/// deletes these, propagating revocation.
+/// </summary>
+public sealed record CustomerSyncResponse(
+    IReadOnlyList<CustomerReplicaRow> Customers,
+    IReadOnlyList<Guid> DisabledIds,
+    DateTimeOffset ServerTimeUtc);

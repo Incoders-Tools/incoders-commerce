@@ -2,7 +2,8 @@ import type { ReactNode } from 'react'
 import { NavLink, Outlet } from 'react-router'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { useAuth } from '@/auth/AuthContext'
+import { hasPermission, useAuth } from '@/auth/AuthContext'
+import { Permission } from '@/api/types'
 
 /**
  * Authenticated shell chrome — moved from `App.tsx`'s `AuthenticatedApp`
@@ -26,6 +27,12 @@ export function AppLayout() {
       <nav className="mb-6 flex gap-2">
         <NavTab to="/app/catalog">Catalog</NavTab>
         <NavTab to="/app/orders">Orders</NavTab>
+        {/* commerce-customer-identity "Web admin gating": hidden, not just
+            unreachable — a UX affordance, not the security boundary. The
+            server's ManageUsers check on every /customers call is that. */}
+        {hasPermission(user, Permission.ManageUsers) && (
+          <NavTab to="/app/customers">Customers</NavTab>
+        )}
         <NavTab to="/app/password">Change password</NavTab>
       </nav>
       <Outlet />

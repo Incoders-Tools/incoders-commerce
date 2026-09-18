@@ -92,6 +92,11 @@ public static class AccountEndpoints
             // SuccessRehashNeeded is treated as success — rehash-on-login is
             // explicitly out of scope (design.md "Hashing").
 
+            // commerce-customer-identity "Web admin gating": server-derived,
+            // never a claim — computed fresh from the store on every sign-in.
+            var signedInActor = await store.LoadActorAsync(scope, credential.Id, ct);
+            var permissions = signedInActor is null ? 0 : (int)signedInActor.EffectivePermissions;
+
             var claims = new[]
             {
                 new Claim(TenantScopeResolver.OrganizationClaimType, credential.OrganizationId.ToString()),
@@ -104,7 +109,7 @@ public static class AccountEndpoints
 
             await httpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal);
 
-            return Results.Ok(new SignedInResponse(credential.OrganizationId, credential.Id, credential.Email));
+            return Results.Ok(new SignedInResponse(credential.OrganizationId, credential.Id, credential.Email, permissions));
         });
 
         // --- Renew: authenticated, self-service, known-current-password
@@ -365,6 +370,7 @@ public static class AccountEndpoints
             CreateUserRequest request,
             HttpContext httpContext,
             PostgresUserAccountStore userStore,
+            PostgresCustomerStore customerStore,
             PasswordHasher<UserAccount> hasher,
             CancellationToken ct) =>
         {
@@ -395,6 +401,20 @@ public static class AccountEndpoints
                 return Results.Forbid();
             }
 
+            // commerce-customer-identity follow-up (user-credentials
+            // "Optional Customer Link"): a customer-linked account cannot
+            // also hold staff roles — `EffectivePermissions` already denies
+            // this by construction, so rejecting the combination explicitly
+            // here gives the caller a clean 400 instead of silently accepting
+            // a structurally-inert account.
+            if (request.CustomerId is not null && request.RoleNames is { Length: > 0 })
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["customerId"] = ["a customer-linked account cannot hold staff roles."],
+                });
+            }
+
             // Pure, no I/O, checked BEFORE any write (design.md "Grant-cap
             // location"): unknown role -> 400, reserved role or a grant that
             // exceeds the caller's own permissions -> 403, regardless of
@@ -418,6 +438,22 @@ public static class AccountEndpoints
                 });
             }
 
+            // commerce-customer-identity follow-up: the target Customer must
+            // exist in the CALLER's own organization. RLS scopes the read to
+            // the caller's org, so a cross-org id is indistinguishable from a
+            // nonexistent one (same non-disclosure pattern as the cross-org
+            // user lookups elsewhere in this file).
+            Guid? customerId = null;
+            if (request.CustomerId is { } requestedCustomerId)
+            {
+                var customer = await customerStore.FindAsync(scope, requestedCustomerId, ct);
+                if (customer is null)
+                {
+                    return Results.NotFound();
+                }
+                customerId = requestedCustomerId;
+            }
+
             var userId = Guid.NewGuid();
             var passwordHash = hasher.HashPassword(new UserAccount(userId, scope.OrganizationId, [], []), request.Password);
             var roleDtos = roles!.Select(r => new RoleDto(r.Name, r.Permissions)).ToList();
@@ -425,7 +461,7 @@ public static class AccountEndpoints
 
             var outcome = await userStore.CreateStaffUserAsync(
                 scope,
-                new NewUserAccount(userId, request.Email, passwordHash, branchIds, roleDtos),
+                new NewUserAccount(userId, request.Email, passwordHash, branchIds, roleDtos, customerId),
                 new UserManagementAuditEntry(
                     "org-user", callerId, scope.OrganizationId, "user", userId, "user.created", null, newValueJson),
                 ct);
@@ -473,6 +509,18 @@ public static class AccountEndpoints
                 return Results.NotFound();
             }
 
+            // commerce-customer-identity follow-up (verify-report WARNING:
+            // this was previously enforced ONLY by the `users_customer_has_no_roles`
+            // DB CHECK, surfacing a raw Postgres exception): reject a
+            // customer-linked target with a clean 400 before any write.
+            if (target.CustomerId is not null)
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["userId"] = ["a customer-linked account cannot be granted staff roles."],
+                });
+            }
+
             if (!RoleGrantPolicy.TryAuthorize(caller, request.RoleNames ?? [], out var roles, out var denial))
             {
                 return denial == GrantDenial.UnknownRole
@@ -495,16 +543,28 @@ public static class AccountEndpoints
             return Results.Ok();
         });
 
-        group.MapGet("/me", (HttpContext httpContext) =>
+        group.MapGet("/me", async (HttpContext httpContext, PostgresUserAccountStore userStore, CancellationToken ct) =>
         {
             if (!TenantScopeResolver.TryResolve(httpContext.User, out var scope, out _))
             {
                 return Results.Unauthorized();
             }
 
-            var userId = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            var userIdClaim = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             var displayName = httpContext.User.FindFirst(ClaimTypes.Name)?.Value;
-            return Results.Ok(new SignedInResponse(scope!.OrganizationId, Guid.Parse(userId!), displayName ?? string.Empty));
+            if (userIdClaim is null || !Guid.TryParse(userIdClaim, out var userId))
+            {
+                return Results.Unauthorized();
+            }
+
+            // commerce-customer-identity "Web admin gating": /me gains one
+            // store call so `permissions` is derived fresh, not baked into
+            // the cookie (design.md "Session impact": none for existing
+            // cookies — no claim change).
+            var actor = await userStore.LoadActorAsync(scope!, userId, ct);
+            var permissions = actor is null ? 0 : (int)actor.EffectivePermissions;
+
+            return Results.Ok(new SignedInResponse(scope!.OrganizationId, userId, displayName ?? string.Empty, permissions));
         });
 
         // --- Bootstrap: one-time first-admin creation gated by a log-only
@@ -604,7 +664,12 @@ public sealed record ConfirmResetPasswordRequest(string Token, string NewPasswor
 
 public sealed record AdminResetPasswordRequest(string NewPassword);
 
-public sealed record SignedInResponse(Guid OrganizationId, Guid UserId, string DisplayName);
+/// <summary>
+/// `Permissions` is server-derived (`actor.EffectivePermissions`), never a
+/// caller-supplied value — commerce-customer-identity design.md "Web admin
+/// gating".
+/// </summary>
+public sealed record SignedInResponse(Guid OrganizationId, Guid UserId, string DisplayName, int Permissions);
 
 public sealed record BootstrapTokenRequest(Guid OrganizationId);
 
@@ -613,7 +678,14 @@ public sealed record BootstrapRequest(
 
 public sealed record BootstrapResponse(Guid OrganizationId, Guid BranchId, Guid UserId);
 
-public sealed record CreateUserRequest(string Email, string Password, string[] RoleNames, Guid[] BranchIds);
+/// <summary>
+/// `CustomerId` is optional (commerce-customer-identity follow-up,
+/// user-credentials "Optional Customer Link"): when present, the created
+/// account is linked to that `Customer` (which must exist in the caller's own
+/// organization) and MUST NOT also carry `RoleNames` — a customer-linked
+/// account cannot hold staff roles.
+/// </summary>
+public sealed record CreateUserRequest(string Email, string Password, string[] RoleNames, Guid[] BranchIds, Guid? CustomerId = null);
 
 public sealed record CreateUserResponse(Guid UserId);
 
