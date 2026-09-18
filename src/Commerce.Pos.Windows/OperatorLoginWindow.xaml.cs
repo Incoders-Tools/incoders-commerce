@@ -118,7 +118,7 @@ public partial class OperatorLoginWindow : Window
                 var (salt, subkey) = OperatorPinCredential.Derive(pin);
                 var operatorRecord = new CachedOperator(
                     outcome.UserId!.Value, outcome.Email!, outcome.OrganizationId!.Value,
-                    salt, subkey, DateTimeOffset.UtcNow);
+                    salt, subkey, DateTimeOffset.UtcNow, outcome.Permissions);
 
                 _operatorStore.Upsert(operatorRecord);
                 ActiveOperator = operatorRecord;

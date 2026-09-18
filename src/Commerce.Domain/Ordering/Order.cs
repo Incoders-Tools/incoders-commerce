@@ -27,6 +27,14 @@ public sealed class Order
         IReadOnlyList<OrderLineSnapshot> lines,
         DateTimeOffset submittedAtUtc)
     {
+        if (customerId == Guid.Empty)
+        {
+            // commerce-customer-identity design.md "Order.CustomerId
+            // referential integrity, given no orders table exists": an
+            // Order with a dangling/absent CustomerId is never constructed.
+            throw new ArgumentException("CustomerId must not be Guid.Empty.", nameof(customerId));
+        }
+
         OrderId = orderId;
         OrganizationId = organizationId;
         CustomerId = customerId;

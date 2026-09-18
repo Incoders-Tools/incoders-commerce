@@ -74,8 +74,11 @@ public sealed class DeviceCredentialStoreTests : IDisposable
         var recoverySql = File.ReadAllText(Path.Combine(repoRoot, "deploy", "db", "migrations", "0005_password_recovery.sql"));
         using (var cmd = new NpgsqlCommand(recoverySql, owner)) cmd.ExecuteNonQuery();
 
+        // CASCADE covers `customers` (0008), which may already exist in this
+        // shared database from another test class in the same run even
+        // though this class never applies 0008 itself.
         using var resetCmd = new NpgsqlCommand(
-            "TRUNCATE TABLE password_reset_tokens, user_directory, users, device_credentials, branches, organizations", owner);
+            "TRUNCATE TABLE password_reset_tokens, user_directory, users, device_credentials, branches, organizations CASCADE", owner);
         resetCmd.ExecuteNonQuery();
     }
 

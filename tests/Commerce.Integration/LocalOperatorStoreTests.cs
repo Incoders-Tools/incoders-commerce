@@ -27,11 +27,12 @@ public sealed class LocalOperatorStoreTests : IDisposable
         }
     }
 
-    private static CachedOperator MakeOperator(string email) => new(
+    private static CachedOperator MakeOperator(string email, int permissions = 0) => new(
         Guid.NewGuid(), email, Guid.NewGuid(),
         OperatorPinCredential.Derive("482913").Salt,
         OperatorPinCredential.Derive("482913").Subkey,
-        DateTimeOffset.UtcNow);
+        DateTimeOffset.UtcNow,
+        permissions);
 
     [Fact]
     public void Load_MissingFile_YieldsEmptyList()
@@ -58,6 +59,26 @@ public sealed class LocalOperatorStoreTests : IDisposable
         Assert.Equal(op.OrganizationId, reloaded[0].OrganizationId);
         Assert.Equal(op.Salt, reloaded[0].Salt);
         Assert.Equal(op.Subkey, reloaded[0].Subkey);
+    }
+
+    /// <summary>
+    /// Covers commerce-customer-identity Unit 6 task 6.3 (design.md "Desktop
+    /// authorization for customer create/edit"): the server-derived
+    /// `Permissions` int survives the store round trip alongside the
+    /// PIN-verifier fields, so the terminal can show/hide the "Manage
+    /// customers" button without re-verifying.
+    /// </summary>
+    [Fact]
+    public void Upsert_ThenLoad_RoundTripsPermissions()
+    {
+        var store = new LocalOperatorStore(_filePath);
+        var op = MakeOperator("alice@example.com", permissions: 7);
+
+        store.Upsert(op);
+        var reloaded = store.Load();
+
+        Assert.Single(reloaded);
+        Assert.Equal(7, reloaded[0].Permissions);
     }
 
     [Fact]

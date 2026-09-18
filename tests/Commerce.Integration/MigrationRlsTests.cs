@@ -1489,4 +1489,642 @@ public sealed class MigrationRlsTests
             Assert.Equal("42501", ex.SqlState);
         }
     }
+
+    // --- commerce-customer-identity: 0008_customer_registry.sql -----------
+
+    private static string ResolveCustomerRegistryMigrationPath()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Commerce.sln")))
+        {
+            dir = dir.Parent;
+        }
+
+        if (dir is null)
+        {
+            throw new InvalidOperationException("Could not locate repo root (Commerce.sln) from " + AppContext.BaseDirectory);
+        }
+
+        return Path.Combine(dir.FullName, "deploy", "db", "migrations", "0008_customer_registry.sql");
+    }
+
+    private static void ApplyCustomerRegistryMigration(NpgsqlConnection connection)
+    {
+        var sql = File.ReadAllText(ResolveCustomerRegistryMigrationPath());
+        using var cmd = new NpgsqlCommand(sql, connection);
+        cmd.ExecuteNonQuery();
+    }
+
+    private static void ApplyAllMigrationsThrough0008(NpgsqlConnection connection)
+    {
+        ApplyAllMigrationsThrough0007(connection);
+        ApplyCustomerRegistryMigration(connection);
+    }
+
+    private static void ResetCustomerRegistry()
+    {
+        using var connection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        connection.Open();
+        // CASCADE: customer_ordering_access and users.customer_id both carry
+        // FKs into customers.
+        using var cmd = new NpgsqlCommand(
+            "TRUNCATE TABLE customer_ordering_access, customers CASCADE", connection);
+        cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>
+    /// Covers commerce-customer-identity task 1.1/1.5: `0008` idempotency —
+    /// applying it twice against an already-migrated database is a no-op.
+    /// </summary>
+    [Fact]
+    public void CustomerRegistryMigration_IsIdempotent_AppliedTwiceWithoutError()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        using var connection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        connection.Open();
+        ApplyAllMigrationsThrough0007(connection);
+
+        ApplyCustomerRegistryMigration(connection);
+        ApplyCustomerRegistryMigration(connection);
+
+        using var cmd = new NpgsqlCommand(
+            """
+            SELECT
+                EXISTS (SELECT 1 FROM pg_class WHERE relname = 'customers' AND relrowsecurity AND relforcerowsecurity),
+                EXISTS (SELECT 1 FROM pg_class WHERE relname = 'customer_ordering_access' AND relrowsecurity AND relforcerowsecurity)
+            """, connection);
+        using var reader = cmd.ExecuteReader();
+        Assert.True(reader.Read());
+        Assert.True(reader.GetBoolean(0));
+        Assert.True(reader.GetBoolean(1));
+    }
+
+    /// <summary>
+    /// `app_runtime` has no `DELETE` grant on either new table — this change
+    /// has no delete flow, so deletion is structurally unavailable (the
+    /// `platform_admins` precedent).
+    /// </summary>
+    [Fact]
+    public void CustomerRegistryMigration_AppRuntime_HasNoDeleteGrant_OnEitherTable()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        using (var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            ownerConnection.Open();
+            ApplyAllMigrationsThrough0008(ownerConnection);
+        }
+
+        using var appRuntimeConnection = new NpgsqlConnection(PostgresTestFixture.DirectConnectionString);
+        appRuntimeConnection.Open();
+
+        using (var deleteCustomersCmd = new NpgsqlCommand("DELETE FROM customers WHERE false", appRuntimeConnection))
+        {
+            var ex = Assert.Throws<PostgresException>(() => deleteCustomersCmd.ExecuteNonQuery());
+            Assert.Equal("42501", ex.SqlState);
+        }
+
+        using (var deleteAccessCmd = new NpgsqlCommand("DELETE FROM customer_ordering_access WHERE false", appRuntimeConnection))
+        {
+            var ex = Assert.Throws<PostgresException>(() => deleteAccessCmd.ExecuteNonQuery());
+            Assert.Equal("42501", ex.SqlState);
+        }
+    }
+
+    /// <summary>
+    /// Covers customer-registry spec "Second organization cannot read or
+    /// write another org's customers" — cross-org SELECT returns zero rows,
+    /// and a cross-org INSERT is rejected by `WITH CHECK`.
+    /// </summary>
+    [Fact]
+    public void CustomersMigration_CrossOrganizationRead_ReturnsZeroRows()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        var orgAId = Guid.NewGuid();
+        var customerId = Guid.NewGuid();
+        var actorId = Guid.NewGuid();
+
+        using (var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            ownerConnection.Open();
+            ApplyAllMigrationsThrough0008(ownerConnection);
+            ResetCustomerRegistry();
+            ResetOrganizations();
+
+            using var insertOrgCmd = new NpgsqlCommand(
+                "INSERT INTO organizations (id, name) VALUES ($1, 'Org A')", ownerConnection);
+            insertOrgCmd.Parameters.AddWithValue(orgAId);
+            insertOrgCmd.ExecuteNonQuery();
+
+            using var insertCustomerCmd = new NpgsqlCommand(
+                """
+                INSERT INTO customers (id, organization_id, customer_kind, display_name, created_by_user_id)
+                VALUES ($1, $2, 'Retail', 'Jane Doe', $3)
+                """, ownerConnection);
+            insertCustomerCmd.Parameters.AddWithValue(customerId);
+            insertCustomerCmd.Parameters.AddWithValue(orgAId);
+            insertCustomerCmd.Parameters.AddWithValue(actorId);
+            insertCustomerCmd.ExecuteNonQuery();
+        }
+
+        using var scopedConnection = new NpgsqlConnection(PostgresTestFixture.DirectConnectionString);
+        scopedConnection.Open();
+        using var tx = scopedConnection.BeginTransaction();
+        using (var scopeCmd = new NpgsqlCommand("SELECT set_config('app.current_org_id', $1, true)", scopedConnection, tx))
+        {
+            scopeCmd.Parameters.AddWithValue(Guid.NewGuid().ToString());
+            scopeCmd.ExecuteNonQuery();
+        }
+
+        using var countCmd = new NpgsqlCommand("SELECT count(*) FROM customers", scopedConnection, tx);
+        var count = (long)countCmd.ExecuteScalar()!;
+        tx.Commit();
+
+        Assert.Equal(0, count);
+    }
+
+    [Fact]
+    public void CustomersMigration_CrossOrgInsert_Throws()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        var orgAId = Guid.NewGuid();
+
+        using (var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            ownerConnection.Open();
+            ApplyAllMigrationsThrough0008(ownerConnection);
+            ResetCustomerRegistry();
+            ResetOrganizations();
+
+            using var insertOrgCmd = new NpgsqlCommand(
+                "INSERT INTO organizations (id, name) VALUES ($1, 'Org A')", ownerConnection);
+            insertOrgCmd.Parameters.AddWithValue(orgAId);
+            insertOrgCmd.ExecuteNonQuery();
+        }
+
+        using var writeConnection = new NpgsqlConnection(PostgresTestFixture.DirectConnectionString);
+        writeConnection.Open();
+        using var tx = writeConnection.BeginTransaction();
+        using (var scopeCmd = new NpgsqlCommand("SELECT set_config('app.current_org_id', $1, true)", writeConnection, tx))
+        {
+            // Scoped to a DIFFERENT org than orgAId, but the insert claims orgAId.
+            scopeCmd.Parameters.AddWithValue(Guid.NewGuid().ToString());
+            scopeCmd.ExecuteNonQuery();
+        }
+
+        using var insertCmd = new NpgsqlCommand(
+            """
+            INSERT INTO customers (id, organization_id, customer_kind, display_name, created_by_user_id)
+            VALUES ($1, $2, 'Retail', 'Rogue Customer', $3)
+            """, writeConnection, tx);
+        insertCmd.Parameters.AddWithValue(Guid.NewGuid());
+        insertCmd.Parameters.AddWithValue(orgAId);
+        insertCmd.Parameters.AddWithValue(Guid.NewGuid());
+
+        Assert.Throws<PostgresException>(() => insertCmd.ExecuteNonQuery());
+        tx.Rollback();
+    }
+
+    [Fact]
+    public void CustomersMigration_CrossOrgUpdate_AffectsZeroRows()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        var orgAId = Guid.NewGuid();
+        var customerId = Guid.NewGuid();
+        var actorId = Guid.NewGuid();
+
+        using (var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            ownerConnection.Open();
+            ApplyAllMigrationsThrough0008(ownerConnection);
+            ResetCustomerRegistry();
+            ResetOrganizations();
+
+            using var insertOrgCmd = new NpgsqlCommand(
+                "INSERT INTO organizations (id, name) VALUES ($1, 'Org A')", ownerConnection);
+            insertOrgCmd.Parameters.AddWithValue(orgAId);
+            insertOrgCmd.ExecuteNonQuery();
+
+            using var insertCustomerCmd = new NpgsqlCommand(
+                """
+                INSERT INTO customers (id, organization_id, customer_kind, display_name, created_by_user_id)
+                VALUES ($1, $2, 'Retail', 'Jane Doe', $3)
+                """, ownerConnection);
+            insertCustomerCmd.Parameters.AddWithValue(customerId);
+            insertCustomerCmd.Parameters.AddWithValue(orgAId);
+            insertCustomerCmd.Parameters.AddWithValue(actorId);
+            insertCustomerCmd.ExecuteNonQuery();
+        }
+
+        using var writeConnection = new NpgsqlConnection(PostgresTestFixture.DirectConnectionString);
+        writeConnection.Open();
+        using var tx = writeConnection.BeginTransaction();
+        using (var scopeCmd = new NpgsqlCommand("SELECT set_config('app.current_org_id', $1, true)", writeConnection, tx))
+        {
+            scopeCmd.Parameters.AddWithValue(Guid.NewGuid().ToString());
+            scopeCmd.ExecuteNonQuery();
+        }
+
+        using var updateCmd = new NpgsqlCommand(
+            "UPDATE customers SET display_name = 'Renamed' WHERE id = $1", writeConnection, tx);
+        updateCmd.Parameters.AddWithValue(customerId);
+        var rows = updateCmd.ExecuteNonQuery();
+        tx.Commit();
+
+        Assert.Equal(0, rows);
+    }
+
+    /// <summary>
+    /// Defense-in-depth guard (design.md "Staff-permission denial for a
+    /// CustomerId-bearing user"): `users_customer_has_no_roles` rejects a
+    /// customer-linked user carrying a non-empty `roles` array.
+    /// </summary>
+    [Fact]
+    public void UsersCustomerHasNoRolesCheck_RejectsCustomerLinkedUserWithNonEmptyRoles()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        var orgAId = Guid.NewGuid();
+        var customerId = Guid.NewGuid();
+        var actorId = Guid.NewGuid();
+
+        using var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        ownerConnection.Open();
+        ApplyAllMigrationsThrough0008(ownerConnection);
+        ResetCustomerRegistry();
+        ResetOrganizations();
+        ResetUsers();
+
+        using (var insertOrgCmd = new NpgsqlCommand(
+            "INSERT INTO organizations (id, name) VALUES ($1, 'Org A')", ownerConnection))
+        {
+            insertOrgCmd.Parameters.AddWithValue(orgAId);
+            insertOrgCmd.ExecuteNonQuery();
+        }
+
+        using (var insertCustomerCmd = new NpgsqlCommand(
+            """
+            INSERT INTO customers (id, organization_id, customer_kind, display_name, created_by_user_id)
+            VALUES ($1, $2, 'Retail', 'Jane Doe', $3)
+            """, ownerConnection))
+        {
+            insertCustomerCmd.Parameters.AddWithValue(customerId);
+            insertCustomerCmd.Parameters.AddWithValue(orgAId);
+            insertCustomerCmd.Parameters.AddWithValue(actorId);
+            insertCustomerCmd.ExecuteNonQuery();
+        }
+
+        // A customer-linked user with a non-empty roles array must be
+        // rejected by the CHECK — structurally unrepresentable, not merely
+        // untested.
+        using (var insertBadUserCmd = new NpgsqlCommand(
+            """
+            INSERT INTO users (id, organization_id, email, password_hash, branch_scope, roles, customer_id)
+            VALUES ($1, $2, 'customer-login@example.com', 'hash', '{}',
+                    '[{"name":"business-admin","permissions":15}]'::jsonb, $3)
+            """, ownerConnection))
+        {
+            insertBadUserCmd.Parameters.AddWithValue(Guid.NewGuid());
+            insertBadUserCmd.Parameters.AddWithValue(orgAId);
+            insertBadUserCmd.Parameters.AddWithValue(customerId);
+
+            Assert.Throws<PostgresException>(() => insertBadUserCmd.ExecuteNonQuery());
+        }
+
+        // The same customer link with an EMPTY roles array must be accepted.
+        using (var insertGoodUserCmd = new NpgsqlCommand(
+            """
+            INSERT INTO users (id, organization_id, email, password_hash, branch_scope, roles, customer_id)
+            VALUES ($1, $2, 'customer-login-ok@example.com', 'hash', '{}', '[]'::jsonb, $3)
+            """, ownerConnection))
+        {
+            insertGoodUserCmd.Parameters.AddWithValue(Guid.NewGuid());
+            insertGoodUserCmd.Parameters.AddWithValue(orgAId);
+            insertGoodUserCmd.Parameters.AddWithValue(customerId);
+            var rows = insertGoodUserCmd.ExecuteNonQuery();
+            Assert.Equal(1, rows);
+        }
+    }
+
+    /// <summary>
+    /// The `customer_ordering_access` revoke policy's core trick, exactly the
+    /// `device_credentials_revoke` precedent: an UNSCOPED UPDATE that sets
+    /// `is_enabled = false` MUST succeed.
+    /// </summary>
+    [Fact]
+    public void CustomerOrderingAccessMigration_UnscopedUpdateToRevoked_Succeeds()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        var orgAId = Guid.NewGuid();
+        var customerId = Guid.NewGuid();
+        var actorId = Guid.NewGuid();
+
+        using (var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            ownerConnection.Open();
+            ApplyAllMigrationsThrough0008(ownerConnection);
+            ResetCustomerRegistry();
+            ResetOrganizations();
+
+            using var insertOrgCmd = new NpgsqlCommand(
+                "INSERT INTO organizations (id, name) VALUES ($1, 'Org A')", ownerConnection);
+            insertOrgCmd.Parameters.AddWithValue(orgAId);
+            insertOrgCmd.ExecuteNonQuery();
+
+            using var insertCustomerCmd = new NpgsqlCommand(
+                """
+                INSERT INTO customers (id, organization_id, customer_kind, display_name, created_by_user_id)
+                VALUES ($1, $2, 'Retail', 'Jane Doe', $3)
+                """, ownerConnection);
+            insertCustomerCmd.Parameters.AddWithValue(customerId);
+            insertCustomerCmd.Parameters.AddWithValue(orgAId);
+            insertCustomerCmd.Parameters.AddWithValue(actorId);
+            insertCustomerCmd.ExecuteNonQuery();
+
+            using var insertAccessCmd = new NpgsqlCommand(
+                """
+                INSERT INTO customer_ordering_access (credential_hash, organization_id, customer_id, issued_by_user_id)
+                VALUES ('hash-unscoped-revoke', $1, $2, $3)
+                """, ownerConnection);
+            insertAccessCmd.Parameters.AddWithValue(orgAId);
+            insertAccessCmd.Parameters.AddWithValue(customerId);
+            insertAccessCmd.Parameters.AddWithValue(actorId);
+            insertAccessCmd.ExecuteNonQuery();
+        }
+
+        // No set_config at all: fully unscoped session/transaction.
+        using var writeConnection = new NpgsqlConnection(PostgresTestFixture.DirectConnectionString);
+        writeConnection.Open();
+        using var tx = writeConnection.BeginTransaction();
+        using var updateCmd = new NpgsqlCommand(
+            "UPDATE customer_ordering_access SET is_enabled = false, revoked_at_utc = now() WHERE credential_hash = 'hash-unscoped-revoke'",
+            writeConnection, tx);
+        var rows = updateCmd.ExecuteNonQuery();
+        tx.Commit();
+
+        Assert.Equal(1, rows);
+    }
+
+    /// <summary>
+    /// The structural half: an UNSCOPED UPDATE that would leave the row
+    /// enabled (an un-revoke, or any other field rewrite) MUST be rejected by
+    /// `WITH CHECK (NOT is_enabled)` — an unscoped un-revoke is
+    /// unrepresentable, not merely untested.
+    /// </summary>
+    [Fact]
+    public void CustomerOrderingAccessMigration_UnscopedUpdateToUnrevokeOrRewrite_Throws()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        var orgAId = Guid.NewGuid();
+        var customerId = Guid.NewGuid();
+        var otherCustomerId = Guid.NewGuid();
+        var actorId = Guid.NewGuid();
+
+        using (var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            ownerConnection.Open();
+            ApplyAllMigrationsThrough0008(ownerConnection);
+            ResetCustomerRegistry();
+            ResetOrganizations();
+
+            using var insertOrgCmd = new NpgsqlCommand(
+                "INSERT INTO organizations (id, name) VALUES ($1, 'Org A')", ownerConnection);
+            insertOrgCmd.Parameters.AddWithValue(orgAId);
+            insertOrgCmd.ExecuteNonQuery();
+
+            using var insertCustomer1Cmd = new NpgsqlCommand(
+                """
+                INSERT INTO customers (id, organization_id, customer_kind, display_name, created_by_user_id)
+                VALUES ($1, $2, 'Retail', 'Jane Doe', $3)
+                """, ownerConnection);
+            insertCustomer1Cmd.Parameters.AddWithValue(customerId);
+            insertCustomer1Cmd.Parameters.AddWithValue(orgAId);
+            insertCustomer1Cmd.Parameters.AddWithValue(actorId);
+            insertCustomer1Cmd.ExecuteNonQuery();
+
+            using var insertCustomer2Cmd = new NpgsqlCommand(
+                """
+                INSERT INTO customers (id, organization_id, customer_kind, display_name, created_by_user_id)
+                VALUES ($1, $2, 'Retail', 'John Roe', $3)
+                """, ownerConnection);
+            insertCustomer2Cmd.Parameters.AddWithValue(otherCustomerId);
+            insertCustomer2Cmd.Parameters.AddWithValue(orgAId);
+            insertCustomer2Cmd.Parameters.AddWithValue(actorId);
+            insertCustomer2Cmd.ExecuteNonQuery();
+
+            using var insertRevokedCmd = new NpgsqlCommand(
+                """
+                INSERT INTO customer_ordering_access (credential_hash, organization_id, customer_id, issued_by_user_id, is_enabled, revoked_at_utc)
+                VALUES ('hash-already-revoked', $1, $2, $3, false, now())
+                """, ownerConnection);
+            insertRevokedCmd.Parameters.AddWithValue(orgAId);
+            insertRevokedCmd.Parameters.AddWithValue(customerId);
+            insertRevokedCmd.Parameters.AddWithValue(actorId);
+            insertRevokedCmd.ExecuteNonQuery();
+
+            using var insertLiveCmd = new NpgsqlCommand(
+                """
+                INSERT INTO customer_ordering_access (credential_hash, organization_id, customer_id, issued_by_user_id)
+                VALUES ('hash-live-rewrite-target', $1, $2, $3)
+                """, ownerConnection);
+            insertLiveCmd.Parameters.AddWithValue(orgAId);
+            insertLiveCmd.Parameters.AddWithValue(customerId);
+            insertLiveCmd.Parameters.AddWithValue(actorId);
+            insertLiveCmd.ExecuteNonQuery();
+        }
+
+        // Attempt 1: unscoped un-revoke — the resulting row is NOT revoked.
+        using (var unrevokeConnection = new NpgsqlConnection(PostgresTestFixture.DirectConnectionString))
+        {
+            unrevokeConnection.Open();
+            using var tx = unrevokeConnection.BeginTransaction();
+            using var updateCmd = new NpgsqlCommand(
+                "UPDATE customer_ordering_access SET is_enabled = true WHERE credential_hash = 'hash-already-revoked'",
+                unrevokeConnection, tx);
+
+            Assert.Throws<PostgresException>(() => updateCmd.ExecuteNonQuery());
+            tx.Rollback();
+        }
+
+        // Attempt 2: unscoped field rewrite (customer_id) that does NOT also
+        // revoke the row — must be rejected too, not just an un-revoke.
+        using (var rewriteConnection = new NpgsqlConnection(PostgresTestFixture.DirectConnectionString))
+        {
+            rewriteConnection.Open();
+            using var tx = rewriteConnection.BeginTransaction();
+            using var updateCmd = new NpgsqlCommand(
+                "UPDATE customer_ordering_access SET customer_id = $1 WHERE credential_hash = 'hash-live-rewrite-target'",
+                rewriteConnection, tx);
+            updateCmd.Parameters.AddWithValue(otherCustomerId);
+
+            Assert.Throws<PostgresException>(() => updateCmd.ExecuteNonQuery());
+            tx.Rollback();
+        }
+    }
+
+    [Fact]
+    public void CustomerOrderingAccessMigration_CrossOrgInsert_Throws()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        var orgAId = Guid.NewGuid();
+        var customerId = Guid.NewGuid();
+        var actorId = Guid.NewGuid();
+
+        using (var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            ownerConnection.Open();
+            ApplyAllMigrationsThrough0008(ownerConnection);
+            ResetCustomerRegistry();
+            ResetOrganizations();
+
+            using var insertOrgCmd = new NpgsqlCommand(
+                "INSERT INTO organizations (id, name) VALUES ($1, 'Org A')", ownerConnection);
+            insertOrgCmd.Parameters.AddWithValue(orgAId);
+            insertOrgCmd.ExecuteNonQuery();
+
+            using var insertCustomerCmd = new NpgsqlCommand(
+                """
+                INSERT INTO customers (id, organization_id, customer_kind, display_name, created_by_user_id)
+                VALUES ($1, $2, 'Retail', 'Jane Doe', $3)
+                """, ownerConnection);
+            insertCustomerCmd.Parameters.AddWithValue(customerId);
+            insertCustomerCmd.Parameters.AddWithValue(orgAId);
+            insertCustomerCmd.Parameters.AddWithValue(actorId);
+            insertCustomerCmd.ExecuteNonQuery();
+        }
+
+        using var writeConnection = new NpgsqlConnection(PostgresTestFixture.DirectConnectionString);
+        writeConnection.Open();
+        using var tx = writeConnection.BeginTransaction();
+        using (var scopeCmd = new NpgsqlCommand("SELECT set_config('app.current_org_id', $1, true)", writeConnection, tx))
+        {
+            // Scoped to a DIFFERENT org than orgAId, but the insert claims orgAId.
+            scopeCmd.Parameters.AddWithValue(Guid.NewGuid().ToString());
+            scopeCmd.ExecuteNonQuery();
+        }
+
+        using var insertCmd = new NpgsqlCommand(
+            """
+            INSERT INTO customer_ordering_access (credential_hash, organization_id, customer_id, issued_by_user_id)
+            VALUES ('hash-cross-org-insert', $1, $2, $3)
+            """, writeConnection, tx);
+        insertCmd.Parameters.AddWithValue(orgAId);
+        insertCmd.Parameters.AddWithValue(customerId);
+        insertCmd.Parameters.AddWithValue(Guid.NewGuid());
+
+        Assert.Throws<PostgresException>(() => insertCmd.ExecuteNonQuery());
+        tx.Rollback();
+    }
+
+    /// <summary>
+    /// The lookup asymmetry, exactly the `device_credentials_lookup`
+    /// precedent: an UNSCOPED SELECT (no `set_config` at all) still resolves
+    /// the row, INCLUDING a row belonging to a different organization than
+    /// any later-established scope — the org comparison happens in
+    /// application code (`CustomerCatalogAccessService.Evaluate`), not RLS.
+    /// </summary>
+    [Fact]
+    public void CustomerOrderingAccessMigration_UnscopedSelect_ReturnsRow()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        var orgAId = Guid.NewGuid();
+        var customerId = Guid.NewGuid();
+        var actorId = Guid.NewGuid();
+
+        using (var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            ownerConnection.Open();
+            ApplyAllMigrationsThrough0008(ownerConnection);
+            ResetCustomerRegistry();
+            ResetOrganizations();
+
+            using var insertOrgCmd = new NpgsqlCommand(
+                "INSERT INTO organizations (id, name) VALUES ($1, 'Org A')", ownerConnection);
+            insertOrgCmd.Parameters.AddWithValue(orgAId);
+            insertOrgCmd.ExecuteNonQuery();
+
+            using var insertCustomerCmd = new NpgsqlCommand(
+                """
+                INSERT INTO customers (id, organization_id, customer_kind, display_name, created_by_user_id)
+                VALUES ($1, $2, 'Retail', 'Jane Doe', $3)
+                """, ownerConnection);
+            insertCustomerCmd.Parameters.AddWithValue(customerId);
+            insertCustomerCmd.Parameters.AddWithValue(orgAId);
+            insertCustomerCmd.Parameters.AddWithValue(actorId);
+            insertCustomerCmd.ExecuteNonQuery();
+
+            using var insertAccessCmd = new NpgsqlCommand(
+                """
+                INSERT INTO customer_ordering_access (credential_hash, organization_id, customer_id, issued_by_user_id)
+                VALUES ('hash-unscoped-read', $1, $2, $3)
+                """, ownerConnection);
+            insertAccessCmd.Parameters.AddWithValue(orgAId);
+            insertAccessCmd.Parameters.AddWithValue(customerId);
+            insertAccessCmd.Parameters.AddWithValue(actorId);
+            insertAccessCmd.ExecuteNonQuery();
+        }
+
+        using var readConnection = new NpgsqlConnection(PostgresTestFixture.DirectConnectionString);
+        readConnection.Open();
+        using var tx = readConnection.BeginTransaction();
+        using (var readCmd = new NpgsqlCommand(
+            "SELECT organization_id, customer_id, is_enabled FROM customer_ordering_access WHERE credential_hash = 'hash-unscoped-read'",
+            readConnection, tx))
+        using (var reader = readCmd.ExecuteReader())
+        {
+            Assert.True(reader.Read());
+            Assert.Equal(orgAId, reader.GetGuid(0));
+            Assert.Equal(customerId, reader.GetGuid(1));
+            Assert.True(reader.GetBoolean(2));
+        }
+        tx.Commit();
+    }
 }

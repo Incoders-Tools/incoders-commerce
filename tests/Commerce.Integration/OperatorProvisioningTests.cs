@@ -77,8 +77,11 @@ public sealed class OperatorProvisioningTests : IClassFixture<WebApplicationFact
         var recoverySql = File.ReadAllText(Path.Combine(repoRoot, "deploy", "db", "migrations", "0005_password_recovery.sql"));
         using (var cmd = new NpgsqlCommand(recoverySql, owner)) cmd.ExecuteNonQuery();
 
+        // CASCADE covers `customers` (0008), which may already exist in this
+        // shared database from another test class in the same run even
+        // though this class never applies 0008 itself.
         using var resetCmd = new NpgsqlCommand(
-            "TRUNCATE TABLE password_reset_tokens, sync_inbox, user_directory, users, device_credentials, branches, organizations", owner);
+            "TRUNCATE TABLE password_reset_tokens, sync_inbox, user_directory, users, device_credentials, branches, organizations CASCADE", owner);
         resetCmd.ExecuteNonQuery();
     }
 
@@ -169,6 +172,10 @@ public sealed class OperatorProvisioningTests : IClassFixture<WebApplicationFact
         Assert.Equal(userId, body.UserId);
         Assert.Equal("verify-valid@example.com", body.Email);
         Assert.Equal(orgId, body.OrganizationId);
+        // commerce-customer-identity task 4.3: server-derived permissions,
+        // never a caller-supplied value — SeedOperatorAsync grants "cashier"
+        // = Permission.ViewSales.
+        Assert.Equal((int)Permission.ViewSales, body.Permissions);
     }
 
     [Fact]

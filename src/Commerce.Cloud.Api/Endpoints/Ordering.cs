@@ -26,29 +26,32 @@ public static class OrderingEndpoints
             .RequireAuthorization()
             .AddEndpointFilter<TenantScopeEndpointFilter>();
 
-        group.MapPost("/", (
+        group.MapPost("/", async (
             SubmitOrderRequest request,
             HttpContext httpContext,
-            CloudOrderSubmissionService service) =>
+            CloudOrderSubmissionService service,
+            CancellationToken ct) =>
         {
             var scope = TenantScopeEndpointFilter.GetScope(httpContext);
 
-            var access = new CustomerOrderingAccess(
-                scope.OrganizationId,
+            // commerce-customer-identity security fix: no CustomerOrderingAccess
+            // is ever built from request data here. The request carries only
+            // the customer id it claims and the credential it holds; the
+            // service resolves enabled/binding state from the persisted
+            // store. A caller has nowhere to assert "enabled" — the field is
+            // gone from the DTO and there is no constructor path for it.
+            var outcome = await service.SubmitAsync(
+                scope,
                 request.CustomerId,
                 request.AccessCredential,
-                request.AccessEnabled);
-
-            var outcome = service.Submit(
-                scope,
-                access,
                 request.OrderId,
                 request.DestinationBranchId,
                 request.ActorId,
                 request.Lines,
                 request.CorrelationId,
                 destination: null,
-                hasAvailableStock: false);
+                hasAvailableStock: false,
+                ct);
 
             return outcome.Status == OrderSubmissionOutcomeStatus.Accepted
                 ? Results.Ok(outcome)
@@ -66,11 +69,13 @@ public static class OrderingEndpoints
     }
 }
 
+// commerce-customer-identity security fix: NO caller-supplied enabled flag.
+// This is deliberately unrepresentable, not merely unvalidated — there is no
+// member here a careless future edit could wire back up.
 public sealed record SubmitOrderRequest(
     Guid OrderId,
     Guid CustomerId,
     Guid AccessCredential,
-    bool AccessEnabled,
     Guid DestinationBranchId,
     Guid ActorId,
     IReadOnlyList<OrderLineSnapshot> Lines,

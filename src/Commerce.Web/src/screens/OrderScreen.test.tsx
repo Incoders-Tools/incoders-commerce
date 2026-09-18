@@ -58,6 +58,9 @@ describe('OrderScreen', () => {
     const body = JSON.parse(init.body as string)
     expect(body.customerId).toBe('c1')
     expect(body.destinationBranchId).toBe('branch1')
+    // commerce-customer-identity security fix: the screen has no way to send
+    // this anymore — SubmitOrderRequest has no `accessEnabled` member.
+    expect(body.accessEnabled).toBeUndefined()
     expect(body.lines).toHaveLength(1)
     expect(body.lines[0]).toMatchObject({
       productId: 'prod1',

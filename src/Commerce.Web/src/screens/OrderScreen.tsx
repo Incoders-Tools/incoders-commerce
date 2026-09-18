@@ -28,11 +28,14 @@ export function OrderScreen() {
     setOutcome(null)
     setSubmitting(true)
     try {
+      // commerce-customer-identity security fix: no `accessEnabled` claim is
+      // sent — the field no longer exists on SubmitOrderRequest. The server
+      // resolves enabled/binding state from the persisted ordering-access
+      // store.
       const result = await submitOrder({
         orderId: crypto.randomUUID(),
         customerId,
         accessCredential,
-        accessEnabled: true,
         destinationBranchId,
         actorId,
         lines: [

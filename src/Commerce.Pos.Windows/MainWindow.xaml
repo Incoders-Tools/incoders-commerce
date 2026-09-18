@@ -10,6 +10,7 @@
             </StackPanel>
             <Button x:Name="RepairButton" Content="Re-pair terminal" VerticalAlignment="Top" Margin="24,0,0,0" Click="RepairButton_Click" />
             <Button x:Name="SwitchOperatorButton" Content="Switch operator" VerticalAlignment="Top" Margin="8,0,0,0" Click="SwitchOperatorButton_Click" />
+            <Button x:Name="ManageCustomersButton" Content="Manage customers" VerticalAlignment="Top" Margin="8,0,0,0" Click="ManageCustomersButton_Click" Visibility="Collapsed" />
         </StackPanel>
 
         <TextBlock Text="Branch Status" FontWeight="Bold" FontSize="16" Margin="0,0,0,8" />
@@ -19,6 +20,8 @@
         <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
             <TextBlock Text="Amount:" VerticalAlignment="Center" Margin="0,0,8,0" />
             <TextBox x:Name="AmountTextBox" Width="120" Text="19.99" />
+            <TextBlock Text="Customer:" VerticalAlignment="Center" Margin="16,0,8,0" />
+            <ComboBox x:Name="CustomerPickerComboBox" Width="160" DisplayMemberPath="Label" />
             <Button x:Name="CommitSaleButton" Content="Commit Sale" Margin="16,0,0,0" Click="CommitSaleButton_Click" />
         </StackPanel>
         <TextBlock x:Name="SaleResultText" TextWrapping="Wrap" Margin="0,0,0,16" />

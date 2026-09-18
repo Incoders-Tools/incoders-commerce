@@ -168,6 +168,37 @@ public sealed class PosCompositionRootTests : IDisposable
         Assert.NotNull(provisioningClient);
     }
 
+    /// <summary>
+    /// Covers commerce-customer-identity Unit 6 task 6.4: the two new typed
+    /// clients resolve from the composition root. <see cref="CustomerAdminClient"/>
+    /// is deliberately TRANSIENT (design.md "the cookie is held in a
+    /// window-scoped HttpClient... discarded when the window closes") — each
+    /// resolve yields a fresh instance with its own CookieContainer, never a
+    /// shared singleton.
+    /// </summary>
+    [Fact]
+    public void Build_Resolves_CustomerReplicaClient()
+    {
+        using var host = PosHostBuilder.Build(_dataDirectory);
+
+        var replicaClient = host.Services.GetRequiredService<CustomerReplicaClient>();
+
+        Assert.NotNull(replicaClient);
+    }
+
+    [Fact]
+    public void Build_Resolves_CustomerAdminClient_AsTransient_NotSingleton()
+    {
+        using var host = PosHostBuilder.Build(_dataDirectory);
+
+        var first = host.Services.GetRequiredService<CustomerAdminClient>();
+        var second = host.Services.GetRequiredService<CustomerAdminClient>();
+
+        Assert.NotNull(first);
+        Assert.NotNull(second);
+        Assert.NotSame(first, second);
+    }
+
     public void Dispose()
     {
         // BranchSyncStore holds a SQLite connection that pools the file handle

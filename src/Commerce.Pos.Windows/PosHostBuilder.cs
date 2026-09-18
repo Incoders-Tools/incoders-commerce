@@ -48,6 +48,20 @@ public static class PosHostBuilder
         {
             client.BaseAddress = new Uri(cloudApiBaseUrl);
         });
+        builder.Services.AddHttpClient<CustomerReplicaClient>(client =>
+        {
+            client.BaseAddress = new Uri(cloudApiBaseUrl);
+        });
+
+        // TRANSIENT, not a shared typed HttpClient (design.md "Desktop
+        // authorization for customer create/edit"): the admin cookie lives in
+        // a window-scoped CookieContainer, so every resolve must hand out a
+        // fresh instance, never the same cookie jar reused across windows.
+        builder.Services.AddTransient(_ => new CustomerAdminClient(cloudApiBaseUrl));
+        // A resolvable factory so MainWindow can mint one fresh CustomerAdminClient
+        // per CustomersWindow open, without holding an IServiceProvider itself.
+        builder.Services.AddSingleton<Func<CustomerAdminClient>>(
+            sp => () => sp.GetRequiredService<CustomerAdminClient>());
 
         // MainWindow is NOT registered here: it requires an already-paired
         // LocalInstallationRecord, which App.xaml.cs resolves via

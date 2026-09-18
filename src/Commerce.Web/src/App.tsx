@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router'
 import { AuthProvider } from '@/auth/AuthContext'
 import { AppLayout } from '@/routes/AppLayout'
 import { RequireAuth } from '@/routes/RequireAuth'
+import { RequireAdmin } from '@/routes/RequireAdmin'
 import { LoginRoute } from '@/routes/LoginRoute'
 import { ForgotPasswordRoute } from '@/routes/ForgotPasswordRoute'
 import { ResetPasswordRoute } from '@/routes/ResetPasswordRoute'
@@ -9,6 +10,7 @@ import { HomeScreen } from '@/screens/HomeScreen'
 import { CatalogScreen } from '@/screens/CatalogScreen'
 import { OrderScreen } from '@/screens/OrderScreen'
 import { RenewPasswordScreen } from '@/screens/RenewPasswordScreen'
+import { CustomersScreen } from '@/screens/CustomersScreen'
 
 /**
  * Route tree replacing the former auth ternary (design.md "Route tree").
@@ -31,6 +33,9 @@ function App() {
             <Route path="catalog" element={<CatalogScreen />} />
             <Route path="orders" element={<OrderScreen />} />
             <Route path="password" element={<RenewPasswordScreen />} />
+            <Route element={<RequireAdmin />}>
+              <Route path="customers" element={<CustomersScreen />} />
+            </Route>
           </Route>
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

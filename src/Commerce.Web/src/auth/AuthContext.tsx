@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, type ReactNode } from 'react'
 import * as accountApi from '@/api/account'
 import type { SignedInResponse, SignInRequest } from '@/api/types'
+import { Permission } from '@/api/types'
 
 interface AuthContextValue {
   user: SignedInResponse | null
@@ -58,4 +59,14 @@ export function useAuth(): AuthContextValue {
  */
 export function useOptionalAuth(): AuthContextValue | null {
   return useContext(AuthContext) ?? null
+}
+
+/**
+ * commerce-customer-identity "Web admin gating": permission checks read
+ * `user.permissions` (server-derived on `/account/sign-in` and
+ * `/account/me`), never a display-name or role-name string — `RequireAdmin`
+ * and `AppLayout`'s nav both go through this single helper.
+ */
+export function hasPermission(user: SignedInResponse | null, permission: Permission): boolean {
+  return user !== null && (user.permissions & permission) === permission
 }

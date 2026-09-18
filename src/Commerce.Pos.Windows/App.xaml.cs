@@ -69,6 +69,8 @@ public partial class App : System.Windows.Application
             localInstallationStore,
             _host.Services.GetRequiredService<LocalOperatorStore>(),
             currentOperator,
+            _host.Services.GetRequiredService<CustomerReplicaClient>(),
+            _host.Services.GetRequiredService<Func<CustomerAdminClient>>(),
             identity);
 
         // ShutdownMode is OnExplicitShutdown (App.xaml) specifically so that
