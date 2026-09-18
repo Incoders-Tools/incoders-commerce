@@ -22,7 +22,7 @@ test.describe('catalog rename', () => {
     // A second, unrelated seeded user's branch — not in `user`'s branch scope.
     const otherOrgUser = await seedUser(baseURL!, { email: uniqueEmail('catalog-denied-other'), password })
 
-    await page.goto('/')
+    await page.goto('/login')
     await page.getByLabel('Email').fill(user.email)
     await page.getByLabel('Password').fill(password)
     await page.getByRole('button', { name: /sign in/i }).click()
@@ -45,7 +45,7 @@ test.describe('catalog rename', () => {
     const password = 'correct-horse-battery-staple'
     const user = await seedUser(baseURL!, { email: uniqueEmail('catalog-allowed'), password })
 
-    await page.goto('/')
+    await page.goto('/login')
     await page.getByLabel('Email').fill(user.email)
     await page.getByLabel('Password').fill(password)
     await page.getByRole('button', { name: /sign in/i }).click()

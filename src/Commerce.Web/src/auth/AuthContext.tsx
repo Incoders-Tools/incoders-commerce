@@ -9,7 +9,7 @@ interface AuthContextValue {
   signOut: () => Promise<void>
 }
 
-const AuthContext = createContext<AuthContextValue | undefined>(undefined)
+export const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<SignedInResponse | null>(null)
@@ -48,4 +48,14 @@ export function useAuth(): AuthContextValue {
     throw new Error('useAuth must be used within an AuthProvider')
   }
   return context
+}
+
+/**
+ * Non-throwing variant of `useAuth()` (design.md "`/` for a signed-in
+ * visitor"): returns `null` outside an `AuthProvider` instead of throwing,
+ * so public routes like `HomeScreen` can render with zero dependency on
+ * auth machinery — including with no provider mounted at all.
+ */
+export function useOptionalAuth(): AuthContextValue | null {
+  return useContext(AuthContext) ?? null
 }

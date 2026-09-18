@@ -13,7 +13,7 @@ test.describe('sign-in', () => {
     const password = 'correct-horse-battery-staple'
     const user = await seedUser(baseURL!, { email: uniqueEmail('signin-success'), password })
 
-    await page.goto('/')
+    await page.goto('/login')
     await page.getByLabel('Email').fill(user.email)
     await page.getByLabel('Password').fill(password)
     await page.getByRole('button', { name: /sign in/i }).click()
@@ -29,7 +29,7 @@ test.describe('sign-in', () => {
     const password = 'correct-horse-battery-staple'
     const user = await seedUser(baseURL!, { email: uniqueEmail('signin-wrong-password'), password })
 
-    await page.goto('/')
+    await page.goto('/login')
     await page.getByLabel('Email').fill(user.email)
     await page.getByLabel('Password').fill('definitely-the-wrong-password')
     await page.getByRole('button', { name: /sign in/i }).click()
@@ -51,7 +51,7 @@ test.describe('sign-in', () => {
 
   test('rejects an unknown email with the exact same generic error as a wrong password', async ({ page, baseURL }) => {
     // No seeding at all: this email has never existed in any organization.
-    await page.goto('/')
+    await page.goto('/login')
     await page.getByLabel('Email').fill(uniqueEmail('signin-unknown'))
     await page.getByLabel('Password').fill('whatever-password')
     await page.getByRole('button', { name: /sign in/i }).click()

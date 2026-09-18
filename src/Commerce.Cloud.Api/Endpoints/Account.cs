@@ -230,7 +230,7 @@ public static class AccountEndpoints
 
             await recoveryStore.IssueTokenAsync(scope, credential.Id, tokenHash, expiresAt, ct);
 
-            var link = $"{emailOptions.PublicBaseUrl}/reset-password?token={token}";
+            var link = $"{emailOptions.PublicBaseUrl}/reset-password/{token}";
             var textBody =
                 $"Reset your Commerce password by visiting {link}\n\n" +
                 "This link expires in 1 hour and can be used once. " +
