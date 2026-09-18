@@ -2127,4 +2127,727 @@ public sealed class MigrationRlsTests
         }
         tx.Commit();
     }
+
+    // --- commerce-pricing-engine: 0009_catalog_and_pricing.sql -------------
+
+    private static string ResolveCatalogAndPricingMigrationPath()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Commerce.sln")))
+        {
+            dir = dir.Parent;
+        }
+
+        if (dir is null)
+        {
+            throw new InvalidOperationException("Could not locate repo root (Commerce.sln) from " + AppContext.BaseDirectory);
+        }
+
+        return Path.Combine(dir.FullName, "deploy", "db", "migrations", "0009_catalog_and_pricing.sql");
+    }
+
+    private static void ApplyCatalogAndPricingMigration(NpgsqlConnection connection)
+    {
+        var sql = File.ReadAllText(ResolveCatalogAndPricingMigrationPath());
+        using var cmd = new NpgsqlCommand(sql, connection);
+        cmd.ExecuteNonQuery();
+    }
+
+    private static void ApplyAllMigrationsThrough0009(NpgsqlConnection connection)
+    {
+        ApplyAllMigrationsThrough0008(connection);
+        ApplyCatalogAndPricingMigration(connection);
+    }
+
+    private static void ResetCatalogAndPricing()
+    {
+        using var connection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        connection.Open();
+        // CASCADE: price_list_entries carries FKs to price_lists and
+        // presentations; presentations carries a FK to products;
+        // price_import_batches/rows (Part C, Work Unit 9) carry FKs to
+        // supplier_price_mappings and presentations.
+        using var cmd = new NpgsqlCommand(
+            """
+            TRUNCATE TABLE price_import_rows, price_import_batches, supplier_price_mappings,
+                           price_list_entries, price_lists, presentations, products CASCADE
+            """, connection);
+        cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>
+    /// Covers commerce-pricing-engine task 1.1: `0009` idempotency — applying
+    /// it twice against an already-migrated database is a no-op.
+    /// </summary>
+    [Fact]
+    public void CatalogAndPricingMigration_IsIdempotent_AppliedTwiceWithoutError()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        using var connection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        connection.Open();
+        ApplyAllMigrationsThrough0008(connection);
+
+        ApplyCatalogAndPricingMigration(connection);
+        ApplyCatalogAndPricingMigration(connection);
+
+        using var cmd = new NpgsqlCommand(
+            """
+            SELECT
+                EXISTS (SELECT 1 FROM pg_class WHERE relname = 'products' AND relrowsecurity AND relforcerowsecurity),
+                EXISTS (SELECT 1 FROM pg_class WHERE relname = 'presentations' AND relrowsecurity AND relforcerowsecurity),
+                EXISTS (SELECT 1 FROM pg_class WHERE relname = 'price_lists' AND relrowsecurity AND relforcerowsecurity),
+                EXISTS (SELECT 1 FROM pg_class WHERE relname = 'price_list_entries' AND relrowsecurity AND relforcerowsecurity),
+                EXISTS (SELECT 1 FROM pg_class WHERE relname = 'supplier_price_mappings' AND relrowsecurity AND relforcerowsecurity),
+                EXISTS (SELECT 1 FROM pg_class WHERE relname = 'price_import_batches' AND relrowsecurity AND relforcerowsecurity),
+                EXISTS (SELECT 1 FROM pg_class WHERE relname = 'price_import_rows' AND relrowsecurity AND relforcerowsecurity)
+            """, connection);
+        using var reader = cmd.ExecuteReader();
+        Assert.True(reader.Read());
+        Assert.True(reader.GetBoolean(0));
+        Assert.True(reader.GetBoolean(1));
+        Assert.True(reader.GetBoolean(2));
+        Assert.True(reader.GetBoolean(3));
+        Assert.True(reader.GetBoolean(4));
+        Assert.True(reader.GetBoolean(5));
+        Assert.True(reader.GetBoolean(6));
+    }
+
+    /// <summary>
+    /// `app_runtime` has no `DELETE` grant on any of the four new tables —
+    /// the `customers`/`platform_admins` precedent. `price_list_entries` also
+    /// has no `UPDATE` grant: append-only is enforced at the GRANT level, not
+    /// merely by convention (design.md "Effective-dating shape").
+    /// </summary>
+    [Fact]
+    public void CatalogAndPricingMigration_AppRuntime_HasNoDeleteGrant_OnAnyTable_AndNoUpdateOnPriceListEntries()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        using (var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            ownerConnection.Open();
+            ApplyAllMigrationsThrough0009(ownerConnection);
+        }
+
+        using var appRuntimeConnection = new NpgsqlConnection(PostgresTestFixture.DirectConnectionString);
+        appRuntimeConnection.Open();
+
+        foreach (var table in new[]
+        {
+            "products", "presentations", "price_lists", "price_list_entries",
+            "supplier_price_mappings", "price_import_batches", "price_import_rows",
+        })
+        {
+            using var deleteCmd = new NpgsqlCommand($"DELETE FROM {table} WHERE false", appRuntimeConnection);
+            var ex = Assert.Throws<PostgresException>(() => deleteCmd.ExecuteNonQuery());
+            Assert.Equal("42501", ex.SqlState);
+        }
+
+        using (var updateCmd = new NpgsqlCommand(
+            "UPDATE price_list_entries SET unit_price = 1 WHERE false", appRuntimeConnection))
+        {
+            var ex = Assert.Throws<PostgresException>(() => updateCmd.ExecuteNonQuery());
+            Assert.Equal("42501", ex.SqlState);
+        }
+
+        // price_import_rows is append-only (design.md "Import state machine"):
+        // every row's match_status is decided once, at parse time.
+        using (var updateCmd = new NpgsqlCommand(
+            "UPDATE price_import_rows SET match_status = 'Matched' WHERE false", appRuntimeConnection))
+        {
+            var ex = Assert.Throws<PostgresException>(() => updateCmd.ExecuteNonQuery());
+            Assert.Equal("42501", ex.SqlState);
+        }
+    }
+
+    /// <summary>
+    /// Org B cannot read org A's supplier mappings or import batches — the
+    /// same tenant-isolation shape as `price_lists`/`presentations`
+    /// (design.md "Price tables RLS" extended to Part C).
+    /// </summary>
+    [Fact]
+    public void SupplierMappingsAndImportBatches_CrossOrganizationRead_ReturnsZeroRows()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        var orgAId = Guid.NewGuid();
+        var mappingId = Guid.NewGuid();
+        var batchId = Guid.NewGuid();
+        var actorId = Guid.NewGuid();
+
+        using (var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            ownerConnection.Open();
+            ApplyAllMigrationsThrough0009(ownerConnection);
+            ResetCatalogAndPricing();
+            ResetOrganizations();
+
+            void Exec(string sql, Action<NpgsqlCommand> bind)
+            {
+                using var cmd = new NpgsqlCommand(sql, ownerConnection);
+                bind(cmd);
+                cmd.ExecuteNonQuery();
+            }
+
+            Exec("INSERT INTO organizations (id, name) VALUES ($1, 'Org A')", c => c.Parameters.AddWithValue(orgAId));
+            Exec(
+                """
+                INSERT INTO supplier_price_mappings
+                    (id, organization_id, supplier_name, sheet_name, header_row, code_column, price_column, created_by_user_id)
+                VALUES ($1, $2, 'Acme', 'Prices', 1, 'A', 'B', $3)
+                """, c =>
+                {
+                    c.Parameters.AddWithValue(mappingId);
+                    c.Parameters.AddWithValue(orgAId);
+                    c.Parameters.AddWithValue(actorId);
+                });
+            Exec(
+                """
+                INSERT INTO price_import_batches
+                    (id, organization_id, supplier_mapping_id, file_name, row_count, uploaded_by_user_id)
+                VALUES ($1, $2, $3, 'prices.xlsx', 0, $4)
+                """, c =>
+                {
+                    c.Parameters.AddWithValue(batchId);
+                    c.Parameters.AddWithValue(orgAId);
+                    c.Parameters.AddWithValue(mappingId);
+                    c.Parameters.AddWithValue(actorId);
+                });
+        }
+
+        using var scopedConnection = new NpgsqlConnection(PostgresTestFixture.DirectConnectionString);
+        scopedConnection.Open();
+        using var tx = scopedConnection.BeginTransaction();
+        using (var scopeCmd = new NpgsqlCommand("SELECT set_config('app.current_org_id', $1, true)", scopedConnection, tx))
+        {
+            scopeCmd.Parameters.AddWithValue(Guid.NewGuid().ToString());
+            scopeCmd.ExecuteNonQuery();
+        }
+
+        using var mappingCountCmd = new NpgsqlCommand("SELECT count(*) FROM supplier_price_mappings", scopedConnection, tx);
+        var mappingCount = (long)mappingCountCmd.ExecuteScalar()!;
+        using var batchCountCmd = new NpgsqlCommand("SELECT count(*) FROM price_import_batches", scopedConnection, tx);
+        var batchCount = (long)batchCountCmd.ExecuteScalar()!;
+        tx.Commit();
+
+        Assert.Equal(0, mappingCount);
+        Assert.Equal(0, batchCount);
+    }
+
+    [Fact]
+    public void ProductsMigration_CrossOrganizationRead_ReturnsZeroRows()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        var orgAId = Guid.NewGuid();
+        var productId = Guid.NewGuid();
+        var actorId = Guid.NewGuid();
+
+        using (var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            ownerConnection.Open();
+            ApplyAllMigrationsThrough0009(ownerConnection);
+            ResetCatalogAndPricing();
+            ResetOrganizations();
+
+            using var insertOrgCmd = new NpgsqlCommand(
+                "INSERT INTO organizations (id, name) VALUES ($1, 'Org A')", ownerConnection);
+            insertOrgCmd.Parameters.AddWithValue(orgAId);
+            insertOrgCmd.ExecuteNonQuery();
+
+            using var insertProductCmd = new NpgsqlCommand(
+                """
+                INSERT INTO products (id, organization_id, name, category_id, default_unit_id, created_by_user_id)
+                VALUES ($1, $2, 'Product A', $3, $3, $3)
+                """, ownerConnection);
+            insertProductCmd.Parameters.AddWithValue(productId);
+            insertProductCmd.Parameters.AddWithValue(orgAId);
+            insertProductCmd.Parameters.AddWithValue(actorId);
+            insertProductCmd.ExecuteNonQuery();
+        }
+
+        using var scopedConnection = new NpgsqlConnection(PostgresTestFixture.DirectConnectionString);
+        scopedConnection.Open();
+        using var tx = scopedConnection.BeginTransaction();
+        using (var scopeCmd = new NpgsqlCommand("SELECT set_config('app.current_org_id', $1, true)", scopedConnection, tx))
+        {
+            scopeCmd.Parameters.AddWithValue(Guid.NewGuid().ToString());
+            scopeCmd.ExecuteNonQuery();
+        }
+
+        using var countCmd = new NpgsqlCommand("SELECT count(*) FROM products", scopedConnection, tx);
+        var count = (long)countCmd.ExecuteScalar()!;
+        tx.Commit();
+
+        Assert.Equal(0, count);
+    }
+
+    [Fact]
+    public void ProductsMigration_CrossOrgInsert_Throws()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        var orgAId = Guid.NewGuid();
+
+        using (var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            ownerConnection.Open();
+            ApplyAllMigrationsThrough0009(ownerConnection);
+            ResetCatalogAndPricing();
+            ResetOrganizations();
+
+            using var insertOrgCmd = new NpgsqlCommand(
+                "INSERT INTO organizations (id, name) VALUES ($1, 'Org A')", ownerConnection);
+            insertOrgCmd.Parameters.AddWithValue(orgAId);
+            insertOrgCmd.ExecuteNonQuery();
+        }
+
+        using var writeConnection = new NpgsqlConnection(PostgresTestFixture.DirectConnectionString);
+        writeConnection.Open();
+        using var tx = writeConnection.BeginTransaction();
+        using (var scopeCmd = new NpgsqlCommand("SELECT set_config('app.current_org_id', $1, true)", writeConnection, tx))
+        {
+            // Scoped to a DIFFERENT org than orgAId, but the insert claims orgAId.
+            scopeCmd.Parameters.AddWithValue(Guid.NewGuid().ToString());
+            scopeCmd.ExecuteNonQuery();
+        }
+
+        using var insertCmd = new NpgsqlCommand(
+            """
+            INSERT INTO products (id, organization_id, name, category_id, default_unit_id, created_by_user_id)
+            VALUES ($1, $2, 'Rogue Product', $3, $3, $3)
+            """, writeConnection, tx);
+        insertCmd.Parameters.AddWithValue(Guid.NewGuid());
+        insertCmd.Parameters.AddWithValue(orgAId);
+        insertCmd.Parameters.AddWithValue(Guid.NewGuid());
+
+        Assert.Throws<PostgresException>(() => insertCmd.ExecuteNonQuery());
+        tx.Rollback();
+    }
+
+    /// <summary>
+    /// `presentations_org_code_uk`: a duplicate `identification_code` WITHIN
+    /// the same organization is rejected — enforced by the index, not by UI
+    /// code (design.md "Identification code placement and uniqueness").
+    /// </summary>
+    [Fact]
+    public void PresentationsMigration_DuplicateIdentificationCodeWithinSameOrg_Throws()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        var orgAId = Guid.NewGuid();
+        var productId = Guid.NewGuid();
+        var actorId = Guid.NewGuid();
+
+        using var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        ownerConnection.Open();
+        ApplyAllMigrationsThrough0009(ownerConnection);
+        ResetCatalogAndPricing();
+        ResetOrganizations();
+
+        using (var insertOrgCmd = new NpgsqlCommand(
+            "INSERT INTO organizations (id, name) VALUES ($1, 'Org A')", ownerConnection))
+        {
+            insertOrgCmd.Parameters.AddWithValue(orgAId);
+            insertOrgCmd.ExecuteNonQuery();
+        }
+
+        using (var insertProductCmd = new NpgsqlCommand(
+            """
+            INSERT INTO products (id, organization_id, name, category_id, default_unit_id, created_by_user_id)
+            VALUES ($1, $2, 'Product A', $3, $3, $3)
+            """, ownerConnection))
+        {
+            insertProductCmd.Parameters.AddWithValue(productId);
+            insertProductCmd.Parameters.AddWithValue(orgAId);
+            insertProductCmd.Parameters.AddWithValue(actorId);
+            insertProductCmd.ExecuteNonQuery();
+        }
+
+        using (var insertPresentation1Cmd = new NpgsqlCommand(
+            """
+            INSERT INTO presentations (id, organization_id, product_id, name, quantity_behavior, unit_id, identification_code, created_by_user_id)
+            VALUES ($1, $2, $3, 'Presentation 1', 'FixedQuantity', $4, 'DUPLICATE-CODE', $4)
+            """, ownerConnection))
+        {
+            insertPresentation1Cmd.Parameters.AddWithValue(Guid.NewGuid());
+            insertPresentation1Cmd.Parameters.AddWithValue(orgAId);
+            insertPresentation1Cmd.Parameters.AddWithValue(productId);
+            insertPresentation1Cmd.Parameters.AddWithValue(actorId);
+            insertPresentation1Cmd.ExecuteNonQuery();
+        }
+
+        using var insertPresentation2Cmd = new NpgsqlCommand(
+            """
+            INSERT INTO presentations (id, organization_id, product_id, name, quantity_behavior, unit_id, identification_code, created_by_user_id)
+            VALUES ($1, $2, $3, 'Presentation 2', 'FixedQuantity', $4, 'DUPLICATE-CODE', $4)
+            """, ownerConnection);
+        insertPresentation2Cmd.Parameters.AddWithValue(Guid.NewGuid());
+        insertPresentation2Cmd.Parameters.AddWithValue(orgAId);
+        insertPresentation2Cmd.Parameters.AddWithValue(productId);
+        insertPresentation2Cmd.Parameters.AddWithValue(actorId);
+
+        Assert.Throws<PostgresException>(() => insertPresentation2Cmd.ExecuteNonQuery());
+    }
+
+    // --- commerce-pricing-engine Work Unit 2: price schema/aggregate ------
+
+    /// <summary>
+    /// Append-only proof (design.md "Effective-dating shape"): publishing a
+    /// second price for the same presentation is a pure INSERT, and the
+    /// FIRST entry remains retrievable at its own `effective_from` — no row
+    /// is ever rewritten.
+    /// </summary>
+    [Fact]
+    public void PriceListEntries_SupersedingPrice_PreservesPriorEntryAsHistory()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        var orgAId = Guid.NewGuid();
+        var productId = Guid.NewGuid();
+        var presentationId = Guid.NewGuid();
+        var priceListId = Guid.NewGuid();
+        var actorId = Guid.NewGuid();
+
+        using var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        ownerConnection.Open();
+        ApplyAllMigrationsThrough0009(ownerConnection);
+        ResetCatalogAndPricing();
+        ResetOrganizations();
+
+        void Exec(string sql, Action<NpgsqlCommand> bind)
+        {
+            using var cmd = new NpgsqlCommand(sql, ownerConnection);
+            bind(cmd);
+            cmd.ExecuteNonQuery();
+        }
+
+        Exec("INSERT INTO organizations (id, name) VALUES ($1, 'Org A')", c => c.Parameters.AddWithValue(orgAId));
+        Exec(
+            """
+            INSERT INTO products (id, organization_id, name, category_id, default_unit_id, created_by_user_id)
+            VALUES ($1, $2, 'Product A', $3, $3, $3)
+            """, c =>
+            {
+                c.Parameters.AddWithValue(productId);
+                c.Parameters.AddWithValue(orgAId);
+                c.Parameters.AddWithValue(actorId);
+            });
+        Exec(
+            """
+            INSERT INTO presentations (id, organization_id, product_id, name, quantity_behavior, unit_id, created_by_user_id)
+            VALUES ($1, $2, $3, 'Presentation A', 'FixedQuantity', $4, $4)
+            """, c =>
+            {
+                c.Parameters.AddWithValue(presentationId);
+                c.Parameters.AddWithValue(orgAId);
+                c.Parameters.AddWithValue(productId);
+                c.Parameters.AddWithValue(actorId);
+            });
+        Exec(
+            "INSERT INTO price_lists (id, organization_id, name, is_default, created_by_user_id) VALUES ($1, $2, 'Default', true, $3)",
+            c =>
+            {
+                c.Parameters.AddWithValue(priceListId);
+                c.Parameters.AddWithValue(orgAId);
+                c.Parameters.AddWithValue(actorId);
+            });
+
+        Exec(
+            """
+            INSERT INTO price_list_entries (id, organization_id, price_list_id, presentation_id, unit_price, effective_from, created_by_user_id)
+            VALUES ($1, $2, $3, $4, 100.00, '2026-01-01', $5)
+            """, c =>
+            {
+                c.Parameters.AddWithValue(Guid.NewGuid());
+                c.Parameters.AddWithValue(orgAId);
+                c.Parameters.AddWithValue(priceListId);
+                c.Parameters.AddWithValue(presentationId);
+                c.Parameters.AddWithValue(actorId);
+            });
+
+        // Supersede: a NEW row, later effective_from, HIGHER price. The
+        // first row must remain untouched — no UPDATE ever happens.
+        Exec(
+            """
+            INSERT INTO price_list_entries (id, organization_id, price_list_id, presentation_id, unit_price, effective_from, created_by_user_id)
+            VALUES ($1, $2, $3, $4, 150.00, '2026-02-01', $5)
+            """, c =>
+            {
+                c.Parameters.AddWithValue(Guid.NewGuid());
+                c.Parameters.AddWithValue(orgAId);
+                c.Parameters.AddWithValue(priceListId);
+                c.Parameters.AddWithValue(presentationId);
+                c.Parameters.AddWithValue(actorId);
+            });
+
+        using var readCmd = new NpgsqlCommand(
+            "SELECT unit_price FROM price_list_entries WHERE presentation_id = $1 ORDER BY effective_from", ownerConnection);
+        readCmd.Parameters.AddWithValue(presentationId);
+        using var reader = readCmd.ExecuteReader();
+
+        Assert.True(reader.Read());
+        Assert.Equal(100.00m, reader.GetDecimal(0));
+        Assert.True(reader.Read());
+        Assert.Equal(150.00m, reader.GetDecimal(0));
+        Assert.False(reader.Read());
+    }
+
+    /// <summary>
+    /// `price_list_entries_one_per_day` (`UNIQUE (price_list_id,
+    /// presentation_id, effective_from)`): a same-day double-publish is
+    /// rejected — a 409 at the endpoint layer, not a silent coin flip.
+    /// </summary>
+    [Fact]
+    public void PriceListEntries_SameDayDoublePublish_Throws()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        var orgAId = Guid.NewGuid();
+        var productId = Guid.NewGuid();
+        var presentationId = Guid.NewGuid();
+        var priceListId = Guid.NewGuid();
+        var actorId = Guid.NewGuid();
+
+        using var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        ownerConnection.Open();
+        ApplyAllMigrationsThrough0009(ownerConnection);
+        ResetCatalogAndPricing();
+        ResetOrganizations();
+
+        void Exec(string sql, Action<NpgsqlCommand> bind)
+        {
+            using var cmd = new NpgsqlCommand(sql, ownerConnection);
+            bind(cmd);
+            cmd.ExecuteNonQuery();
+        }
+
+        Exec("INSERT INTO organizations (id, name) VALUES ($1, 'Org A')", c => c.Parameters.AddWithValue(orgAId));
+        Exec(
+            """
+            INSERT INTO products (id, organization_id, name, category_id, default_unit_id, created_by_user_id)
+            VALUES ($1, $2, 'Product A', $3, $3, $3)
+            """, c =>
+            {
+                c.Parameters.AddWithValue(productId);
+                c.Parameters.AddWithValue(orgAId);
+                c.Parameters.AddWithValue(actorId);
+            });
+        Exec(
+            """
+            INSERT INTO presentations (id, organization_id, product_id, name, quantity_behavior, unit_id, created_by_user_id)
+            VALUES ($1, $2, $3, 'Presentation A', 'FixedQuantity', $4, $4)
+            """, c =>
+            {
+                c.Parameters.AddWithValue(presentationId);
+                c.Parameters.AddWithValue(orgAId);
+                c.Parameters.AddWithValue(productId);
+                c.Parameters.AddWithValue(actorId);
+            });
+        Exec(
+            "INSERT INTO price_lists (id, organization_id, name, is_default, created_by_user_id) VALUES ($1, $2, 'Default', true, $3)",
+            c =>
+            {
+                c.Parameters.AddWithValue(priceListId);
+                c.Parameters.AddWithValue(orgAId);
+                c.Parameters.AddWithValue(actorId);
+            });
+        Exec(
+            """
+            INSERT INTO price_list_entries (id, organization_id, price_list_id, presentation_id, unit_price, effective_from, created_by_user_id)
+            VALUES ($1, $2, $3, $4, 100.00, '2026-01-01', $5)
+            """, c =>
+            {
+                c.Parameters.AddWithValue(Guid.NewGuid());
+                c.Parameters.AddWithValue(orgAId);
+                c.Parameters.AddWithValue(priceListId);
+                c.Parameters.AddWithValue(presentationId);
+                c.Parameters.AddWithValue(actorId);
+            });
+
+        using var duplicateDayCmd = new NpgsqlCommand(
+            """
+            INSERT INTO price_list_entries (id, organization_id, price_list_id, presentation_id, unit_price, effective_from, created_by_user_id)
+            VALUES ($1, $2, $3, $4, 999.00, '2026-01-01', $5)
+            """, ownerConnection);
+        duplicateDayCmd.Parameters.AddWithValue(Guid.NewGuid());
+        duplicateDayCmd.Parameters.AddWithValue(orgAId);
+        duplicateDayCmd.Parameters.AddWithValue(priceListId);
+        duplicateDayCmd.Parameters.AddWithValue(presentationId);
+        duplicateDayCmd.Parameters.AddWithValue(actorId);
+
+        Assert.Throws<PostgresException>(() => duplicateDayCmd.ExecuteNonQuery());
+    }
+
+    /// <summary>
+    /// `price_lists_one_default` (`UNIQUE (organization_id) WHERE
+    /// is_default`): a second default price list for the same organization
+    /// is rejected (design.md "Which price list resolves").
+    /// </summary>
+    [Fact]
+    public void PriceLists_SecondDefaultForSameOrganization_Throws()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        var orgAId = Guid.NewGuid();
+        var actorId = Guid.NewGuid();
+
+        using var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        ownerConnection.Open();
+        ApplyAllMigrationsThrough0009(ownerConnection);
+        ResetCatalogAndPricing();
+        ResetOrganizations();
+
+        using (var insertOrgCmd = new NpgsqlCommand(
+            "INSERT INTO organizations (id, name) VALUES ($1, 'Org A')", ownerConnection))
+        {
+            insertOrgCmd.Parameters.AddWithValue(orgAId);
+            insertOrgCmd.ExecuteNonQuery();
+        }
+
+        using (var insertFirstDefaultCmd = new NpgsqlCommand(
+            "INSERT INTO price_lists (id, organization_id, name, is_default, created_by_user_id) VALUES ($1, $2, 'Default', true, $3)",
+            ownerConnection))
+        {
+            insertFirstDefaultCmd.Parameters.AddWithValue(Guid.NewGuid());
+            insertFirstDefaultCmd.Parameters.AddWithValue(orgAId);
+            insertFirstDefaultCmd.Parameters.AddWithValue(actorId);
+            insertFirstDefaultCmd.ExecuteNonQuery();
+        }
+
+        using var insertSecondDefaultCmd = new NpgsqlCommand(
+            "INSERT INTO price_lists (id, organization_id, name, is_default, created_by_user_id) VALUES ($1, $2, 'Also Default', true, $3)",
+            ownerConnection);
+        insertSecondDefaultCmd.Parameters.AddWithValue(Guid.NewGuid());
+        insertSecondDefaultCmd.Parameters.AddWithValue(orgAId);
+        insertSecondDefaultCmd.Parameters.AddWithValue(actorId);
+
+        Assert.Throws<PostgresException>(() => insertSecondDefaultCmd.ExecuteNonQuery());
+    }
+
+    [Fact]
+    public void PriceListEntries_CrossOrganizationRead_ReturnsZeroRows()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        var orgAId = Guid.NewGuid();
+        var productId = Guid.NewGuid();
+        var presentationId = Guid.NewGuid();
+        var priceListId = Guid.NewGuid();
+        var actorId = Guid.NewGuid();
+
+        using (var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            ownerConnection.Open();
+            ApplyAllMigrationsThrough0009(ownerConnection);
+            ResetCatalogAndPricing();
+            ResetOrganizations();
+
+            void Exec(string sql, Action<NpgsqlCommand> bind)
+            {
+                using var cmd = new NpgsqlCommand(sql, ownerConnection);
+                bind(cmd);
+                cmd.ExecuteNonQuery();
+            }
+
+            Exec("INSERT INTO organizations (id, name) VALUES ($1, 'Org A')", c => c.Parameters.AddWithValue(orgAId));
+            Exec(
+                """
+                INSERT INTO products (id, organization_id, name, category_id, default_unit_id, created_by_user_id)
+                VALUES ($1, $2, 'Product A', $3, $3, $3)
+                """, c =>
+                {
+                    c.Parameters.AddWithValue(productId);
+                    c.Parameters.AddWithValue(orgAId);
+                    c.Parameters.AddWithValue(actorId);
+                });
+            Exec(
+                """
+                INSERT INTO presentations (id, organization_id, product_id, name, quantity_behavior, unit_id, created_by_user_id)
+                VALUES ($1, $2, $3, 'Presentation A', 'FixedQuantity', $4, $4)
+                """, c =>
+                {
+                    c.Parameters.AddWithValue(presentationId);
+                    c.Parameters.AddWithValue(orgAId);
+                    c.Parameters.AddWithValue(productId);
+                    c.Parameters.AddWithValue(actorId);
+                });
+            Exec(
+                "INSERT INTO price_lists (id, organization_id, name, is_default, created_by_user_id) VALUES ($1, $2, 'Default', true, $3)",
+                c =>
+                {
+                    c.Parameters.AddWithValue(priceListId);
+                    c.Parameters.AddWithValue(orgAId);
+                    c.Parameters.AddWithValue(actorId);
+                });
+            Exec(
+                """
+                INSERT INTO price_list_entries (id, organization_id, price_list_id, presentation_id, unit_price, effective_from, created_by_user_id)
+                VALUES ($1, $2, $3, $4, 100.00, '2026-01-01', $5)
+                """, c =>
+                {
+                    c.Parameters.AddWithValue(Guid.NewGuid());
+                    c.Parameters.AddWithValue(orgAId);
+                    c.Parameters.AddWithValue(priceListId);
+                    c.Parameters.AddWithValue(presentationId);
+                    c.Parameters.AddWithValue(actorId);
+                });
+        }
+
+        using var scopedConnection = new NpgsqlConnection(PostgresTestFixture.DirectConnectionString);
+        scopedConnection.Open();
+        using var tx = scopedConnection.BeginTransaction();
+        using (var scopeCmd = new NpgsqlCommand("SELECT set_config('app.current_org_id', $1, true)", scopedConnection, tx))
+        {
+            scopeCmd.Parameters.AddWithValue(Guid.NewGuid().ToString());
+            scopeCmd.ExecuteNonQuery();
+        }
+
+        using var countCmd = new NpgsqlCommand("SELECT count(*) FROM price_list_entries", scopedConnection, tx);
+        var count = (long)countCmd.ExecuteScalar()!;
+        tx.Commit();
+
+        Assert.Equal(0, count);
+    }
 }

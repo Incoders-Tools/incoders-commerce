@@ -26,10 +26,7 @@ describe('OrderScreen', () => {
     await user.type(screen.getByLabelText('Destination branch ID'), 'branch1')
     await user.type(screen.getByLabelText('Actor ID'), 'actor1')
     await user.type(screen.getByLabelText('Product ID'), 'prod1')
-    await user.type(screen.getByLabelText('Product name'), 'Widget')
     await user.type(screen.getByLabelText('Presentation ID'), 'pres1')
-    await user.type(screen.getByLabelText('Presentation name'), '6-pack')
-    await user.type(screen.getByLabelText('Unit ID'), 'unit1')
     await user.click(screen.getByRole('button', { name: /submit order/i }))
   }
 
@@ -62,14 +59,17 @@ describe('OrderScreen', () => {
     // this anymore — SubmitOrderRequest has no `accessEnabled` member.
     expect(body.accessEnabled).toBeUndefined()
     expect(body.lines).toHaveLength(1)
+    // commerce-pricing-engine: SubmitOrderLine is price-free — a caller has
+    // nowhere to put a price, productName/presentationName/unitId (the old
+    // OrderLineSnapshot shape) no longer exist on the wire.
     expect(body.lines[0]).toMatchObject({
       productId: 'prod1',
-      productName: 'Widget',
       presentationId: 'pres1',
-      presentationName: '6-pack',
-      unitId: 'unit1',
       quantity: 1,
     })
+    expect(body.lines[0].productName).toBeUndefined()
+    expect(body.lines[0].presentationName).toBeUndefined()
+    expect(body.lines[0].unitId).toBeUndefined()
 
     await screen.findByTestId('order-outcome')
     expect(screen.getByTestId('order-outcome')).toHaveTextContent('Order accepted.')

@@ -186,6 +186,43 @@ public sealed class PosCompositionRootTests : IDisposable
         Assert.NotNull(replicaClient);
     }
 
+    /// <summary>
+    /// Covers commerce-pricing-engine Phase 6 task 6.5: the new catalog+price
+    /// replica client resolves from the composition root alongside the
+    /// existing <see cref="CustomerReplicaClient"/> (regression guard for
+    /// task 6.6 — the existing registration is untouched, this is purely
+    /// additive).
+    /// </summary>
+    [Fact]
+    public void Build_Resolves_CatalogPriceReplicaClient()
+    {
+        using var host = PosHostBuilder.Build(_dataDirectory);
+
+        var replicaClient = host.Services.GetRequiredService<Commerce.Pos.Windows.CatalogPriceReplicaClient>();
+
+        Assert.NotNull(replicaClient);
+    }
+
+    /// <summary>
+    /// Regression guard for Phase 6 task 6.6: adding
+    /// <see cref="Commerce.Pos.Windows.CatalogPriceReplicaClient"/> did not
+    /// disturb the existing, already-tested <see cref="CustomerReplicaClient"/>
+    /// registration this same composition root provides
+    /// (<see cref="Build_Resolves_CustomerReplicaClient"/>) — both resolve
+    /// side by side from the one host.
+    /// </summary>
+    [Fact]
+    public void Build_Resolves_BothCustomerAndCatalogPriceReplicaClients_SideBySide()
+    {
+        using var host = PosHostBuilder.Build(_dataDirectory);
+
+        var customerReplicaClient = host.Services.GetRequiredService<CustomerReplicaClient>();
+        var catalogPriceReplicaClient = host.Services.GetRequiredService<Commerce.Pos.Windows.CatalogPriceReplicaClient>();
+
+        Assert.NotNull(customerReplicaClient);
+        Assert.NotNull(catalogPriceReplicaClient);
+    }
+
     [Fact]
     public void Build_Resolves_CustomerAdminClient_AsTransient_NotSingleton()
     {
@@ -197,6 +234,25 @@ public sealed class PosCompositionRootTests : IDisposable
         Assert.NotNull(first);
         Assert.NotNull(second);
         Assert.NotSame(first, second);
+    }
+
+    /// <summary>
+    /// Covers commerce-pricing-engine Phase 7 task 7.2: the shared
+    /// <c>PricingResolutionService</c> and its POS-side
+    /// <c>LocalEffectivePriceSource</c> resolve from the composition root
+    /// alongside every other Phase 6 registration (regression guard —
+    /// purely additive).
+    /// </summary>
+    [Fact]
+    public void Build_Resolves_PricingResolutionService_OverLocalEffectivePriceSource()
+    {
+        using var host = PosHostBuilder.Build(_dataDirectory);
+
+        var priceSource = host.Services.GetRequiredService<Commerce.Application.Pricing.IEffectivePriceSource>();
+        var resolutionService = host.Services.GetRequiredService<Commerce.Application.Pricing.PricingResolutionService>();
+
+        Assert.IsType<LocalEffectivePriceSource>(priceSource);
+        Assert.NotNull(resolutionService);
     }
 
     public void Dispose()

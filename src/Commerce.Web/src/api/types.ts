@@ -89,13 +89,14 @@ export interface ManagementOutcome {
   } | null
 }
 
-export interface OrderLineSnapshot {
+// commerce-pricing-engine design.md "OrderLineSnapshot extension and where
+// resolution runs": price-free — a caller has nowhere to put a price. The
+// server resolves UnitListPrice/AppliedDiscountPercentage/UnitNetPrice/
+// LineTotal from PricingResolutionService and freezes them into the stored
+// order's OrderLineSnapshot, never from anything sent here.
+export interface SubmitOrderLine {
   productId: string
-  productName: string
   presentationId: string
-  presentationName: string
-  quantityBehavior: number
-  unitId: string
   quantity: number
 }
 
@@ -108,7 +109,7 @@ export interface SubmitOrderRequest {
   accessCredential: string
   destinationBranchId: string
   actorId: string
-  lines: OrderLineSnapshot[]
+  lines: SubmitOrderLine[]
   correlationId: string
 }
 
@@ -128,6 +129,10 @@ export interface OrderSubmissionOutcome {
     id: string
     organizationId: string
     status: number
+    // commerce-pricing-engine: the frozen, server-resolved total per line —
+    // never sent by the client, only ever returned once the order is
+    // accepted.
+    lines?: { lineTotal: number }[]
   } | null
 }
 
@@ -221,4 +226,175 @@ export interface CreateCustomerResponse {
 // Shown exactly once — the server never stores the plaintext.
 export interface IssueOrderingAccessResponse {
   credential: string
+}
+
+// commerce-pricing-engine design.md "Verified deviation" / Work Unit 1 —
+// mirrors Commerce.Domain.Catalog.QuantityBehavior's declared member order
+// exactly. No JsonStringEnumConverter is registered in Cloud.Api (see the
+// ManagementOutcomeStatus remark above), so this serializes as its numeric
+// ordinal.
+export const QuantityBehavior = {
+  FixedQuantity: 0,
+  Weighted: 1,
+  Bulk: 2,
+} as const
+export type QuantityBehavior = (typeof QuantityBehavior)[keyof typeof QuantityBehavior]
+
+// Endpoints/Catalog.cs `ProductRecord` / `CreateProductRequest`, mirrored
+// exactly. `organizationId` is never sent by the client on create — the
+// tenant scope supplies it server-side.
+export interface ProductRecord {
+  id: string
+  organizationId: string
+  name: string
+  categoryId: string
+  defaultUnitId: string
+  createdAtUtc: string
+  createdByUserId: string
+  updatedAtUtc: string
+}
+
+export interface CreateProductRequest {
+  name: string
+  categoryId: string
+  defaultUnitId: string
+}
+
+// Endpoints/Catalog.cs `PresentationRecord` / `CreatePresentationRequest` /
+// `UpdatePresentationRequest`, mirrored exactly. `identificationCode` is
+// optional — an unlabelled presentation stays unconstrained
+// (commerce-pricing-engine design.md "Identification code placement and
+// uniqueness").
+export interface PresentationRecord {
+  id: string
+  organizationId: string
+  productId: string
+  name: string
+  quantityBehavior: QuantityBehavior
+  unitId: string
+  identificationCode: string | null
+  createdAtUtc: string
+  createdByUserId: string
+  updatedAtUtc: string
+}
+
+export interface CreatePresentationRequest {
+  productId: string
+  name: string
+  quantityBehavior: QuantityBehavior
+  unitId: string
+  identificationCode: string | null
+}
+
+export interface UpdatePresentationRequest {
+  name: string
+  quantityBehavior: QuantityBehavior
+  unitId: string
+  identificationCode: string | null
+}
+
+// commerce-pricing-engine Endpoints/Pricing.cs `PriceListRecord` /
+// `CreatePriceListRequest`, mirrored exactly. `organizationId` is never a
+// request field — it comes from the tenant scope.
+export interface PriceListRecord {
+  id: string
+  organizationId: string
+  name: string
+  isDefault: boolean
+  createdAtUtc: string
+  createdByUserId: string
+}
+
+export interface CreatePriceListRequest {
+  name: string
+  isDefault: boolean
+}
+
+// Endpoints/Pricing.cs `PriceListEntryRecord` / `AppendPriceEntryRequest`,
+// mirrored exactly. `effectiveFrom` is a `DateOnly` on the wire, so it
+// serializes as a plain `YYYY-MM-DD` string.
+export interface PriceListEntryRecord {
+  id: string
+  organizationId: string
+  priceListId: string
+  presentationId: string
+  unitPrice: number
+  effectiveFrom: string
+  source: string
+  importBatchId: string | null
+  createdAtUtc: string
+  createdByUserId: string
+}
+
+export interface AppendPriceEntryRequest {
+  presentationId: string
+  unitPrice: number
+  effectiveFrom: string
+}
+
+// commerce-pricing-engine Work Unit 9: Endpoints/Pricing.cs supplier-mapping
+// and import lifecycle DTOs, mirrored exactly. `codeColumn`/`priceColumn`
+// are Excel COLUMN LETTERS (design.md "Per-supplier column mapping"), not
+// column names or indices.
+export interface SupplierPriceMappingRecord {
+  id: string
+  organizationId: string
+  supplierName: string
+  sheetName: string
+  headerRow: number
+  codeColumn: string
+  priceColumn: string
+  createdAtUtc: string
+  createdByUserId: string
+}
+
+export interface CreateSupplierMappingRequest {
+  supplierName: string
+  sheetName: string
+  headerRow: number
+  codeColumn: string
+  priceColumn: string
+}
+
+// Deliberately no `Uploaded` state (design.md "Import state machine"): a
+// file that fails validation never creates a batch, so this union is the
+// COMPLETE set of states a persisted batch can ever be in.
+export const ImportBatchStatus = {
+  Staged: 'Staged',
+  Committed: 'Committed',
+  Rejected: 'Rejected',
+  Failed: 'Failed',
+} as const
+export type ImportBatchStatus = (typeof ImportBatchStatus)[keyof typeof ImportBatchStatus]
+
+export interface ImportBatchRecord {
+  id: string
+  organizationId: string
+  supplierMappingId: string
+  fileName: string
+  rowCount: number
+  status: ImportBatchStatus
+  uploadedAtUtc: string
+  uploadedByUserId: string
+  resolvedAtUtc: string | null
+}
+
+export interface ImportBatchRowRecord {
+  id: string
+  organizationId: string
+  batchId: string
+  rowNumber: number
+  rawCode: string | null
+  rawPrice: string | null
+  presentationId: string | null
+  currentPrice: number | null
+  proposedPrice: number | null
+  matchStatus: 'Matched' | 'NoChange' | 'UnknownCode' | 'InvalidPrice' | 'DuplicateInFile'
+  rejectReason: string | null
+}
+
+// `GET /pricing/imports/{id}` — mirrors `Results.Ok(new { batch, rows })` exactly.
+export interface ImportBatchDetail {
+  batch: ImportBatchRecord
+  rows: ImportBatchRowRecord[]
 }

@@ -266,6 +266,79 @@ public static class DeviceEndpoints
             return Results.Ok(new CustomerSyncResponse(changed, disabledIds, serverTimeUtc));
         });
 
+        // Minimum viable cloud->local catalog+price pull (commerce-pricing-
+        // engine design.md "BranchNode replication: one channel, not two"):
+        // device bearer required, org comes from the STORED device_credentials
+        // row via the minted claim, never from the request. ONE channel
+        // carries the catalog row and its currently-effective price together
+        // so the two can never be replicated out of step.
+        var catalogGroup = group.MapGroup("/catalog")
+            .RequireAuthorization("DeviceBearer")
+            .AddEndpointFilter<TenantScopeEndpointFilter>();
+
+        catalogGroup.MapGet("/sync", async (
+            DateTimeOffset since,
+            HttpContext httpContext,
+            PostgresCatalogStore catalogStore,
+            PostgresPriceListStore priceListStore,
+            CancellationToken ct) =>
+        {
+            var scope = TenantScopeEndpointFilter.GetScope(httpContext);
+            if (!DeviceIdentity.TryResolve(httpContext.User, out var deviceIdentity) || deviceIdentity is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            // Captured BEFORE the reads so the next cursor never skips a row
+            // that changed while this request was in flight.
+            var serverTimeUtc = DateTimeOffset.UtcNow;
+            var today = DateOnly.FromDateTime(serverTimeUtc.UtcDateTime);
+
+            var changedCatalog = await catalogStore.ListChangedSinceAsync(scope, since, ct);
+            var defaultList = await priceListStore.FindDefaultPriceListAsync(scope, ct);
+            var changedPrices = defaultList is null
+                ? []
+                : await priceListStore.ListEffectiveChangedSinceAsync(scope, defaultList.Id, since, today, ct);
+
+            var catalogById = changedCatalog.ToDictionary(row => row.PresentationId);
+            var priceById = changedPrices.ToDictionary(entry => entry.PresentationId);
+
+            // A price-only change (catalog row untouched) still needs its
+            // full catalog projection to assemble one combined row.
+            var missingCatalogIds = priceById.Keys.Except(catalogById.Keys).ToList();
+            if (missingCatalogIds.Count > 0)
+            {
+                var extraCatalog = await catalogStore.ListByIdsAsync(scope, missingCatalogIds, ct);
+                foreach (var row in extraCatalog)
+                {
+                    catalogById[row.PresentationId] = row;
+                }
+            }
+
+            var items = new List<CatalogReplicaRow>(catalogById.Count);
+            foreach (var catalogRow in catalogById.Values)
+            {
+                // A catalog-only change (name/code edit) still needs its
+                // currently-effective price, even if that price did NOT
+                // itself change since the cursor.
+                var priceEntry = priceById.TryGetValue(catalogRow.PresentationId, out var changedEntry)
+                    ? changedEntry
+                    : defaultList is null
+                        ? null
+                        : await priceListStore.GetEffectiveAsync(scope, defaultList.Id, catalogRow.PresentationId, today, ct);
+
+                items.Add(new CatalogReplicaRow(
+                    catalogRow.PresentationId, catalogRow.ProductId, catalogRow.ProductName, catalogRow.PresentationName,
+                    catalogRow.IdentificationCode, catalogRow.QuantityBehavior.ToString(), catalogRow.UnitId,
+                    priceEntry?.UnitPrice, priceEntry?.EffectiveFrom, catalogRow.UpdatedAtUtc));
+            }
+
+            // No deactivation/delete capability exists for presentations yet
+            // (design.md "no DELETE grant"): removed ids are always empty
+            // rather than a fabricated signal.
+            return Results.Ok(new CatalogSyncResponse(items, RemovedPresentationIds: [], serverTimeUtc));
+        });
+
         return group;
     }
 }
@@ -315,4 +388,22 @@ public sealed record OperatorStatusResponse(string Status);
 public sealed record CustomerSyncResponse(
     IReadOnlyList<CustomerReplicaRow> Customers,
     IReadOnlyList<Guid> DisabledIds,
+    DateTimeOffset ServerTimeUtc);
+
+/// <summary>
+/// `GET /device/catalog/sync` response (commerce-pricing-engine design.md
+/// "Interfaces / Contracts"). ONE row combines the catalog projection and its
+/// currently-effective price so a partial sync can never pair a new
+/// presentation with a stale price or vice versa. `UnitPrice`/`EffectiveFrom`
+/// are null when the presentation has no effective price yet — never a
+/// substituted zero.
+/// </summary>
+public sealed record CatalogReplicaRow(
+    Guid PresentationId, Guid ProductId, string ProductName, string PresentationName,
+    string? IdentificationCode, string QuantityBehavior, Guid UnitId,
+    decimal? UnitPrice, DateOnly? EffectiveFrom, DateTimeOffset UpdatedAtUtc);
+
+public sealed record CatalogSyncResponse(
+    IReadOnlyList<CatalogReplicaRow> Items,
+    IReadOnlyList<Guid> RemovedPresentationIds,
     DateTimeOffset ServerTimeUtc);

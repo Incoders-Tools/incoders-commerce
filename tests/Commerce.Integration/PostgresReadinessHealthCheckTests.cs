@@ -123,6 +123,9 @@ public sealed class PostgresReadinessHealthCheckTests : IClassFixture<WebApplica
 
         var customerSql = File.ReadAllText(Path.Combine(RepoRoot(), "deploy", "db", "migrations", "0008_customer_registry.sql"));
         using (var cmd = new NpgsqlCommand(customerSql, owner)) cmd.ExecuteNonQuery();
+
+        var catalogAndPricingSql = File.ReadAllText(Path.Combine(RepoRoot(), "deploy", "db", "migrations", "0009_catalog_and_pricing.sql"));
+        using (var cmd = new NpgsqlCommand(catalogAndPricingSql, owner)) cmd.ExecuteNonQuery();
     }
 
     /// <summary>
@@ -306,6 +309,94 @@ public sealed class PostgresReadinessHealthCheckTests : IClassFixture<WebApplica
 
     [Fact]
     public async Task HealthReady_IsHealthy_WhenCustomersAndCustomerOrderingAccessExist_WithForcedRlsAndPolicies()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            owner.Open();
+            ApplyAllMigrations(owner);
+        }
+
+        var client = _factory.CreateClient();
+        var response = await client.GetAsync("/health/ready");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    /// <summary>
+    /// Covers commerce-pricing-engine task 1.6: `/health/ready` must fail
+    /// closed when `products`/`presentations`/`price_lists`/
+    /// `price_list_entries` FORCE-RLS or any expected policy is missing,
+    /// even though every other table is fully correct, and must pass once
+    /// `0009` is (re-)applied.
+    /// </summary>
+    [Fact]
+    public async Task HealthReady_IsUnhealthy_WhenProductsPolicyIsMissing()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            owner.Open();
+            ApplyAllMigrations(owner);
+
+            using var dropPolicyCmd = new NpgsqlCommand(
+                "DROP POLICY IF EXISTS products_tenant_isolation ON products", owner);
+            dropPolicyCmd.ExecuteNonQuery();
+        }
+
+        try
+        {
+            var client = _factory.CreateClient();
+            var response = await client.GetAsync("/health/ready");
+
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        }
+        finally
+        {
+            using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+            owner.Open();
+            var sql = File.ReadAllText(Path.Combine(RepoRoot(), "deploy", "db", "migrations", "0009_catalog_and_pricing.sql"));
+            using var cmd = new NpgsqlCommand(sql, owner);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    [Fact]
+    public async Task HealthReady_IsUnhealthy_WhenPriceListEntriesPolicyIsMissing()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            owner.Open();
+            ApplyAllMigrations(owner);
+
+            using var dropPolicyCmd = new NpgsqlCommand(
+                "DROP POLICY IF EXISTS price_list_entries_tenant_isolation ON price_list_entries", owner);
+            dropPolicyCmd.ExecuteNonQuery();
+        }
+
+        try
+        {
+            var client = _factory.CreateClient();
+            var response = await client.GetAsync("/health/ready");
+
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        }
+        finally
+        {
+            using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+            owner.Open();
+            var sql = File.ReadAllText(Path.Combine(RepoRoot(), "deploy", "db", "migrations", "0009_catalog_and_pricing.sql"));
+            using var cmd = new NpgsqlCommand(sql, owner);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    [Fact]
+    public async Task HealthReady_IsHealthy_WhenProductsPresentationsPriceListsAndEntriesExist_WithForcedRlsAndPolicies()
     {
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
 

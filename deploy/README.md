@@ -353,6 +353,70 @@ Rolling back re-opens the authorization defect this change fixes (the
 mandatory security fix landing in Unit 3); prefer forward-fix. If only the
 `users` constraint/column is a problem, drop it alone and keep the aggregate.
 
+### commerce-pricing-engine — `0009_catalog_and_pricing.sql` (Parts A + B + C)
+
+`deploy/db/migrations/0009_catalog_and_pricing.sql` adds **Part A**
+(`products`, `presentations` with `identification_code` + its partial
+per-organization unique index), **Part B** (`price_lists`,
+`price_list_entries`, append-only, no `effective_to`), and **Part C**
+(`supplier_price_mappings`, `price_import_batches`, `price_import_rows` —
+the Excel supplier-price-import pipeline: `Staged -> Committed | Rejected`
+plus `Failed`, no `Uploaded` state, `price_import_rows` append-only). It has
+no password placeholder to substitute, applied the same way as `0008`:
+
+```bash
+psql "postgresql://postgres:<db-password>@<project-ref>.supabase.co:5432/postgres" \
+  -f deploy/db/migrations/0009_catalog_and_pricing.sql
+```
+
+**Verified deviation from the proposal** (design.md "Verified deviation —
+there is no persisted catalog"): `Product`/`Presentation` were, before this
+migration, transient objects constructed from the request body on every
+`Catalog.cs` call — there was no `products`/`presentations` table at all.
+Catalog persistence was added to this change's scope for exactly this
+reason: nothing downstream (identification code, price entries, import row
+matching) can exist without it.
+
+**Order-of-deploy hazard** (design.md "Migration / Rollout"): once this
+image is live, `POST /orders` will deny every line whose presentation has no
+effective price (Work Unit 4, later in this change) — no `price_list_entries`
+row can exist before an admin publishes one. Create the organization's
+default price list and publish a price for every ordered presentation
+immediately after deploy, before announcing ordering, once Work Units 3-5
+land.
+
+**Migrate-before-deploy ordering, same as `0001`–`0008`**: apply `0009`
+before deploying the Cloud.Api image that expects it. `/health/ready`
+verifies `products`/`presentations`/`price_lists`/`price_list_entries`/
+`supplier_price_mappings`/`price_import_batches`/`price_import_rows`
+(FORCE RLS + policies) in addition to every prior table.
+
+**Untrusted-input guards** (design.md "Import state machine and
+untrusted-file handling"): the import endpoint validates OpenXML magic
+bytes, file size (≤5 MB), and used-range row count (≤5 000, checked before
+cell materialization) before any cell is read, and reads cached cell values
+only — never triggering formula recalculation. A file that fails validation
+creates no `price_import_batches` row.
+
+Idempotency was confirmed locally by applying `0009_catalog_and_pricing.sql`
+twice against `deploy/dev/compose.yaml`'s Postgres container.
+
+**Inverse (rollback)**, shipped as comments in the migration file itself —
+NOT executed automatically:
+
+```sql
+DROP TABLE price_import_rows;
+DROP TABLE price_import_batches;
+DROP TABLE supplier_price_mappings;
+DROP TABLE price_list_entries;
+DROP TABLE price_lists;
+DROP TABLE presentations;
+DROP TABLE products;
+```
+
+Lossy once real price-carrying orders exist (design.md "Rollback Plan");
+prefer forward-fix after first real use.
+
 ## Local full stack via Docker Compose
 
 `deploy/dev/compose.yaml` gained a `full` profile (Unit 5) that also

@@ -158,7 +158,43 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
                     EXISTS (
                         SELECT 1 FROM pg_policies
                         WHERE tablename = 'customer_ordering_access' AND policyname = 'customer_ordering_access_revoke'
-                    ) AS customer_ordering_access_revoke_policy_exists
+                    ) AS customer_ordering_access_revoke_policy_exists,
+                    EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'products') AS products_table_exists,
+                    EXISTS (
+                        SELECT 1 FROM pg_class
+                        WHERE relname = 'products' AND relrowsecurity AND relforcerowsecurity
+                    ) AS products_rls_forced,
+                    EXISTS (
+                        SELECT 1 FROM pg_policies
+                        WHERE tablename = 'products' AND policyname = 'products_tenant_isolation'
+                    ) AS products_policy_exists,
+                    EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'presentations') AS presentations_table_exists,
+                    EXISTS (
+                        SELECT 1 FROM pg_class
+                        WHERE relname = 'presentations' AND relrowsecurity AND relforcerowsecurity
+                    ) AS presentations_rls_forced,
+                    EXISTS (
+                        SELECT 1 FROM pg_policies
+                        WHERE tablename = 'presentations' AND policyname = 'presentations_tenant_isolation'
+                    ) AS presentations_policy_exists,
+                    EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'price_lists') AS price_lists_table_exists,
+                    EXISTS (
+                        SELECT 1 FROM pg_class
+                        WHERE relname = 'price_lists' AND relrowsecurity AND relforcerowsecurity
+                    ) AS price_lists_rls_forced,
+                    EXISTS (
+                        SELECT 1 FROM pg_policies
+                        WHERE tablename = 'price_lists' AND policyname = 'price_lists_tenant_isolation'
+                    ) AS price_lists_policy_exists,
+                    EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'price_list_entries') AS price_list_entries_table_exists,
+                    EXISTS (
+                        SELECT 1 FROM pg_class
+                        WHERE relname = 'price_list_entries' AND relrowsecurity AND relforcerowsecurity
+                    ) AS price_list_entries_rls_forced,
+                    EXISTS (
+                        SELECT 1 FROM pg_policies
+                        WHERE tablename = 'price_list_entries' AND policyname = 'price_list_entries_tenant_isolation'
+                    ) AS price_list_entries_policy_exists
                 """, connection);
 
             await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
@@ -210,6 +246,18 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
             var customerOrderingAccessLookupPolicyExists = reader.GetBoolean(40);
             var customerOrderingAccessIssuePolicyExists = reader.GetBoolean(41);
             var customerOrderingAccessRevokePolicyExists = reader.GetBoolean(42);
+            var productsTableExists = reader.GetBoolean(43);
+            var productsRlsForced = reader.GetBoolean(44);
+            var productsPolicyExists = reader.GetBoolean(45);
+            var presentationsTableExists = reader.GetBoolean(46);
+            var presentationsRlsForced = reader.GetBoolean(47);
+            var presentationsPolicyExists = reader.GetBoolean(48);
+            var priceListsTableExists = reader.GetBoolean(49);
+            var priceListsRlsForced = reader.GetBoolean(50);
+            var priceListsPolicyExists = reader.GetBoolean(51);
+            var priceListEntriesTableExists = reader.GetBoolean(52);
+            var priceListEntriesRlsForced = reader.GetBoolean(53);
+            var priceListEntriesPolicyExists = reader.GetBoolean(54);
 
             var allHealthy = syncInboxTableExists && syncInboxRlsForced && syncInboxPolicyExists && roleExists
                 && usersTableExists && usersRlsForced && usersPolicyExists
@@ -227,13 +275,18 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
                 && customersTableExists && customersRlsForced && customersPolicyExists
                 && customerOrderingAccessTableExists && customerOrderingAccessRlsForced
                 && customerOrderingAccessLookupPolicyExists && customerOrderingAccessIssuePolicyExists
-                && customerOrderingAccessRevokePolicyExists;
+                && customerOrderingAccessRevokePolicyExists
+                && productsTableExists && productsRlsForced && productsPolicyExists
+                && presentationsTableExists && presentationsRlsForced && presentationsPolicyExists
+                && priceListsTableExists && priceListsRlsForced && priceListsPolicyExists
+                && priceListEntriesTableExists && priceListEntriesRlsForced && priceListEntriesPolicyExists;
 
             if (allHealthy)
             {
                 return HealthCheckResult.Healthy(
                     "sync_inbox, users, user_directory, organizations, branches, device_credentials, " +
-                    "password_reset_tokens, platform_admins, audit_log, customers, and customer_ordering_access " +
+                    "password_reset_tokens, platform_admins, audit_log, customers, customer_ordering_access, " +
+                    "products, presentations, price_lists, and price_list_entries " +
                     "tables, forced RLS, tenant-isolation policies, and app_runtime/platform_readonly roles all verified.");
             }
 
@@ -253,8 +306,12 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
                 $"platform_readonly_role_exists={platformReadonlyRoleExists}, " +
                 $"customers(table={customersTableExists}, rls_forced={customersRlsForced}, policy={customersPolicyExists}), " +
                 $"customer_ordering_access(table={customerOrderingAccessTableExists}, rls_forced={customerOrderingAccessRlsForced}, " +
-                $"lookup_policy={customerOrderingAccessLookupPolicyExists}, issue_policy={customerOrderingAccessIssuePolicyExists}, revoke_policy={customerOrderingAccessRevokePolicyExists}). " +
-                "Apply deploy/db/migrations/0001_init_rls.sql through 0008_customer_registry.sql.");
+                $"lookup_policy={customerOrderingAccessLookupPolicyExists}, issue_policy={customerOrderingAccessIssuePolicyExists}, revoke_policy={customerOrderingAccessRevokePolicyExists}), " +
+                $"products(table={productsTableExists}, rls_forced={productsRlsForced}, policy={productsPolicyExists}), " +
+                $"presentations(table={presentationsTableExists}, rls_forced={presentationsRlsForced}, policy={presentationsPolicyExists}), " +
+                $"price_lists(table={priceListsTableExists}, rls_forced={priceListsRlsForced}, policy={priceListsPolicyExists}), " +
+                $"price_list_entries(table={priceListEntriesTableExists}, rls_forced={priceListEntriesRlsForced}, policy={priceListEntriesPolicyExists}). " +
+                "Apply deploy/db/migrations/0001_init_rls.sql through 0009_catalog_and_pricing.sql.");
         }
         catch (Exception ex)
         {
