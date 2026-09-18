@@ -24,6 +24,27 @@ public sealed record CustomerReplica(
     DateTimeOffset UpdatedAtUtc);
 
 /// <summary>
+/// One row of the cloud->local catalog+price replica (commerce-pricing-engine
+/// design.md "BranchNode replication: one channel, not two"). Combines the
+/// catalog projection and the currently-effective price in one wire shape so
+/// the two can never be replicated out of step with each other. `UnitPrice`/
+/// `EffectiveFrom` are null when the presentation has no effective price yet
+/// (design.md "no zero fallback").
+/// </summary>
+public sealed record CatalogPriceReplicaItem(
+    Guid PresentationId,
+    Guid OrganizationId,
+    Guid ProductId,
+    string ProductName,
+    string PresentationName,
+    string? IdentificationCode,
+    string QuantityBehavior,
+    Guid UnitId,
+    decimal? UnitPrice,
+    DateOnly? EffectiveFrom,
+    DateTimeOffset UpdatedAtUtc);
+
+/// <summary>
 /// SQLite-owned branch state (ADR-002: only the branch node opens the file).
 /// Serialized writer, WAL, `synchronous=FULL` per design.md. Sale effect and
 /// outbox row are committed atomically, or neither is committed.
@@ -50,7 +71,8 @@ public sealed class BranchSyncStore : IDisposable
                 sale_id TEXT PRIMARY KEY,
                 branch_id TEXT NOT NULL,
                 total_amount TEXT NOT NULL,
-                occurred_at_utc TEXT NOT NULL
+                occurred_at_utc TEXT NOT NULL,
+                sale_kind TEXT NOT NULL DEFAULT 'Manual'
             );
             CREATE TABLE IF NOT EXISTS outbox (
                 operation_id TEXT PRIMARY KEY,
@@ -86,11 +108,87 @@ public sealed class BranchSyncStore : IDisposable
                 channel TEXT PRIMARY KEY,
                 last_synced_utc TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS catalog_replica (
+                presentation_id TEXT PRIMARY KEY,
+                organization_id TEXT NOT NULL,
+                product_id TEXT NOT NULL,
+                product_name TEXT NOT NULL,
+                presentation_name TEXT NOT NULL,
+                identification_code TEXT NULL,
+                quantity_behavior TEXT NOT NULL,
+                unit_id TEXT NOT NULL,
+                updated_at_utc TEXT NOT NULL
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS catalog_replica_code_uk
+                ON catalog_replica (organization_id, identification_code)
+                WHERE identification_code IS NOT NULL;
+            CREATE TABLE IF NOT EXISTS price_replica (
+                presentation_id TEXT PRIMARY KEY,
+                organization_id TEXT NOT NULL,
+                unit_price TEXT NOT NULL,
+                effective_from TEXT NOT NULL,
+                updated_at_utc TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS sale_lines (
+                sale_id TEXT NOT NULL,
+                line_number INTEGER NOT NULL,
+                presentation_id TEXT NOT NULL,
+                identification_code TEXT NULL,
+                product_name TEXT NOT NULL,
+                presentation_name TEXT NOT NULL,
+                quantity TEXT NOT NULL,
+                unit_price TEXT NOT NULL,
+                line_total TEXT NOT NULL,
+                PRIMARY KEY (sale_id, line_number)
+            );
             """;
         create.ExecuteNonQuery();
+
+        EnsureSaleKindColumnExists();
     }
 
-    public BranchOutboxCommitResult CommitSaleAtomically(SyncEnvelope envelope, SaleEffect effect)
+    /// <summary>
+    /// Task 7.1: a `branch.db` file created by an EARLIER version of this
+    /// application already has a `sale_effects` table with no `sale_kind`
+    /// column (`CREATE TABLE IF NOT EXISTS` is a no-op against it). SQLite
+    /// has no `ADD COLUMN IF NOT EXISTS`, so this checks `PRAGMA table_info`
+    /// explicitly and adds the column only when missing. The column's own
+    /// `DEFAULT 'Manual'` then makes every pre-existing row read as a manual
+    /// sale — which is exactly what it was — with no data migration required.
+    /// </summary>
+    private void EnsureSaleKindColumnExists()
+    {
+        using var check = _connection.CreateCommand();
+        check.CommandText = "PRAGMA table_info(sale_effects);";
+        using var reader = check.ExecuteReader();
+        while (reader.Read())
+        {
+            if (string.Equals(reader.GetString(1), "sale_kind", StringComparison.Ordinal))
+            {
+                return;
+            }
+        }
+        reader.Close();
+
+        using var alter = _connection.CreateCommand();
+        alter.CommandText = "ALTER TABLE sale_effects ADD COLUMN sale_kind TEXT NOT NULL DEFAULT 'Manual';";
+        alter.ExecuteNonQuery();
+    }
+
+    public BranchOutboxCommitResult CommitSaleAtomically(SyncEnvelope envelope, SaleEffect effect) =>
+        CommitSaleAtomicallyCore(envelope, effect with { SaleKind = "Manual" }, lines: []);
+
+    /// <summary>
+    /// Task 7.3 (GREEN): the scan-composed sale counterpart to
+    /// <see cref="CommitSaleAtomically"/> — same atomic commit path,
+    /// `SaleKind = "Scanned"`, and its lines persisted to `sale_lines` in the
+    /// SAME transaction as the sale effect and outbox row (design.md "POS
+    /// scan-to-sell": `sale_effects(sale_kind='Scanned') + sale_lines [1 tx]`).
+    /// </summary>
+    public BranchOutboxCommitResult CommitScannedSaleAtomically(SyncEnvelope envelope, SaleEffect effect, IReadOnlyList<SaleLine> lines) =>
+        CommitSaleAtomicallyCore(envelope, effect with { SaleKind = "Scanned" }, lines);
+
+    private BranchOutboxCommitResult CommitSaleAtomicallyCore(SyncEnvelope envelope, SaleEffect effect, IReadOnlyList<SaleLine> lines)
     {
         lock (_writeGate)
         {
@@ -103,18 +201,10 @@ public sealed class BranchSyncStore : IDisposable
                 return new BranchOutboxCommitResult(WasNewlyCommitted: false, existing);
             }
 
-            using (var insertSale = _connection.CreateCommand())
+            InsertSaleEffectRow(effect, transaction);
+            foreach (var line in lines)
             {
-                insertSale.Transaction = transaction;
-                insertSale.CommandText = """
-                    INSERT INTO sale_effects (sale_id, branch_id, total_amount, occurred_at_utc)
-                    VALUES ($saleId, $branchId, $totalAmount, $occurredAt);
-                    """;
-                insertSale.Parameters.AddWithValue("$saleId", effect.SaleId.ToString());
-                insertSale.Parameters.AddWithValue("$branchId", effect.BranchId.ToString());
-                insertSale.Parameters.AddWithValue("$totalAmount", effect.TotalAmount.ToString());
-                insertSale.Parameters.AddWithValue("$occurredAt", effect.OccurredAtUtc.ToString("O"));
-                insertSale.ExecuteNonQuery();
+                InsertSaleLineRow(line, transaction);
             }
 
             InsertOutboxRow(envelope, effect, transaction);
@@ -130,19 +220,7 @@ public sealed class BranchSyncStore : IDisposable
         {
             using var transaction = _connection.BeginTransaction();
 
-            using (var insertSale = _connection.CreateCommand())
-            {
-                insertSale.Transaction = transaction;
-                insertSale.CommandText = """
-                    INSERT INTO sale_effects (sale_id, branch_id, total_amount, occurred_at_utc)
-                    VALUES ($saleId, $branchId, $totalAmount, $occurredAt);
-                    """;
-                insertSale.Parameters.AddWithValue("$saleId", effect.SaleId.ToString());
-                insertSale.Parameters.AddWithValue("$branchId", effect.BranchId.ToString());
-                insertSale.Parameters.AddWithValue("$totalAmount", effect.TotalAmount.ToString());
-                insertSale.Parameters.AddWithValue("$occurredAt", effect.OccurredAtUtc.ToString("O"));
-                insertSale.ExecuteNonQuery();
-            }
+            InsertSaleEffectRow(effect with { SaleKind = "Manual" }, transaction);
 
             InsertOutboxRow(envelope, effect, transaction);
 
@@ -150,6 +228,125 @@ public sealed class BranchSyncStore : IDisposable
             // SqliteTransaction rolls it back, proving atomicity across the
             // "restart" that reopens the same file with a fresh connection.
         }
+    }
+
+    private void InsertSaleEffectRow(SaleEffect effect, SqliteTransaction transaction)
+    {
+        using var insertSale = _connection.CreateCommand();
+        insertSale.Transaction = transaction;
+        insertSale.CommandText = """
+            INSERT INTO sale_effects (sale_id, branch_id, total_amount, occurred_at_utc, sale_kind)
+            VALUES ($saleId, $branchId, $totalAmount, $occurredAt, $saleKind);
+            """;
+        insertSale.Parameters.AddWithValue("$saleId", effect.SaleId.ToString());
+        insertSale.Parameters.AddWithValue("$branchId", effect.BranchId.ToString());
+        insertSale.Parameters.AddWithValue("$totalAmount", effect.TotalAmount.ToString());
+        insertSale.Parameters.AddWithValue("$occurredAt", effect.OccurredAtUtc.ToString("O"));
+        insertSale.Parameters.AddWithValue("$saleKind", effect.SaleKind);
+        insertSale.ExecuteNonQuery();
+    }
+
+    private void InsertSaleLineRow(SaleLine line, SqliteTransaction transaction)
+    {
+        using var insertLine = _connection.CreateCommand();
+        insertLine.Transaction = transaction;
+        insertLine.CommandText = """
+            INSERT INTO sale_lines
+                (sale_id, line_number, presentation_id, identification_code, product_name,
+                 presentation_name, quantity, unit_price, line_total)
+            VALUES ($saleId, $lineNumber, $presentationId, $identificationCode, $productName,
+                    $presentationName, $quantity, $unitPrice, $lineTotal);
+            """;
+        insertLine.Parameters.AddWithValue("$saleId", line.SaleId.ToString());
+        insertLine.Parameters.AddWithValue("$lineNumber", line.LineNumber);
+        insertLine.Parameters.AddWithValue("$presentationId", line.PresentationId.ToString());
+        insertLine.Parameters.AddWithValue("$identificationCode", (object?)line.IdentificationCode ?? DBNull.Value);
+        insertLine.Parameters.AddWithValue("$productName", line.ProductName);
+        insertLine.Parameters.AddWithValue("$presentationName", line.PresentationName);
+        insertLine.Parameters.AddWithValue("$quantity", line.Quantity.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        insertLine.Parameters.AddWithValue("$unitPrice", line.UnitPrice.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        insertLine.Parameters.AddWithValue("$lineTotal", line.LineTotal.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        insertLine.ExecuteNonQuery();
+    }
+
+    public IReadOnlyList<SaleLine> ListSaleLines(Guid saleId)
+    {
+        using var command = _connection.CreateCommand();
+        command.CommandText = """
+            SELECT sale_id, line_number, presentation_id, identification_code, product_name,
+                   presentation_name, quantity, unit_price, line_total
+            FROM sale_lines
+            WHERE sale_id = $saleId
+            ORDER BY line_number;
+            """;
+        command.Parameters.AddWithValue("$saleId", saleId.ToString());
+
+        var results = new List<SaleLine>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            results.Add(new SaleLine(
+                SaleId: Guid.Parse(reader.GetString(0)),
+                LineNumber: reader.GetInt32(1),
+                PresentationId: Guid.Parse(reader.GetString(2)),
+                IdentificationCode: reader.IsDBNull(3) ? null : reader.GetString(3),
+                ProductName: reader.GetString(4),
+                PresentationName: reader.GetString(5),
+                Quantity: decimal.Parse(reader.GetString(6), System.Globalization.CultureInfo.InvariantCulture),
+                UnitPrice: decimal.Parse(reader.GetString(7), System.Globalization.CultureInfo.InvariantCulture),
+                LineTotal: decimal.Parse(reader.GetString(8), System.Globalization.CultureInfo.InvariantCulture)));
+        }
+        return results;
+    }
+
+    /// <summary>
+    /// Task 7.2: the query <see cref="Commerce.Pos.Windows.LocalEffectivePriceSource"/>
+    /// runs over `price_replica` (which carries only the CURRENT price, never
+    /// history — see the table's own doc comment). A row that is not yet
+    /// effective on <paramref name="effectiveOn"/> (a future-dated publish
+    /// already replicated) or that does not exist returns `null`, matching
+    /// <see cref="Commerce.Application.Pricing.IEffectivePriceSource"/>'s
+    /// contract — never a zero fallback.
+    /// </summary>
+    public decimal? GetEffectivePrice(Guid presentationId, DateOnly effectiveOn)
+    {
+        using var command = _connection.CreateCommand();
+        command.CommandText = """
+            SELECT unit_price, effective_from FROM price_replica WHERE presentation_id = $presentationId;
+            """;
+        command.Parameters.AddWithValue("$presentationId", presentationId.ToString());
+
+        using var reader = command.ExecuteReader();
+        if (!reader.Read())
+        {
+            return null;
+        }
+
+        var unitPrice = decimal.Parse(reader.GetString(0), System.Globalization.CultureInfo.InvariantCulture);
+        var effectiveFrom = DateOnly.Parse(reader.GetString(1));
+        return effectiveFrom <= effectiveOn ? unitPrice : null;
+    }
+
+    /// <summary>
+    /// Task 7.4/7.6: presentation + price lookup by scanned code, org-scoped
+    /// per the replica's own partial unique index. `null` means the code is
+    /// unresolved locally (design.md "Unknown code / no price at the POS").
+    /// </summary>
+    public CatalogPriceReplicaItem? FindByIdentificationCode(Guid organizationId, string identificationCode)
+    {
+        using var command = _connection.CreateCommand();
+        command.CommandText = """
+            SELECT c.presentation_id, c.organization_id, c.product_id, c.product_name, c.presentation_name,
+                   c.identification_code, c.quantity_behavior, c.unit_id, p.unit_price, p.effective_from, c.updated_at_utc
+            FROM catalog_replica c
+            LEFT JOIN price_replica p ON p.presentation_id = c.presentation_id
+            WHERE c.organization_id = $organizationId AND c.identification_code = $code;
+            """;
+        command.Parameters.AddWithValue("$organizationId", organizationId.ToString());
+        command.Parameters.AddWithValue("$code", identificationCode);
+
+        using var reader = command.ExecuteReader();
+        return reader.Read() ? ReadCatalogPriceReplicaItem(reader) : null;
     }
 
     public bool Acknowledge(Guid operationId)
@@ -377,6 +574,193 @@ public sealed class BranchSyncStore : IDisposable
         }
     }
 
+    // --- Cloud->local catalog+price replica (commerce-pricing-engine Unit 6) ---
+    // ONE channel, reusing the EXISTING sync_cursors table with a second
+    // channel constant (design.md "BranchNode replication: one channel, not
+    // two") — no second cursor table.
+
+    public const string CatalogPricesChannel = "catalog-prices";
+
+    /// <summary>
+    /// The real pull entry point, byte-for-byte mirroring
+    /// <see cref="ApplyCustomerSync"/>: upserts, removed-id deletions, and the
+    /// cursor advance happen in ONE transaction, so a failure never leaves the
+    /// replica ahead of the cursor or vice versa.
+    /// </summary>
+    public void ApplyCatalogPriceSync(
+        IReadOnlyList<CatalogPriceReplicaItem> items, IReadOnlyList<Guid> removedPresentationIds, DateTimeOffset serverTimeUtc)
+    {
+        lock (_writeGate)
+        {
+            using var transaction = _connection.BeginTransaction();
+            foreach (var item in items)
+            {
+                UpsertCatalogRow(item, transaction);
+                UpsertOrRemovePriceRow(item, transaction);
+            }
+            foreach (var presentationId in removedPresentationIds)
+            {
+                DeleteCatalogRow(presentationId, transaction);
+                DeletePriceRow(presentationId, transaction);
+            }
+            UpsertCursor(CatalogPricesChannel, serverTimeUtc, transaction);
+            transaction.Commit();
+        }
+    }
+
+    /// <summary>
+    /// Test-only atomicity proof, mirroring
+    /// <see cref="SimulateInterruptedCustomerSync"/>: performs the same writes
+    /// as <see cref="ApplyCatalogPriceSync"/> but never commits. Disposing an
+    /// uncommitted <see cref="SqliteTransaction"/> rolls it back, proving that
+    /// an interrupted pull leaves both the replica and the cursor
+    /// byte-identical across a restart.
+    /// </summary>
+    public void SimulateInterruptedCatalogPriceSync(
+        IReadOnlyList<CatalogPriceReplicaItem> items, IReadOnlyList<Guid> removedPresentationIds, DateTimeOffset serverTimeUtc)
+    {
+        lock (_writeGate)
+        {
+            using var transaction = _connection.BeginTransaction();
+            foreach (var item in items)
+            {
+                UpsertCatalogRow(item, transaction);
+                UpsertOrRemovePriceRow(item, transaction);
+            }
+            foreach (var presentationId in removedPresentationIds)
+            {
+                DeleteCatalogRow(presentationId, transaction);
+                DeletePriceRow(presentationId, transaction);
+            }
+            UpsertCursor(CatalogPricesChannel, serverTimeUtc, transaction);
+            // Deliberately abandoned: no Commit().
+        }
+    }
+
+    public IReadOnlyList<CatalogPriceReplicaItem> ListCatalogPriceReplica()
+    {
+        using var command = _connection.CreateCommand();
+        command.CommandText = """
+            SELECT c.presentation_id, c.organization_id, c.product_id, c.product_name, c.presentation_name,
+                   c.identification_code, c.quantity_behavior, c.unit_id, p.unit_price, p.effective_from, c.updated_at_utc
+            FROM catalog_replica c
+            LEFT JOIN price_replica p ON p.presentation_id = c.presentation_id;
+            """;
+
+        var results = new List<CatalogPriceReplicaItem>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            results.Add(ReadCatalogPriceReplicaItem(reader));
+        }
+        return results;
+    }
+
+    public DateTimeOffset? GetCatalogPricesCursor()
+    {
+        using var command = _connection.CreateCommand();
+        command.CommandText = "SELECT last_synced_utc FROM sync_cursors WHERE channel = $channel;";
+        command.Parameters.AddWithValue("$channel", CatalogPricesChannel);
+
+        var raw = command.ExecuteScalar();
+        return raw is null or DBNull ? null : DateTimeOffset.Parse((string)raw);
+    }
+
+    private void UpsertCatalogRow(CatalogPriceReplicaItem item, SqliteTransaction transaction)
+    {
+        using var command = _connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            INSERT INTO catalog_replica
+                (presentation_id, organization_id, product_id, product_name, presentation_name,
+                 identification_code, quantity_behavior, unit_id, updated_at_utc)
+            VALUES ($presentationId, $organizationId, $productId, $productName, $presentationName,
+                    $identificationCode, $quantityBehavior, $unitId, $updatedAt)
+            ON CONFLICT(presentation_id) DO UPDATE SET
+                organization_id     = excluded.organization_id,
+                product_id          = excluded.product_id,
+                product_name        = excluded.product_name,
+                presentation_name   = excluded.presentation_name,
+                identification_code = excluded.identification_code,
+                quantity_behavior   = excluded.quantity_behavior,
+                unit_id             = excluded.unit_id,
+                updated_at_utc      = excluded.updated_at_utc;
+            """;
+        command.Parameters.AddWithValue("$presentationId", item.PresentationId.ToString());
+        command.Parameters.AddWithValue("$organizationId", item.OrganizationId.ToString());
+        command.Parameters.AddWithValue("$productId", item.ProductId.ToString());
+        command.Parameters.AddWithValue("$productName", item.ProductName);
+        command.Parameters.AddWithValue("$presentationName", item.PresentationName);
+        command.Parameters.AddWithValue("$identificationCode", (object?)item.IdentificationCode ?? DBNull.Value);
+        command.Parameters.AddWithValue("$quantityBehavior", item.QuantityBehavior);
+        command.Parameters.AddWithValue("$unitId", item.UnitId.ToString());
+        command.Parameters.AddWithValue("$updatedAt", item.UpdatedAtUtc.ToString("O"));
+        command.ExecuteNonQuery();
+    }
+
+    /// <summary>
+    /// A presentation with no effective price (<see cref="CatalogPriceReplicaItem.UnitPrice"/>
+    /// null) never gets a zero substituted (design.md "no zero fallback") — its
+    /// `price_replica` row is removed instead of upserted with a fabricated value.
+    /// </summary>
+    private void UpsertOrRemovePriceRow(CatalogPriceReplicaItem item, SqliteTransaction transaction)
+    {
+        if (item.UnitPrice is null || item.EffectiveFrom is null)
+        {
+            DeletePriceRow(item.PresentationId, transaction);
+            return;
+        }
+
+        using var command = _connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            INSERT INTO price_replica (presentation_id, organization_id, unit_price, effective_from, updated_at_utc)
+            VALUES ($presentationId, $organizationId, $unitPrice, $effectiveFrom, $updatedAt)
+            ON CONFLICT(presentation_id) DO UPDATE SET
+                organization_id = excluded.organization_id,
+                unit_price      = excluded.unit_price,
+                effective_from  = excluded.effective_from,
+                updated_at_utc  = excluded.updated_at_utc;
+            """;
+        command.Parameters.AddWithValue("$presentationId", item.PresentationId.ToString());
+        command.Parameters.AddWithValue("$organizationId", item.OrganizationId.ToString());
+        command.Parameters.AddWithValue("$unitPrice", item.UnitPrice.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$effectiveFrom", item.EffectiveFrom.Value.ToString("O"));
+        command.Parameters.AddWithValue("$updatedAt", item.UpdatedAtUtc.ToString("O"));
+        command.ExecuteNonQuery();
+    }
+
+    private void DeleteCatalogRow(Guid presentationId, SqliteTransaction transaction)
+    {
+        using var command = _connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "DELETE FROM catalog_replica WHERE presentation_id = $presentationId;";
+        command.Parameters.AddWithValue("$presentationId", presentationId.ToString());
+        command.ExecuteNonQuery();
+    }
+
+    private void DeletePriceRow(Guid presentationId, SqliteTransaction transaction)
+    {
+        using var command = _connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "DELETE FROM price_replica WHERE presentation_id = $presentationId;";
+        command.Parameters.AddWithValue("$presentationId", presentationId.ToString());
+        command.ExecuteNonQuery();
+    }
+
+    private static CatalogPriceReplicaItem ReadCatalogPriceReplicaItem(SqliteDataReader reader) => new(
+        PresentationId: Guid.Parse(reader.GetString(0)),
+        OrganizationId: Guid.Parse(reader.GetString(1)),
+        ProductId: Guid.Parse(reader.GetString(2)),
+        ProductName: reader.GetString(3),
+        PresentationName: reader.GetString(4),
+        IdentificationCode: reader.IsDBNull(5) ? null : reader.GetString(5),
+        QuantityBehavior: reader.GetString(6),
+        UnitId: Guid.Parse(reader.GetString(7)),
+        UnitPrice: reader.IsDBNull(8) ? null : decimal.Parse(reader.GetString(8), System.Globalization.CultureInfo.InvariantCulture),
+        EffectiveFrom: reader.IsDBNull(9) ? null : DateOnly.Parse(reader.GetString(9)),
+        UpdatedAtUtc: DateTimeOffset.Parse(reader.GetString(10)));
+
     private void UpsertCustomerRow(CustomerReplica customer, SqliteTransaction transaction)
     {
         using var command = _connection.CreateCommand();
@@ -442,8 +826,10 @@ public sealed class BranchSyncStore : IDisposable
         using var command = _connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            SELECT sale_id, branch_id, total_amount, occurred_at_utc FROM outbox
-            WHERE operation_id = $operationId;
+            SELECT o.sale_id, o.branch_id, o.total_amount, o.occurred_at_utc, e.sale_kind
+            FROM outbox o
+            LEFT JOIN sale_effects e ON e.sale_id = o.sale_id
+            WHERE o.operation_id = $operationId;
             """;
         command.Parameters.AddWithValue("$operationId", operationId.ToString());
 
@@ -457,7 +843,8 @@ public sealed class BranchSyncStore : IDisposable
             Guid.Parse(reader.GetString(0)),
             Guid.Parse(reader.GetString(1)),
             decimal.Parse(reader.GetString(2)),
-            DateTimeOffset.Parse(reader.GetString(3)));
+            DateTimeOffset.Parse(reader.GetString(3)),
+            reader.IsDBNull(4) ? "Manual" : reader.GetString(4));
     }
 
     private void InsertOutboxRow(SyncEnvelope envelope, SaleEffect effect, SqliteTransaction transaction)

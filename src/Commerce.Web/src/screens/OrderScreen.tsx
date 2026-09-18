@@ -13,10 +13,7 @@ export function OrderScreen() {
   const [destinationBranchId, setDestinationBranchId] = useState('')
   const [actorId, setActorId] = useState('')
   const [productId, setProductId] = useState('')
-  const [productName, setProductName] = useState('')
   const [presentationId, setPresentationId] = useState('')
-  const [presentationName, setPresentationName] = useState('')
-  const [unitId, setUnitId] = useState('')
   const [quantity, setQuantity] = useState('1')
   const [outcome, setOutcome] = useState<OrderSubmissionOutcome | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -32,6 +29,11 @@ export function OrderScreen() {
       // sent — the field no longer exists on SubmitOrderRequest. The server
       // resolves enabled/binding state from the persisted ordering-access
       // store.
+      //
+      // commerce-pricing-engine: the line is price-free — there is nowhere
+      // to put a price here. The server resolves and freezes the price from
+      // the published price list and returns the accepted/denied outcome
+      // (a denial of "no-effective-price" means no price is published yet).
       const result = await submitOrder({
         orderId: crypto.randomUUID(),
         customerId,
@@ -41,11 +43,7 @@ export function OrderScreen() {
         lines: [
           {
             productId,
-            productName,
             presentationId,
-            presentationName,
-            quantityBehavior: 0,
-            unitId,
             quantity: Number(quantity),
           },
         ],
@@ -71,10 +69,7 @@ export function OrderScreen() {
           <Field id="destinationBranchId" label="Destination branch ID" value={destinationBranchId} onChange={setDestinationBranchId} />
           <Field id="actorId" label="Actor ID" value={actorId} onChange={setActorId} />
           <Field id="productId" label="Product ID" value={productId} onChange={setProductId} />
-          <Field id="productName" label="Product name" value={productName} onChange={setProductName} />
           <Field id="presentationId" label="Presentation ID" value={presentationId} onChange={setPresentationId} />
-          <Field id="presentationName" label="Presentation name" value={presentationName} onChange={setPresentationName} />
-          <Field id="unitId" label="Unit ID" value={unitId} onChange={setUnitId} />
           <Field id="quantity" label="Quantity" value={quantity} onChange={setQuantity} type="number" />
 
           {error && (
@@ -85,6 +80,14 @@ export function OrderScreen() {
           {outcome && (
             <p data-testid="order-outcome" className="text-sm text-neutral-700">
               {outcome.status === OrderSubmissionOutcomeStatus.Accepted ? 'Order accepted.' : `Denied: ${outcome.reason}`}
+            </p>
+          )}
+          {/* commerce-pricing-engine: the total shown here is the server's
+              resolved/frozen LineTotal sum — the client never computes or
+              sends a price of its own. */}
+          {outcome?.status === OrderSubmissionOutcomeStatus.Accepted && outcome.order?.lines && (
+            <p data-testid="order-total" className="text-sm text-neutral-700">
+              Total: {outcome.order.lines.reduce((sum, line) => sum + line.lineTotal, 0).toFixed(2)}
             </p>
           )}
 

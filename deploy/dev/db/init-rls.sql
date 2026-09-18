@@ -402,3 +402,180 @@ CREATE POLICY customer_ordering_access_issue ON customer_ordering_access
 DROP POLICY IF EXISTS customer_ordering_access_revoke ON customer_ordering_access;
 CREATE POLICY customer_ordering_access_revoke ON customer_ordering_access
     FOR UPDATE USING (true) WITH CHECK (NOT is_enabled);
+
+-- commerce-pricing-engine: 0009_catalog_and_pricing.sql Part A (products,
+-- presentations) + Part B (price_lists, price_list_entries), appended
+-- verbatim per the hand-kept parity convention MigrationRlsTests asserts.
+
+CREATE TABLE IF NOT EXISTS products (
+    id                 uuid PRIMARY KEY,
+    organization_id    uuid NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+    name               text NOT NULL,
+    category_id        uuid NOT NULL,
+    default_unit_id    uuid NOT NULL,
+    created_at_utc     timestamptz NOT NULL DEFAULT now(),
+    created_by_user_id uuid NOT NULL,
+    updated_at_utc     timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS products_org_idx     ON products (organization_id);
+CREATE INDEX IF NOT EXISTS products_org_updated ON products (organization_id, updated_at_utc);
+
+CREATE TABLE IF NOT EXISTS presentations (
+    id                  uuid PRIMARY KEY,
+    organization_id     uuid NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+    product_id          uuid NOT NULL REFERENCES products (id) ON DELETE CASCADE,
+    name                text NOT NULL,
+    quantity_behavior   text NOT NULL CHECK (quantity_behavior IN ('FixedQuantity','Weighted','Bulk')),
+    unit_id             uuid NOT NULL,
+    identification_code text NULL,
+    created_at_utc      timestamptz NOT NULL DEFAULT now(),
+    created_by_user_id  uuid NOT NULL,
+    updated_at_utc      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS presentations_org_idx     ON presentations (organization_id);
+CREATE INDEX IF NOT EXISTS presentations_org_updated ON presentations (organization_id, updated_at_utc);
+CREATE INDEX IF NOT EXISTS presentations_product_idx ON presentations (product_id);
+CREATE UNIQUE INDEX IF NOT EXISTS presentations_org_code_uk
+    ON presentations (organization_id, identification_code)
+    WHERE identification_code IS NOT NULL;
+
+ALTER TABLE products      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE products      FORCE  ROW LEVEL SECURITY;
+ALTER TABLE presentations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE presentations FORCE  ROW LEVEL SECURITY;
+REVOKE ALL ON products, presentations FROM PUBLIC;
+GRANT SELECT, INSERT, UPDATE ON products      TO app_runtime;
+GRANT SELECT, INSERT, UPDATE ON presentations TO app_runtime;
+
+DROP POLICY IF EXISTS products_tenant_isolation ON products;
+CREATE POLICY products_tenant_isolation ON products
+    USING      (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid)
+    WITH CHECK (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid);
+
+DROP POLICY IF EXISTS presentations_tenant_isolation ON presentations;
+CREATE POLICY presentations_tenant_isolation ON presentations
+    USING      (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid)
+    WITH CHECK (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid);
+
+CREATE TABLE IF NOT EXISTS price_lists (
+    id              uuid PRIMARY KEY,
+    organization_id uuid NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+    name            text NOT NULL,
+    is_default      boolean NOT NULL DEFAULT false,
+    created_at_utc  timestamptz NOT NULL DEFAULT now(),
+    created_by_user_id uuid NOT NULL
+);
+CREATE INDEX IF NOT EXISTS price_lists_org_idx ON price_lists (organization_id);
+CREATE UNIQUE INDEX IF NOT EXISTS price_lists_one_default
+    ON price_lists (organization_id) WHERE is_default;
+
+CREATE TABLE IF NOT EXISTS price_list_entries (
+    id                 uuid PRIMARY KEY,
+    organization_id    uuid NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+    price_list_id      uuid NOT NULL REFERENCES price_lists (id) ON DELETE CASCADE,
+    presentation_id    uuid NOT NULL REFERENCES presentations (id) ON DELETE CASCADE,
+    unit_price         numeric(12,2) NOT NULL CHECK (unit_price > 0),
+    effective_from     date NOT NULL,
+    source             text NOT NULL DEFAULT 'Manual'
+                            CHECK (source IN ('Manual','Import')),
+    import_batch_id    uuid NULL,
+    created_at_utc     timestamptz NOT NULL DEFAULT now(),
+    created_by_user_id uuid NOT NULL,
+    CONSTRAINT price_list_entries_one_per_day
+        UNIQUE (price_list_id, presentation_id, effective_from)
+);
+CREATE INDEX IF NOT EXISTS price_list_entries_resolution_idx
+    ON price_list_entries (price_list_id, presentation_id, effective_from DESC);
+
+ALTER TABLE price_lists        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE price_lists        FORCE  ROW LEVEL SECURITY;
+ALTER TABLE price_list_entries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE price_list_entries FORCE  ROW LEVEL SECURITY;
+REVOKE ALL ON price_lists, price_list_entries FROM PUBLIC;
+GRANT SELECT, INSERT, UPDATE ON price_lists       TO app_runtime;
+GRANT SELECT, INSERT       ON price_list_entries  TO app_runtime;
+
+DROP POLICY IF EXISTS price_lists_tenant_isolation ON price_lists;
+CREATE POLICY price_lists_tenant_isolation ON price_lists
+    USING      (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid)
+    WITH CHECK (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid);
+
+DROP POLICY IF EXISTS price_list_entries_tenant_isolation ON price_list_entries;
+CREATE POLICY price_list_entries_tenant_isolation ON price_list_entries
+    USING      (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid)
+    WITH CHECK (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid);
+
+-- commerce-pricing-engine: 0009_catalog_and_pricing.sql Part C
+-- (supplier_price_mappings, price_import_batches, price_import_rows),
+-- appended verbatim per the hand-kept parity convention MigrationRlsTests
+-- asserts.
+
+CREATE TABLE IF NOT EXISTS supplier_price_mappings (
+    id                 uuid PRIMARY KEY,
+    organization_id    uuid NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+    supplier_name      text NOT NULL,
+    sheet_name         text NOT NULL,
+    header_row         integer NOT NULL CHECK (header_row > 0),
+    code_column        text NOT NULL,
+    price_column       text NOT NULL,
+    created_at_utc     timestamptz NOT NULL DEFAULT now(),
+    created_by_user_id uuid NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS supplier_price_mappings_org_name_uk
+    ON supplier_price_mappings (organization_id, supplier_name);
+
+CREATE TABLE IF NOT EXISTS price_import_batches (
+    id                   uuid PRIMARY KEY,
+    organization_id      uuid NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+    supplier_mapping_id  uuid NOT NULL REFERENCES supplier_price_mappings (id),
+    file_name            text NOT NULL,
+    row_count            integer NOT NULL,
+    status               text NOT NULL DEFAULT 'Staged'
+                             CHECK (status IN ('Staged', 'Committed', 'Rejected', 'Failed')),
+    uploaded_at_utc      timestamptz NOT NULL DEFAULT now(),
+    uploaded_by_user_id  uuid NOT NULL,
+    resolved_at_utc      timestamptz NULL
+);
+CREATE INDEX IF NOT EXISTS price_import_batches_org_idx ON price_import_batches (organization_id);
+
+CREATE TABLE IF NOT EXISTS price_import_rows (
+    id              uuid PRIMARY KEY,
+    organization_id uuid NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+    batch_id        uuid NOT NULL REFERENCES price_import_batches (id) ON DELETE CASCADE,
+    row_number      integer NOT NULL,
+    raw_code        text NULL,
+    raw_price       text NULL,
+    presentation_id uuid NULL REFERENCES presentations (id) ON DELETE SET NULL,
+    current_price   numeric(12,2) NULL,
+    proposed_price  numeric(12,2) NULL,
+    match_status    text NOT NULL CHECK (match_status IN
+                        ('Matched', 'NoChange', 'UnknownCode', 'InvalidPrice', 'DuplicateInFile')),
+    reject_reason   text NULL
+);
+CREATE INDEX IF NOT EXISTS price_import_rows_batch_idx ON price_import_rows (batch_id);
+
+ALTER TABLE supplier_price_mappings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE supplier_price_mappings FORCE  ROW LEVEL SECURITY;
+ALTER TABLE price_import_batches    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE price_import_batches    FORCE  ROW LEVEL SECURITY;
+ALTER TABLE price_import_rows       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE price_import_rows       FORCE  ROW LEVEL SECURITY;
+REVOKE ALL ON supplier_price_mappings, price_import_batches, price_import_rows FROM PUBLIC;
+GRANT SELECT, INSERT, UPDATE ON supplier_price_mappings TO app_runtime;
+GRANT SELECT, INSERT, UPDATE ON price_import_batches    TO app_runtime;
+GRANT SELECT, INSERT         ON price_import_rows       TO app_runtime;
+
+DROP POLICY IF EXISTS supplier_price_mappings_tenant_isolation ON supplier_price_mappings;
+CREATE POLICY supplier_price_mappings_tenant_isolation ON supplier_price_mappings
+    USING      (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid)
+    WITH CHECK (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid);
+
+DROP POLICY IF EXISTS price_import_batches_tenant_isolation ON price_import_batches;
+CREATE POLICY price_import_batches_tenant_isolation ON price_import_batches
+    USING      (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid)
+    WITH CHECK (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid);
+
+DROP POLICY IF EXISTS price_import_rows_tenant_isolation ON price_import_rows;
+CREATE POLICY price_import_rows_tenant_isolation ON price_import_rows
+    USING      (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid)
+    WITH CHECK (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid);

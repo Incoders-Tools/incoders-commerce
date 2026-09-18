@@ -1,6 +1,7 @@
 using System.IO;
 using Commerce.Application.Access;
 using Commerce.Application.Audit;
+using Commerce.Application.Pricing;
 using Commerce.BranchNode;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -36,6 +37,13 @@ public static class PosHostBuilder
         builder.Services.AddSingleton(_ => new LocalOperatorStore(Path.Combine(dataDirectory, "operators.json")));
         builder.Services.AddSingleton<CurrentOperator>();
 
+        // Task 7.2: the POS half of the shared IEffectivePriceSource port
+        // (design.md "PricingResolutionService contract and location") — the
+        // SAME PricingResolutionService type the cloud registers, wired over
+        // the local BranchSyncStore instead of Postgres.
+        builder.Services.AddSingleton<IEffectivePriceSource, LocalEffectivePriceSource>();
+        builder.Services.AddSingleton<PricingResolutionService>();
+
         builder.Services.AddHttpClient<CloudSyncClient>(client =>
         {
             client.BaseAddress = new Uri(cloudApiBaseUrl);
@@ -49,6 +57,10 @@ public static class PosHostBuilder
             client.BaseAddress = new Uri(cloudApiBaseUrl);
         });
         builder.Services.AddHttpClient<CustomerReplicaClient>(client =>
+        {
+            client.BaseAddress = new Uri(cloudApiBaseUrl);
+        });
+        builder.Services.AddHttpClient<CatalogPriceReplicaClient>(client =>
         {
             client.BaseAddress = new Uri(cloudApiBaseUrl);
         });

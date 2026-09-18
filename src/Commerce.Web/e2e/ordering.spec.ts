@@ -15,9 +15,16 @@ import { seedUser, uniqueEmail } from './helpers'
  * `CustomersScreen` itself calls — `page.request` shares the signed-in
  * browser context's cookie, so this is a genuinely real, cookie-authorized
  * admin call, not a test-only seam.
+ *
+ * commerce-pricing-engine (Unit 4): pricing resolution is now additive on
+ * top of the access/binding/customer-enabled checks proven below. This
+ * change does not ship the Unit 5 admin pricing API, so there is no route
+ * yet to publish a real price for a presentation — the first scenario below
+ * asserts the real, currently-reachable outcome for an unpriced
+ * presentation ("no-effective-price"), not a false "Accepted".
  */
 test.describe('order submission', () => {
-  test('a signed-in user can submit a real order and receive a real Accepted outcome', async ({ page, baseURL }) => {
+  test('a signed-in user with valid access is denied "no-effective-price" for an unpriced presentation', async ({ page, baseURL }) => {
     const password = 'correct-horse-battery-staple'
     // Branch scope is irrelevant to this flow (see remarks above) — an
     // empty scope, exactly what a real bootstrap admin gets, is used here
@@ -69,19 +76,20 @@ test.describe('order submission', () => {
     await page.locator('#destinationBranchId').fill(crypto.randomUUID())
     await page.locator('#actorId').fill(user.userId)
     await page.locator('#productId').fill(crypto.randomUUID())
-    await page.locator('#productName').fill('E2E Test Product')
     await page.locator('#presentationId').fill(crypto.randomUUID())
-    await page.locator('#presentationName').fill('E2E Test Presentation')
-    await page.locator('#unitId').fill(crypto.randomUUID())
     await page.locator('#quantity').fill('3')
 
     await page.getByRole('button', { name: /submit order/i }).click()
 
-    // Real CloudOrderSubmissionService -> CloudOrderStore round trip: the
-    // order is accepted (destination delivery itself stays honestly
-    // "pending" per ADR-003, since no destination branch registry exists —
-    // but overall submission acceptance is real and asserted here).
-    await expect(page.getByTestId('order-outcome')).toHaveText('Order accepted.')
+    // commerce-pricing-engine: a presentation with no published price has
+    // ZERO effective price rows, so CloudOrderSubmissionService now denies
+    // the whole order with "no-effective-price" (design.md "OrderLineSnapshot
+    // extension and where resolution runs") instead of accepting a priceless
+    // line. Publishing a real price requires the Unit 5 admin pricing API,
+    // which this change does not yet ship — asserting the denial here (a
+    // real access/binding/customer-enabled acceptance, additive pricing
+    // check) is the correct, currently-reachable outcome.
+    await expect(page.getByTestId('order-outcome')).toHaveText('Denied: no-effective-price')
   })
 
   test('an unissued (random) credential is denied with reason not-found', async ({ page, baseURL }) => {
@@ -101,10 +109,7 @@ test.describe('order submission', () => {
     await page.locator('#destinationBranchId').fill(crypto.randomUUID())
     await page.locator('#actorId').fill(user.userId)
     await page.locator('#productId').fill(crypto.randomUUID())
-    await page.locator('#productName').fill('E2E Test Product')
     await page.locator('#presentationId').fill(crypto.randomUUID())
-    await page.locator('#presentationName').fill('E2E Test Presentation')
-    await page.locator('#unitId').fill(crypto.randomUUID())
     await page.locator('#quantity').fill('3')
 
     await page.getByRole('button', { name: /submit order/i }).click()

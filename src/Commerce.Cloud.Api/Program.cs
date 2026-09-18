@@ -38,6 +38,8 @@ builder.Services.AddSingleton<PostgresOrganizationStore>();
 builder.Services.AddSingleton<PostgresDeviceCredentialStore>();
 builder.Services.AddSingleton<PostgresPasswordRecoveryStore>();
 builder.Services.AddSingleton<PostgresCustomerStore>();
+builder.Services.AddSingleton<PostgresCatalogStore>();
+builder.Services.AddSingleton<PostgresPriceListStore>();
 // commerce-customer-identity security fix: the resolver is the ONLY source of
 // a CustomerOrderingAccess instance CustomerCatalogAccessService can act on.
 builder.Services.AddSingleton<PostgresCustomerOrderingAccessStore>();
@@ -200,6 +202,7 @@ app.MapSyncEndpoints();
 app.MapCatalogEndpoints();
 app.MapOrderingEndpoints();
 app.MapCustomerEndpoints();
+app.MapPricingEndpoints();
 
 // TEST-ONLY, Development-gated seeding for the Playwright E2E suite (see
 // TestSeedEndpoints.cs remarks) — never mapped outside ASPNETCORE_ENVIRONMENT

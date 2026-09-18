@@ -68,6 +68,12 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
         var recoverySql = File.ReadAllText(Path.Combine(repoRoot.FullName, "deploy", "db", "migrations", "0005_password_recovery.sql"));
         using (var cmd = new NpgsqlCommand(recoverySql, owner)) cmd.ExecuteNonQuery();
 
+        // commerce-pricing-engine: the catalog-rename test below now creates
+        // a REAL persisted product first, so `products`/`presentations` must
+        // exist in this class's schema too.
+        var catalogAndPricingSql = File.ReadAllText(Path.Combine(repoRoot.FullName, "deploy", "db", "migrations", "0009_catalog_and_pricing.sql"));
+        using (var cmd = new NpgsqlCommand(catalogAndPricingSql, owner)) cmd.ExecuteNonQuery();
+
         // device_credentials (0004) and password_reset_tokens (0005) carry
         // FKs to organizations/branches, so they must be truncated
         // before/alongside them. CASCADE additionally covers `customers`
@@ -75,7 +81,7 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
         // another test class in the same run even though this class never
         // applies 0008 itself.
         using var resetCmd = new NpgsqlCommand(
-            "TRUNCATE TABLE password_reset_tokens, user_directory, users, device_credentials, branches, organizations CASCADE", owner);
+            "TRUNCATE TABLE presentations, products, password_reset_tokens, user_directory, users, device_credentials, branches, organizations CASCADE", owner);
         resetCmd.ExecuteNonQuery();
     }
 
@@ -477,16 +483,25 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
             "/account/sign-in", new SignInRequest("renamer@example.com", "rename-password"));
         Assert.Equal(HttpStatusCode.OK, signInResponse.StatusCode);
 
+        // commerce-pricing-engine Work Unit 1: the rename endpoint now
+        // authorizes over a REAL persisted product — bootstrap's
+        // business-admin role carries ManageCatalog, so it creates one
+        // first. The SAME product id is reused for both calls below: the
+        // "denied" case is about a BRANCH mismatch, not product identity.
+        var createProductResponse = await client.PostAsJsonAsync(
+            "/catalog/products", new { name = "Original", categoryId = Guid.NewGuid(), defaultUnitId = Guid.NewGuid() });
+        Assert.Equal(HttpStatusCode.Created, createProductResponse.StatusCode);
+        var createdProduct = await createProductResponse.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
+        var productId = createdProduct.GetProperty("id").GetGuid();
+
         var allowedResponse = await client.PostAsJsonAsync(
-            $"/catalog/products/{Guid.NewGuid()}/rename",
-            new RenameProductRequest(
-                bootstrapBody!.BranchId, "Original", Guid.NewGuid(), Guid.NewGuid(), "Renamed", false, Guid.NewGuid()));
+            $"/catalog/products/{productId}/rename",
+            new RenameProductRequest(bootstrapBody!.BranchId, "Renamed", false, Guid.NewGuid()));
         Assert.Equal(HttpStatusCode.OK, allowedResponse.StatusCode);
 
         var deniedResponse = await client.PostAsJsonAsync(
-            $"/catalog/products/{Guid.NewGuid()}/rename",
-            new RenameProductRequest(
-                Guid.NewGuid(), "Original", Guid.NewGuid(), Guid.NewGuid(), "Renamed", false, Guid.NewGuid()));
+            $"/catalog/products/{productId}/rename",
+            new RenameProductRequest(Guid.NewGuid(), "Renamed", false, Guid.NewGuid()));
         Assert.Equal(HttpStatusCode.Forbidden, deniedResponse.StatusCode);
     }
 

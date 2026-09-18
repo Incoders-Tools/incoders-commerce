@@ -13,17 +13,29 @@ public sealed class Presentation
     public QuantityBehavior QuantityBehavior { get; }
     public Guid UnitId { get; }
 
+    /// <summary>
+    /// Barcode/SKU (commerce-pricing-engine design.md "Identification code
+    /// placement and uniqueness"): per Presentation, not per Product, so a
+    /// scan resolves to exactly one sellable line. Nullable — an unlabelled
+    /// presentation stays unconstrained. Uniqueness is enforced by the
+    /// database (`presentations_org_code_uk`, org-scoped, partial), never by
+    /// this class or by UI code.
+    /// </summary>
+    public string? IdentificationCode { get; }
+
     public Presentation(
         Guid id,
         Guid productId,
         string name,
         QuantityBehavior quantityBehavior,
-        Guid unitId)
+        Guid unitId,
+        string? identificationCode = null)
     {
         Id = id;
         ProductId = productId;
         Name = name;
         QuantityBehavior = quantityBehavior;
         UnitId = unitId;
+        IdentificationCode = identificationCode;
     }
 }
