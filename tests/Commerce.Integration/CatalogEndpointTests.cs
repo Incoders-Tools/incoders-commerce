@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
+using Commerce.Cloud.Api.Auditing;
 using Commerce.Cloud.Api.Endpoints;
 using Commerce.Cloud.Api.Persistence;
 using Commerce.Cloud.Api.Tenancy;
@@ -22,6 +23,12 @@ namespace Commerce.Integration;
 /// point of this test is that even sending them as extraneous JSON has zero
 /// effect) is authorized using ONLY the store-loaded actor's real
 /// roles/branch scope, never anything from the request body.
+///
+/// Updated for commerce-pricing-engine Work Unit 1: the rename endpoint now
+/// authorizes over a REAL persisted product (looked up by id), not one
+/// constructed from the request body — a product must be created first via
+/// <c>POST /catalog/products</c>, mirroring the store-backed contract the
+/// rest of this change depends on (identification codes, price entries).
 /// </summary>
 [Collection("Postgres")]
 public sealed class CatalogEndpointTests : IClassFixture<WebApplicationFactory<Program>>, IDisposable
@@ -66,8 +73,45 @@ public sealed class CatalogEndpointTests : IClassFixture<WebApplicationFactory<P
         var usersSql = File.ReadAllText(Path.Combine(repoRoot.FullName, "deploy", "db", "migrations", "0002_users.sql"));
         using (var cmd = new NpgsqlCommand(usersSql, owner)) cmd.ExecuteNonQuery();
 
-        using var resetCmd = new NpgsqlCommand("TRUNCATE TABLE user_directory, users", owner);
+        var organizationsSql = File.ReadAllText(Path.Combine(repoRoot.FullName, "deploy", "db", "migrations", "0003_organizations_branches.sql"));
+        using (var cmd = new NpgsqlCommand(organizationsSql, owner)) cmd.ExecuteNonQuery();
+
+        // commerce-pricing-engine Work Unit 1: products/presentations now
+        // back the rename endpoint for real, so this test's organization/
+        // product rows must exist against real FKs.
+        var catalogAndPricingSql = File.ReadAllText(Path.Combine(repoRoot.FullName, "deploy", "db", "migrations", "0009_catalog_and_pricing.sql"));
+        using (var cmd = new NpgsqlCommand(catalogAndPricingSql, owner)) cmd.ExecuteNonQuery();
+
+        using var resetCmd = new NpgsqlCommand(
+            "TRUNCATE TABLE presentations, products, user_directory, users, branches, organizations CASCADE", owner);
         resetCmd.ExecuteNonQuery();
+    }
+
+    /// <summary>
+    /// Products carry a real FK to `organizations` (0009) — a product
+    /// created for an organization id with no matching row would violate
+    /// the FK, so the fixture must seed the organization first.
+    /// </summary>
+    private async Task SeedOrganizationAsync(Guid organizationId)
+    {
+        using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        await owner.OpenAsync();
+        using var cmd = new NpgsqlCommand("INSERT INTO organizations (id, name) VALUES ($1, 'Test Org')", owner);
+        cmd.Parameters.AddWithValue(organizationId);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    private async Task<Guid> CreateProductAsync(HttpClient client)
+    {
+        var response = await client.PostAsJsonAsync("/catalog/products", new
+        {
+            name = "Seed Product",
+            categoryId = Guid.NewGuid(),
+            defaultUnitId = Guid.NewGuid(),
+        });
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        return body.GetProperty("id").GetGuid();
     }
 
     /// <summary>
@@ -77,23 +121,46 @@ public sealed class CatalogEndpointTests : IClassFixture<WebApplicationFactory<P
     /// authorization decision is driven ONLY by what is persisted for this
     /// user, not by anything the caller can inject into the rename request.
     /// </summary>
-    private async Task<(HttpClient client, Guid organizationId, Guid branchId)> SignedInClientAsync(Permission permissions, Guid[]? branchScope = null)
+    private async Task<(HttpClient client, Guid organizationId, Guid branchId)> SignedInClientAsync(
+        Permission permissions, Guid[]? branchScope = null, Guid? organizationId = null)
     {
-        var organizationId = Guid.NewGuid();
+        var isNewOrganization = organizationId is null;
+        organizationId ??= Guid.NewGuid();
         var branchId = Guid.NewGuid();
         var userId = Guid.NewGuid();
+
+        if (isNewOrganization)
+        {
+            await SeedOrganizationAsync(organizationId.Value);
+        }
 
         using (var scope = _factory.Services.CreateScope())
         {
             var store = scope.ServiceProvider.GetRequiredService<PostgresUserAccountStore>();
-            var created = await store.TryCreateAsync(
-                new CloudTenantScope(organizationId),
-                new NewUserAccount(userId, $"{userId}@example.com", "unused-hash", branchScope ?? new[] { branchId }, new[] { new RoleDto("test-role", permissions) }),
-                CancellationToken.None);
-            Assert.True(created);
+            var newUser = new NewUserAccount(
+                userId, $"{userId}@example.com", "unused-hash", branchScope ?? new[] { branchId }, new[] { new RoleDto("test-role", permissions) });
+            var tenantScope = new CloudTenantScope(organizationId.Value);
+
+            if (isNewOrganization)
+            {
+                // TryCreateAsync is the GENESIS path: it only succeeds when
+                // the organization has ZERO users. Reusing an organization
+                // (e.g. a second actor in the SAME org) must go through the
+                // ordinary staff-create path instead.
+                var created = await store.TryCreateAsync(tenantScope, newUser, CancellationToken.None);
+                Assert.True(created);
+            }
+            else
+            {
+                var outcome = await store.CreateStaffUserAsync(
+                    tenantScope, newUser,
+                    new UserManagementAuditEntry("org-user", Guid.NewGuid(), organizationId.Value, "user", userId, "user.created", null, null),
+                    CancellationToken.None);
+                Assert.Equal(CreateStaffUserOutcome.Created, outcome);
+            }
         }
 
-        return (await SignInViaTestEndpointAsync(organizationId, userId), organizationId, branchId);
+        return (await SignInViaTestEndpointAsync(organizationId.Value, userId), organizationId.Value, branchId);
     }
 
     private async Task<HttpClient> SignInViaTestEndpointAsync(Guid organizationId, Guid userId)
@@ -141,8 +208,8 @@ public sealed class CatalogEndpointTests : IClassFixture<WebApplicationFactory<P
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
 
         var (client, organizationId, branchId) = await SignedInClientAsync(Permission.ManageCatalog);
+        var productId = await CreateProductAsync(client);
 
-        var productId = Guid.NewGuid();
         var forgedBody = JsonSerializer.Serialize(new
         {
             // Extraneous forged fields a naive deserializer might have honored
@@ -171,9 +238,14 @@ public sealed class CatalogEndpointTests : IClassFixture<WebApplicationFactory<P
     {
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
 
-        var (client, organizationId, branchId) = await SignedInClientAsync(Permission.None);
+        // A properly-authorized creator seeds the product in the org first —
+        // this test asserts the DENIAL path, not product existence, so the
+        // product must be real for the same reason the ALLOW test's is.
+        var (creatorClient, organizationId, _) = await SignedInClientAsync(Permission.ManageCatalog);
+        var productId = await CreateProductAsync(creatorClient);
 
-        var productId = Guid.NewGuid();
+        var (client, _, branchId) = await SignedInClientAsync(Permission.None, organizationId: organizationId);
+
         var forgedBody = JsonSerializer.Serialize(new
         {
             actorId = Guid.NewGuid(),

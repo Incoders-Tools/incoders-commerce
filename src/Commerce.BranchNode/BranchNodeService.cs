@@ -61,6 +61,40 @@ public sealed class BranchNodeService
         return _store.CommitSaleAtomically(envelope, effect);
     }
 
+    /// <summary>
+    /// The scan-composed sale counterpart to <see cref="CompleteOfflineSale"/>
+    /// (commerce-pricing-engine design.md "POS: two explicit buttons, not a
+    /// mode toggle"): same envelope/effect shape, `SaleKind = "Scanned"`, and
+    /// its lines committed atomically alongside the sale effect and outbox
+    /// row via <see cref="BranchSyncStore.CommitScannedSaleAtomically"/>.
+    /// </summary>
+    public BranchOutboxCommitResult CompleteScannedSale(
+        Guid organizationId,
+        Guid branchId,
+        Guid actorId,
+        Guid saleId,
+        IReadOnlyList<Commerce.Domain.Sync.SaleLine> lines,
+        decimal totalAmount,
+        Guid operationId,
+        Guid correlationId)
+    {
+        var envelope = new SyncEnvelope(
+            OperationId: operationId,
+            ContractVersion: 1,
+            OrganizationId: organizationId,
+            BranchId: branchId,
+            AggregateId: saleId,
+            AggregateVersion: 1,
+            ActorId: actorId,
+            CorrelationId: correlationId,
+            OccurredAtUtc: _clock(),
+            PayloadKind: "sale",
+            Payload: "{}");
+        var effect = new SaleEffect(saleId, branchId, totalAmount, _clock());
+
+        return _store.CommitScannedSaleAtomically(envelope, effect, lines);
+    }
+
     public bool Acknowledge(Guid operationId) => _store.Acknowledge(operationId);
 
     public SyncStatusSnapshot GetStatus(Guid branchId, bool isOffline) => _store.GetStatus(branchId, isOffline);

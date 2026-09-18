@@ -70,6 +70,8 @@ public partial class App : System.Windows.Application
             _host.Services.GetRequiredService<LocalOperatorStore>(),
             currentOperator,
             _host.Services.GetRequiredService<CustomerReplicaClient>(),
+            _host.Services.GetRequiredService<CatalogPriceReplicaClient>(),
+            _host.Services.GetRequiredService<Commerce.Application.Pricing.PricingResolutionService>(),
             _host.Services.GetRequiredService<Func<CustomerAdminClient>>(),
             identity);
 

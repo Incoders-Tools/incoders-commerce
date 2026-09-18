@@ -72,11 +72,19 @@ public static class OrderingEndpoints
 // commerce-customer-identity security fix: NO caller-supplied enabled flag.
 // This is deliberately unrepresentable, not merely unvalidated — there is no
 // member here a careless future edit could wire back up.
+//
+// commerce-pricing-engine design.md "OrderLineSnapshot extension and where
+// resolution runs": SubmitOrderLine is price-free — a client supplying a
+// price is not rejected, it has nowhere to put one. The four resolved-price
+// fields exist only on OrderLineSnapshot, populated server-side after
+// PricingResolutionService.ResolveAsync.
+public sealed record SubmitOrderLine(Guid ProductId, Guid PresentationId, decimal Quantity);
+
 public sealed record SubmitOrderRequest(
     Guid OrderId,
     Guid CustomerId,
     Guid AccessCredential,
     Guid DestinationBranchId,
     Guid ActorId,
-    IReadOnlyList<OrderLineSnapshot> Lines,
+    IReadOnlyList<SubmitOrderLine> Lines,
     Guid CorrelationId);

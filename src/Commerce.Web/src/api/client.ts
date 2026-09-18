@@ -53,6 +53,38 @@ export async function apiFetch<TResponse>(
 }
 
 /**
+ * Multipart variant for the Excel import upload (`POST /pricing/imports`):
+ * deliberately does NOT set `Content-Type` — the browser must set it itself
+ * (including the multipart boundary) when the body is a `FormData`. Reuses
+ * `apiFetch`'s error-mapping shape otherwise.
+ */
+export async function apiFetchForm<TResponse>(path: string, formData: FormData): Promise<TResponse> {
+  let response: Response
+  try {
+    response = await fetch(path, {
+      method: 'POST',
+      credentials: 'include',
+      body: formData,
+    })
+  } catch {
+    throw new ApiError('Commerce.Cloud.Api is unreachable.', 0)
+  }
+
+  if (!response.ok) {
+    let detail = response.statusText
+    try {
+      const body = await response.json()
+      detail = body?.title ?? body?.detail ?? JSON.stringify(body)
+    } catch {
+      // Non-JSON error body; fall back to statusText.
+    }
+    throw new ApiError(detail || `Request failed with status ${response.status}`, response.status)
+  }
+
+  return (await response.json()) as TResponse
+}
+
+/**
  * Variant for endpoints whose real, deliberate "denied" business outcome is
  * a NON-2xx response that still carries the full outcome DTO as its JSON
  * body — `Endpoints/Catalog.cs`'s rename and `Endpoints/Ordering.cs`'s order

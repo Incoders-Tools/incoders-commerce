@@ -37,6 +37,13 @@ role and policy exist per that section's verification queries.
 Store the generated `app_runtime` password in a secret manager — it becomes
 a Railway variable in step 4, never a repo commit.
 
+Apply every subsequent migration (`0002_users.sql` through the latest,
+currently `0009_catalog_and_pricing.sql`) against the same direct connection
+string, in numeric order, per each migration's own section in
+`deploy/README.md`. `/health/ready` verifies the full cumulative schema/RLS
+shape, so a deploy that runs ahead of any one of these migrations fails
+closed at readiness.
+
 ## 3. Create the Railway project and link the GitHub repo
 
 1. In Railway, create a new project (e.g. `incoders-commerce-staging`).

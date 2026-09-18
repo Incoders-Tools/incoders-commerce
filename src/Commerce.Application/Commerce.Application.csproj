@@ -7,6 +7,22 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!--
+      ClosedXML (commerce-pricing-engine design.md "Excel library"): MIT
+      licensed (verified at apply time against the published nuspec's
+      `<license type="expression">MIT</license>` — EPPlus's Polyform/commercial
+      licence from v5 is the real cost this avoids). Reads OpenXML `.xlsx`
+      only (no legacy OLE/BIFF `.xls` parser surface) and never evaluates
+      formulas unless `RecalculateAllFormulas()` is called explicitly, which
+      the import parser never does — cell reads stay on cached values.
+      `DocumentFormat.OpenXml` (a ClosedXML dependency) backs `ImportGuards`'
+      pre-parse magic-byte/row-count checks, which run before ClosedXML ever
+      opens the workbook.
+    -->
+    <PackageReference Include="ClosedXML" Version="0.104.0" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Commerce.Domain\Commerce.Domain.csproj" />
   </ItemGroup>
 

@@ -1,97 +1,160 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { renameProduct } from '@/api/catalog'
+import { listPresentations, updatePresentation } from '@/api/catalog'
 import { ApiError } from '@/api/client'
-import { ManagementOutcomeStatus, type ManagementOutcome } from '@/api/types'
+import type { PresentationRecord } from '@/api/types'
 
+/**
+ * design.md "Web: CatalogScreen rework": real presentation list +
+ * identification-code editing, replacing the hand-typed rename form
+ * (commerce-pricing-engine specs/catalog-item-identification/spec.md
+ * "Requirement: Admin Editing of Identification Codes"). Uniqueness stays
+ * enforced by the database's partial unique index, never by this UI.
+ */
 export function CatalogScreen() {
-  const [productId, setProductId] = useState('')
-  const [targetBranchId, setTargetBranchId] = useState('')
-  const [currentName, setCurrentName] = useState('')
-  const [categoryId, setCategoryId] = useState('')
-  const [defaultUnitId, setDefaultUnitId] = useState('')
-  const [newName, setNewName] = useState('')
-  const [outcome, setOutcome] = useState<ManagementOutcome | null>(null)
+  const [presentations, setPresentations] = useState<PresentationRecord[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    listPresentations()
+      .then((items) => {
+        if (!cancelled) {
+          setPresentations(items)
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err instanceof ApiError ? err.message : 'Unexpected error: the catalog service is unreachable.')
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const handleUpdated = (updated: PresentationRecord) => {
+    setPresentations((current) => current.map((item) => (item.id === updated.id ? updated : item)))
+    setEditingId(null)
+  }
+
+  return (
+    <Card className="mx-auto mt-8 w-full max-w-2xl">
+      <CardHeader>
+        <CardTitle>Catalog</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {error && (
+          <p role="alert" className="text-sm text-red-600">
+            {error}
+          </p>
+        )}
+
+        {loading && <p>Loading…</p>}
+
+        {!loading && presentations.length === 0 && !error && <p>No presentations yet.</p>}
+
+        {!loading && presentations.length > 0 && (
+          <ul className="flex flex-col gap-3">
+            {presentations.map((presentation) => (
+              <li key={presentation.id} className="border-b border-neutral-200 pb-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-medium">{presentation.name}</p>
+                    <p className="text-xs text-neutral-500">{presentation.identificationCode ?? 'No code'}</p>
+                  </div>
+                  {editingId !== presentation.id && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setEditingId(presentation.id)}
+                    >
+                      Edit code
+                    </Button>
+                  )}
+                </div>
+                {editingId === presentation.id && (
+                  <IdentificationCodeForm
+                    presentation={presentation}
+                    onCancel={() => setEditingId(null)}
+                    onUpdated={handleUpdated}
+                  />
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function IdentificationCodeForm({
+  presentation,
+  onCancel,
+  onUpdated,
+}: {
+  presentation: PresentationRecord
+  onCancel: () => void
+  onUpdated: (updated: PresentationRecord) => void
+}) {
+  const [identificationCode, setIdentificationCode] = useState(presentation.identificationCode ?? '')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault()
     setError(null)
-    setOutcome(null)
     setSubmitting(true)
     try {
-      const result = await renameProduct(productId, {
-        targetBranchId,
-        currentName,
-        categoryId,
-        defaultUnitId,
-        newName,
-        isOffline: false,
-        correlationId: crypto.randomUUID(),
+      const updated = await updatePresentation(presentation.id, {
+        name: presentation.name,
+        quantityBehavior: presentation.quantityBehavior,
+        unitId: presentation.unitId,
+        identificationCode: identificationCode.trim() === '' ? null : identificationCode.trim(),
       })
-      setOutcome(result)
+      onUpdated(updated)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Unexpected error renaming product.')
+      setError(err instanceof ApiError ? err.message : 'Unexpected error updating the identification code.')
     } finally {
       setSubmitting(false)
     }
   }
 
   return (
-    <Card className="mx-auto mt-8 w-full max-w-lg">
-      <CardHeader>
-        <CardTitle>Rename product</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
-          <Field id="productId" label="Product ID" value={productId} onChange={setProductId} />
-          <Field id="targetBranchId" label="Target branch ID" value={targetBranchId} onChange={setTargetBranchId} />
-          <Field id="currentName" label="Current name" value={currentName} onChange={setCurrentName} />
-          <Field id="categoryId" label="Category ID" value={categoryId} onChange={setCategoryId} />
-          <Field id="defaultUnitId" label="Default unit ID" value={defaultUnitId} onChange={setDefaultUnitId} />
-          <Field id="newName" label="New name" value={newName} onChange={setNewName} />
-
-          {error && (
-            <p role="alert" className="text-sm text-red-600">
-              {error}
-            </p>
-          )}
-          {outcome && (
-            <p data-testid="catalog-outcome" className="text-sm text-neutral-700">
-              {outcome.status === ManagementOutcomeStatus.Allowed
-                ? `Renamed to "${outcome.updatedProduct?.name}".`
-                : `Denied: ${outcome.reason}`}
-            </p>
-          )}
-
-          <Button type="submit" disabled={submitting}>
-            {submitting ? 'Renaming…' : 'Rename product'}
-          </Button>
-        </form>
-      </CardContent>
-    </Card>
-  )
-}
-
-function Field({
-  id,
-  label,
-  value,
-  onChange,
-}: {
-  id: string
-  label: string
-  value: string
-  onChange: (value: string) => void
-}) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <Label htmlFor={id}>{label}</Label>
-      <Input id={id} value={value} onChange={(e) => onChange(e.target.value)} required />
-    </div>
+    <form className="mt-2 flex flex-wrap items-end gap-2" onSubmit={handleSubmit}>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor={`identificationCode-${presentation.id}`}>Identification code</Label>
+        <Input
+          id={`identificationCode-${presentation.id}`}
+          value={identificationCode}
+          onChange={(e) => setIdentificationCode(e.target.value)}
+        />
+      </div>
+      {error && (
+        <p role="alert" className="text-sm text-red-600">
+          {error}
+        </p>
+      )}
+      <Button type="submit" size="sm" disabled={submitting}>
+        {submitting ? 'Saving…' : 'Save'}
+      </Button>
+      <Button type="button" variant="outline" size="sm" onClick={onCancel} disabled={submitting}>
+        Cancel
+      </Button>
+    </form>
   )
 }

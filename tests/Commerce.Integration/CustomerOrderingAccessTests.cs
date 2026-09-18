@@ -115,7 +115,9 @@ public sealed class CustomerOrderingAccessTests : IDisposable
         var accessService = new CustomerCatalogAccessService(accessStore, auditSink);
         var customerStore = new PostgresCustomerStore(_dataSource!);
         var orderStore = new CloudOrderStore();
-        var submissionService = new CloudOrderSubmissionService(accessService, customerStore, orderStore);
+        var catalogStore = new PostgresCatalogStore(_dataSource!);
+        var priceListStore = new PostgresPriceListStore(_dataSource!);
+        var submissionService = new CloudOrderSubmissionService(accessService, customerStore, orderStore, catalogStore, priceListStore);
         return (accessService, submissionService, accessStore, auditSink);
     }
 
@@ -135,7 +137,7 @@ public sealed class CustomerOrderingAccessTests : IDisposable
 
         var outcome = await submissionService.SubmitAsync(
             scope, customerId, credential, Guid.NewGuid(), Guid.NewGuid(), actorId,
-            Array.Empty<Commerce.Domain.Ordering.OrderLineSnapshot>(), Guid.NewGuid(),
+            Array.Empty<SubmitOrderLine>(), Guid.NewGuid(),
             destination: null, hasAvailableStock: true, CancellationToken.None);
 
         Assert.Equal(OrderSubmissionOutcomeStatus.Accepted, outcome.Status);
@@ -157,7 +159,7 @@ public sealed class CustomerOrderingAccessTests : IDisposable
 
         var outcome = await submissionService.SubmitAsync(
             scope, customerId, Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), actorId,
-            Array.Empty<Commerce.Domain.Ordering.OrderLineSnapshot>(), Guid.NewGuid(),
+            Array.Empty<SubmitOrderLine>(), Guid.NewGuid(),
             destination: null, hasAvailableStock: true, CancellationToken.None);
 
         Assert.Equal(OrderSubmissionOutcomeStatus.Denied, outcome.Status);
@@ -184,7 +186,7 @@ public sealed class CustomerOrderingAccessTests : IDisposable
         // ownerCustomerId, not the customerId this caller declares.
         var outcome = await submissionService.SubmitAsync(
             scope, claimedCustomerId, credential, Guid.NewGuid(), Guid.NewGuid(), actorId,
-            Array.Empty<Commerce.Domain.Ordering.OrderLineSnapshot>(), Guid.NewGuid(),
+            Array.Empty<SubmitOrderLine>(), Guid.NewGuid(),
             destination: null, hasAvailableStock: true, CancellationToken.None);
 
         Assert.Equal(OrderSubmissionOutcomeStatus.Denied, outcome.Status);
@@ -207,7 +209,7 @@ public sealed class CustomerOrderingAccessTests : IDisposable
 
         var accepted = await submissionService.SubmitAsync(
             scope, customerId, credential, Guid.NewGuid(), Guid.NewGuid(), actorId,
-            Array.Empty<Commerce.Domain.Ordering.OrderLineSnapshot>(), Guid.NewGuid(),
+            Array.Empty<SubmitOrderLine>(), Guid.NewGuid(),
             destination: null, hasAvailableStock: true, CancellationToken.None);
         Assert.Equal(OrderSubmissionOutcomeStatus.Accepted, accepted.Status);
 
@@ -216,7 +218,7 @@ public sealed class CustomerOrderingAccessTests : IDisposable
 
         var deniedOutcome = await submissionService.SubmitAsync(
             scope, customerId, credential, Guid.NewGuid(), Guid.NewGuid(), actorId,
-            Array.Empty<Commerce.Domain.Ordering.OrderLineSnapshot>(), Guid.NewGuid(),
+            Array.Empty<SubmitOrderLine>(), Guid.NewGuid(),
             destination: null, hasAvailableStock: true, CancellationToken.None);
 
         Assert.Equal(OrderSubmissionOutcomeStatus.Denied, deniedOutcome.Status);
@@ -246,13 +248,13 @@ public sealed class CustomerOrderingAccessTests : IDisposable
 
         var outcomeInOwnOrg = await submissionService.SubmitAsync(
             scopeA, customerAId, credential, Guid.NewGuid(), Guid.NewGuid(), actorId,
-            Array.Empty<Commerce.Domain.Ordering.OrderLineSnapshot>(), Guid.NewGuid(),
+            Array.Empty<SubmitOrderLine>(), Guid.NewGuid(),
             destination: null, hasAvailableStock: true, CancellationToken.None);
         Assert.Equal(OrderSubmissionOutcomeStatus.Accepted, outcomeInOwnOrg.Status);
 
         var outcomeInOtherOrg = await submissionService.SubmitAsync(
             scopeB, customerAId, credential, Guid.NewGuid(), Guid.NewGuid(), actorId,
-            Array.Empty<Commerce.Domain.Ordering.OrderLineSnapshot>(), Guid.NewGuid(),
+            Array.Empty<SubmitOrderLine>(), Guid.NewGuid(),
             destination: null, hasAvailableStock: true, CancellationToken.None);
 
         Assert.Equal(OrderSubmissionOutcomeStatus.Denied, outcomeInOtherOrg.Status);
@@ -293,7 +295,7 @@ public sealed class CustomerOrderingAccessTests : IDisposable
 
         var outcome = await submissionService.SubmitAsync(
             scope, customerId, credential, Guid.NewGuid(), Guid.NewGuid(), actorId,
-            Array.Empty<Commerce.Domain.Ordering.OrderLineSnapshot>(), Guid.NewGuid(),
+            Array.Empty<SubmitOrderLine>(), Guid.NewGuid(),
             destination: null, hasAvailableStock: true, CancellationToken.None);
 
         Assert.Equal(OrderSubmissionOutcomeStatus.Denied, outcome.Status);
