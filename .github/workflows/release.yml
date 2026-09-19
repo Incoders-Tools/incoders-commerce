@@ -1,0 +1,260 @@
+name: Release
+
+# ADR-004: provenance mapping is dev -> internal, staging -> pilot,
+# main -> stable. Only these three protected branches are authorized to
+# produce a release candidate; any other ref is not releasable.
+on:
+  push:
+    branches:
+      - dev
+      - staging
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  determine-channel:
+    runs-on: ubuntu-latest
+    outputs:
+      channel: ${{ steps.map.outputs.channel }}
+    steps:
+      - name: Map branch to release channel (ADR-004)
+        id: map
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${GITHUB_REF_NAME}" in
+            dev) echo "channel=internal" >> "$GITHUB_OUTPUT" ;;
+            staging) echo "channel=pilot" >> "$GITHUB_OUTPUT" ;;
+            main) echo "channel=stable" >> "$GITHUB_OUTPUT" ;;
+            *)
+              echo "::error::No release channel is mapped for ref '${GITHUB_REF_NAME}'. Only dev/staging/main are authorized release sources (ADR-004)." >&2
+              exit 1
+              ;;
+          esac
+
+  verify-protected-source:
+    needs: determine-channel
+    runs-on: ubuntu-latest
+    steps:
+      # A 404 from a branch-protection-style endpoint is INCONCLUSIVE, not
+      # proof that protection is absent — never treat it as "unprotected,
+      # safe to release" (consistent with this project's prior discovery
+      # about immutable-releases-style endpoints).
+      - name: Check branch protection state (404 is inconclusive, not proof of absence)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          http_status=$(gh api -i "repos/${GITHUB_REPOSITORY}/branches/${GITHUB_REF_NAME}/protection" 2>/tmp/gh-err.log \
+            | head -n1 | tr -d '\r' | awk '{print $2}')
+          rc=$?
+          set -e
+
+          if [ -z "${http_status}" ] || [ "${rc}" -ne 0 ]; then
+            echo "::warning::Could not query branch protection state for '${GITHUB_REF_NAME}' (see /tmp/gh-err.log). Treating as inconclusive, not as evidence of no protection."
+          elif [ "${http_status}" = "404" ]; then
+            echo "::notice::Branch protection endpoint returned 404 for '${GITHUB_REF_NAME}'. This is INCONCLUSIVE per ADR-004 — it does not prove protection is absent. Continuing without asserting protection state."
+          else
+            echo "Branch protection endpoint responded with HTTP ${http_status} for '${GITHUB_REF_NAME}'."
+          fi
+
+  web-tests:
+    # Commerce.Web (Vite/React SPA) has its own build/unit-test toolchain,
+    # independent of the .NET solution built in the `build` job below — this
+    # job never blocks or is blocked by it, it only adds coverage that was
+    # previously missing entirely from CI (no npm/vitest step existed here
+    # before). Vitest specs mock `fetch`; see `web-e2e` below for the real,
+    # browser-driven suite against a live backend.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/Commerce.Web
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: src/Commerce.Web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Vitest component tests
+        run: npm test
+
+      - name: Build SPA
+        run: npm run build
+
+  web-e2e:
+    # Real-browser Playwright E2E against a REAL Commerce.Cloud.Api (this
+    # Postgres service container + `dotnet run`), never a mocked fetch — see
+    # src/Commerce.Web/README.md "E2E tests" for the identical steps run
+    # locally. Independent of `build`/`web-tests`: a failure here does not
+    # block the .NET release build, matching this pass's scope (adding E2E
+    # coverage, not re-gating the existing release pipeline).
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: commerce_dev
+          POSTGRES_USER: commerce_owner
+          POSTGRES_PASSWORD: dev-only-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U commerce_owner -d commerce_dev"
+          --health-interval 2s
+          --health-timeout 2s
+          --health-retries 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: src/Commerce.Web/package-lock.json
+
+      - name: Apply RLS schema (same file deploy/dev/compose.yaml applies locally)
+        env:
+          PGPASSWORD: dev-only-password
+        run: psql -h localhost -U commerce_owner -d commerce_dev -f deploy/dev/db/init-rls.sql
+
+      - name: Install Commerce.Web dependencies
+        working-directory: src/Commerce.Web
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: src/Commerce.Web
+        run: npx playwright install --with-deps chromium
+
+      - name: Build SPA and copy into Cloud.Api wwwroot
+        working-directory: src/Commerce.Web
+        run: npm run test:e2e:build-backend-spa
+
+      - name: Start Commerce.Cloud.Api (Development, plain HTTP)
+        env:
+          ASPNETCORE_ENVIRONMENT: Development
+          ConnectionStrings__Commerce: "Host=localhost;Port=5432;Database=commerce_dev;Username=app_runtime;Password=dev-only-password"
+          PORT: "8080"
+        run: |
+          nohup dotnet run --project src/Commerce.Cloud.Api > cloud-api.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8080/health > /dev/null; then
+              echo "Cloud.Api is up."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::Cloud.Api did not become healthy in time."
+          cat cloud-api.log
+          exit 1
+
+      - name: Start local HTTPS proxy (Program.cs's sign-in cookie is Secure-only)
+        working-directory: src/Commerce.Web
+        run: |
+          nohup npx local-ssl-proxy --source 5443 --target 8080 > ../../proxy.log 2>&1 &
+          sleep 3
+
+      - name: Run Playwright E2E suite
+        working-directory: src/Commerce.Web
+        env:
+          E2E_BASE_URL: "https://localhost:5443"
+        run: npm run test:e2e
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: src/Commerce.Web/playwright-report/
+          retention-days: 7
+
+  build:
+    needs: [determine-channel, verify-protected-source]
+    runs-on: windows-latest
+    env:
+      RELEASE_CHANNEL: ${{ needs.determine-channel.outputs.channel }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore and build
+        shell: pwsh
+        run: |
+          Write-Host "Building for channel '$env:RELEASE_CHANNEL' from ref '${{ github.ref_name }}'."
+          dotnet restore Commerce.sln
+          dotnet build Commerce.sln -c Release --no-restore
+
+      - name: Run full test suite
+        shell: pwsh
+        run: dotnet test Commerce.sln -c Release --no-build
+
+      # ADR-005: packaging is conditional behind one manifest — MSIX where
+      # the target fleet meets the Windows 10 2004+/admin-install
+      # requirements, signed MSI otherwise. Both artifact types are built
+      # from the same versioned source so Commerce.Updater's
+      # PackageFormatSelector can pick the correct one per machine; neither
+      # format is published here (see below).
+      - name: Stage packaging inputs (MSIX + MSI, both signed per ADR-004/ADR-005)
+        shell: pwsh
+        run: |
+          Write-Host "Packaging pipeline placeholder: this walking skeleton stages build outputs only."
+          Write-Host "Both an MSIX and a signed MSI artifact must be produced from this same source for channel '$env:RELEASE_CHANNEL', per ADR-005."
+
+      - name: Publication gate (publication_authorized)
+        shell: bash
+        run: |
+          set -euo pipefail
+          POLICY_FILE=".github/release-authorization.yml"
+          CHANNEL="$RELEASE_CHANNEL"
+
+          if [ ! -f "$POLICY_FILE" ]; then
+            echo "::error::Publication policy file '$POLICY_FILE' is missing."
+            exit 1
+          fi
+
+          # Extract the boolean value nested under channels.<CHANNEL>.publication_authorized.
+          # release-authorization.yml is a hand-authored, fixed-shape file (see its own
+          # header comment) — this is a two-level indented lookup, not a general YAML parser.
+          FLAG=$(awk -v channel="$CHANNEL" '
+            $0 ~ "^  "channel":" { in_channel=1; next }
+            in_channel && /^  [a-zA-Z]/ { in_channel=0 }
+            in_channel && /publication_authorized:/ {
+              gsub(/^[ \t]+publication_authorized:[ \t]*/, "");
+              print;
+              exit
+            }
+          ' "$POLICY_FILE")
+
+          if [ -z "$FLAG" ]; then
+            echo "::error::No publication_authorized entry found for channel '$CHANNEL' in $POLICY_FILE."
+            exit 1
+          fi
+
+          echo "Release publication for channel '$CHANNEL' is gated by $POLICY_FILE -> channels.$CHANNEL.publication_authorized (ADR-004)."
+          echo "This workflow builds, tests, and stages artifacts for channel '$CHANNEL'; it does not publish an immutable release on its own."
+
+          if [ "$FLAG" != "true" ]; then
+            echo "::error::Publication for channel '$CHANNEL' is not authorized (publication_authorized: $FLAG). Flip the flag in $POLICY_FILE via a dedicated PR to authorize."
+            exit 1
+          fi
+
+          echo "Publication authorized for channel '$CHANNEL'."
