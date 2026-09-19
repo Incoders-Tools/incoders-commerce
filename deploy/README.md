@@ -417,6 +417,56 @@ DROP TABLE products;
 Lossy once real price-carrying orders exist (design.md "Rollback Plan");
 prefer forward-fix after first real use.
 
+### commerce-guest-ordering — `0010_guest_ordering.sql`
+
+`deploy/db/migrations/0010_guest_ordering.sql` adds `guest_order_verifications`
+(design.md "Verification state shape"): a 6-digit code stored only as a
+SHA-256 hex hash, `expires_at` (10 minutes), `attempt_count` bounded at 5 by a
+CHECK constraint, and `confirmed_at`/`consumed_at`/`consumed_order_id` so a
+single confirmed row admits exactly one order. It has no password placeholder
+to substitute, applied the same way as `0008`/`0009`:
+
+```bash
+psql "postgresql://postgres:<db-password>@<project-ref>.supabase.co:5432/postgres" \
+  -f deploy/db/migrations/0010_guest_ordering.sql
+```
+
+**Migrate-before-deploy ordering, same as `0001`–`0009`**: apply `0010`
+before deploying the Cloud.Api image that expects it. `/health/ready`
+verifies `guest_order_verifications` (FORCE RLS + policies) in addition to
+every prior table, so a deploy that runs ahead of the migration fails closed
+at readiness rather than serving requests against a missing schema.
+
+Idempotency was confirmed locally by applying `0010_guest_ordering.sql` twice
+against `deploy/dev/compose.yaml`'s Postgres container — the second apply is
+a clean no-op, exactly like `0001`–`0009`.
+
+**Two new Railway variables gate the public guest-ordering surface**
+(design.md "Migration / Rollout"): `GuestOrdering__OrganizationId` and
+`GuestOrdering__BranchId` (Vaca Verde and its principal branch). Deploy the
+image with them **unset** first — the app runs normally, `/public/*` returns
+404, and nothing about staff or registered-customer behaviour changes. Set
+them only when the guest surface is ready to announce; unsetting them again
+is the **narrowest rollback** — the entire public surface disappears within
+one restart, leaving the domain origin field and the customer session intact.
+
+Guest verification email reuses the existing `IEmailSender` seam from
+commerce-password-recovery — no new Railway variable is needed for delivery
+itself; the same `RESEND_API_KEY`/`EMAIL_FROM_ADDRESS` pair already documented
+above under `0005_password_recovery.sql` covers it. If `RESEND_API_KEY` is
+absent, verification codes are logged via `LogOnlyEmailSender` instead of
+sent — safe for local/dev, not for production.
+
+**Inverse (rollback)**, shipped as comments in the migration file itself —
+NOT executed automatically:
+
+```sql
+DROP TABLE guest_order_verifications;
+```
+
+Lossy only for in-flight verifications (minutes of state, re-requestable);
+no order data is persisted anywhere today (design.md "Migration / Rollout").
+
 ## Local full stack via Docker Compose
 
 `deploy/dev/compose.yaml` gained a `full` profile (Unit 5) that also

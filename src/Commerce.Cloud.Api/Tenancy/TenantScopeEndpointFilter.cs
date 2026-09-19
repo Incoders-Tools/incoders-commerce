@@ -12,7 +12,7 @@ namespace Commerce.Cloud.Api.Tenancy;
 /// </summary>
 public sealed class TenantScopeEndpointFilter : IEndpointFilter
 {
-    private const string ScopeItemKey = "Commerce.Cloud.Api.CloudTenantScope";
+    internal const string ScopeItemKey = "Commerce.Cloud.Api.CloudTenantScope";
 
     public ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
     {

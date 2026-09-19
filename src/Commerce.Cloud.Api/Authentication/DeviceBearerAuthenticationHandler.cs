@@ -19,6 +19,16 @@ public static class CloudAuthenticationSchemes
     /// authenticates nothing under <c>/platform</c> and vice versa.
     /// </summary>
     public const string PlatformAdminCookie = "PlatformAdminCookie";
+
+    /// <summary>
+    /// Customer-scoped session cookie scheme (commerce-guest-ordering
+    /// design.md "Customer session"): the <c>PlatformAdminCookie</c> pattern
+    /// applied a second time — its own <c>Cookie.Name</c> and
+    /// <c>Cookie.Path = "/customer"</c>, named explicitly by the "Customer"
+    /// authorization policy so the default staff cookie authenticates
+    /// nothing under <c>/customer</c> and vice versa.
+    /// </summary>
+    public const string CustomerCookie = "CustomerCookie";
 }
 
 public sealed class DeviceBearerAuthenticationOptions : AuthenticationSchemeOptions;
