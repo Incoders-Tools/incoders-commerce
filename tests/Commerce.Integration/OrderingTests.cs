@@ -158,7 +158,7 @@ public sealed class OrderingTests : IDisposable
         var presentation = NewPresentation(product);
         var line = OrderSnapshotFactory.Snapshot(product, presentation, quantity: 3m);
 
-        var order = new Order(Guid.NewGuid(), organizationId, Guid.NewGuid(), Guid.NewGuid(), new[] { line }, DateTimeOffset.UtcNow);
+        var order = new Order(Guid.NewGuid(), organizationId, OrderOrigin.RegisteredCustomer, Guid.NewGuid(), guestContact: null, Guid.NewGuid(), new[] { line }, DateTimeOffset.UtcNow);
 
         // Catalogue changes after submission (a brand-new Product instance
         // with the same id, per how catalog renames are modeled in Unit 4).
