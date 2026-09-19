@@ -53,12 +53,19 @@ revocation timing while offline MUST follow an approved offline-identity ADR
 and MUST NOT be implied as immediate. Actor identity — user id, roles, and
 branch scope — used in any authorization decision MUST be derived from the
 authenticated principal via the persisted user-credentials store, never from
-request-body or payload fields submitted by the caller.
+request-body or payload fields submitted by the caller. This principle
+applies equally to the ordering path: `CustomerOrderingAccess` evaluation
+MUST resolve the credential and enabled state from the persisted access
+store and MUST NOT accept a caller-supplied enabled flag from the request
+body.
 
 (Previously: actor identity fields such as roles and branch scope could be
 supplied directly in the request body, e.g. `Catalog.cs`'s
 `RenameProductRequest.ActorId/ActorBranchScope/ActorRoles`, with no
-verification against a persisted store.)
+verification against a persisted store. The ordering path was a known
+violation of this same principle: `CustomerCatalogAccessService.Evaluate`
+read a self-asserted `AccessEnabled` boolean from the request body with no
+persisted store consulted anywhere in that path.)
 
 #### Scenario: Revoked access
 
@@ -90,6 +97,15 @@ verification against a persisted store.)
   branch scope than persisted
 - THEN authorization is evaluated against the persisted role and branch
   scope, and the action is denied if the persisted grant does not permit it
+
+#### Scenario: Ordering access is resolved from the persisted store, not the request
+
+- GIVEN a customer ordering access credential's enabled state exists only in
+  the persisted access store
+- WHEN an order submission includes a self-asserted enabled flag for that
+  credential
+- THEN authorization is evaluated using the persisted store's state and the
+  request-supplied flag is ignored
 
 ### Requirement: Installation Identity and Audit
 
