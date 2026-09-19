@@ -6,6 +6,7 @@ using Commerce.Cloud.Api.Tenancy;
 using Commerce.Domain.Identity;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Commerce.Cloud.Api.Endpoints;
 
@@ -40,20 +41,27 @@ public static class CustomerSessionEndpoints
             new UserAccount(Guid.Empty, Guid.Empty, [], []),
             "dummy-password-for-timing-parity-only");
 
-    /// <param name="guestOrderTargetConfigured">
-    /// Gates `POST /customer/orders` (gap-closing follow-up unit, see
-    /// remarks on <see cref="CloudOrderSubmissionService.SubmitForCustomerSessionAsync"/>):
-    /// a registered customer's self-service order still needs a destination
-    /// branch, and <see cref="GuestOrderTarget"/> is the ONE existing org/
-    /// branch resolution point in this host (design.md "Org/branch
-    /// resolution point") — reused here for the branch id only, independent
-    /// of the customer's own organization (resolved from the session claim).
-    /// With `GuestOrdering__*` unset, this one route is never mapped
-    /// (narrowest rollback, same convention `MapPublicOrderingEndpoints`
-    /// already uses) while `/customer/sign-in`, `/sign-out`, and `/me` stay
-    /// mapped unconditionally.
-    /// </param>
-    public static RouteGroupBuilder MapCustomerSessionEndpoints(this IEndpointRouteBuilder app, bool guestOrderTargetConfigured)
+    /// <remarks>
+    /// Phase 8 follow-up A (verify-report.md WARNING 1 — decouple
+    /// `/customer/orders` from `GuestOrdering__*`): this route is now ALWAYS
+    /// mapped, unconditionally, alongside `/customer/sign-in`, `/sign-out`,
+    /// and `/me` — registered-customer self-service ordering is its own
+    /// channel (ADR-009: order-origin channels are independent) and must not
+    /// structurally disappear because the public guest surface is disabled.
+    /// <see cref="GuestOrderTarget"/> is still the ONE existing org/branch
+    /// resolution point in this host (design.md "Org/branch resolution
+    /// point") and is reused here for the branch id only, independent of the
+    /// customer's own organization (resolved from the session claim) — but
+    /// it is resolved DEFENSIVELY via <c>httpContext.RequestServices</c>
+    /// rather than as a DI parameter, because it is only registered as a
+    /// singleton when `GuestOrdering__*` is configured. When it is absent,
+    /// the route stays mapped and auth still runs (a missing/invalid session
+    /// still gets 401) — only the branch-dependent step degrades to a
+    /// explicit 503, never a route-level 404. This is a real, pre-existing
+    /// infrastructure gap (no persisted branch registry exists yet, see
+    /// design.md Open Questions), not silently hidden.
+    /// </remarks>
+    public static RouteGroupBuilder MapCustomerSessionEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/customer");
 
@@ -143,57 +151,69 @@ public static class CustomerSessionEndpoints
             return Results.Ok(new CustomerSignedInResponse(customerId, emailClaim ?? string.Empty));
         }).RequireAuthorization("Customer");
 
-        if (guestOrderTargetConfigured)
+        // Always mapped (Phase 8 follow-up A) — never conditioned on whether
+        // the public guest surface is configured.
+        group.MapPost("/orders", async (
+            SubmitCustomerOrderRequest request,
+            HttpContext httpContext,
+            CloudOrderSubmissionService service,
+            CancellationToken ct) =>
         {
-            group.MapPost("/orders", async (
-                SubmitCustomerOrderRequest request,
-                HttpContext httpContext,
-                GuestOrderTarget target,
-                CloudOrderSubmissionService service,
-                CancellationToken ct) =>
+            // The session IS the authorization — customerId is read from
+            // the CustomerCookie claim, NEVER from the request body (no
+            // customerId field exists on SubmitCustomerOrderRequest at
+            // all, so a caller has nowhere to assert someone else's id).
+            var customerIdClaim = httpContext.User.FindFirst(CustomerIdClaimType)?.Value;
+            if (customerIdClaim is null || !Guid.TryParse(customerIdClaim, out var customerId))
             {
-                // The session IS the authorization — customerId is read from
-                // the CustomerCookie claim, NEVER from the request body (no
-                // customerId field exists on SubmitCustomerOrderRequest at
-                // all, so a caller has nowhere to assert someone else's id).
-                var customerIdClaim = httpContext.User.FindFirst(CustomerIdClaimType)?.Value;
-                if (customerIdClaim is null || !Guid.TryParse(customerIdClaim, out var customerId))
-                {
-                    return Results.Unauthorized();
-                }
+                return Results.Unauthorized();
+            }
 
-                if (!TenantScopeResolver.TryResolve(httpContext.User, out var scope, out _) || scope is null)
-                {
-                    return Results.Unauthorized();
-                }
+            if (!TenantScopeResolver.TryResolve(httpContext.User, out var scope, out _) || scope is null)
+            {
+                return Results.Unauthorized();
+            }
 
-                // The signed-in UserAccount id (stamped at /customer/sign-in)
-                // is the real, non-empty, non-staff identity that performed
-                // this self-service action — analogous to a staff ActorId,
-                // never Guid.Empty.
-                var actorIdClaim = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-                if (actorIdClaim is null || !Guid.TryParse(actorIdClaim, out var actorId))
-                {
-                    return Results.Unauthorized();
-                }
+            // The signed-in UserAccount id (stamped at /customer/sign-in)
+            // is the real, non-empty, non-staff identity that performed
+            // this self-service action — analogous to a staff ActorId,
+            // never Guid.Empty.
+            var actorIdClaim = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (actorIdClaim is null || !Guid.TryParse(actorIdClaim, out var actorId))
+            {
+                return Results.Unauthorized();
+            }
 
-                var outcome = await service.SubmitForCustomerSessionAsync(
-                    scope,
-                    customerId,
-                    request.OrderId,
-                    target.DestinationBranchId,
-                    actorId,
-                    request.Lines,
-                    request.CorrelationId,
-                    destination: null,
-                    hasAvailableStock: false,
-                    ct);
+            // Resolved DEFENSIVELY (not as a DI parameter): GuestOrderTarget
+            // is only registered as a singleton when GuestOrdering__* is
+            // configured (Program.cs). Auth already ran above — an
+            // unconfigured branch target degrades this ONE step to an
+            // explicit 503, never a route-level 404 (follow-up A: the
+            // channel itself must not disappear).
+            var target = httpContext.RequestServices.GetService<GuestOrderTarget>();
+            if (target is null)
+            {
+                return Results.Json(
+                    new { reason = "ordering-destination-not-configured" },
+                    statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
 
-                return outcome.Status == OrderSubmissionOutcomeStatus.Accepted
-                    ? Results.Ok(outcome)
-                    : Results.Json(outcome, statusCode: StatusCodes.Status403Forbidden);
-            }).RequireAuthorization("Customer");
-        }
+            var outcome = await service.SubmitForCustomerSessionAsync(
+                scope,
+                customerId,
+                request.OrderId,
+                target.DestinationBranchId,
+                actorId,
+                request.Lines,
+                request.CorrelationId,
+                destination: null,
+                hasAvailableStock: false,
+                ct);
+
+            return outcome.Status == OrderSubmissionOutcomeStatus.Accepted
+                ? Results.Ok(outcome)
+                : Results.Json(outcome, statusCode: StatusCodes.Status403Forbidden);
+        }).RequireAuthorization("Customer");
 
         return group;
     }

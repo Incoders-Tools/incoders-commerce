@@ -116,6 +116,29 @@ public sealed class CloudOrderStore
     public Order? Find(CloudTenantScope scope, Guid orderId) =>
         _orders.TryGetValue(orderId, out var order) && order.OrganizationId == scope.OrganizationId ? order : null;
 
+    /// <summary>
+    /// Phase 8 follow-up C (commerce-guest-ordering verify-report.md
+    /// WARNING 3): the first consumer of <see cref="Order.DispatchRank"/> as
+    /// a SORT KEY, never a gate (design.md "Non-priority = ranking, never a
+    /// gate" — <see cref="AttemptDelivery"/> above is completely untouched
+    /// by this method). Orders for the organization, ordered by
+    /// <see cref="Order.DispatchRank"/> ascending (registered customers
+    /// first) then <see cref="Order.SubmittedAtUtc"/> ascending
+    /// (submission order within the same rank) — design.md File Changes:
+    /// "pending-list reads ordered by DispatchRank then SubmittedAtUtc".
+    /// </summary>
+    public IReadOnlyList<Order> ListPending(CloudTenantScope scope)
+    {
+        lock (_gate)
+        {
+            return _orders.Values
+                .Where(order => order.OrganizationId == scope.OrganizationId)
+                .OrderBy(order => order.DispatchRank)
+                .ThenBy(order => order.SubmittedAtUtc)
+                .ToList();
+        }
+    }
+
     private void AttemptDelivery(Order order, Guid actorId, Guid correlationId, BranchSyncStore? destination, bool hasAvailableStock)
     {
         if (destination is null)

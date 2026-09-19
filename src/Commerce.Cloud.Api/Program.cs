@@ -301,7 +301,7 @@ app.MapSyncEndpoints();
 app.MapCatalogEndpoints();
 app.MapOrderingEndpoints();
 app.MapCustomerEndpoints();
-app.MapCustomerSessionEndpoints(guestOrderTargetConfigured);
+app.MapCustomerSessionEndpoints();
 app.MapPricingEndpoints();
 
 // Config-gated (design.md "Org/branch resolution point" / Migration and
