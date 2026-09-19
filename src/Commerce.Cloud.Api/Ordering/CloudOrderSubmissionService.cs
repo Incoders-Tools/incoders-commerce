@@ -42,19 +42,22 @@ public sealed class CloudOrderSubmissionService
     private readonly CloudOrderStore _orderStore;
     private readonly PostgresCatalogStore _catalogStore;
     private readonly PostgresPriceListStore _priceListStore;
+    private readonly GuestVerificationService? _guestVerificationService;
 
     public CloudOrderSubmissionService(
         CustomerCatalogAccessService accessService,
         PostgresCustomerStore customerStore,
         CloudOrderStore orderStore,
         PostgresCatalogStore catalogStore,
-        PostgresPriceListStore priceListStore)
+        PostgresPriceListStore priceListStore,
+        GuestVerificationService? guestVerificationService = null)
     {
         _accessService = accessService;
         _customerStore = customerStore;
         _orderStore = orderStore;
         _catalogStore = catalogStore;
         _priceListStore = priceListStore;
+        _guestVerificationService = guestVerificationService;
     }
 
     public async Task<OrderSubmissionOutcome> SubmitAsync(
@@ -99,11 +102,144 @@ public sealed class CloudOrderSubmissionService
         }
 
         // commerce-pricing-engine: resolution runs here, strictly AFTER the
-        // four checks above and BEFORE _orderStore.Submit. No default price
-        // list at all is treated the same as zero effective rows for every
-        // line — never a silent 0m fallback. A zero-line order never touches
-        // pricing at all (pre-existing regression-guard tests submit
-        // empty-line orders against schemas that predate this unit).
+        // four checks above and BEFORE _orderStore.Submit — REGISTERED path,
+        // customer.DiscountPercentage applied.
+        var (deniedReason, snapshots) = await ResolveLinesAsync(scope, lines, customer.DiscountPercentage, ct);
+        if (deniedReason is not null)
+        {
+            return new OrderSubmissionOutcome(OrderSubmissionOutcomeStatus.Denied, deniedReason, Order: null, WasNewlyAccepted: false);
+        }
+
+        return _orderStore.Submit(scope, orderId, customerId, destinationBranchId, actorId, snapshots!, correlationId, destination, hasAvailableStock);
+    }
+
+    /// <summary>
+    /// Registered-customer SELF-SERVICE submission path (commerce-guest-
+    /// ordering design.md "Registered customer order"; gap-closing follow-up
+    /// unit found during Unit 6's independent verification — design.md
+    /// documented `POST /customer/orders` and Unit 6's web client already
+    /// called it, but no Phase 1-5 task ever built the endpoint or this
+    /// method). The session IS the authorization: <paramref name="customerId"/>
+    /// comes from the caller's authenticated `CustomerCookie` claim, never
+    /// from a client-supplied field, so there is no access-credential to
+    /// check and none is accepted here — <see cref="SubmitAsync"/>'s FIRST
+    /// TWO checks (credential resolution, credential-to-customer binding)
+    /// are structurally absent, not bypassed. The remaining checks — customer
+    /// exists/visible under RLS, customer is enabled, then price resolution
+    /// — run in the SAME relative order <see cref="SubmitAsync"/> already
+    /// uses, so "customer-disabled" denies before any price is resolved,
+    /// exactly like the credentialed path.
+    /// </summary>
+    public async Task<OrderSubmissionOutcome> SubmitForCustomerSessionAsync(
+        CloudTenantScope scope,
+        Guid customerId,
+        Guid orderId,
+        Guid destinationBranchId,
+        Guid actorId,
+        IReadOnlyList<SubmitOrderLine> lines,
+        Guid correlationId,
+        BranchSyncStore? destination,
+        bool hasAvailableStock,
+        CancellationToken ct)
+    {
+        var customer = await _customerStore.FindAsync(scope, customerId, ct);
+        if (customer is null)
+        {
+            // Missing OR cross-organization (invisible under RLS) — same
+            // reason SubmitAsync uses for an unresolvable customer.
+            return new OrderSubmissionOutcome(OrderSubmissionOutcomeStatus.Denied, "not-found", Order: null, WasNewlyAccepted: false);
+        }
+
+        if (!customer.IsEnabled)
+        {
+            return new OrderSubmissionOutcome(OrderSubmissionOutcomeStatus.Denied, "customer-disabled", Order: null, WasNewlyAccepted: false);
+        }
+
+        // commerce-pricing-engine: resolution runs here, strictly AFTER the
+        // checks above and BEFORE _orderStore.Submit — REGISTERED path,
+        // customer.DiscountPercentage applied, identical to SubmitAsync.
+        var (deniedReason, snapshots) = await ResolveLinesAsync(scope, lines, customer.DiscountPercentage, ct);
+        if (deniedReason is not null)
+        {
+            return new OrderSubmissionOutcome(OrderSubmissionOutcomeStatus.Denied, deniedReason, Order: null, WasNewlyAccepted: false);
+        }
+
+        return _orderStore.Submit(scope, orderId, customerId, destinationBranchId, actorId, snapshots!, correlationId, destination, hasAvailableStock);
+    }
+
+    /// <summary>
+    /// Guest submission path (commerce-guest-ordering design.md "Guest
+    /// submission path"). Structurally incapable of reaching
+    /// <see cref="CustomerOrderingAccessService"/>/<see cref="PostgresCustomerStore"/>
+    /// resolution or the credential check <see cref="SubmitAsync"/> performs
+    /// — no such call exists anywhere in this method body. Price resolution
+    /// reuses the SAME <see cref="ResolveLinesAsync"/> the registered path
+    /// uses, with <c>discountPercentage: null</c> (guest-ordering spec.md
+    /// "Guest Price Resolution"): list price, never a discount. The
+    /// confirmed verification is consumed via
+    /// <see cref="GuestVerificationService.TryConsumeAsync"/> IMMEDIATELY
+    /// BEFORE <see cref="CloudOrderStore.Submit"/> — a pricing denial on any
+    /// line (<c>"no-effective-price"</c>) returns before that consumption
+    /// call is ever made, so the guest's one-time verification is not burned
+    /// by a denial that was never their fault (public-order-surface spec.md
+    /// "Guest Verification Gate Before Admission").
+    /// </summary>
+    public async Task<OrderSubmissionOutcome> SubmitGuestAsync(
+        CloudTenantScope scope,
+        Guid orderId,
+        Guid verificationId,
+        GuestContact guestContact,
+        Guid destinationBranchId,
+        IReadOnlyList<SubmitOrderLine> lines,
+        Guid correlationId,
+        BranchSyncStore? destination,
+        bool hasAvailableStock,
+        CancellationToken ct)
+    {
+        if (_guestVerificationService is null)
+        {
+            throw new InvalidOperationException(
+                $"{nameof(SubmitGuestAsync)} requires a {nameof(GuestVerificationService)} to be supplied to this {nameof(CloudOrderSubmissionService)}.");
+        }
+
+        var (deniedReason, snapshots) = await ResolveLinesAsync(scope, lines, discountPercentage: null, ct);
+        if (deniedReason is not null)
+        {
+            // Pricing denies BEFORE the verification is ever consumed.
+            return new OrderSubmissionOutcome(OrderSubmissionOutcomeStatus.Denied, deniedReason, Order: null, WasNewlyAccepted: false);
+        }
+
+        var consumed = await _guestVerificationService.TryConsumeAsync(
+            verificationId, guestContact.DocumentId, guestContact.ContactAddress, orderId, ct);
+        if (!consumed)
+        {
+            // Unconfirmed / expired / already-consumed / mismatched-contact —
+            // every failure branch denies identically; no order is stored.
+            return new OrderSubmissionOutcome(OrderSubmissionOutcomeStatus.Denied, "verification-invalid", Order: null, WasNewlyAccepted: false);
+        }
+
+        return _orderStore.Submit(
+            scope, orderId, OrderOrigin.Guest, customerId: null, guestContact, destinationBranchId,
+            OrderActors.PublicGuest, snapshots!, correlationId, destination, hasAvailableStock);
+    }
+
+    /// <summary>
+    /// The money rule, written ONCE and shared by <see cref="SubmitAsync"/>
+    /// (REGISTERED, real discount) and <see cref="SubmitGuestAsync"/> (GUEST,
+    /// <c>discountPercentage: null</c>) — the only difference between the two
+    /// paths (commerce-guest-ordering design.md "Guest submission path").
+    /// Resolve → a <see cref="PriceResolutionOutcome.NoEffectivePrice"/> on
+    /// ANY line denies the WHOLE order with reason <c>"no-effective-price"</c>
+    /// (no partial acceptance) → catalog lookup → snapshot.
+    /// </summary>
+    private async Task<(string? DeniedReason, List<OrderLineSnapshot>? Snapshots)> ResolveLinesAsync(
+        CloudTenantScope scope, IReadOnlyList<SubmitOrderLine> lines, decimal? discountPercentage, CancellationToken ct)
+    {
+        // No default price list at all is treated the same as zero effective
+        // rows for every line — never a silent 0m fallback. A zero-line
+        // order never touches pricing at all (pre-existing regression-guard
+        // tests submit empty-line orders against schemas that predate this
+        // unit).
         var effectiveOn = DateOnly.FromDateTime(DateTimeOffset.UtcNow.UtcDateTime);
         PricingResolutionService? pricingService = null;
         if (lines.Count > 0)
@@ -119,30 +255,30 @@ public sealed class CloudOrderSubmissionService
         {
             var resolution = pricingService is null
                 ? new PriceResolutionOutcome.NoEffectivePrice(line.PresentationId, effectiveOn)
-                : await pricingService.ResolveAsync(line.PresentationId, line.Quantity, customer.DiscountPercentage, effectiveOn, ct);
+                : await pricingService.ResolveAsync(line.PresentationId, line.Quantity, discountPercentage, effectiveOn, ct);
 
             if (resolution is not PriceResolutionOutcome.Resolved resolvedPrice)
             {
                 // One bad line poisons the whole order: deny before any
                 // snapshot is built and nothing is ever passed to Submit.
-                return new OrderSubmissionOutcome(OrderSubmissionOutcomeStatus.Denied, "no-effective-price", Order: null, WasNewlyAccepted: false);
+                return ("no-effective-price", null);
             }
 
             var presentationRecord = await _catalogStore.FindPresentationAsync(scope, line.PresentationId, ct);
             if (presentationRecord is null)
             {
-                return new OrderSubmissionOutcome(OrderSubmissionOutcomeStatus.Denied, "no-effective-price", Order: null, WasNewlyAccepted: false);
+                return ("no-effective-price", null);
             }
 
             var productRecord = await _catalogStore.FindProductAsync(scope, presentationRecord.ProductId, ct);
             if (productRecord is null)
             {
-                return new OrderSubmissionOutcome(OrderSubmissionOutcomeStatus.Denied, "no-effective-price", Order: null, WasNewlyAccepted: false);
+                return ("no-effective-price", null);
             }
 
             snapshots.Add(OrderSnapshotFactory.Snapshot(productRecord.ToDomain(), presentationRecord.ToDomain(), line.Quantity, resolvedPrice));
         }
 
-        return _orderStore.Submit(scope, orderId, customerId, destinationBranchId, actorId, snapshots, correlationId, destination, hasAvailableStock);
+        return (null, snapshots);
     }
 }

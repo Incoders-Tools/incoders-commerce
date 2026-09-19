@@ -82,7 +82,7 @@ public sealed class CustomerTests
     public void Order_Constructor_EmptyCustomerId_Throws()
     {
         Assert.Throws<ArgumentException>(() => new Order(
-            Guid.NewGuid(), Guid.NewGuid(), Guid.Empty, Guid.NewGuid(),
+            Guid.NewGuid(), Guid.NewGuid(), OrderOrigin.RegisteredCustomer, Guid.Empty, guestContact: null, Guid.NewGuid(),
             Array.Empty<OrderLineSnapshot>(), DateTimeOffset.UtcNow));
     }
 
@@ -91,7 +91,7 @@ public sealed class CustomerTests
     {
         var customerId = Guid.NewGuid();
         var order = new Order(
-            Guid.NewGuid(), Guid.NewGuid(), customerId, Guid.NewGuid(),
+            Guid.NewGuid(), Guid.NewGuid(), OrderOrigin.RegisteredCustomer, customerId, guestContact: null, Guid.NewGuid(),
             Array.Empty<OrderLineSnapshot>(), DateTimeOffset.UtcNow);
 
         Assert.Equal(customerId, order.CustomerId);

@@ -38,7 +38,7 @@ Store the generated `app_runtime` password in a secret manager — it becomes
 a Railway variable in step 4, never a repo commit.
 
 Apply every subsequent migration (`0002_users.sql` through the latest,
-currently `0009_catalog_and_pricing.sql`) against the same direct connection
+currently `0010_guest_ordering.sql`) against the same direct connection
 string, in numeric order, per each migration's own section in
 `deploy/README.md`. `/health/ready` verifies the full cumulative schema/RLS
 shape, so a deploy that runs ahead of any one of these migrations fails
@@ -74,6 +74,8 @@ On the Railway service created in step 3, set:
 | `EMAIL_FROM_ADDRESS` | *(a Resend-verified sender address)* | The `From` address on reset emails. Must belong to a domain verified in the Resend dashboard or delivery fails. |
 | `PUBLIC_BASE_URL` | `https://<railway-domain>` | The public origin the reset email's link points back to (`{PUBLIC_BASE_URL}/reset-password/{token}`). |
 | `ConnectionStrings__CommercePlatformRead` | `Host=<project-ref>.pooler.supabase.com;Port=6543;Database=postgres;Username=platform_readonly;Password=<platform_readonly password from 0007>` | commerce-role-taxonomy: the ONLY cross-organization read capability in the system — a distinct, column-scoped least-privilege login provisioned by `0007_platform_administration.sql` (see `deploy/README.md`'s `0006`/`0007` section). Absent, `GET /platform/organizations` fails closed with `503` and NEVER falls back to `app_runtime`. Generate its password with the same discipline as `app_runtime`'s in step 2 — a fresh, strong, per-environment secret, never a repo commit. |
+| `GuestOrdering__OrganizationId` | *(Vaca Verde's organization `uuid`)* | commerce-guest-ordering: the ONE org/branch resolution point (`GuestOrderTarget.TryFromConfiguration`) for the anonymous `/public/*` surface. Absent or unparseable together with `GuestOrdering__BranchId` ⇒ `MapPublicOrderingEndpoints` is never called and every `/public/*` route is 404 — deploy with these UNSET first, then set them only when the guest surface is ready to announce (design.md "Migration / Rollout"). |
+| `GuestOrdering__BranchId` | *(Vaca Verde's principal branch `uuid`)* | Paired with `GuestOrdering__OrganizationId` above — both or neither. `branches` has no `is_principal`/`is_default` column, so this value must be looked up manually (e.g. `SELECT id FROM branches WHERE organization_id = '<org-id>'`) and supplied at deploy time; it cannot be derived. |
 
 No other environment variables are currently read by `Program.cs` or
 `appsettings*.json`. If a future change adds configuration (e.g. an

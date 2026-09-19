@@ -194,7 +194,24 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
                     EXISTS (
                         SELECT 1 FROM pg_policies
                         WHERE tablename = 'price_list_entries' AND policyname = 'price_list_entries_tenant_isolation'
-                    ) AS price_list_entries_policy_exists
+                    ) AS price_list_entries_policy_exists,
+                    EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'guest_order_verifications') AS guest_order_verifications_table_exists,
+                    EXISTS (
+                        SELECT 1 FROM pg_class
+                        WHERE relname = 'guest_order_verifications' AND relrowsecurity AND relforcerowsecurity
+                    ) AS guest_order_verifications_rls_forced,
+                    EXISTS (
+                        SELECT 1 FROM pg_policies
+                        WHERE tablename = 'guest_order_verifications' AND policyname = 'guest_order_verifications_lookup'
+                    ) AS guest_order_verifications_lookup_policy_exists,
+                    EXISTS (
+                        SELECT 1 FROM pg_policies
+                        WHERE tablename = 'guest_order_verifications' AND policyname = 'guest_order_verifications_issue'
+                    ) AS guest_order_verifications_issue_policy_exists,
+                    EXISTS (
+                        SELECT 1 FROM pg_policies
+                        WHERE tablename = 'guest_order_verifications' AND policyname = 'guest_order_verifications_update'
+                    ) AS guest_order_verifications_update_policy_exists
                 """, connection);
 
             await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
@@ -258,6 +275,11 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
             var priceListEntriesTableExists = reader.GetBoolean(52);
             var priceListEntriesRlsForced = reader.GetBoolean(53);
             var priceListEntriesPolicyExists = reader.GetBoolean(54);
+            var guestOrderVerificationsTableExists = reader.GetBoolean(55);
+            var guestOrderVerificationsRlsForced = reader.GetBoolean(56);
+            var guestOrderVerificationsLookupPolicyExists = reader.GetBoolean(57);
+            var guestOrderVerificationsIssuePolicyExists = reader.GetBoolean(58);
+            var guestOrderVerificationsUpdatePolicyExists = reader.GetBoolean(59);
 
             var allHealthy = syncInboxTableExists && syncInboxRlsForced && syncInboxPolicyExists && roleExists
                 && usersTableExists && usersRlsForced && usersPolicyExists
@@ -279,14 +301,17 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
                 && productsTableExists && productsRlsForced && productsPolicyExists
                 && presentationsTableExists && presentationsRlsForced && presentationsPolicyExists
                 && priceListsTableExists && priceListsRlsForced && priceListsPolicyExists
-                && priceListEntriesTableExists && priceListEntriesRlsForced && priceListEntriesPolicyExists;
+                && priceListEntriesTableExists && priceListEntriesRlsForced && priceListEntriesPolicyExists
+                && guestOrderVerificationsTableExists && guestOrderVerificationsRlsForced
+                && guestOrderVerificationsLookupPolicyExists && guestOrderVerificationsIssuePolicyExists
+                && guestOrderVerificationsUpdatePolicyExists;
 
             if (allHealthy)
             {
                 return HealthCheckResult.Healthy(
                     "sync_inbox, users, user_directory, organizations, branches, device_credentials, " +
                     "password_reset_tokens, platform_admins, audit_log, customers, customer_ordering_access, " +
-                    "products, presentations, price_lists, and price_list_entries " +
+                    "products, presentations, price_lists, price_list_entries, and guest_order_verifications " +
                     "tables, forced RLS, tenant-isolation policies, and app_runtime/platform_readonly roles all verified.");
             }
 
@@ -310,8 +335,10 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
                 $"products(table={productsTableExists}, rls_forced={productsRlsForced}, policy={productsPolicyExists}), " +
                 $"presentations(table={presentationsTableExists}, rls_forced={presentationsRlsForced}, policy={presentationsPolicyExists}), " +
                 $"price_lists(table={priceListsTableExists}, rls_forced={priceListsRlsForced}, policy={priceListsPolicyExists}), " +
-                $"price_list_entries(table={priceListEntriesTableExists}, rls_forced={priceListEntriesRlsForced}, policy={priceListEntriesPolicyExists}). " +
-                "Apply deploy/db/migrations/0001_init_rls.sql through 0009_catalog_and_pricing.sql.");
+                $"price_list_entries(table={priceListEntriesTableExists}, rls_forced={priceListEntriesRlsForced}, policy={priceListEntriesPolicyExists}), " +
+                $"guest_order_verifications(table={guestOrderVerificationsTableExists}, rls_forced={guestOrderVerificationsRlsForced}, " +
+                $"lookup_policy={guestOrderVerificationsLookupPolicyExists}, issue_policy={guestOrderVerificationsIssuePolicyExists}, update_policy={guestOrderVerificationsUpdatePolicyExists}). " +
+                "Apply deploy/db/migrations/0001_init_rls.sql through 0010_guest_ordering.sql.");
         }
         catch (Exception ex)
         {
