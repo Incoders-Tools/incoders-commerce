@@ -81,7 +81,14 @@ from the request body with no persisted store consulted.)
 
 ### Requirement: Reusable Catalogue Semantics
 
-The catalogue MUST represent Product, Presentation, Category, contextual units, and the presentation's unit, measured-weight, or variable-weight behavior without turning vertical classifications into rigid product types. An order MUST retain the commercial meaning shown at submission; settlement and final variable-weight adjustment are outside this slice.
+The catalogue MUST represent Product, Presentation, Category, contextual
+units, and the presentation's unit, measured-weight, or variable-weight
+behavior without turning vertical classifications into rigid product
+types. An order MUST retain the commercial meaning shown at submission;
+settlement and final variable-weight adjustment are outside this slice.
+Each Presentation MAY carry an identification code (barcode/SKU), unique
+per `catalog-item-identification`, usable for lookup during ordering and
+import matching.
 
 #### Scenario: Presentation-aware order draft
 
@@ -94,6 +101,40 @@ The catalogue MUST represent Product, Presentation, Category, contextual units, 
 - GIVEN a catalogue or price changes after submission
 - WHEN the order is later viewed
 - THEN its submitted product, presentation, quantity semantics, and price context remain understandable
+
+#### Scenario: Identification code available for lookup
+
+- GIVEN a Presentation carries an identification code
+- WHEN the catalogue is queried by that code
+- THEN the matching Presentation is returned for use in order composition
+
+### Requirement: Registered Order Origin Stamping
+
+Order submissions completed through the credential-based private customer
+ordering channel MUST be stamped with `OrderOrigin.RegisteredCustomer` and
+MUST carry the resolved `CustomerId`. This addition does not alter the
+credential requirements of "Bound and Revocable Customer Access", which
+remain unchanged and in force verbatim under Decision 1 (coexist):
+`CustomerOrderingAccess` continues to operate alongside the
+admin-provisioned login introduced by `user-credentials`, both binding to
+the same `Customer`.
+
+#### Scenario: Credential-based order carries RegisteredCustomer origin
+
+- GIVEN an enabled customer submits an order using a valid
+  `CustomerOrderingAccess` credential
+- WHEN the order is constructed
+- THEN its `OrderOrigin` is `RegisteredCustomer` and its `CustomerId` is the
+  credential's resolved customer
+
+#### Scenario: Admin-provisioned login also stamps RegisteredCustomer origin
+
+- GIVEN a customer submits an order while signed in through the
+  admin-provisioned, `CustomerId`-linked login rather than a
+  `CustomerOrderingAccess` credential
+- WHEN the order is constructed
+- THEN its `OrderOrigin` is `RegisteredCustomer` and its `CustomerId` is the
+  linked customer, consistent with the credential-based path
 
 ### Requirement: Idempotent Submission and Pending Delivery
 
@@ -110,3 +151,40 @@ Order submission MUST have a stable business identity so retries cannot create d
 - GIVEN the destination branch is offline when an order is submitted
 - WHEN the cloud accepts the order origin
 - THEN the order remains visibly pending destination confirmation, shows freshness or unavailable availability, and makes no stock promise or final stock effect
+
+### Requirement: Snapshotted Resolved Price on Order Lines
+
+`OrderLineSnapshot` MUST carry the resolved unit price, the applied
+discount, and the line total for each line, computed server-side by
+`pricing-resolution` at submission time and frozen per ADR-003. A
+subsequent price list change MUST NOT alter an already-submitted order's
+snapshotted values.
+
+#### Scenario: Order freezes resolved price at submission
+
+- GIVEN a customer submits an order for a Presentation with a resolved
+  unit price of 90 after discount
+- WHEN the order is accepted
+- THEN its `OrderLineSnapshot` records unit price 90, the applied
+  discount, and the line total
+
+#### Scenario: Later price change does not alter a submitted order
+
+- GIVEN an order was submitted with a snapshotted line price
+- WHEN the Presentation's price list later changes
+- THEN the previously submitted order's snapshotted price, discount, and
+  line total remain unchanged
+
+### Requirement: Submission Rejects a Caller-Supplied Price
+
+`SubmitOrderRequest` MUST NOT accept a price, discount, or line total
+from the caller. The server MUST compute these values itself via
+`pricing-resolution`; a request that supplies any of them MUST be
+rejected.
+
+#### Scenario: Request with a caller-supplied price is rejected
+
+- GIVEN a `SubmitOrderRequest` includes a unit price or line total field
+  populated by the client
+- WHEN the server validates the request
+- THEN the request is rejected and no order is created from it
