@@ -579,3 +579,39 @@ DROP POLICY IF EXISTS price_import_rows_tenant_isolation ON price_import_rows;
 CREATE POLICY price_import_rows_tenant_isolation ON price_import_rows
     USING      (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid)
     WITH CHECK (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid);
+
+-- commerce-guest-ordering: 0010_guest_ordering.sql, appended verbatim per the
+-- hand-kept parity convention MigrationRlsTests asserts.
+
+CREATE TABLE IF NOT EXISTS guest_order_verifications (
+    id                uuid PRIMARY KEY,
+    organization_id   uuid NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+    document_id       text NOT NULL,
+    contact_channel   text NOT NULL CHECK (contact_channel IN ('Email')),
+    contact_address   text NOT NULL,
+    code_hash         text NOT NULL,
+    attempt_count     integer NOT NULL DEFAULT 0 CHECK (attempt_count <= 5),
+    requested_at      timestamptz NOT NULL DEFAULT now(),
+    expires_at        timestamptz NOT NULL,
+    confirmed_at      timestamptz NULL,
+    consumed_at       timestamptz NULL,
+    consumed_order_id uuid NULL
+);
+CREATE INDEX IF NOT EXISTS guest_order_verifications_contact_idx
+    ON guest_order_verifications (organization_id, contact_address, requested_at DESC);
+
+ALTER TABLE guest_order_verifications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE guest_order_verifications FORCE ROW LEVEL SECURITY;
+REVOKE ALL ON guest_order_verifications FROM PUBLIC;
+GRANT SELECT, INSERT, UPDATE ON guest_order_verifications TO app_runtime;
+
+DROP POLICY IF EXISTS guest_order_verifications_lookup ON guest_order_verifications;
+CREATE POLICY guest_order_verifications_lookup ON guest_order_verifications FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS guest_order_verifications_issue ON guest_order_verifications;
+CREATE POLICY guest_order_verifications_issue ON guest_order_verifications
+    FOR INSERT WITH CHECK (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid);
+
+DROP POLICY IF EXISTS guest_order_verifications_update ON guest_order_verifications;
+CREATE POLICY guest_order_verifications_update ON guest_order_verifications
+    FOR UPDATE USING (true) WITH CHECK (true);

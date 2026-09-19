@@ -32,10 +32,41 @@ public sealed class CloudOrderStore
 
     public CloudOrderStore(Func<DateTimeOffset>? clock = null) => _clock = clock ?? (() => DateTimeOffset.UtcNow);
 
+    /// <summary>
+    /// Registered/staff-submitted path. Delegates to the general overload
+    /// below with <see cref="OrderOrigin.RegisteredCustomer"/> and no
+    /// <see cref="GuestContact"/> — kept as a distinct overload (rather than
+    /// requiring every existing caller to pass origin/guestContact
+    /// explicitly) so this call site is byte-identical before and after
+    /// commerce-guest-ordering Unit 4.
+    /// </summary>
     public OrderSubmissionOutcome Submit(
         CloudTenantScope scope,
         Guid orderId,
         Guid customerId,
+        Guid destinationBranchId,
+        Guid actorId,
+        IReadOnlyList<OrderLineSnapshot> lines,
+        Guid correlationId,
+        BranchSyncStore? destination,
+        bool hasAvailableStock) =>
+        Submit(
+            scope, orderId, OrderOrigin.RegisteredCustomer, customerId, guestContact: null,
+            destinationBranchId, actorId, lines, correlationId, destination, hasAvailableStock);
+
+    /// <summary>
+    /// General submission path (commerce-guest-ordering design.md "File
+    /// Changes": <c>Submit</c> takes <c>OrderOrigin</c>, nullable
+    /// <c>customerId</c>, and <c>GuestContact?</c>). Used directly by
+    /// <see cref="CloudOrderSubmissionService.SubmitGuestAsync"/> for
+    /// <see cref="OrderOrigin.Guest"/> orders.
+    /// </summary>
+    public OrderSubmissionOutcome Submit(
+        CloudTenantScope scope,
+        Guid orderId,
+        OrderOrigin origin,
+        Guid? customerId,
+        GuestContact? guestContact,
         Guid destinationBranchId,
         Guid actorId,
         IReadOnlyList<OrderLineSnapshot> lines,
@@ -52,7 +83,7 @@ public sealed class CloudOrderStore
                 return new OrderSubmissionOutcome(OrderSubmissionOutcomeStatus.Accepted, "existing-order", existing, WasNewlyAccepted: false);
             }
 
-            var order = new Order(orderId, scope.OrganizationId, customerId, destinationBranchId, lines, _clock());
+            var order = new Order(orderId, scope.OrganizationId, origin, customerId, guestContact, destinationBranchId, lines, _clock());
             _orders[orderId] = order;
 
             AttemptDelivery(order, actorId, correlationId, destination, hasAvailableStock);
@@ -84,6 +115,29 @@ public sealed class CloudOrderStore
 
     public Order? Find(CloudTenantScope scope, Guid orderId) =>
         _orders.TryGetValue(orderId, out var order) && order.OrganizationId == scope.OrganizationId ? order : null;
+
+    /// <summary>
+    /// Phase 8 follow-up C (commerce-guest-ordering verify-report.md
+    /// WARNING 3): the first consumer of <see cref="Order.DispatchRank"/> as
+    /// a SORT KEY, never a gate (design.md "Non-priority = ranking, never a
+    /// gate" — <see cref="AttemptDelivery"/> above is completely untouched
+    /// by this method). Orders for the organization, ordered by
+    /// <see cref="Order.DispatchRank"/> ascending (registered customers
+    /// first) then <see cref="Order.SubmittedAtUtc"/> ascending
+    /// (submission order within the same rank) — design.md File Changes:
+    /// "pending-list reads ordered by DispatchRank then SubmittedAtUtc".
+    /// </summary>
+    public IReadOnlyList<Order> ListPending(CloudTenantScope scope)
+    {
+        lock (_gate)
+        {
+            return _orders.Values
+                .Where(order => order.OrganizationId == scope.OrganizationId)
+                .OrderBy(order => order.DispatchRank)
+                .ThenBy(order => order.SubmittedAtUtc)
+                .ToList();
+        }
+    }
 
     private void AttemptDelivery(Order order, Guid actorId, Guid correlationId, BranchSyncStore? destination, bool hasAvailableStock)
     {

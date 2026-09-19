@@ -10,12 +10,15 @@ using Commerce.Cloud.Api.HealthChecks;
 using Commerce.Cloud.Api.Management;
 using Commerce.Cloud.Api.Ordering;
 using Commerce.Cloud.Api.Persistence;
+using Commerce.Cloud.Api.Tenancy;
 using Commerce.Domain.Identity;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Npgsql;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -102,6 +105,22 @@ else
     builder.Services.AddSingleton<IEmailSender>(sp => sp.GetRequiredService<ResendEmailSender>());
 }
 
+// --- Guest ordering public surface (commerce-guest-ordering design.md "Org/
+// branch resolution point" / "Verification state shape"): GuestOrderTarget
+// is the ONE org/branch resolution point for anonymous requests. Missing or
+// unparseable GuestOrdering__* config means guestOrderTargetConfigured is
+// false and MapPublicOrderingEndpoints() below is NEVER called — the public
+// surface does not exist rather than existing with a wrong target (the
+// narrowest rollback: unset the two env vars). ---------------------------
+var guestOrderTargetConfigured = GuestOrderTarget.TryFromConfiguration(builder.Configuration, out var guestOrderTarget);
+if (guestOrderTargetConfigured)
+{
+    builder.Services.AddSingleton(guestOrderTarget!);
+}
+builder.Services.AddSingleton<PostgresGuestVerificationStore>();
+builder.Services.AddSingleton<GuestVerificationService>();
+builder.Services.AddSingleton<GuestVerificationThrottle>();
+
 // --- Shared application services (Component Reuse Policy: reused, not
 // reimplemented) --------------------------------------------------------
 builder.Services.AddSingleton<IAuditSink, InMemoryAuditSink>();
@@ -163,6 +182,29 @@ builder.Services
             context.Response.StatusCode = StatusCodes.Status403Forbidden;
             return Task.CompletedTask;
         };
+    })
+    // Fourth, genuinely separate cookie scheme (commerce-guest-ordering
+    // design.md "Customer session"): the PlatformAdminCookie pattern applied
+    // a second time — its own Cookie.Name and Cookie.Path = "/customer", so
+    // a customer cookie is not even SENT to a staff path, and the "Customer"
+    // policy below names only this scheme.
+    .AddCookie(CloudAuthenticationSchemes.CustomerCookie, options =>
+    {
+        options.Cookie.Name = "commerce.customer";
+        options.Cookie.Path = "/customer";
+        options.Cookie.HttpOnly = true;
+        options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+        options.Cookie.SameSite = SameSiteMode.Lax;
+        options.Events.OnRedirectToLogin = context =>
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            return Task.CompletedTask;
+        };
+        options.Events.OnRedirectToAccessDenied = context =>
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            return Task.CompletedTask;
+        };
     });
 
 builder.Services.AddAuthorizationBuilder()
@@ -171,7 +213,63 @@ builder.Services.AddAuthorizationBuilder()
         .RequireAuthenticatedUser())
     .AddPolicy("PlatformAdmin", policy => policy
         .AddAuthenticationSchemes(CloudAuthenticationSchemes.PlatformAdminCookie)
+        .RequireAuthenticatedUser())
+    .AddPolicy("Customer", policy => policy
+        .AddAuthenticationSchemes(CloudAuthenticationSchemes.CustomerCookie)
         .RequireAuthenticatedUser());
+
+// --- Rate limiting (commerce-guest-ordering design.md "Rate limiting"):
+// built-in Microsoft.AspNetCore.RateLimiting, shared framework, zero new
+// PackageReference. Four named fixed-window policies attached ONLY to the
+// `/public` group via RequireRateLimiting in PublicOrdering.cs — the staff,
+// customer, and device endpoint groups mapped below carry NO limiter policy,
+// so an abusive public burst cannot degrade them. Partitioned by remote IP;
+// rejects with 429 + Retry-After. Sized for a two-branch operation (tens of
+// orders/day), each ceiling ~50-100x realistic per-person traffic. --------
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.OnRejected = (context, ct) =>
+    {
+        context.HttpContext.Response.Headers.RetryAfter = "60";
+        return ValueTask.CompletedTask;
+    };
+
+    static string IpPartitionKey(HttpContext httpContext) =>
+        httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+    options.AddPolicy(PublicRateLimitPolicies.GuestVerificationRequest, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(IpPartitionKey(httpContext), _ => new FixedWindowRateLimiterOptions
+        {
+            Window = TimeSpan.FromMinutes(15),
+            PermitLimit = 5,
+            QueueLimit = 0,
+        }));
+
+    options.AddPolicy(PublicRateLimitPolicies.GuestVerificationConfirm, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(IpPartitionKey(httpContext), _ => new FixedWindowRateLimiterOptions
+        {
+            Window = TimeSpan.FromMinutes(15),
+            PermitLimit = 10,
+            QueueLimit = 0,
+        }));
+
+    options.AddPolicy(PublicRateLimitPolicies.GuestOrderSubmit, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(IpPartitionKey(httpContext), _ => new FixedWindowRateLimiterOptions
+        {
+            Window = TimeSpan.FromHours(1),
+            PermitLimit = 10,
+            QueueLimit = 0,
+        }));
+
+    options.AddPolicy(PublicRateLimitPolicies.PublicCatalogRead, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(IpPartitionKey(httpContext), _ => new FixedWindowRateLimiterOptions
+        {
+            Window = TimeSpan.FromMinutes(1),
+            PermitLimit = 60,
+            QueueLimit = 0,
+        }));
+});
 
 // --- Health -----------------------------------------------------------------
 // /health = liveness, no DB dependency. /health/ready = verifies (never
@@ -184,6 +282,7 @@ var app = builder.Build();
 
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter();
 
 app.MapHealthChecks("/health", new HealthCheckOptions
 {
@@ -202,7 +301,17 @@ app.MapSyncEndpoints();
 app.MapCatalogEndpoints();
 app.MapOrderingEndpoints();
 app.MapCustomerEndpoints();
+app.MapCustomerSessionEndpoints();
 app.MapPricingEndpoints();
+
+// Config-gated (design.md "Org/branch resolution point" / Migration and
+// Rollout "narrowest rollback"): with GuestOrdering__* absent,
+// MapPublicOrderingEndpoints is NEVER called, so every /public/* route 404s
+// (never mapped) rather than existing half-configured.
+if (guestOrderTargetConfigured)
+{
+    app.MapPublicOrderingEndpoints();
+}
 
 // TEST-ONLY, Development-gated seeding for the Playwright E2E suite (see
 // TestSeedEndpoints.cs remarks) — never mapped outside ASPNETCORE_ENVIRONMENT

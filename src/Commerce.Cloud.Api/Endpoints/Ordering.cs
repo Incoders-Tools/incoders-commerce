@@ -65,6 +65,19 @@ public static class OrderingEndpoints
             return order is null ? Results.NotFound() : Results.Ok(order);
         });
 
+        // Phase 8 follow-up C (commerce-guest-ordering verify-report.md
+        // WARNING 3): the first read path that exercises
+        // Order.DispatchRank as a sort key end to end (design.md File
+        // Changes: "pending-list reads ordered by DispatchRank then
+        // SubmittedAtUtc"). Registered-customer orders (rank 0) sort before
+        // guest orders (rank 1) regardless of submission order; ties break
+        // by submission time.
+        group.MapGet("/pending", (HttpContext httpContext, CloudOrderStore store) =>
+        {
+            var scope = TenantScopeEndpointFilter.GetScope(httpContext);
+            return Results.Ok(store.ListPending(scope));
+        });
+
         return group;
     }
 }
