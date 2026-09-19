@@ -117,3 +117,41 @@ test.describe('order submission', () => {
     await expect(page.getByTestId('order-outcome')).toHaveText('Denied: not-found')
   })
 })
+
+/**
+ * commerce-guest-ordering Unit 6, task 6.7 — PARTIAL, documented gap (not
+ * silently marked complete): design.md's Testing Strategy asks for a full
+ * guest-path E2E "through the dev seed/log email hook", but no such hook is
+ * mapped in `Program.cs` today. `LogOnlyEmailSender` only WRITES the code to
+ * the server's log stream; unlike `/internal/test-seed/user`
+ * (TestSeedEndpoints.cs), there is no Development-gated HTTP seam to READ
+ * the last-issued guest verification code back out of that log from an
+ * out-of-process Playwright test. Adding one is a small, additive backend
+ * change (mirroring `TestSeedEndpoints.cs`'s existing pattern) — deliberately
+ * NOT done here because Unit 6 is scoped to the web app only and Units 1-5
+ * are closed/merged; it is the one remaining follow-up before this test can
+ * exercise the real code-confirmation step end to end.
+ *
+ * This test proves everything reachable WITHOUT that hook: the public
+ * catalogue read, the guest verification REQUEST (a real 202 against the
+ * real backend), and the UI's own defense-in-depth block on submitting
+ * before verification is confirmed.
+ */
+test.describe('guest order submission (partial — see gap note above)', () => {
+  test('a guest requests a verification code and is blocked from submitting until confirmed', async ({ page }) => {
+    await page.goto('/order')
+
+    await expect(page.getByRole('tab', { name: /order as guest/i })).toBeVisible()
+    await expect(page.getByRole('tab', { name: /sign in to order/i })).toBeVisible()
+
+    await page.getByLabel(/document/i).fill('30111222')
+    await page.getByLabel(/^email/i).fill(uniqueEmail('guest'))
+    await page.getByRole('button', { name: /send verification code/i }).click()
+
+    await expect(page.getByLabel(/verification code/i)).toBeVisible()
+
+    const submitButton = page.getByRole('button', { name: /submit order/i })
+    await expect(submitButton).toBeDisabled()
+    await expect(page.getByText(/confirm your verification code before submitting/i)).toBeVisible()
+  })
+})

@@ -398,3 +398,62 @@ export interface ImportBatchDetail {
   batch: ImportBatchRecord
   rows: ImportBatchRowRecord[]
 }
+
+// commerce-guest-ordering design.md "Interfaces / Contracts" — mirrors
+// Commerce.Domain.Ordering.OrderOrigin's declared member order exactly. No
+// JsonStringEnumConverter is registered in Cloud.Api (see the
+// ManagementOutcomeStatus remark above), so this serializes as its numeric
+// ordinal, not its name.
+export const OrderOrigin = {
+  Guest: 0,
+  RegisteredCustomer: 1,
+} as const
+export type OrderOrigin = (typeof OrderOrigin)[keyof typeof OrderOrigin]
+
+// Mirrors Commerce.Domain.Ordering.GuestContactChannel — currently a single
+// member (`Email`); a later channel (SMS/WhatsApp) widens this, not the
+// schema.
+export const GuestContactChannel = {
+  Email: 0,
+} as const
+export type GuestContactChannel = (typeof GuestContactChannel)[keyof typeof GuestContactChannel]
+
+// Endpoints/PublicOrdering.cs DTOs, mirrored exactly. Deliberately no
+// organizationId/branchId member on any of these — a guest cannot address
+// another org or branch (public-order-surface spec.md "Public Catalogue
+// Read").
+export interface GuestVerificationRequest {
+  documentId: string
+  email: string
+}
+
+export interface GuestVerificationRequestedResponse {
+  verificationId: string
+}
+
+export interface GuestVerificationConfirmRequest {
+  verificationId: string
+  code: string
+}
+
+export interface SubmitGuestOrderRequest {
+  orderId: string
+  verificationId: string
+  documentId: string
+  email: string
+  displayName: string
+  deliveryNotes: string | null
+  lines: SubmitOrderLine[]
+  correlationId: string
+}
+
+// Endpoints/CustomerSession.cs DTOs, mirrored exactly.
+export interface CustomerSignInRequest {
+  email: string
+  password: string
+}
+
+export interface CustomerSignedInResponse {
+  customerId: string
+  email: string
+}
