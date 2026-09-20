@@ -339,17 +339,16 @@ jobs:
           $pgBin = $env:PGBIN
           if (-not $pgBin) { $pgBin = "C:\Program Files\PostgreSQL\17\bin" }
 
-          # The runner image installs PostgreSQL but does not start its
-          # Windows service by default - confirmed by a prior run of this
-          # step ("Connection refused" from pg_isready/psql alike).
-          # `Start-Service` itself failed ("cannot be started... on computer
-          # '.'") in a subsequent run - `net start` is the documented
-          # working approach for this exact runner-image service.
+          # The runner image installs PostgreSQL with its Windows service
+          # set to Disabled, not merely Stopped - confirmed by two prior
+          # runs of this step: `Start-Service` failed generically, and
+          # `net start` failed with "System error 1058" (the exact code for
+          # a disabled service). Must be re-enabled before it can start.
           $svc = Get-Service -Name "postgresql*" | Select-Object -First 1
           if (-not $svc) { throw "No postgresql* Windows service found on this runner." }
-          Write-Host "Starting Windows service '$($svc.Name)' via net start..."
-          net start $svc.Name
-          if ($LASTEXITCODE -ne 0) { throw "net start '$($svc.Name)' failed with exit code $LASTEXITCODE" }
+          Write-Host "Enabling and starting Windows service '$($svc.Name)'..."
+          Set-Service -Name $svc.Name -StartupType Manual
+          Start-Service -Name $svc.Name
 
           $ready = $false
           for ($i = 0; $i -lt 30; $i++) {
