@@ -196,11 +196,69 @@ jobs:
         working-directory: src/Commerce.Web
         run: npm run test:e2e:build-backend-spa
 
+      - name: Start Commerce.Cloud.Api (Development, plain HTTP, ephemeral — pre guest-ordering seed)
+        # GuestOrdering__* is read once at startup (Program.cs
+        # `GuestOrderTarget.TryFromConfiguration`), but the org/branch it
+        # names doesn't need to exist in Postgres until the first guest
+        # verification row is inserted (guest_order_verifications.
+        # organization_id REFERENCES organizations(id)). This first,
+        # ephemeral start has GuestOrdering__* deliberately UNSET (so
+        # /public/* simply 404s for now) purely so the dev-only
+        # /internal/test-seed/user seam is reachable to seed a REAL
+        # organization/branch. It gets killed and restarted below once
+        # that org/branch id is known.
+        env:
+          ASPNETCORE_ENVIRONMENT: Development
+          ConnectionStrings__Commerce: "Host=localhost;Port=5432;Database=commerce_dev;Username=app_runtime;Password=dev-only-password"
+          PORT: "8080"
+        run: |
+          nohup dotnet run --project src/Commerce.Cloud.Api > cloud-api.log 2>&1 &
+          echo $! > cloud-api.pid
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8080/health > /dev/null; then
+              echo "Cloud.Api is up."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::Cloud.Api did not become healthy in time."
+          cat cloud-api.log
+          exit 1
+
+      - name: Seed guest-ordering organization/branch
+        # Same dev-only /internal/test-seed/user seam catalog.spec.ts and
+        # ordering.spec.ts already use (Endpoints/TestSeedEndpoints.cs) —
+        # returns the REAL persisted organizationId/branchId from
+        # PostgresOrganizationStore.TryCreateBootstrapAsync, which is what
+        # GuestOrdering__OrganizationId/BranchId must reference (see
+        # deploy/README.md "commerce-guest-ordering" for the equivalent
+        # Railway variables).
+        run: |
+          set -euo pipefail
+          ORG_ID=$(python3 -c "import uuid; print(uuid.uuid4())")
+          RESPONSE=$(curl -sf -X POST http://localhost:8080/internal/test-seed/user \
+            -H "Content-Type: application/json" \
+            -d "{\"organizationId\":\"$ORG_ID\",\"email\":\"guest-ordering-seed@example.com\",\"password\":\"correct-horse-battery-staple\"}")
+          BRANCH_ID=$(echo "$RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin)['branchId'])")
+          echo "Seeded guest-ordering target: organizationId=$ORG_ID branchId=$BRANCH_ID"
+          echo "GUEST_ORDERING_ORGANIZATION_ID=$ORG_ID" >> "$GITHUB_ENV"
+          echo "GUEST_ORDERING_BRANCH_ID=$BRANCH_ID" >> "$GITHUB_ENV"
+
+      - name: Stop ephemeral Commerce.Cloud.Api
+        run: |
+          kill "$(cat cloud-api.pid)" 2>/dev/null || true
+          for i in $(seq 1 15); do
+            curl -sf http://localhost:8080/health > /dev/null || break
+            sleep 1
+          done
+
       - name: Start Commerce.Cloud.Api (Development, plain HTTP)
         env:
           ASPNETCORE_ENVIRONMENT: Development
           ConnectionStrings__Commerce: "Host=localhost;Port=5432;Database=commerce_dev;Username=app_runtime;Password=dev-only-password"
           PORT: "8080"
+          GuestOrdering__OrganizationId: ${{ env.GUEST_ORDERING_ORGANIZATION_ID }}
+          GuestOrdering__BranchId: ${{ env.GUEST_ORDERING_BRANCH_ID }}
         run: |
           nohup dotnet run --project src/Commerce.Cloud.Api > cloud-api.log 2>&1 &
           for i in $(seq 1 30); do
