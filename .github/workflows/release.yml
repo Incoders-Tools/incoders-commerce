@@ -338,7 +338,23 @@ jobs:
         run: |
           $pgBin = $env:PGBIN
           if (-not $pgBin) { $pgBin = "C:\Program Files\PostgreSQL\17\bin" }
-          & "$pgBin\pg_isready.exe" -h localhost -p 5432 -U postgres
+
+          # The runner image installs PostgreSQL but does not start its
+          # Windows service by default - confirmed by a prior run of this
+          # step ("Connection refused" from pg_isready/psql alike).
+          $svc = Get-Service -Name "postgresql*" | Select-Object -First 1
+          if (-not $svc) { throw "No postgresql* Windows service found on this runner." }
+          Write-Host "Starting Windows service '$($svc.Name)'..."
+          Start-Service -InputObject $svc
+
+          $ready = $false
+          for ($i = 0; $i -lt 30; $i++) {
+            & "$pgBin\pg_isready.exe" -h localhost -p 5432 -U postgres | Out-Null
+            if ($LASTEXITCODE -eq 0) { $ready = $true; break }
+            Start-Sleep -Seconds 2
+          }
+          if (-not $ready) { throw "PostgreSQL did not become ready within 60s of starting the service." }
+
           & "$pgBin\psql.exe" -h localhost -U postgres -c "CREATE ROLE commerce_owner WITH LOGIN SUPERUSER PASSWORD 'dev-only-password';"
           & "$pgBin\psql.exe" -h localhost -U postgres -c "CREATE DATABASE commerce_dev OWNER commerce_owner;"
           $env:PGPASSWORD = "dev-only-password"
