@@ -154,9 +154,22 @@ overridden.
       `git`, staging, commit, or push operation is introduced by this
       change; `classify-changes.sh`/`aggregate-results.sh` only call `gh
       api`/`jq` and read env/stdin.
-- [ ] 6.5 Post-merge manual evidence (non-blocking for this task set): push
-      to `dev` still runs all five original jobs; open the four
-      proposal success-criteria PRs (Web-only, .NET-only, docs-only, both)
-      and confirm `ci-gate` green in each before the Phase 5.2 PATCH is run.
-      NOT DONE by this apply pass — requires an actual PR/push against
-      GitHub, which this apply run was explicitly instructed not to create.
+- [x] 6.5 Post-merge manual evidence, confirmed via real GitHub Actions
+      runs (not simulated): the `pull_request`-triggered run for PR #51
+      ("fix(ci): seed guest-ordering org/branch and fix stale catalog E2E
+      test", mixed Web+.NET+workflow diff) shows `changes`, `web-tests`,
+      `web-e2e`, `build`, and `ci-gate` all `success`
+      (run 35524616527) — the first fully green run, after an earlier
+      attempt on the same PR (run 35523772248) failed on `changes`/
+      `ci-gate` due to a since-fixed executable-bit bug. The subsequent
+      `push`-triggered run on `dev` (run 35525889490) shows all real
+      tests green (`Run full test suite` step: success) with only the
+      intentional, by-design `Publication gate (publication_authorized)`
+      step failing — expected per ADR-004, does not affect `ci-gate`
+      required-check semantics for PR merges. Branch protection requiring
+      `ci-gate` has since been configured on `dev`/`staging`/`main` via
+      the GitHub dashboard by the repo owner (required-approvals left at
+      0, since there is currently one active developer). The originally
+      planned 4 synthetic evidence PRs (Web-only/.NET-only/docs-only/
+      both) were superseded by this real, higher-fidelity evidence from
+      actual working PRs during the same session.

@@ -196,11 +196,69 @@ jobs:
         working-directory: src/Commerce.Web
         run: npm run test:e2e:build-backend-spa
 
+      - name: Start Commerce.Cloud.Api (Development, plain HTTP, ephemeral — pre guest-ordering seed)
+        # GuestOrdering__* is read once at startup (Program.cs
+        # `GuestOrderTarget.TryFromConfiguration`), but the org/branch it
+        # names doesn't need to exist in Postgres until the first guest
+        # verification row is inserted (guest_order_verifications.
+        # organization_id REFERENCES organizations(id)). This first,
+        # ephemeral start has GuestOrdering__* deliberately UNSET (so
+        # /public/* simply 404s for now) purely so the dev-only
+        # /internal/test-seed/user seam is reachable to seed a REAL
+        # organization/branch. It gets killed and restarted below once
+        # that org/branch id is known.
+        env:
+          ASPNETCORE_ENVIRONMENT: Development
+          ConnectionStrings__Commerce: "Host=localhost;Port=5432;Database=commerce_dev;Username=app_runtime;Password=dev-only-password"
+          PORT: "8080"
+        run: |
+          nohup dotnet run --project src/Commerce.Cloud.Api > cloud-api.log 2>&1 &
+          echo $! > cloud-api.pid
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8080/health > /dev/null; then
+              echo "Cloud.Api is up."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::Cloud.Api did not become healthy in time."
+          cat cloud-api.log
+          exit 1
+
+      - name: Seed guest-ordering organization/branch
+        # Same dev-only /internal/test-seed/user seam catalog.spec.ts and
+        # ordering.spec.ts already use (Endpoints/TestSeedEndpoints.cs) —
+        # returns the REAL persisted organizationId/branchId from
+        # PostgresOrganizationStore.TryCreateBootstrapAsync, which is what
+        # GuestOrdering__OrganizationId/BranchId must reference (see
+        # deploy/README.md "commerce-guest-ordering" for the equivalent
+        # Railway variables).
+        run: |
+          set -euo pipefail
+          ORG_ID=$(python3 -c "import uuid; print(uuid.uuid4())")
+          RESPONSE=$(curl -sf -X POST http://localhost:8080/internal/test-seed/user \
+            -H "Content-Type: application/json" \
+            -d "{\"organizationId\":\"$ORG_ID\",\"email\":\"guest-ordering-seed@example.com\",\"password\":\"correct-horse-battery-staple\"}")
+          BRANCH_ID=$(echo "$RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin)['branchId'])")
+          echo "Seeded guest-ordering target: organizationId=$ORG_ID branchId=$BRANCH_ID"
+          echo "GUEST_ORDERING_ORGANIZATION_ID=$ORG_ID" >> "$GITHUB_ENV"
+          echo "GUEST_ORDERING_BRANCH_ID=$BRANCH_ID" >> "$GITHUB_ENV"
+
+      - name: Stop ephemeral Commerce.Cloud.Api
+        run: |
+          kill "$(cat cloud-api.pid)" 2>/dev/null || true
+          for i in $(seq 1 15); do
+            curl -sf http://localhost:8080/health > /dev/null || break
+            sleep 1
+          done
+
       - name: Start Commerce.Cloud.Api (Development, plain HTTP)
         env:
           ASPNETCORE_ENVIRONMENT: Development
           ConnectionStrings__Commerce: "Host=localhost;Port=5432;Database=commerce_dev;Username=app_runtime;Password=dev-only-password"
           PORT: "8080"
+          GuestOrdering__OrganizationId: ${{ env.GUEST_ORDERING_ORGANIZATION_ID }}
+          GuestOrdering__BranchId: ${{ env.GUEST_ORDERING_BRANCH_ID }}
         run: |
           nohup dotnet run --project src/Commerce.Cloud.Api > cloud-api.log 2>&1 &
           for i in $(seq 1 30); do
@@ -256,6 +314,73 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.x"
+
+      # `dotnet test Commerce.sln` runs ~600 Commerce.Integration tests that
+      # connect to a live PostgreSQL (deploy/dev/db/init-rls.sql). Without
+      # one, most of those tests degrade gracefully (PostgresTestFixture
+      # skip-if-unreachable) rather than hard-failing — but every one of
+      # them still pays a real connection-timeout cost first, which is what
+      # made this step take ~16 minutes instead of the ~3 minutes it takes
+      # locally / on web-e2e's Linux runner with real Postgres. GitHub
+      # Actions service containers (`services:`) are Linux-only and this job
+      # must stay on `windows-latest` (Commerce.Pos.Windows is a WPF
+      # project, which only builds on Windows) — so this uses the
+      # PostgreSQL that ships pre-installed and already running on the
+      # windows-latest runner image instead (default superuser `postgres` /
+      # `root`, per actions/runner-images), provisioned with the same
+      # commerce_owner/commerce_dev shape deploy/dev/compose.yaml creates
+      # via its POSTGRES_USER/POSTGRES_DB image variables, then the same
+      # init-rls.sql applied everywhere else in this repo.
+      - name: Provision local PostgreSQL (pre-installed on windows-latest)
+        shell: pwsh
+        env:
+          PGPASSWORD: root
+        run: |
+          $pgBin = $env:PGBIN
+          if (-not $pgBin) { $pgBin = "C:\Program Files\PostgreSQL\17\bin" }
+
+          # The runner image installs PostgreSQL with its Windows service
+          # set to Disabled, not merely Stopped - confirmed by two prior
+          # runs of this step: `Start-Service` failed generically, and
+          # `net start` failed with "System error 1058" (the exact code for
+          # a disabled service). Must be re-enabled before it can start.
+          $svc = Get-Service -Name "postgresql*" | Select-Object -First 1
+          if (-not $svc) { throw "No postgresql* Windows service found on this runner." }
+          Write-Host "Enabling and starting Windows service '$($svc.Name)'..."
+          Set-Service -Name $svc.Name -StartupType Manual
+          Start-Service -Name $svc.Name
+
+          $ready = $false
+          for ($i = 0; $i -lt 30; $i++) {
+            & "$pgBin\pg_isready.exe" -h localhost -p 5432 -U postgres | Out-Null
+            if ($LASTEXITCODE -eq 0) { $ready = $true; break }
+            Start-Sleep -Seconds 2
+          }
+          if (-not $ready) { throw "PostgreSQL did not become ready within 60s of starting the service." }
+
+          # deploy/dev/compose.yaml's Postgres runs with
+          # `-c max_connections=300` (see its own comment: the integration
+          # suite's hundreds of short-lived WebApplicationFactory instances
+          # can overshoot the default max_connections=100 before pool
+          # teardown drains, producing SqlState 53300). The Windows service
+          # can't take that as a command-line flag, so raise it via
+          # ALTER SYSTEM and restart for it to take effect.
+          & "$pgBin\psql.exe" -h localhost -U postgres -c "ALTER SYSTEM SET max_connections = 300;"
+          net stop $svc.Name
+          net start $svc.Name
+          $ready = $false
+          for ($i = 0; $i -lt 30; $i++) {
+            & "$pgBin\pg_isready.exe" -h localhost -p 5432 -U postgres | Out-Null
+            if ($LASTEXITCODE -eq 0) { $ready = $true; break }
+            Start-Sleep -Seconds 2
+          }
+          if (-not $ready) { throw "PostgreSQL did not come back up within 60s of the max_connections restart." }
+
+          & "$pgBin\psql.exe" -h localhost -U postgres -c "CREATE ROLE commerce_owner WITH LOGIN SUPERUSER PASSWORD 'dev-only-password';"
+          & "$pgBin\psql.exe" -h localhost -U postgres -c "CREATE DATABASE commerce_dev OWNER commerce_owner;"
+          $env:PGPASSWORD = "dev-only-password"
+          & "$pgBin\psql.exe" -h localhost -U commerce_owner -d commerce_dev -f deploy/dev/db/init-rls.sql
+          if ($LASTEXITCODE -ne 0) { throw "init-rls.sql failed with exit code $LASTEXITCODE" }
 
       - name: Restore and build
         shell: pwsh

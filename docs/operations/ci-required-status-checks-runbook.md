@@ -32,7 +32,7 @@ status, never record it as "no checks were required":
 
 ```bash
 for b in dev staging main; do
-  gh api "repos/Patricio-Montes/incoders-commerce/branches/$b/protection/required_status_checks" \
+  gh api "repos/Incoders-Tools/incoders-commerce/branches/$b/protection/required_status_checks" \
     --jq '{strict, checks}' || echo "$b: endpoint inconclusive"
 done
 ```
@@ -62,7 +62,7 @@ Recommended rollout order (per design.md "Migration / Rollout"):
 ```bash
 for b in dev staging main; do
   gh api --method PATCH \
-    "repos/Patricio-Montes/incoders-commerce/branches/$b/protection/required_status_checks" \
+    "repos/Incoders-Tools/incoders-commerce/branches/$b/protection/required_status_checks" \
     --input - <<'JSON'
 { "strict": false, "checks": [ { "context": "ci-gate" } ] }
 JSON
