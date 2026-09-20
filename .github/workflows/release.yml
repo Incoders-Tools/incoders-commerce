@@ -448,14 +448,28 @@ jobs:
           echo "Publication authorized for channel '$CHANNEL'."
 
   ci-gate:
-    # NO path condition and NO event condition may ever be added to this
-    # job: it is the single required status check, so it must be queued on
-    # every run or a PR hangs Pending forever (proposal Decision 3). `if:
-    # always()` is load-bearing, not decorative — without it, a `skipped` or
-    # failed `needs` entry would skip `ci-gate` itself and re-create the
-    # exact footgun this job exists to close.
+    # NO path condition may ever be added to this job's own `if:` beyond
+    # the event-scoping below: it is the single required status check for
+    # PULL REQUESTS, so it must be queued on every PR run or a PR hangs
+    # Pending forever (proposal Decision 3). `always()` is still
+    # load-bearing within that scope — without it, a `skipped` or failed
+    # `needs` entry would skip `ci-gate` itself and re-create the exact
+    # footgun this job exists to close.
+    #
+    # `github.event_name == 'pull_request'` was added after a real, observed
+    # failure: pushing to a branch with an open PR fires BOTH a `push` and a
+    # `pull_request` (synchronize) event for the same commit SHA, producing
+    # TWO independent `ci-gate` check runs. The `push`-triggered `build` job
+    # always fails its Publication gate step by design (ADR-004, unrelated
+    # to code correctness) on push to dev/staging/main, which made the
+    # push-triggered `ci-gate` fail too and GitHub's required-check UI
+    # showed the PR as blocked even though the `pull_request`-triggered
+    # `ci-gate` had passed. Since branch protection's required check only
+    # matters for PR merges, `ci-gate` no longer needs to exist on `push`
+    # runs at all — removing it there removes the confusing, irrelevant
+    # second check run entirely rather than trying to make it pass.
     needs: [changes, web-tests, web-e2e, build]
-    if: always()
+    if: always() && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

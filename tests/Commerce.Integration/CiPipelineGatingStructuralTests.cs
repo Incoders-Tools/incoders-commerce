@@ -94,8 +94,17 @@ public sealed class CiPipelineGatingStructuralTests
         var body = ciGateMatch.Groups["body"].Value;
         var ifLines = Regex.Matches(body, @"^\s*if\s*:\s*(.+?)\s*$", RegexOptions.Multiline);
 
-        Assert.True(ifLines.Count > 0, "ci-gate must declare an `if:` predicate (expected `always()`).");
-        Assert.All(ifLines, m => Assert.Equal("always()", m.Groups[1].Value.Trim()));
+        // ci-gate scopes to pull_request events only (see release.yml's own
+        // comment on this job): pushing to a branch with an open PR fires
+        // both a push and a pull_request event for the same commit, and the
+        // push-triggered build always fails its by-design Publication gate
+        // step (ADR-004), which produced a second, irrelevant ci-gate
+        // failure that confused required-check merge gating. `always()`
+        // stays load-bearing so a skipped/failed `needs` entry can't skip
+        // ci-gate itself within a pull_request run.
+        Assert.True(ifLines.Count > 0, "ci-gate must declare an `if:` predicate.");
+        Assert.All(ifLines, m => Assert.Equal(
+            "always() && github.event_name == 'pull_request'", m.Groups[1].Value.Trim()));
     }
 
     [Fact]
