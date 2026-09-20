@@ -342,10 +342,14 @@ jobs:
           # The runner image installs PostgreSQL but does not start its
           # Windows service by default - confirmed by a prior run of this
           # step ("Connection refused" from pg_isready/psql alike).
+          # `Start-Service` itself failed ("cannot be started... on computer
+          # '.'") in a subsequent run - `net start` is the documented
+          # working approach for this exact runner-image service.
           $svc = Get-Service -Name "postgresql*" | Select-Object -First 1
           if (-not $svc) { throw "No postgresql* Windows service found on this runner." }
-          Write-Host "Starting Windows service '$($svc.Name)'..."
-          Start-Service -InputObject $svc
+          Write-Host "Starting Windows service '$($svc.Name)' via net start..."
+          net start $svc.Name
+          if ($LASTEXITCODE -ne 0) { throw "net start '$($svc.Name)' failed with exit code $LASTEXITCODE" }
 
           $ready = $false
           for ($i = 0; $i -lt 30; $i++) {
