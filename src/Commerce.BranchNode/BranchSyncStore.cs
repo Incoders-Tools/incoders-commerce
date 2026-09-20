@@ -1,5 +1,6 @@
 using Commerce.Domain.Payments;
 using Commerce.Domain.Sync;
+using Commerce.Domain.Sync.Payloads;
 using Microsoft.Data.Sqlite;
 
 namespace Commerce.BranchNode;
@@ -185,6 +186,36 @@ public sealed class BranchSyncStore : IDisposable
             """;
         createPayments.ExecuteNonQuery();
 
+        // commerce-sync-ownership design.md "Outbox generalization": appended
+        // to the SAME constructor DDL block, additively. ZERO edits above
+        // this point to outbox/sale_effects/sale_lines/inbox. sync_outbox
+        // carries ONLY generic SyncEnvelope columns plus the three retry
+        // columns — EVERY new write (including "sale") lands here; the
+        // legacy `outbox` table is drained by GetPendingOutbox but never
+        // written again. inbound_orders is the materialization target for
+        // the "order" IInboundEffectHandler (Unit 3).
+        using var createSyncOutbox = _connection.CreateCommand();
+        createSyncOutbox.CommandText = """
+            CREATE TABLE IF NOT EXISTS sync_outbox (
+                operation_id TEXT PRIMARY KEY, branch_id TEXT NOT NULL,
+                organization_id TEXT NOT NULL, aggregate_id TEXT NOT NULL,
+                aggregate_version INTEGER NOT NULL, actor_id TEXT NOT NULL,
+                correlation_id TEXT NOT NULL, occurred_at_utc TEXT NOT NULL,
+                payload_kind TEXT NOT NULL,
+                payload TEXT NOT NULL CHECK (json_valid(payload) AND payload <> '{}'),
+                status TEXT NOT NULL, acknowledged_at_utc TEXT NULL,
+                attempt_count INTEGER NOT NULL DEFAULT 0,
+                last_attempt_at_utc TEXT NULL,
+                last_error TEXT NULL
+            );
+            CREATE TABLE IF NOT EXISTS inbound_orders (
+                order_id TEXT PRIMARY KEY, organization_id TEXT NOT NULL,
+                destination_branch_id TEXT NOT NULL, payload TEXT NOT NULL,
+                materialized_at_utc TEXT NOT NULL
+            );
+            """;
+        createSyncOutbox.ExecuteNonQuery();
+
         EnsureSaleKindColumnExists();
     }
 
@@ -235,7 +266,7 @@ public sealed class BranchSyncStore : IDisposable
         {
             using var transaction = _connection.BeginTransaction();
 
-            var existing = ReadExistingOutboxSale(envelope.OperationId, transaction);
+            var existing = ReadExistingSyncOutboxSale(envelope.OperationId, envelope.BranchId, transaction);
             if (existing is not null)
             {
                 transaction.Commit();
@@ -248,7 +279,7 @@ public sealed class BranchSyncStore : IDisposable
                 InsertSaleLineRow(line, transaction);
             }
 
-            InsertOutboxRow(envelope, effect, transaction);
+            InsertSyncOutboxRow(envelope, transaction);
 
             transaction.Commit();
             return new BranchOutboxCommitResult(WasNewlyCommitted: true, effect);
@@ -263,7 +294,7 @@ public sealed class BranchSyncStore : IDisposable
 
             InsertSaleEffectRow(effect with { SaleKind = "Manual" }, transaction);
 
-            InsertOutboxRow(envelope, effect, transaction);
+            InsertSyncOutboxRow(envelope, transaction);
 
             // Deliberately abandoned: no Commit(). Disposing an uncommitted
             // SqliteTransaction rolls it back, proving atomicity across the
@@ -390,22 +421,44 @@ public sealed class BranchSyncStore : IDisposable
         return reader.Read() ? ReadCatalogPriceReplicaItem(reader) : null;
     }
 
+    /// <summary>
+    /// Phase F (commerce-sync-ownership design.md "Outbox generalization"):
+    /// acknowledges whichever table holds the operation — <c>sync_outbox</c>
+    /// first (every new write, including "sale", lands there), falling back
+    /// to the legacy <c>outbox</c> for rows written before this change. Still
+    /// idempotent: acknowledging an already-acknowledged (or unknown-but-
+    /// previously-seen) operation must not fail the retry.
+    /// </summary>
     public bool Acknowledge(Guid operationId)
     {
         lock (_writeGate)
         {
-            using var command = _connection.CreateCommand();
-            command.CommandText = """
-                UPDATE outbox SET status = 'Acknowledged', acknowledged_at_utc = $now
-                WHERE operation_id = $operationId;
-                """;
-            command.Parameters.AddWithValue("$operationId", operationId.ToString());
-            command.Parameters.AddWithValue("$now", DateTimeOffset.UtcNow.ToString("O"));
-            var affected = command.ExecuteNonQuery();
-
-            if (affected > 0)
+            using (var command = _connection.CreateCommand())
             {
-                return true;
+                command.CommandText = """
+                    UPDATE sync_outbox SET status = 'Acknowledged', acknowledged_at_utc = $now
+                    WHERE operation_id = $operationId;
+                    """;
+                command.Parameters.AddWithValue("$operationId", operationId.ToString());
+                command.Parameters.AddWithValue("$now", DateTimeOffset.UtcNow.ToString("O"));
+                if (command.ExecuteNonQuery() > 0)
+                {
+                    return true;
+                }
+            }
+
+            using (var command = _connection.CreateCommand())
+            {
+                command.CommandText = """
+                    UPDATE outbox SET status = 'Acknowledged', acknowledged_at_utc = $now
+                    WHERE operation_id = $operationId;
+                    """;
+                command.Parameters.AddWithValue("$operationId", operationId.ToString());
+                command.Parameters.AddWithValue("$now", DateTimeOffset.UtcNow.ToString("O"));
+                if (command.ExecuteNonQuery() > 0)
+                {
+                    return true;
+                }
             }
 
             // Idempotent: acknowledging an already-acknowledged (or unknown-
@@ -414,28 +467,77 @@ public sealed class BranchSyncStore : IDisposable
         }
     }
 
+    /// <summary>
+    /// Phase F (commerce-sync-ownership design.md "Outbox generalization"):
+    /// the UNION of <c>sync_outbox</c> (every new write) and any still-
+    /// <c>Pending</c> LEGACY <c>outbox</c> row, with the legacy row's payload
+    /// reconstituted AT READ TIME into a real <see cref="SalePayloadV1"/> from
+    /// its <c>sale_id</c>/<c>total_amount</c> + <c>sale_effects.sale_kind</c>
+    /// join — no migration statement, no rewrite of the legacy row.
+    /// </summary>
     public IReadOnlyList<SyncEnvelope> GetPendingOutbox(Guid branchId)
     {
-        using var command = _connection.CreateCommand();
-        command.CommandText = """
-            SELECT operation_id, branch_id, organization_id, aggregate_id, aggregate_version,
-                   actor_id, correlation_id, occurred_at_utc, payload_kind, payload
-            FROM outbox
-            WHERE branch_id = $branchId AND status = 'Pending';
-            """;
-        command.Parameters.AddWithValue("$branchId", branchId.ToString());
-
         var results = new List<SyncEnvelope>();
-        using var reader = command.ExecuteReader();
-        while (reader.Read())
+
+        using (var command = _connection.CreateCommand())
         {
-            results.Add(ReadEnvelope(reader));
+            command.CommandText = """
+                SELECT operation_id, branch_id, organization_id, aggregate_id, aggregate_version,
+                       actor_id, correlation_id, occurred_at_utc, payload_kind, payload
+                FROM sync_outbox
+                WHERE branch_id = $branchId AND status = 'Pending';
+                """;
+            command.Parameters.AddWithValue("$branchId", branchId.ToString());
+
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                results.Add(ReadEnvelope(reader));
+            }
+        }
+
+        using (var command = _connection.CreateCommand())
+        {
+            command.CommandText = """
+                SELECT o.operation_id, o.branch_id, o.organization_id, o.aggregate_id, o.aggregate_version,
+                       o.actor_id, o.correlation_id, o.occurred_at_utc, o.sale_id, o.total_amount,
+                       e.sale_kind, e.occurred_at_utc
+                FROM outbox o
+                LEFT JOIN sale_effects e ON e.sale_id = o.sale_id
+                WHERE o.branch_id = $branchId AND o.status = 'Pending';
+                """;
+            command.Parameters.AddWithValue("$branchId", branchId.ToString());
+
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                results.Add(ReadLegacyOutboxEnvelope(reader));
+            }
         }
 
         return results;
     }
 
-    public InboundApplyResult ApplyInbound(SyncEnvelope envelope)
+    /// <summary>
+    /// Phase F (commerce-sync-ownership design.md "Materialization contract"):
+    /// dedup check -> resolve handler -> <c>Apply</c> -> insert the `inbox`
+    /// row -> ONE commit. Dedup and materialization therefore succeed or fail
+    /// together by construction (Requirement: Inbound Materialization
+    /// Contract). An unknown `payload_kind` rolls back the WHOLE transaction
+    /// and returns <see cref="InboundApplyOutcome.UnknownKind"/> — no `inbox`
+    /// row is written, so the sender retries after the receiver upgrades.
+    /// </summary>
+    public InboundApplyResult ApplyInbound(SyncEnvelope envelope) => ApplyInboundCore(envelope, commit: true);
+
+    /// <summary>
+    /// Task 3.4/3.5: mirrors <see cref="SimulateInterruptedCommit"/> — proves
+    /// atomicity when a handler throws (or, here, when the caller simply
+    /// never commits): disposing an uncommitted transaction rolls back BOTH
+    /// the handler's writes and the `inbox` insert together.
+    /// </summary>
+    public void SimulateInterruptedInboundApply(SyncEnvelope envelope) => ApplyInboundCore(envelope, commit: false);
+
+    private InboundApplyResult ApplyInboundCore(SyncEnvelope envelope, bool commit)
     {
         lock (_writeGate)
         {
@@ -454,6 +556,16 @@ public sealed class BranchSyncStore : IDisposable
                 }
             }
 
+            if (!InboundEffectRegistry.Default.TryGetValue(envelope.PayloadKind, out var handler))
+            {
+                // Unknown kind: roll back the whole transaction — disposing
+                // without a commit is the rollback — no `inbox` row is ever
+                // written for a kind this receiver cannot materialize.
+                return new InboundApplyResult(InboundApplyOutcome.UnknownKind, envelope.OperationId);
+            }
+
+            handler.Apply(envelope, transaction);
+
             using (var insert = _connection.CreateCommand())
             {
                 insert.Transaction = transaction;
@@ -465,22 +577,42 @@ public sealed class BranchSyncStore : IDisposable
                 insert.ExecuteNonQuery();
             }
 
+            if (!commit)
+            {
+                // Deliberately abandoned: no Commit(). Disposing an
+                // uncommitted SqliteTransaction rolls it back, proving
+                // atomicity across handler writes + the inbox insert.
+                return new InboundApplyResult(InboundApplyOutcome.Applied, envelope.OperationId);
+            }
+
             transaction.Commit();
             return new InboundApplyResult(InboundApplyOutcome.Applied, envelope.OperationId);
         }
     }
 
+    /// <summary>
+    /// Spans both <c>sync_outbox</c> and the legacy <c>outbox</c> (Phase F
+    /// "Outbox generalization"), so freshness/pending-count visibility never
+    /// regresses while the legacy table still holds pre-migration rows.
+    /// </summary>
     public SyncStatusSnapshot GetStatus(Guid branchId, bool isOffline)
     {
         using var pendingCommand = _connection.CreateCommand();
-        pendingCommand.CommandText = "SELECT COUNT(1) FROM outbox WHERE branch_id = $branchId AND status = 'Pending';";
+        pendingCommand.CommandText = """
+            SELECT
+                (SELECT COUNT(1) FROM sync_outbox WHERE branch_id = $branchId AND status = 'Pending') +
+                (SELECT COUNT(1) FROM outbox WHERE branch_id = $branchId AND status = 'Pending');
+            """;
         pendingCommand.Parameters.AddWithValue("$branchId", branchId.ToString());
         var pendingCount = (int)(long)pendingCommand.ExecuteScalar()!;
 
         using var lastAckCommand = _connection.CreateCommand();
         lastAckCommand.CommandText = """
-            SELECT MAX(acknowledged_at_utc) FROM outbox
-            WHERE branch_id = $branchId AND status = 'Acknowledged';
+            SELECT MAX(acknowledged_at_utc) FROM (
+                SELECT acknowledged_at_utc FROM sync_outbox WHERE branch_id = $branchId AND status = 'Acknowledged'
+                UNION ALL
+                SELECT acknowledged_at_utc FROM outbox WHERE branch_id = $branchId AND status = 'Acknowledged'
+            );
             """;
         lastAckCommand.Parameters.AddWithValue("$branchId", branchId.ToString());
         var lastAckRaw = lastAckCommand.ExecuteScalar();
@@ -862,67 +994,146 @@ public sealed class BranchSyncStore : IDisposable
         Locality: reader.IsDBNull(6) ? null : reader.GetString(6),
         UpdatedAtUtc: DateTimeOffset.Parse(reader.GetString(7)));
 
-    private SaleEffect? ReadExistingOutboxSale(Guid operationId, SqliteTransaction transaction)
+    /// <summary>
+    /// Dedup check against `sync_outbox` — every new sale write lands there
+    /// (Phase F "Outbox generalization": "Every new write goes to
+    /// sync_outbox, including 'sale'"). A replayed <c>OperationId</c> returns
+    /// the already-committed <see cref="SaleEffect"/> reconstructed from
+    /// `sale_effects` (still written unchanged), never a second effect.
+    /// </summary>
+    private SaleEffect? ReadExistingSyncOutboxSale(Guid operationId, Guid branchId, SqliteTransaction transaction)
     {
+        using var exists = _connection.CreateCommand();
+        exists.Transaction = transaction;
+        exists.CommandText = "SELECT COUNT(1) FROM sync_outbox WHERE operation_id = $operationId AND payload_kind = 'sale';";
+        exists.Parameters.AddWithValue("$operationId", operationId.ToString());
+        if ((long)exists.ExecuteScalar()! == 0)
+        {
+            return null;
+        }
+
         using var command = _connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            SELECT o.sale_id, o.branch_id, o.total_amount, o.occurred_at_utc, e.sale_kind
-            FROM outbox o
-            LEFT JOIN sale_effects e ON e.sale_id = o.sale_id
-            WHERE o.operation_id = $operationId;
+            SELECT aggregate_id FROM sync_outbox WHERE operation_id = $operationId;
             """;
         command.Parameters.AddWithValue("$operationId", operationId.ToString());
+        var saleId = Guid.Parse((string)command.ExecuteScalar()!);
 
-        using var reader = command.ExecuteReader();
+        using var saleCommand = _connection.CreateCommand();
+        saleCommand.Transaction = transaction;
+        saleCommand.CommandText = """
+            SELECT total_amount, occurred_at_utc, sale_kind FROM sale_effects WHERE sale_id = $saleId;
+            """;
+        saleCommand.Parameters.AddWithValue("$saleId", saleId.ToString());
+        using var reader = saleCommand.ExecuteReader();
         if (!reader.Read())
         {
             return null;
         }
 
         return new SaleEffect(
-            Guid.Parse(reader.GetString(0)),
-            Guid.Parse(reader.GetString(1)),
-            decimal.Parse(reader.GetString(2)),
-            DateTimeOffset.Parse(reader.GetString(3)),
-            reader.IsDBNull(4) ? "Manual" : reader.GetString(4));
+            saleId,
+            branchId,
+            decimal.Parse(reader.GetString(0), System.Globalization.CultureInfo.InvariantCulture),
+            DateTimeOffset.Parse(reader.GetString(1)),
+            reader.GetString(2));
     }
 
-    private void InsertOutboxRow(SyncEnvelope envelope, SaleEffect effect, SqliteTransaction transaction)
+    /// <summary>
+    /// Task 2.2 (GREEN): the generic, payload-only writer — no
+    /// <see cref="SaleEffect"/> parameter, no sale-specific column. Used both
+    /// by every sale commit path (which builds its own <see cref="SyncEnvelope"/>
+    /// carrying a real <c>SalePayloadV1</c>) and by <see cref="EnqueueOutbox"/>
+    /// for any other payload kind.
+    /// </summary>
+    private void InsertSyncOutboxRow(SyncEnvelope envelope, SqliteTransaction transaction)
     {
-        using var insertOutbox = _connection.CreateCommand();
-        insertOutbox.Transaction = transaction;
-        insertOutbox.CommandText = """
-            INSERT INTO outbox (
+        using var insert = _connection.CreateCommand();
+        insert.Transaction = transaction;
+        insert.CommandText = """
+            INSERT INTO sync_outbox (
                 operation_id, branch_id, organization_id, aggregate_id, aggregate_version,
                 actor_id, correlation_id, occurred_at_utc, payload_kind, payload,
-                sale_id, total_amount, status, acknowledged_at_utc)
+                status, acknowledged_at_utc, attempt_count, last_attempt_at_utc, last_error)
             VALUES (
                 $operationId, $branchId, $organizationId, $aggregateId, $aggregateVersion,
                 $actorId, $correlationId, $occurredAt, $payloadKind, $payload,
-                $saleId, $totalAmount, 'Pending', NULL);
+                'Pending', NULL, 0, NULL, NULL);
             """;
-        insertOutbox.Parameters.AddWithValue("$operationId", envelope.OperationId.ToString());
-        insertOutbox.Parameters.AddWithValue("$branchId", envelope.BranchId.ToString());
-        insertOutbox.Parameters.AddWithValue("$organizationId", envelope.OrganizationId.ToString());
-        insertOutbox.Parameters.AddWithValue("$aggregateId", envelope.AggregateId.ToString());
-        insertOutbox.Parameters.AddWithValue("$aggregateVersion", envelope.AggregateVersion);
-        insertOutbox.Parameters.AddWithValue("$actorId", envelope.ActorId.ToString());
-        insertOutbox.Parameters.AddWithValue("$correlationId", envelope.CorrelationId.ToString());
-        insertOutbox.Parameters.AddWithValue("$occurredAt", envelope.OccurredAtUtc.ToString("O"));
-        insertOutbox.Parameters.AddWithValue("$payloadKind", envelope.PayloadKind);
-        insertOutbox.Parameters.AddWithValue("$payload", envelope.Payload);
-        insertOutbox.Parameters.AddWithValue("$saleId", effect.SaleId.ToString());
-        insertOutbox.Parameters.AddWithValue("$totalAmount", effect.TotalAmount.ToString());
-        insertOutbox.ExecuteNonQuery();
+        insert.Parameters.AddWithValue("$operationId", envelope.OperationId.ToString());
+        insert.Parameters.AddWithValue("$branchId", envelope.BranchId.ToString());
+        insert.Parameters.AddWithValue("$organizationId", envelope.OrganizationId.ToString());
+        insert.Parameters.AddWithValue("$aggregateId", envelope.AggregateId.ToString());
+        insert.Parameters.AddWithValue("$aggregateVersion", envelope.AggregateVersion);
+        insert.Parameters.AddWithValue("$actorId", envelope.ActorId.ToString());
+        insert.Parameters.AddWithValue("$correlationId", envelope.CorrelationId.ToString());
+        insert.Parameters.AddWithValue("$occurredAt", envelope.OccurredAtUtc.ToString("O"));
+        insert.Parameters.AddWithValue("$payloadKind", envelope.PayloadKind);
+        insert.Parameters.AddWithValue("$payload", envelope.Payload);
+        insert.ExecuteNonQuery();
+    }
+
+    /// <summary>
+    /// Task 2.1/2.2 (GREEN): the public payload-only enqueue entry point —
+    /// accepts no <see cref="SaleEffect"/>, writes no sale-specific column
+    /// (Requirement: Generic Outbox Payload Contract, scenario "Enqueue a
+    /// non-sale payload kind").
+    /// </summary>
+    public void EnqueueOutbox(SyncEnvelope envelope)
+    {
+        lock (_writeGate)
+        {
+            using var transaction = _connection.BeginTransaction();
+            InsertSyncOutboxRow(envelope, transaction);
+            transaction.Commit();
+        }
+    }
+
+    /// <summary>
+    /// Task 2.8 (GREEN): durable failure recording, replacing the in-memory
+    /// failure list (design.md "Retry: where and how"). Only `sync_outbox`
+    /// carries the attempt columns — a legacy `outbox` row (untouched DDL)
+    /// has nowhere to persist an attempt, so this is a no-op for a still-
+    /// undrained legacy row; the row simply stays `Pending` and is retried
+    /// on the next sweep either way. The row is NEVER moved to a terminal
+    /// state (design.md: no dead letter).
+    /// </summary>
+    public void RecordAttemptFailure(Guid operationId, string error)
+    {
+        lock (_writeGate)
+        {
+            using var command = _connection.CreateCommand();
+            command.CommandText = """
+                UPDATE sync_outbox
+                SET attempt_count = attempt_count + 1, last_attempt_at_utc = $now, last_error = $error
+                WHERE operation_id = $operationId;
+                """;
+            command.Parameters.AddWithValue("$operationId", operationId.ToString());
+            command.Parameters.AddWithValue("$now", DateTimeOffset.UtcNow.ToString("O"));
+            command.Parameters.AddWithValue("$error", error);
+            command.ExecuteNonQuery();
+        }
     }
 
     private bool RowExists(Guid operationId)
     {
-        using var command = _connection.CreateCommand();
-        command.CommandText = "SELECT COUNT(1) FROM outbox WHERE operation_id = $operationId;";
-        command.Parameters.AddWithValue("$operationId", operationId.ToString());
-        return (long)command.ExecuteScalar()! > 0;
+        using (var command = _connection.CreateCommand())
+        {
+            command.CommandText = "SELECT COUNT(1) FROM sync_outbox WHERE operation_id = $operationId;";
+            command.Parameters.AddWithValue("$operationId", operationId.ToString());
+            if ((long)command.ExecuteScalar()! > 0)
+            {
+                return true;
+            }
+        }
+
+        using (var command = _connection.CreateCommand())
+        {
+            command.CommandText = "SELECT COUNT(1) FROM outbox WHERE operation_id = $operationId;";
+            command.Parameters.AddWithValue("$operationId", operationId.ToString());
+            return (long)command.ExecuteScalar()! > 0;
+        }
     }
 
     private static SyncEnvelope ReadEnvelope(SqliteDataReader reader) => new(
@@ -937,6 +1148,37 @@ public sealed class BranchSyncStore : IDisposable
         OccurredAtUtc: DateTimeOffset.Parse(reader.GetString(7)),
         PayloadKind: reader.GetString(8),
         Payload: reader.GetString(9));
+
+    /// <summary>
+    /// Task 2.5/2.6 (GREEN): reconstitutes a LEGACY `outbox` row's payload
+    /// into a real <see cref="SalePayloadV1"/> AT READ TIME — the legacy row
+    /// itself is never rewritten. Reader column order matches the
+    /// <c>GetPendingOutbox</c> legacy SELECT above.
+    /// </summary>
+    private SyncEnvelope ReadLegacyOutboxEnvelope(SqliteDataReader reader)
+    {
+        var saleId = Guid.Parse(reader.GetString(8));
+        var totalAmount = decimal.Parse(reader.GetString(9), System.Globalization.CultureInfo.InvariantCulture);
+        var saleKind = reader.IsDBNull(10) ? "Manual" : reader.GetString(10);
+        var occurredAt = reader.IsDBNull(11) ? DateTimeOffset.Parse(reader.GetString(7)) : DateTimeOffset.Parse(reader.GetString(11));
+        var lines = ListSaleLines(saleId);
+
+        var payload = new SalePayloadV1(saleId, totalAmount, saleKind, occurredAt, lines);
+        var payloadJson = SyncPayloadCodec.Serialize(payload);
+
+        return new SyncEnvelope(
+            OperationId: Guid.Parse(reader.GetString(0)),
+            ContractVersion: 1,
+            BranchId: Guid.Parse(reader.GetString(1)),
+            OrganizationId: Guid.Parse(reader.GetString(2)),
+            AggregateId: Guid.Parse(reader.GetString(3)),
+            AggregateVersion: reader.GetInt64(4),
+            ActorId: Guid.Parse(reader.GetString(5)),
+            CorrelationId: Guid.Parse(reader.GetString(6)),
+            OccurredAtUtc: DateTimeOffset.Parse(reader.GetString(7)),
+            PayloadKind: "sale",
+            Payload: payloadJson);
+    }
 
     // --- Payment parallel path (Unit 5; commerce-payments design.md "Data
     // Flow" — POS cash payment at a branch, ADR-002: never blocks) ---------

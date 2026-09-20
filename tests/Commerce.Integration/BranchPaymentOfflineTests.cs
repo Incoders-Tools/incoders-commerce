@@ -54,7 +54,7 @@ public sealed class BranchPaymentOfflineTests : IDisposable
         ReversesEntryId: null,
         OccurredAtUtc: DateTimeOffset.UtcNow);
 
-    private static SyncEnvelope NewEnvelope(Guid branchId, Guid entryId, string payload) => new(
+    private static SyncEnvelope NewEnvelope(Guid branchId, Guid entryId, string payload = "{\"v\":1}") => new(
         OperationId: entryId, ContractVersion: 1, OrganizationId: Guid.NewGuid(), BranchId: branchId,
         AggregateId: entryId, AggregateVersion: 1, ActorId: Guid.NewGuid(), CorrelationId: Guid.NewGuid(),
         OccurredAtUtc: DateTimeOffset.UtcNow, PayloadKind: "PaymentRecorded", Payload: payload);
@@ -65,7 +65,7 @@ public sealed class BranchPaymentOfflineTests : IDisposable
         using var store = new BranchSyncStore(ConnectionString);
         var branchId = Guid.NewGuid();
         var effect = NewEffect(branchId, Guid.NewGuid());
-        var envelope = NewEnvelope(branchId, effect.EntryId, "{}");
+        var envelope = NewEnvelope(branchId, effect.EntryId);
 
         store.CommitPaymentAtomically(envelope, effect);
 
@@ -79,7 +79,7 @@ public sealed class BranchPaymentOfflineTests : IDisposable
     {
         var branchId = Guid.NewGuid();
         var effect = NewEffect(branchId, Guid.NewGuid());
-        var envelope = NewEnvelope(branchId, effect.EntryId, "{}");
+        var envelope = NewEnvelope(branchId, effect.EntryId);
 
         using (var store = new BranchSyncStore(ConnectionString))
         {
@@ -98,7 +98,7 @@ public sealed class BranchPaymentOfflineTests : IDisposable
         using var store = new BranchSyncStore(ConnectionString);
         var branchId = Guid.NewGuid();
         var effect = NewEffect(branchId, Guid.NewGuid());
-        var envelope = NewEnvelope(branchId, effect.EntryId, "{}");
+        var envelope = NewEnvelope(branchId, effect.EntryId);
         store.CommitPaymentAtomically(envelope, effect);
 
         store.AcknowledgePayment(effect.EntryId);
@@ -113,7 +113,7 @@ public sealed class BranchPaymentOfflineTests : IDisposable
         using var store = new BranchSyncStore(ConnectionString);
         var branchId = Guid.NewGuid();
         var effect = NewEffect(branchId, Guid.NewGuid());
-        var envelope = NewEnvelope(branchId, effect.EntryId, "{}");
+        var envelope = NewEnvelope(branchId, effect.EntryId);
         store.CommitPaymentAtomically(envelope, effect);
 
         var acknowledged = store.AcknowledgePayment(effect.EntryId);
@@ -136,7 +136,7 @@ public sealed class BranchPaymentOfflineTests : IDisposable
         var saleEnvelope = new SyncEnvelope(
             OperationId: saleEffect.SaleId, ContractVersion: 1, OrganizationId: Guid.NewGuid(), BranchId: branchId,
             AggregateId: saleEffect.SaleId, AggregateVersion: 1, ActorId: Guid.NewGuid(), CorrelationId: Guid.NewGuid(),
-            OccurredAtUtc: DateTimeOffset.UtcNow, PayloadKind: "sale", Payload: "{}");
+            OccurredAtUtc: DateTimeOffset.UtcNow, PayloadKind: "sale", Payload: "{\"v\":1}");
 
         var result = store.CommitSaleAtomically(saleEnvelope, saleEffect);
 

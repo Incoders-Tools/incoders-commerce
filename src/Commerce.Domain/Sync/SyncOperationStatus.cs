@@ -16,7 +16,16 @@ public enum InboundApplyOutcome
 {
     Applied,
     DuplicateIgnored,
-    Denied
+    Denied,
+
+    /// <summary>
+    /// Phase F (commerce-sync-ownership design.md "Materialization contract"):
+    /// no registered <c>IInboundEffectHandler</c> claims the envelope's
+    /// <c>PayloadKind</c>. The whole transaction rolls back — no <c>inbox</c>
+    /// row is written — so the sender retries after the receiver upgrades,
+    /// instead of the envelope being silently swallowed as applied.
+    /// </summary>
+    UnknownKind
 }
 
 public sealed record InboundApplyResult(InboundApplyOutcome Outcome, Guid OperationId);

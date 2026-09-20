@@ -38,6 +38,8 @@ public partial class MainWindow : Window
     private readonly Func<CustomerAdminClient> _customerAdminClientFactory;
     private readonly Guid _installationId;
     private readonly ObservableCollection<ScannedSaleLineViewModel> _scannedLines = new();
+    private readonly SyncRunner _syncRunner;
+    private readonly SyncScheduler _syncScheduler;
     private DevicePairing _pairing;
 
     public MainWindow(
@@ -75,11 +77,23 @@ public partial class MainWindow : Window
 
         ScannedLinesListView.ItemsSource = _scannedLines;
 
+        // Task 4.6: ONE SyncRunner shared by every trigger (startup, the
+        // scheduler's 60s sweep, the post-sale nudge, and the manual
+        // button) — reentrancy-guarded by construction, never duplicated.
+        _syncRunner = new SyncRunner(
+            _store, _branchNodeService, _syncClient, _customerReplicaClient, _catalogPriceReplicaClient,
+            _operatorProvisioningClient, _localOperatorStore, () => _pairing);
+        _syncScheduler = new SyncScheduler(RunSyncAsync);
+
         RefreshIdentityText();
         RefreshStatus();
         RefreshCustomerPicker();
         RefreshScannedTotal();
         RefreshCatalogFreshness();
+
+        // Fire-and-forget: never awaited by the constructor (design.md Data
+        // Flow — the sale path, and window startup, never await a sync).
+        _ = _syncScheduler.StartAsync();
     }
 
     private void RefreshIdentityText()
@@ -155,6 +169,11 @@ public partial class MainWindow : Window
         // resets to walk-in after every commit — anonymous counter sale stays
         // the fastest, zero-friction default for the NEXT sale too.
         CustomerPickerComboBox.SelectedIndex = 0;
+
+        // Task 4.6: fire-and-forget post-sale nudge — never awaited, so a
+        // slow or unreachable cloud can never delay or fail this commit
+        // (ADR-002).
+        _ = RunSyncAsync(SyncTrigger.PostSale);
     }
 
     /// <summary>
@@ -286,6 +305,9 @@ public partial class MainWindow : Window
         RefreshScannedTotal();
         RefreshStatus();
         CustomerPickerComboBox.SelectedIndex = 0;
+
+        // Task 4.6: same fire-and-forget post-sale nudge as the manual-total path.
+        _ = RunSyncAsync(SyncTrigger.PostSale);
     }
 
     /// <summary>
@@ -312,69 +334,45 @@ public partial class MainWindow : Window
         StaleCatalogBanner.Visibility = Visibility.Visible;
     }
 
-    private async void SyncButton_Click(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// Task 4.2/4.4 (commerce-sync-ownership design.md "Retry: where and
+    /// how"): the ONE method every trigger calls, delegating the actual work
+    /// to <see cref="SyncRunner.RunAsync"/> (reentrancy-guarded there). UI
+    /// text updates ONLY for <see cref="SyncTrigger.Button"/> — startup,
+    /// the scheduler sweep, and the post-sale nudge stay entirely invisible
+    /// to the operator (answer (d)); a failure is still always durably
+    /// recorded by <see cref="SyncRunner"/> via
+    /// <c>BranchSyncStore.RecordAttemptFailure</c> regardless of trigger.
+    /// </summary>
+    private async Task RunSyncAsync(SyncTrigger trigger)
     {
-        SyncResultText.Text = "Syncing...";
-
-        // Reconciliation runs FIRST, before the pending.Count == 0 early
-        // return (design.md "Staleness TTL and reconciliation trigger"), so
-        // pressing Sync with an empty outbox still reconciles operator
-        // staleness.
-        await ReconcileOperatorsAsync();
-
-        // Minimum-viable cloud->local customer pull (design.md "BranchNode
-        // cloud->local customer replication"), also placed BEFORE the
-        // pending.Count == 0 early return so pressing Sync with an empty
-        // outbox still refreshes customer availability for offline selection.
-        await PullCustomersAsync();
-        RefreshCustomerPicker();
-
-        // Minimum-viable cloud->local catalog+price pull (commerce-pricing-
-        // engine design.md "BranchNode replication"), same position and same
-        // shape as PullCustomersAsync above, and still BEFORE the
-        // pending.Count == 0 early return so pressing Sync with an empty
-        // outbox still refreshes the offline scan catalog.
-        await PullCatalogPricesAsync();
-        RefreshCatalogFreshness();
-
-        var pending = _store.GetPendingOutbox(_pairing.BranchId);
-        if (pending.Count == 0)
+        if (trigger == SyncTrigger.Button)
         {
-            SyncResultText.Text = "Nothing pending to sync.";
+            SyncResultText.Text = "Syncing...";
+        }
+
+        var result = await _syncRunner.RunAsync(trigger);
+
+        if (trigger != SyncTrigger.Button)
+        {
             return;
         }
 
-        var succeeded = 0;
-        var failures = new List<string>();
-        var credentialRejected = false;
+        RefreshCustomerPicker();
+        RefreshCatalogFreshness();
 
-        foreach (var envelope in pending)
+        if (result is null)
         {
-            var pushResult = await _syncClient.PushAsync(envelope, _pairing.DeviceToken);
-            if (pushResult.Success)
-            {
-                _branchNodeService.Acknowledge(envelope.OperationId);
-                succeeded++;
-            }
-            else
-            {
-                failures.Add($"{envelope.OperationId}: {pushResult.Error}");
-                credentialRejected |= pushResult.CredentialWasRejected;
-            }
+            // Reentrant: a sweep was already in flight. Leave "Syncing..."
+            // as-is rather than claiming a result that never ran.
+            return;
         }
 
-        var summary = failures.Count == 0
-            ? $"Synced {succeeded} operation(s) successfully."
-            : $"Synced {succeeded} operation(s); {failures.Count} failed:\n{string.Join("\n", failures)}";
-
-        if (credentialRejected)
-        {
-            summary += "\n\nDevice credential rejected — click \"Re-pair terminal\" to continue syncing.";
-        }
-
-        SyncResultText.Text = summary;
+        SyncResultText.Text = result.Summary;
         RefreshStatus();
     }
+
+    private async void SyncButton_Click(object sender, RoutedEventArgs e) => await RunSyncAsync(SyncTrigger.Button);
 
     /// <summary>
     /// Always-visible button (design.md "Re-pairing": NOT an automatic
@@ -441,87 +439,10 @@ public partial class MainWindow : Window
         customersWindow.ShowDialog();
     }
 
-    /// <summary>
-    /// Minimum-viable cloud->local customer pull (design.md "BranchNode
-    /// cloud->local customer replication"): pulls changes since the last
-    /// cursor, then applies upserts, disabled-id removals, and the cursor
-    /// advance in ONE atomic <see cref="BranchSyncStore.ApplyCustomerSync"/>
-    /// transaction. A failure (unreachable, non-2xx, empty body) is
-    /// non-fatal: the replica and cursor stay byte-identical and the sale
-    /// path is never blocked (the SyncButton failure precedent).
-    /// </summary>
-    private async Task PullCustomersAsync()
-    {
-        var since = _store.GetCustomersCursor() ?? DateTimeOffset.MinValue;
-        var outcome = await _customerReplicaClient.PullAsync(since, _pairing.DeviceToken);
-        if (!outcome.Success || outcome.Customers is null || outcome.DisabledIds is null || outcome.ServerTimeUtc is null)
-        {
-            return;
-        }
-
-        var replicaRows = outcome.Customers
-            .Select(row => new CustomerReplica(
-                row.CustomerId, _pairing.OrganizationId, row.DisplayName, row.CustomerKind,
-                row.TaxId, row.Phone, row.Locality, row.UpdatedAtUtc))
-            .ToList();
-
-        _store.ApplyCustomerSync(replicaRows, outcome.DisabledIds, outcome.ServerTimeUtc.Value);
-    }
-
-    /// <summary>
-    /// Minimum-viable cloud->local catalog+price pull (commerce-pricing-engine
-    /// design.md "BranchNode replication: one channel, not two"): pulls
-    /// changes since the last cursor, then applies upserts, removed-id
-    /// deletions, and the cursor advance in ONE atomic
-    /// <see cref="BranchSyncStore.ApplyCatalogPriceSync"/> transaction. A
-    /// failure (unreachable, non-2xx, empty body) is non-fatal: the replica
-    /// and cursor stay byte-identical and the sale path is never blocked
-    /// (the <see cref="PullCustomersAsync"/> precedent).
-    /// </summary>
-    private async Task PullCatalogPricesAsync()
-    {
-        var since = _store.GetCatalogPricesCursor() ?? DateTimeOffset.MinValue;
-        var outcome = await _catalogPriceReplicaClient.PullAsync(since, _pairing.DeviceToken);
-        if (!outcome.Success || outcome.Items is null || outcome.RemovedPresentationIds is null || outcome.ServerTimeUtc is null)
-        {
-            return;
-        }
-
-        var replicaItems = outcome.Items
-            .Select(row => new CatalogPriceReplicaItem(
-                row.PresentationId, _pairing.OrganizationId, row.ProductId, row.ProductName, row.PresentationName,
-                row.IdentificationCode, row.QuantityBehavior, row.UnitId, row.UnitPrice, row.EffectiveFrom, row.UpdatedAtUtc))
-            .ToList();
-
-        _store.ApplyCatalogPriceSync(replicaItems, outcome.RemovedPresentationIds, outcome.ServerTimeUtc.Value);
-    }
-
-    /// <summary>
-    /// Reconciles every cached operator against server-side status
-    /// (design.md "Staleness TTL and reconciliation trigger"): "active"
-    /// stamps <c>LastVerifiedUtc</c> so a stale entry revives without
-    /// re-entering the server password; "inactive" removes the entry
-    /// (revocation beats the timer); unreachable/401 leaves the entry
-    /// untouched so the 14-day TTL still applies.
-    /// </summary>
-    private async Task ReconcileOperatorsAsync()
-    {
-        var now = DateTimeOffset.UtcNow;
-        foreach (var cachedOperator in _localOperatorStore.Load())
-        {
-            var status = await _operatorProvisioningClient.GetStatusAsync(cachedOperator.UserId, _pairing.DeviceToken);
-            switch (status)
-            {
-                case OperatorStatusOutcome.Active:
-                    _localOperatorStore.TouchVerified(cachedOperator.UserId, now);
-                    break;
-                case OperatorStatusOutcome.Inactive:
-                    _localOperatorStore.Remove(cachedOperator.UserId);
-                    break;
-                case OperatorStatusOutcome.Unreachable:
-                default:
-                    break;
-            }
-        }
-    }
+    // Task 4.6: the customer pull, catalog/price pull, and operator
+    // reconciliation that used to live here moved verbatim into
+    // SyncRunner (Commerce.Pos.Windows/SyncRunner.cs) — every trigger
+    // (startup, the 60s sweep, the post-sale nudge, and this button) now
+    // shares that ONE implementation instead of only SyncButton_Click
+    // owning it.
 }
