@@ -3149,4 +3149,195 @@ public sealed class MigrationRlsTests
         Assert.Throws<PostgresException>(() => updateCmd.ExecuteNonQuery());
         tx.Rollback();
     }
+
+    // --- commerce-payments: 0011_payments.sql ------------------------------
+
+    private static string ResolvePaymentsMigrationPath()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Commerce.sln")))
+        {
+            dir = dir.Parent;
+        }
+
+        if (dir is null)
+        {
+            throw new InvalidOperationException("Could not locate repo root (Commerce.sln) from " + AppContext.BaseDirectory);
+        }
+
+        return Path.Combine(dir.FullName, "deploy", "db", "migrations", "0011_payments.sql");
+    }
+
+    private static void ApplyPaymentsMigration(NpgsqlConnection connection)
+    {
+        var sql = File.ReadAllText(ResolvePaymentsMigrationPath());
+        using var cmd = new NpgsqlCommand(sql, connection);
+        cmd.ExecuteNonQuery();
+    }
+
+    private static void ApplyAllMigrationsThrough0011(NpgsqlConnection connection)
+    {
+        ApplyAllMigrationsThrough0010(connection);
+        ApplyPaymentsMigration(connection);
+    }
+
+    private static void ResetPaymentEntries()
+    {
+        using var connection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        connection.Open();
+        using var cmd = new NpgsqlCommand("TRUNCATE TABLE payment_entries", connection);
+        cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>
+    /// Covers Unit 4 task 4.3: `0011` applies twice cleanly.
+    /// </summary>
+    [Fact]
+    public void PaymentsMigration_IsIdempotent_AppliedTwiceWithoutError()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        using var connection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        connection.Open();
+        ApplyAllMigrationsThrough0010(connection);
+
+        ApplyPaymentsMigration(connection);
+        ApplyPaymentsMigration(connection);
+    }
+
+    /// <summary>
+    /// Org B cannot read org A's `payment_entries` rows (RLS).
+    /// </summary>
+    [Fact]
+    public void PaymentsMigration_CrossOrganizationRead_ReturnsZeroRows()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        var orgAId = Guid.NewGuid();
+
+        using (var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            ownerConnection.Open();
+            ApplyAllMigrationsThrough0011(ownerConnection);
+            ResetPaymentEntries();
+            ResetOrganizations();
+
+            using var insertOrgCmd = new NpgsqlCommand(
+                "INSERT INTO organizations (id, name) VALUES ($1, 'Org A')", ownerConnection);
+            insertOrgCmd.Parameters.AddWithValue(orgAId);
+            insertOrgCmd.ExecuteNonQuery();
+
+            using var insertEntryCmd = new NpgsqlCommand(
+                """
+                INSERT INTO payment_entries
+                    (entry_id, organization_id, operation_id, subject_kind, subject_id,
+                     entry_kind, method, amount, approval_state, actor_id)
+                VALUES ($1, $2, $3, 'Order', $4, 'Payment', 'Cash', 10.00, 'Approved', $5)
+                """, ownerConnection);
+            insertEntryCmd.Parameters.AddWithValue(Guid.NewGuid());
+            insertEntryCmd.Parameters.AddWithValue(orgAId);
+            insertEntryCmd.Parameters.AddWithValue(Guid.NewGuid());
+            insertEntryCmd.Parameters.AddWithValue(Guid.NewGuid());
+            insertEntryCmd.Parameters.AddWithValue(Guid.NewGuid());
+            insertEntryCmd.ExecuteNonQuery();
+        }
+
+        using var scopedConnection = new NpgsqlConnection(PostgresTestFixture.DirectConnectionString);
+        scopedConnection.Open();
+        using var tx = scopedConnection.BeginTransaction();
+        using (var scopeCmd = new NpgsqlCommand("SELECT set_config('app.current_org_id', $1, true)", scopedConnection, tx))
+        {
+            scopeCmd.Parameters.AddWithValue(Guid.NewGuid().ToString());
+            scopeCmd.ExecuteNonQuery();
+        }
+
+        using var countCmd = new NpgsqlCommand("SELECT count(*) FROM payment_entries", scopedConnection, tx);
+        var count = (long)countCmd.ExecuteScalar()!;
+        tx.Commit();
+
+        Assert.Equal(0, count);
+    }
+
+    /// <summary>
+    /// `app_runtime` has no UPDATE and no DELETE grant on `payment_entries` —
+    /// append-only enforced by grant, not convention.
+    /// </summary>
+    [Fact]
+    public void PaymentsMigration_AppRuntimeRole_HasNoUpdateOrDeleteGrant()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        using (var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            ownerConnection.Open();
+            ApplyAllMigrationsThrough0011(ownerConnection);
+        }
+
+        using var connection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        connection.Open();
+        using var cmd = new NpgsqlCommand(
+            """
+            SELECT
+                has_table_privilege('app_runtime', 'payment_entries', 'UPDATE') AS can_update,
+                has_table_privilege('app_runtime', 'payment_entries', 'DELETE') AS can_delete,
+                has_table_privilege('app_runtime', 'payment_entries', 'SELECT') AS can_select,
+                has_table_privilege('app_runtime', 'payment_entries', 'INSERT') AS can_insert
+            """, connection);
+        using var reader = cmd.ExecuteReader();
+        Assert.True(reader.Read());
+
+        Assert.False(reader.GetBoolean(0));
+        Assert.False(reader.GetBoolean(1));
+        Assert.True(reader.GetBoolean(2));
+        Assert.True(reader.GetBoolean(3));
+    }
+
+    /// <summary>
+    /// `customers_instrument_not_pan_shaped` CHECK rejects a 13-19 digit
+    /// string on `billing_instrument_reference`.
+    /// </summary>
+    [Fact]
+    public void PaymentsMigration_PanShapedInstrumentReference_Throws()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        var orgAId = Guid.NewGuid();
+
+        using var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        ownerConnection.Open();
+        ApplyAllMigrationsThrough0011(ownerConnection);
+        ResetOrganizations();
+
+        using var insertOrgCmd = new NpgsqlCommand(
+            "INSERT INTO organizations (id, name) VALUES ($1, 'Org A')", ownerConnection);
+        insertOrgCmd.Parameters.AddWithValue(orgAId);
+        insertOrgCmd.ExecuteNonQuery();
+
+        using var insertCustomerCmd = new NpgsqlCommand(
+            """
+            INSERT INTO customers (id, organization_id, customer_kind, display_name, created_by_user_id, billing_instrument_reference)
+            VALUES ($1, $2, 'Retail', 'Jane Doe', $3, '1234567890123')
+            """, ownerConnection);
+        insertCustomerCmd.Parameters.AddWithValue(Guid.NewGuid());
+        insertCustomerCmd.Parameters.AddWithValue(orgAId);
+        insertCustomerCmd.Parameters.AddWithValue(Guid.NewGuid());
+
+        Assert.Throws<PostgresException>(() => insertCustomerCmd.ExecuteNonQuery());
+    }
 }

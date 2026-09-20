@@ -2,6 +2,7 @@ using Commerce.Application.Access;
 using Commerce.Application.Audit;
 using Commerce.Application.Management;
 using Commerce.Application.Ordering;
+using Commerce.Application.Payments;
 using Commerce.Cloud.Api;
 using Commerce.Cloud.Api.Authentication;
 using Commerce.Cloud.Api.Email;
@@ -43,6 +44,9 @@ builder.Services.AddSingleton<PostgresPasswordRecoveryStore>();
 builder.Services.AddSingleton<PostgresCustomerStore>();
 builder.Services.AddSingleton<PostgresCatalogStore>();
 builder.Services.AddSingleton<PostgresPriceListStore>();
+builder.Services.AddSingleton<PostgresPaymentStore>();
+builder.Services.AddSingleton<IPaymentLedgerStore>(sp => sp.GetRequiredService<PostgresPaymentStore>());
+builder.Services.AddSingleton<Commerce.Cloud.Api.Payments.PaymentEffectApplier>();
 // commerce-customer-identity security fix: the resolver is the ONLY source of
 // a CustomerOrderingAccess instance CustomerCatalogAccessService can act on.
 builder.Services.AddSingleton<PostgresCustomerOrderingAccessStore>();
@@ -120,6 +124,23 @@ if (guestOrderTargetConfigured)
 builder.Services.AddSingleton<PostgresGuestVerificationStore>();
 builder.Services.AddSingleton<GuestVerificationService>();
 builder.Services.AddSingleton<GuestVerificationThrottle>();
+
+// --- Payments (commerce-payments design.md "Fail-closed approval",
+// Decision 2): the gateway binding is fail-closed BY DEFAULT.
+// `Payments__ManuallyRecordedApprovalEnabled=true` is the ONLY way to bind
+// the real (staff-attestation) implementation — absent/false always binds
+// UnavailablePaymentApproval, deliberately the inverse of
+// LogOnlyEmailSender's fail-open substitution. -------------------------
+var manuallyRecordedApprovalEnabled = builder.Configuration.GetValue<bool>("Payments:ManuallyRecordedApprovalEnabled");
+if (manuallyRecordedApprovalEnabled)
+{
+    builder.Services.AddSingleton<IPaymentApprovalGateway, ManuallyRecordedApproval>();
+}
+else
+{
+    builder.Services.AddSingleton<IPaymentApprovalGateway, UnavailablePaymentApproval>();
+}
+builder.Services.AddSingleton<PaymentRecordingService>();
 
 // --- Shared application services (Component Reuse Policy: reused, not
 // reimplemented) --------------------------------------------------------
@@ -303,6 +324,7 @@ app.MapOrderingEndpoints();
 app.MapCustomerEndpoints();
 app.MapCustomerSessionEndpoints();
 app.MapPricingEndpoints();
+app.MapPaymentEndpoints();
 
 // Config-gated (design.md "Org/branch resolution point" / Migration and
 // Rollout "narrowest rollback"): with GuestOrdering__* absent,

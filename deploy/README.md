@@ -467,6 +467,54 @@ DROP TABLE guest_order_verifications;
 Lossy only for in-flight verifications (minutes of state, re-requestable);
 no order data is persisted anywhere today (design.md "Migration / Rollout").
 
+### commerce-payments — `0011_payments.sql`
+
+`deploy/db/migrations/0011_payments.sql` adds `payment_entries` (the
+append-only payment ledger; design.md "Interfaces / Contracts") and
+`customers.billing_instrument_reference` (a new, separately-named nullable
+column — `customers.payment_terms` is untouched). Applied the same way as
+`0008`–`0010`:
+
+```bash
+psql "postgresql://postgres:<db-password>@<project-ref>.supabase.co:5432/postgres" \
+  -f deploy/db/migrations/0011_payments.sql
+```
+
+**Migrate-before-deploy ordering, same as `0001`–`0010`**: apply `0011`
+before deploying the Cloud.Api image that expects it. `/health/ready`
+verifies `payment_entries` (FORCE RLS + policy) in addition to every prior
+table, so a deploy that runs ahead of the migration fails closed at
+readiness rather than serving requests against a missing schema.
+
+Idempotency was confirmed locally by applying `0011_payments.sql` twice
+against `deploy/dev/compose.yaml`'s Postgres container — the second apply is
+a clean no-op, exactly like `0001`–`0010`.
+
+**No payment-provider secret exists, and this is deliberate** (proposal.md
+"Out of Scope" — provider selection is a future ADR): `Payments__ManuallyRecordedApprovalEnabled`
+is the ONLY payments-related setting, and its absence is fail-CLOSED, not
+fail-open — `IPaymentApprovalGateway` binds `UnavailablePaymentApproval`
+(every `POST /payments` returns 503, never a silent approval) unless it is
+explicitly set to `true`. This is the deliberate inverse of the
+`RESEND_API_KEY` precedent (commerce-password-recovery), where absence falls
+back safely to a no-op logger — money is not a notification, so absence here
+never substitutes a safe default; it substitutes an explicit refusal.
+
+**Inverse (rollback)**, shipped as comments in the migration file itself —
+NOT executed automatically:
+
+```sql
+ALTER TABLE customers DROP CONSTRAINT customers_instrument_not_pan_shaped;
+ALTER TABLE customers DROP COLUMN billing_instrument_reference;
+DROP TABLE payment_entries;
+```
+
+Lossy only after first real use (settlement history has no prior model to
+fall back to; design.md "Migration / Rollout") — prefer forward-fix then.
+**Narrowest rollback**: stop mapping `MapPaymentEndpoints()` in `Program.cs`
+— the domain stays dormant and the table stays empty/inert, with no
+migration to revert.
+
 ## Local full stack via Docker Compose
 
 `deploy/dev/compose.yaml` gained a `full` profile (Unit 5) that also

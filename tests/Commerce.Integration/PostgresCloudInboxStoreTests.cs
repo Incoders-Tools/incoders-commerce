@@ -44,7 +44,7 @@ public sealed class PostgresCloudInboxStoreTests : IDisposable
         CorrelationId: Guid.NewGuid(),
         OccurredAtUtc: DateTimeOffset.UtcNow,
         PayloadKind: "sale",
-        Payload: "{}");
+        Payload: "{\"v\":1}");
 
     [Fact]
     public void TryApplyInbound_Applies_ThenDuplicateIgnored_MatchingInMemoryDouble()

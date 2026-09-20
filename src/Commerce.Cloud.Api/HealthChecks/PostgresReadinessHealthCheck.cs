@@ -211,7 +211,16 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
                     EXISTS (
                         SELECT 1 FROM pg_policies
                         WHERE tablename = 'guest_order_verifications' AND policyname = 'guest_order_verifications_update'
-                    ) AS guest_order_verifications_update_policy_exists
+                    ) AS guest_order_verifications_update_policy_exists,
+                    EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'payment_entries') AS payment_entries_table_exists,
+                    EXISTS (
+                        SELECT 1 FROM pg_class
+                        WHERE relname = 'payment_entries' AND relrowsecurity AND relforcerowsecurity
+                    ) AS payment_entries_rls_forced,
+                    EXISTS (
+                        SELECT 1 FROM pg_policies
+                        WHERE tablename = 'payment_entries' AND policyname = 'payment_entries_tenant_isolation'
+                    ) AS payment_entries_policy_exists
                 """, connection);
 
             await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
@@ -280,6 +289,9 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
             var guestOrderVerificationsLookupPolicyExists = reader.GetBoolean(57);
             var guestOrderVerificationsIssuePolicyExists = reader.GetBoolean(58);
             var guestOrderVerificationsUpdatePolicyExists = reader.GetBoolean(59);
+            var paymentEntriesTableExists = reader.GetBoolean(60);
+            var paymentEntriesRlsForced = reader.GetBoolean(61);
+            var paymentEntriesPolicyExists = reader.GetBoolean(62);
 
             var allHealthy = syncInboxTableExists && syncInboxRlsForced && syncInboxPolicyExists && roleExists
                 && usersTableExists && usersRlsForced && usersPolicyExists
@@ -304,15 +316,16 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
                 && priceListEntriesTableExists && priceListEntriesRlsForced && priceListEntriesPolicyExists
                 && guestOrderVerificationsTableExists && guestOrderVerificationsRlsForced
                 && guestOrderVerificationsLookupPolicyExists && guestOrderVerificationsIssuePolicyExists
-                && guestOrderVerificationsUpdatePolicyExists;
+                && guestOrderVerificationsUpdatePolicyExists
+                && paymentEntriesTableExists && paymentEntriesRlsForced && paymentEntriesPolicyExists;
 
             if (allHealthy)
             {
                 return HealthCheckResult.Healthy(
                     "sync_inbox, users, user_directory, organizations, branches, device_credentials, " +
                     "password_reset_tokens, platform_admins, audit_log, customers, customer_ordering_access, " +
-                    "products, presentations, price_lists, price_list_entries, and guest_order_verifications " +
-                    "tables, forced RLS, tenant-isolation policies, and app_runtime/platform_readonly roles all verified.");
+                    "products, presentations, price_lists, price_list_entries, guest_order_verifications, and " +
+                    "payment_entries tables, forced RLS, tenant-isolation policies, and app_runtime/platform_readonly roles all verified.");
             }
 
             return HealthCheckResult.Unhealthy(
@@ -337,8 +350,9 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
                 $"price_lists(table={priceListsTableExists}, rls_forced={priceListsRlsForced}, policy={priceListsPolicyExists}), " +
                 $"price_list_entries(table={priceListEntriesTableExists}, rls_forced={priceListEntriesRlsForced}, policy={priceListEntriesPolicyExists}), " +
                 $"guest_order_verifications(table={guestOrderVerificationsTableExists}, rls_forced={guestOrderVerificationsRlsForced}, " +
-                $"lookup_policy={guestOrderVerificationsLookupPolicyExists}, issue_policy={guestOrderVerificationsIssuePolicyExists}, update_policy={guestOrderVerificationsUpdatePolicyExists}). " +
-                "Apply deploy/db/migrations/0001_init_rls.sql through 0010_guest_ordering.sql.");
+                $"lookup_policy={guestOrderVerificationsLookupPolicyExists}, issue_policy={guestOrderVerificationsIssuePolicyExists}, update_policy={guestOrderVerificationsUpdatePolicyExists}), " +
+                $"payment_entries(table={paymentEntriesTableExists}, rls_forced={paymentEntriesRlsForced}, policy={paymentEntriesPolicyExists}). " +
+                "Apply deploy/db/migrations/0001_init_rls.sql through 0011_payments.sql.");
         }
         catch (Exception ex)
         {
