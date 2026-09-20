@@ -358,6 +358,24 @@ jobs:
           }
           if (-not $ready) { throw "PostgreSQL did not become ready within 60s of starting the service." }
 
+          # deploy/dev/compose.yaml's Postgres runs with
+          # `-c max_connections=300` (see its own comment: the integration
+          # suite's hundreds of short-lived WebApplicationFactory instances
+          # can overshoot the default max_connections=100 before pool
+          # teardown drains, producing SqlState 53300). The Windows service
+          # can't take that as a command-line flag, so raise it via
+          # ALTER SYSTEM and restart for it to take effect.
+          & "$pgBin\psql.exe" -h localhost -U postgres -c "ALTER SYSTEM SET max_connections = 300;"
+          net stop $svc.Name
+          net start $svc.Name
+          $ready = $false
+          for ($i = 0; $i -lt 30; $i++) {
+            & "$pgBin\pg_isready.exe" -h localhost -p 5432 -U postgres | Out-Null
+            if ($LASTEXITCODE -eq 0) { $ready = $true; break }
+            Start-Sleep -Seconds 2
+          }
+          if (-not $ready) { throw "PostgreSQL did not come back up within 60s of the max_connections restart." }
+
           & "$pgBin\psql.exe" -h localhost -U postgres -c "CREATE ROLE commerce_owner WITH LOGIN SUPERUSER PASSWORD 'dev-only-password';"
           & "$pgBin\psql.exe" -h localhost -U postgres -c "CREATE DATABASE commerce_dev OWNER commerce_owner;"
           $env:PGPASSWORD = "dev-only-password"
