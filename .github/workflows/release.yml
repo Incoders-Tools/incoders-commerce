@@ -9,12 +9,56 @@ on:
       - dev
       - staging
       - main
+  # NEW: pre-merge gate. Base-branch scoped to the three ADR-004 protected
+  # refs — branch protection (and therefore required checks) only exists on
+  # them, so a PR into any other base has nothing to satisfy. Default
+  # `types` (opened/synchronize/reopened) apply.
+  pull_request:
+    branches:
+      - dev
+      - staging
+      - main
 
 permissions:
   contents: read
+  # NEW: required by the `changes` job's `gh api .../pulls/<n>/files` call.
+  pull-requests: read
 
 jobs:
+  # NEW: always-run change classifier. See .github/scripts/classify-changes.sh
+  # for the STEP 1-6 path-glob classification. No `paths:`/`paths-ignore:`
+  # trigger filter is ever added anywhere in this workflow — a path-filtered
+  # trigger never starts, so its check run is never created and a required
+  # check hangs Pending forever. This job always runs and reports web/dotnet
+  # booleans that downstream jobs gate on via `if:`.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      web: ${{ steps.detect.outputs.web }}
+      dotnet: ${{ steps.detect.outputs.dotnet }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: detect
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_CHANGED_FILES_COUNT: ${{ github.event.pull_request.changed_files }}
+        run: |
+          set -uo pipefail
+          # Conservative default: a non-`pull_request` event never consults
+          # the API and always runs both groups (push stays byte-equivalent
+          # to today — Decision 4).
+          if [ "${GITHUB_EVENT_NAME}" != "pull_request" ]; then
+            echo "web=true"    >> "$GITHUB_OUTPUT"
+            echo "dotnet=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          "${GITHUB_WORKSPACE}/.github/scripts/classify-changes.sh"
+
   determine-channel:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     outputs:
       channel: ${{ steps.map.outputs.channel }}
@@ -35,6 +79,7 @@ jobs:
           esac
 
   verify-protected-source:
+    if: github.event_name == 'push'
     needs: determine-channel
     runs-on: ubuntu-latest
     steps:
@@ -68,6 +113,8 @@ jobs:
     # previously missing entirely from CI (no npm/vitest step existed here
     # before). Vitest specs mock `fetch`; see `web-e2e` below for the real,
     # browser-driven suite against a live backend.
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -97,7 +144,11 @@ jobs:
     # src/Commerce.Web/README.md "E2E tests" for the identical steps run
     # locally. Independent of `build`/`web-tests`: a failure here does not
     # block the .NET release build, matching this pass's scope (adding E2E
-    # coverage, not re-gating the existing release pipeline).
+    # coverage, not re-gating the existing release pipeline). Runs on every
+    # Web-touching PR (answered question (b)) — same condition as
+    # `web-tests`, no label or release-branch restriction.
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -184,7 +235,17 @@ jobs:
           retention-days: 7
 
   build:
-    needs: [determine-channel, verify-protected-source]
+    needs: [changes, determine-channel, verify-protected-source]
+    # `always()` lets `build` run on a PR where `determine-channel` and
+    # `verify-protected-source` are `skipped` (push-only, Verified 1: the
+    # channel mapping `exit 1`s on a `pull_request` ref). `!= 'failure'`
+    # (not `== 'success'`) is what tolerates that skip while still blocking
+    # a genuine push-side failure in either dependency.
+    if: >-
+      always() &&
+      needs.changes.outputs.dotnet == 'true' &&
+      needs.determine-channel.result != 'failure' &&
+      needs.verify-protected-source.result != 'failure'
     runs-on: windows-latest
     env:
       RELEASE_CHANNEL: ${{ needs.determine-channel.outputs.channel }}
@@ -214,12 +275,14 @@ jobs:
       # PackageFormatSelector can pick the correct one per machine; neither
       # format is published here (see below).
       - name: Stage packaging inputs (MSIX + MSI, both signed per ADR-004/ADR-005)
+        if: github.event_name == 'push'
         shell: pwsh
         run: |
           Write-Host "Packaging pipeline placeholder: this walking skeleton stages build outputs only."
           Write-Host "Both an MSIX and a signed MSI artifact must be produced from this same source for channel '$env:RELEASE_CHANNEL', per ADR-005."
 
       - name: Publication gate (publication_authorized)
+        if: github.event_name == 'push'
         shell: bash
         run: |
           set -euo pipefail
@@ -258,3 +321,23 @@ jobs:
           fi
 
           echo "Publication authorized for channel '$CHANNEL'."
+
+  ci-gate:
+    # NO path condition and NO event condition may ever be added to this
+    # job: it is the single required status check, so it must be queued on
+    # every run or a PR hangs Pending forever (proposal Decision 3). `if:
+    # always()` is load-bearing, not decorative — without it, a `skipped` or
+    # failed `needs` entry would skip `ci-gate` itself and re-create the
+    # exact footgun this job exists to close.
+    needs: [changes, web-tests, web-e2e, build]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - shell: bash
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          "${GITHUB_WORKSPACE}/.github/scripts/aggregate-results.sh" <<< "${NEEDS}"

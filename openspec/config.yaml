@@ -47,8 +47,8 @@ testing:
     available: true
     command: dotnet build Commerce.sln
   ci:
-    available: false
-    command: null
+    available: true
+    command: .github/workflows/release.yml
 
 rules:
   proposal:
