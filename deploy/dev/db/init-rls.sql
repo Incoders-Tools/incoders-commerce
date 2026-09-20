@@ -615,3 +615,44 @@ CREATE POLICY guest_order_verifications_issue ON guest_order_verifications
 DROP POLICY IF EXISTS guest_order_verifications_update ON guest_order_verifications;
 CREATE POLICY guest_order_verifications_update ON guest_order_verifications
     FOR UPDATE USING (true) WITH CHECK (true);
+
+-- commerce-payments: 0011_payments.sql, appended verbatim per the hand-kept
+-- parity convention MigrationRlsTests asserts.
+
+CREATE TABLE IF NOT EXISTS payment_entries (
+    entry_id            uuid PRIMARY KEY,
+    organization_id     uuid NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+    operation_id        uuid NOT NULL UNIQUE,
+    subject_kind        text NOT NULL CHECK (subject_kind IN ('Order','Sale')),
+    subject_id          uuid NOT NULL,
+    entry_kind          text NOT NULL CHECK (entry_kind IN ('Payment','Reversal')),
+    method               text NOT NULL CHECK (method IN
+                          ('Cash','AccountCredit','BankTransfer','Card','MercadoPago')),
+    amount              numeric(12,2) NOT NULL CHECK (amount > 0),
+    approval_state      text NOT NULL CHECK (approval_state IN
+                          ('Approved','Declined','Unavailable')),
+    reverses_entry_id   uuid NULL REFERENCES payment_entries (entry_id),
+    provider_reference  text NULL,
+    actor_id            uuid NOT NULL,
+    recorded_at_utc     timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT payment_entries_reversal_requires_target
+        CHECK ((entry_kind = 'Reversal') = (reverses_entry_id IS NOT NULL))
+);
+CREATE INDEX IF NOT EXISTS payment_entries_org_idx ON payment_entries (organization_id);
+CREATE INDEX IF NOT EXISTS payment_entries_subject_idx ON payment_entries (subject_kind, subject_id);
+
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS billing_instrument_reference text NULL;
+ALTER TABLE customers DROP CONSTRAINT IF EXISTS customers_instrument_not_pan_shaped;
+ALTER TABLE customers ADD CONSTRAINT customers_instrument_not_pan_shaped
+    CHECK (billing_instrument_reference IS NULL
+           OR billing_instrument_reference !~ '^[0-9]{13,19}$');
+
+ALTER TABLE payment_entries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE payment_entries FORCE ROW LEVEL SECURITY;
+REVOKE ALL ON payment_entries FROM PUBLIC;
+GRANT SELECT, INSERT ON payment_entries TO app_runtime;
+
+DROP POLICY IF EXISTS payment_entries_tenant_isolation ON payment_entries;
+CREATE POLICY payment_entries_tenant_isolation ON payment_entries
+    USING      (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid)
+    WITH CHECK (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid);

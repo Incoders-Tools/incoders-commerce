@@ -442,5 +442,5 @@ public sealed class DeviceEndpointTests : IClassFixture<WebApplicationFactory<Pr
         CorrelationId: Guid.NewGuid(),
         OccurredAtUtc: DateTimeOffset.UtcNow,
         PayloadKind: "sale",
-        Payload: "{}");
+        Payload: "{\"v\":1}");
 }

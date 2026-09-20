@@ -129,6 +129,9 @@ public sealed class PostgresReadinessHealthCheckTests : IClassFixture<WebApplica
 
         var guestOrderingSql = File.ReadAllText(Path.Combine(RepoRoot(), "deploy", "db", "migrations", "0010_guest_ordering.sql"));
         using (var cmd = new NpgsqlCommand(guestOrderingSql, owner)) cmd.ExecuteNonQuery();
+
+        var paymentsSql = File.ReadAllText(Path.Combine(RepoRoot(), "deploy", "db", "migrations", "0011_payments.sql"));
+        using (var cmd = new NpgsqlCommand(paymentsSql, owner)) cmd.ExecuteNonQuery();
     }
 
     /// <summary>
@@ -455,6 +458,87 @@ public sealed class PostgresReadinessHealthCheckTests : IClassFixture<WebApplica
 
     [Fact]
     public async Task HealthReady_IsHealthy_WhenGuestOrderVerificationsExists_WithForcedRlsAndPolicies()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            owner.Open();
+            ApplyAllMigrations(owner);
+        }
+
+        var client = _factory.CreateClient();
+        var response = await client.GetAsync("/health/ready");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    /// <summary>
+    /// Covers Unit 4 task 4.6: `/health/ready` fails before `0011` is applied
+    /// and passes after, asserting `payment_entries` exists with
+    /// `relforcerowsecurity` and its policy.
+    /// </summary>
+    [Fact]
+    public async Task HealthReady_IsUnhealthy_BeforePaymentsMigrationApplied()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            owner.Open();
+            // Every migration EXCEPT 0011 — payment_entries deliberately absent.
+            var initSql = File.ReadAllText(Path.Combine(RepoRoot(), "deploy", "db", "migrations", "0001_init_rls.sql"))
+                .Replace("__APP_RUNTIME_PASSWORD__", "dev-only-password");
+            using (var cmd = new NpgsqlCommand(initSql, owner)) cmd.ExecuteNonQuery();
+
+            foreach (var file in new[]
+                     {
+                         "0002_users.sql", "0003_organizations_branches.sql",
+                         "0004_device_credentials.sql", "0005_password_recovery.sql",
+                         "0006_role_taxonomy.sql",
+                     })
+            {
+                var sql = File.ReadAllText(Path.Combine(RepoRoot(), "deploy", "db", "migrations", file));
+                using var cmd = new NpgsqlCommand(sql, owner);
+                cmd.ExecuteNonQuery();
+            }
+
+            var platformSql = File.ReadAllText(Path.Combine(RepoRoot(), "deploy", "db", "migrations", "0007_platform_administration.sql"))
+                .Replace("__PLATFORM_READONLY_PASSWORD__", "dev-only-platform-readonly-password");
+            using (var cmd = new NpgsqlCommand(platformSql, owner)) cmd.ExecuteNonQuery();
+
+            var customerSql = File.ReadAllText(Path.Combine(RepoRoot(), "deploy", "db", "migrations", "0008_customer_registry.sql"));
+            using (var cmd = new NpgsqlCommand(customerSql, owner)) cmd.ExecuteNonQuery();
+
+            var catalogAndPricingSql = File.ReadAllText(Path.Combine(RepoRoot(), "deploy", "db", "migrations", "0009_catalog_and_pricing.sql"));
+            using (var cmd = new NpgsqlCommand(catalogAndPricingSql, owner)) cmd.ExecuteNonQuery();
+
+            var guestOrderingSql = File.ReadAllText(Path.Combine(RepoRoot(), "deploy", "db", "migrations", "0010_guest_ordering.sql"));
+            using (var cmd = new NpgsqlCommand(guestOrderingSql, owner)) cmd.ExecuteNonQuery();
+
+            using var dropCmd = new NpgsqlCommand("DROP TABLE IF EXISTS payment_entries CASCADE", owner);
+            dropCmd.ExecuteNonQuery();
+        }
+
+        try
+        {
+            var client = _factory.CreateClient();
+            var response = await client.GetAsync("/health/ready");
+
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        }
+        finally
+        {
+            using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+            owner.Open();
+            var sql = File.ReadAllText(Path.Combine(RepoRoot(), "deploy", "db", "migrations", "0011_payments.sql"));
+            using var cmd = new NpgsqlCommand(sql, owner);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    [Fact]
+    public async Task HealthReady_IsHealthy_WhenPaymentEntriesExists_WithForcedRlsAndPolicy()
     {
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
 

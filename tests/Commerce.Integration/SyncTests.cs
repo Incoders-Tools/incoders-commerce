@@ -59,7 +59,7 @@ public sealed class SyncTests : IDisposable
             CorrelationId: Guid.NewGuid(),
             OccurredAtUtc: DateTimeOffset.UtcNow,
             PayloadKind: "sale",
-            Payload: "{}");
+            Payload: "{\"v\":1}");
 
     // --- Atomic sale / outbox --------------------------------------------
 

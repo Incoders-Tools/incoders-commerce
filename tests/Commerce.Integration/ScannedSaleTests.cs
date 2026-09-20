@@ -50,7 +50,7 @@ public sealed class ScannedSaleTests : IDisposable
         CorrelationId: Guid.NewGuid(),
         OccurredAtUtc: DateTimeOffset.UtcNow,
         PayloadKind: "sale",
-        Payload: "{}");
+        Payload: "{\"v\":1}");
 
     [Fact]
     public void CommitScannedSaleAtomically_WritesScannedKind_AndRealSaleLines()

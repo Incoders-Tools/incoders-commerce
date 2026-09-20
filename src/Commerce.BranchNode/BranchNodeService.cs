@@ -2,6 +2,7 @@ using Commerce.Application.Access;
 using Commerce.Application.Audit;
 using Commerce.Domain.Identity;
 using Commerce.Domain.Sync;
+using Commerce.Domain.Sync.Payloads;
 
 namespace Commerce.BranchNode;
 
@@ -44,6 +45,8 @@ public sealed class BranchNodeService
         Guid operationId,
         Guid correlationId)
     {
+        var occurredAtUtc = _clock();
+        var payload = new SalePayloadV1(saleId, totalAmount, "Manual", occurredAtUtc, Lines: []);
         var envelope = new SyncEnvelope(
             OperationId: operationId,
             ContractVersion: 1,
@@ -53,10 +56,10 @@ public sealed class BranchNodeService
             AggregateVersion: 1,
             ActorId: actorId,
             CorrelationId: correlationId,
-            OccurredAtUtc: _clock(),
+            OccurredAtUtc: occurredAtUtc,
             PayloadKind: "sale",
-            Payload: "{}");
-        var effect = new SaleEffect(saleId, branchId, totalAmount, _clock());
+            Payload: SyncPayloadCodec.Serialize(payload));
+        var effect = new SaleEffect(saleId, branchId, totalAmount, occurredAtUtc);
 
         return _store.CommitSaleAtomically(envelope, effect);
     }
@@ -78,6 +81,8 @@ public sealed class BranchNodeService
         Guid operationId,
         Guid correlationId)
     {
+        var occurredAtUtc = _clock();
+        var payload = new SalePayloadV1(saleId, totalAmount, "Scanned", occurredAtUtc, lines);
         var envelope = new SyncEnvelope(
             OperationId: operationId,
             ContractVersion: 1,
@@ -87,10 +92,10 @@ public sealed class BranchNodeService
             AggregateVersion: 1,
             ActorId: actorId,
             CorrelationId: correlationId,
-            OccurredAtUtc: _clock(),
+            OccurredAtUtc: occurredAtUtc,
             PayloadKind: "sale",
-            Payload: "{}");
-        var effect = new SaleEffect(saleId, branchId, totalAmount, _clock());
+            Payload: SyncPayloadCodec.Serialize(payload));
+        var effect = new SaleEffect(saleId, branchId, totalAmount, occurredAtUtc);
 
         return _store.CommitScannedSaleAtomically(envelope, effect, lines);
     }

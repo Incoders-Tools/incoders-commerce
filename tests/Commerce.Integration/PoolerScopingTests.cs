@@ -61,7 +61,7 @@ public sealed class PoolerScopingTests : IDisposable
         CorrelationId: Guid.NewGuid(),
         OccurredAtUtc: DateTimeOffset.UtcNow,
         PayloadKind: "sale",
-        Payload: "{}");
+        Payload: "{\"v\":1}");
 
     [Fact]
     public async Task ConcurrentPooledTransactions_NeverObserveAnotherOrganizationsRows()

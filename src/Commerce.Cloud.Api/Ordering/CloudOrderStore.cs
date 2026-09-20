@@ -2,6 +2,7 @@ using Commerce.BranchNode;
 using Commerce.Cloud.Api.Tenancy;
 using Commerce.Domain.Ordering;
 using Commerce.Domain.Sync;
+using Commerce.Domain.Sync.Payloads;
 
 namespace Commerce.Cloud.Api.Ordering;
 
@@ -155,6 +156,16 @@ public sealed class CloudOrderStore
             return;
         }
 
+        var payload = new OrderPayloadV1(
+            OrderId: order.OrderId,
+            DestinationBranchId: order.DestinationBranchId,
+            Origin: order.Origin.ToString(),
+            Lines: order.Lines
+                .Select(line => new OrderLinePayloadV1(
+                    line.ProductId, line.ProductName, line.PresentationId, line.PresentationName,
+                    line.Quantity, line.UnitNetPrice, line.LineTotal))
+                .ToList());
+
         var envelope = new SyncEnvelope(
             OperationId: order.OrderId,
             ContractVersion: 1,
@@ -166,9 +177,12 @@ public sealed class CloudOrderStore
             CorrelationId: correlationId,
             OccurredAtUtc: _clock(),
             PayloadKind: "order",
-            Payload: "{}");
+            Payload: SyncPayloadCodec.Serialize(payload));
 
         var result = destination.ApplyInbound(envelope);
+        // Task 3.8/3.9: an UnknownKind outcome is treated as not-confirmed —
+        // the order stays Pending, never Applied/DuplicateIgnored (design.md
+        // File Changes: "treat UnknownKind as not-confirmed").
         if (result.Outcome is InboundApplyOutcome.Applied or InboundApplyOutcome.DuplicateIgnored)
         {
             order.MarkDestinationConfirmed();

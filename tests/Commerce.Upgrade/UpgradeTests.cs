@@ -120,7 +120,7 @@ public sealed class UpgradeTests : IDisposable
             CorrelationId: Guid.NewGuid(),
             OccurredAtUtc: DateTimeOffset.UtcNow,
             PayloadKind: "sale",
-            Payload: "{}");
+            Payload: "{\"v\":1}");
         var effect = new SaleEffect(Guid.NewGuid(), BranchId, 100m, DateTimeOffset.UtcNow);
         store.CommitSaleAtomically(envelope, effect);
     }

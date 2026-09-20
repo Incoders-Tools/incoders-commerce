@@ -308,7 +308,7 @@ public sealed class OrderingTests : IDisposable
             CorrelationId: correlationId,
             OccurredAtUtc: DateTimeOffset.UtcNow,
             PayloadKind: "order",
-            Payload: "{}"));
+            Payload: "{\"v\":1}"));
         Assert.Equal(InboundApplyOutcome.DuplicateIgnored, directReapply.Outcome);
     }
 
