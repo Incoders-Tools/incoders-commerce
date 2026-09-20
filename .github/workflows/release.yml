@@ -315,6 +315,36 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
+      # `dotnet test Commerce.sln` runs ~600 Commerce.Integration tests that
+      # connect to a live PostgreSQL (deploy/dev/db/init-rls.sql). Without
+      # one, most of those tests degrade gracefully (PostgresTestFixture
+      # skip-if-unreachable) rather than hard-failing — but every one of
+      # them still pays a real connection-timeout cost first, which is what
+      # made this step take ~16 minutes instead of the ~3 minutes it takes
+      # locally / on web-e2e's Linux runner with real Postgres. GitHub
+      # Actions service containers (`services:`) are Linux-only and this job
+      # must stay on `windows-latest` (Commerce.Pos.Windows is a WPF
+      # project, which only builds on Windows) — so this uses the
+      # PostgreSQL that ships pre-installed and already running on the
+      # windows-latest runner image instead (default superuser `postgres` /
+      # `root`, per actions/runner-images), provisioned with the same
+      # commerce_owner/commerce_dev shape deploy/dev/compose.yaml creates
+      # via its POSTGRES_USER/POSTGRES_DB image variables, then the same
+      # init-rls.sql applied everywhere else in this repo.
+      - name: Provision local PostgreSQL (pre-installed on windows-latest)
+        shell: pwsh
+        env:
+          PGPASSWORD: root
+        run: |
+          $pgBin = $env:PGBIN
+          if (-not $pgBin) { $pgBin = "C:\Program Files\PostgreSQL\17\bin" }
+          & "$pgBin\pg_isready.exe" -h localhost -p 5432 -U postgres
+          & "$pgBin\psql.exe" -h localhost -U postgres -c "CREATE ROLE commerce_owner WITH LOGIN SUPERUSER PASSWORD 'dev-only-password';"
+          & "$pgBin\psql.exe" -h localhost -U postgres -c "CREATE DATABASE commerce_dev OWNER commerce_owner;"
+          $env:PGPASSWORD = "dev-only-password"
+          & "$pgBin\psql.exe" -h localhost -U commerce_owner -d commerce_dev -f deploy/dev/db/init-rls.sql
+          if ($LASTEXITCODE -ne 0) { throw "init-rls.sql failed with exit code $LASTEXITCODE" }
+
       - name: Restore and build
         shell: pwsh
         run: |
