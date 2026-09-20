@@ -53,12 +53,21 @@ revocation timing while offline MUST follow an approved offline-identity ADR
 and MUST NOT be implied as immediate. Actor identity — user id, roles, and
 branch scope — used in any authorization decision MUST be derived from the
 authenticated principal via the persisted user-credentials store, never from
-request-body or payload fields submitted by the caller.
+request-body or payload fields submitted by the caller. This principle
+applies equally to the ordering path: `CustomerOrderingAccess` evaluation
+MUST resolve the credential and enabled state from the persisted access
+store and MUST NOT accept a caller-supplied enabled flag from the request
+body. Role names used in any authorization decision MUST resolve only to
+entries in the server-owned role catalog; a persisted or presented role name
+outside the catalog MUST NOT grant any permission.
 
 (Previously: actor identity fields such as roles and branch scope could be
 supplied directly in the request body, e.g. `Catalog.cs`'s
 `RenameProductRequest.ActorId/ActorBranchScope/ActorRoles`, with no
-verification against a persisted store.)
+verification against a persisted store. The ordering path was a known
+violation of this same principle: `CustomerCatalogAccessService.Evaluate`
+read a self-asserted `AccessEnabled` boolean from the request body with no
+persisted store consulted anywhere in that path.)
 
 #### Scenario: Revoked access
 
@@ -90,6 +99,102 @@ verification against a persisted store.)
   branch scope than persisted
 - THEN authorization is evaluated against the persisted role and branch
   scope, and the action is denied if the persisted grant does not permit it
+
+#### Scenario: Ordering access is resolved from the persisted store, not the request
+
+- GIVEN a customer ordering access credential's enabled state exists only in
+  the persisted access store
+- WHEN an order submission includes a self-asserted enabled flag for that
+  credential
+- THEN authorization is evaluated using the persisted store's state and the
+  request-supplied flag is ignored
+
+#### Scenario: Role name outside the catalog grants nothing
+
+- GIVEN a persisted role entry carries a name that is not in the server-owned
+  role catalog
+- WHEN authorization for a protected action evaluates that role
+- THEN no permission is granted from that entry
+
+### Requirement: Platform-Admin Scheme Isolation
+
+A platform-admin identity MUST be authenticated through a distinct
+credential/session scheme (`PlatformAdminAuth`), separate from the
+org-scoped cookie scheme, and MUST carry no `organization_id` on the
+identity itself. An org-scoped caller authenticated under the org-scoped
+scheme MUST NOT be authorized against any platform-admin-only endpoint, and
+a platform-admin authenticated under `PlatformAdminAuth` MUST NOT be
+authorized against any org-scoped, `TenantScopeResolver`-gated endpoint.
+
+#### Scenario: Org-scoped caller cannot reach a platform-admin endpoint
+
+- GIVEN a `business-admin` is authenticated under the org-scoped cookie
+  scheme
+- WHEN that session calls a platform-admin-only endpoint
+- THEN the request is rejected without authorizing the action
+
+#### Scenario: Platform-admin cannot reach an org-scoped endpoint
+
+- GIVEN a platform-admin is authenticated under `PlatformAdminAuth`
+- WHEN that session calls an org-scoped, `TenantScopeResolver`-gated endpoint
+- THEN the request is rejected without authorizing the action
+
+### Requirement: Audit Logging for User-Management Actions
+
+Every user-management action in scope for this change — user creation, role
+assignment or change, and any platform-admin action — MUST write an
+append-only audit record in the same transaction as the mutating action,
+capturing actor id, actor kind (org user vs. platform admin), acted-on
+entity type and id, organization id, action, timestamp, and old/new value
+where applicable. No mutating action MUST succeed while its audit record
+fails to persist, and no audit record MUST exist for an action that did not
+occur.
+
+#### Scenario: Audit row is written atomically with the action
+
+- GIVEN a `business-admin` assigns a new role to a user
+- WHEN the role-assignment transaction commits
+- THEN an audit row exists in that same transaction recording the actor,
+  the acted-on user, the organization, the action, the timestamp, and the
+  old and new role values
+
+#### Scenario: Failed audit write rolls back the action
+
+- GIVEN a user-management action is being persisted
+- WHEN the audit-record write fails
+- THEN the mutating action is rolled back and does not take effect
+
+#### Scenario: No orphaned audit row without a corresponding action
+
+- GIVEN a user-management transaction is rolled back for any reason
+- WHEN the transaction outcome is inspected
+- THEN no audit row exists for that attempted action
+
+### Requirement: Anonymous Request Organization Resolution
+
+A request that arrives with no authenticated principal (a guest order)
+MUST still resolve to exactly one organization and branch before being
+processed; this resolution MUST NOT depend on any authenticated
+principal's claims. For the current deployment this resolution MUST
+target the single configured organization (Vaca Verde) and its
+principal/default branch. The resolution mechanism MUST be isolated behind
+a single responsibility so a future per-request resolution (e.g.
+multi-organization) can replace the fixed default without changing the
+domain or endpoint shape it feeds.
+
+#### Scenario: Anonymous guest request resolves to the fixed default organization and branch
+
+- GIVEN a guest request carries no authenticated principal
+- WHEN the request is processed
+- THEN it resolves to the single configured organization and its
+  principal/default branch
+
+#### Scenario: Guest order carries organization/branch context despite no principal
+
+- GIVEN a guest order was admitted from an anonymous request
+- WHEN the order is read back
+- THEN it carries the same organization and branch context required of
+  every business record under "Organization and Branch Isolation"
 
 ### Requirement: Installation Identity and Audit
 

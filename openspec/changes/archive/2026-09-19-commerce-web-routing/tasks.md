@@ -65,3 +65,4 @@ Chained PRs recommended: No
 - [x] 3.4 Run `npm run test` (vitest, from `src/Commerce.Web`).
 - [x] 3.5 Run `npm run build` (from `src/Commerce.Web`).
 - [x] 3.6 Run `npm run test:e2e` (Playwright, from `src/Commerce.Web`) — all specs green, including the 7 retargeted call sites across `sign-in.spec.ts`, `catalog.spec.ts`, and `ordering.spec.ts`.
+- [x] 3.7 Close verify-report.md's CRITICAL gap for spec scenario "Public routes are addressable on hard refresh": `src/Commerce.Web/e2e/routing.spec.ts` (Playwright) proves a real full-navigation `page.reload()` against `/`, `/login`, and `/forgot-password` re-resolves to the correct screen through the server's `MapFallbackToFile` SPA fallback (not just client-side routing), plus an unknown-deep-path fallback case and a guarded-route redirect case. Confirmed green against a locally built SPA + `Commerce.Cloud.Api` + `local-ssl-proxy` harness (5/5 passed) — see updated `verify-report.md` for full evidence.
