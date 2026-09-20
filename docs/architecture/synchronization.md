@@ -19,7 +19,8 @@ The product synchronizes explicit operations and events; it does not blindly rep
 | Branch hardware and stock | Local branch |
 | Preparation and delivery | Local branch operation |
 | Online-order origin | Cloud |
-| Online payment approval | Payment gateway / cloud |
+| Recorded-payment authority | The node that recorded it — branch for POS cash, cloud for web orders (ADR-011; commerce-payments) |
+| Settlement state (owed/settled per order or customer) | Cloud, derived — `SettlementCalculator.Fold` over the ledger, never stored |
 | Campaigns and consolidated reporting | Cloud |
 | Shared masters, users, and permissions | Pending by data type |
 

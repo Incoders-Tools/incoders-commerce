@@ -1,9 +1,28 @@
+using Commerce.Domain.Payments;
 using Commerce.Domain.Sync;
 using Microsoft.Data.Sqlite;
 
 namespace Commerce.BranchNode;
 
 public sealed record BranchOutboxCommitResult(bool WasNewlyCommitted, SaleEffect Effect);
+
+/// <summary>
+/// One row of the `payment_outbox` table (commerce-payments design.md
+/// "Storage shape of the parallel effect path"): only the generic
+/// <see cref="SyncEnvelope"/> columns — no payment-specific column at all.
+/// </summary>
+public sealed record PaymentOutboxRow(
+    Guid OperationId,
+    Guid BranchId,
+    Guid OrganizationId,
+    Guid AggregateId,
+    long AggregateVersion,
+    Guid ActorId,
+    Guid CorrelationId,
+    DateTimeOffset OccurredAtUtc,
+    string PayloadKind,
+    string Payload,
+    string Status);
 
 /// <summary>
 /// One row of the minimum-viable cloud->local customer replica (Unit 6;
@@ -143,6 +162,28 @@ public sealed class BranchSyncStore : IDisposable
             );
             """;
         create.ExecuteNonQuery();
+
+        // commerce-payments design.md "Storage shape of the parallel effect
+        // path": appended to the SAME constructor DDL block, additively.
+        // ZERO edits above this point to outbox/sale_effects/sale_lines/inbox.
+        // payment_outbox carries ONLY generic SyncEnvelope columns — no
+        // sale_id, no total_amount, no payment_id: this is the shape Phase F
+        // consolidates `outbox` into.
+        using var createPayments = _connection.CreateCommand();
+        createPayments.CommandText = """
+            CREATE TABLE IF NOT EXISTS payment_effects (
+                entry_id TEXT PRIMARY KEY, branch_id TEXT NOT NULL, subject_kind TEXT NOT NULL,
+                subject_id TEXT NOT NULL, method TEXT NOT NULL, amount TEXT NOT NULL,
+                entry_kind TEXT NOT NULL, reverses_entry_id TEXT NULL, occurred_at_utc TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS payment_outbox (
+                operation_id TEXT PRIMARY KEY, branch_id TEXT NOT NULL, organization_id TEXT NOT NULL,
+                aggregate_id TEXT NOT NULL, aggregate_version INTEGER NOT NULL, actor_id TEXT NOT NULL,
+                correlation_id TEXT NOT NULL, occurred_at_utc TEXT NOT NULL, payload_kind TEXT NOT NULL,
+                payload TEXT NOT NULL, status TEXT NOT NULL, acknowledged_at_utc TEXT NULL
+            );
+            """;
+        createPayments.ExecuteNonQuery();
 
         EnsureSaleKindColumnExists();
     }
@@ -896,6 +937,157 @@ public sealed class BranchSyncStore : IDisposable
         OccurredAtUtc: DateTimeOffset.Parse(reader.GetString(7)),
         PayloadKind: reader.GetString(8),
         Payload: reader.GetString(9));
+
+    // --- Payment parallel path (Unit 5; commerce-payments design.md "Data
+    // Flow" — POS cash payment at a branch, ADR-002: never blocks) ---------
+
+    /// <summary>
+    /// ONE SQLite transaction: `payment_effects` + `payment_outbox`, exactly
+    /// mirroring <see cref="CommitSaleAtomicallyCore"/>'s atomicity shape. No
+    /// cloud call, no gateway call on this path — returns immediately
+    /// (ADR-002: offline branch sales/payments never block).
+    /// </summary>
+    public void CommitPaymentAtomically(SyncEnvelope envelope, PaymentEffect effect)
+    {
+        lock (_writeGate)
+        {
+            using var transaction = _connection.BeginTransaction();
+
+            InsertPaymentEffectRow(effect, transaction);
+            InsertPaymentOutboxRow(envelope, transaction);
+
+            transaction.Commit();
+        }
+    }
+
+    /// <summary>
+    /// Test-only atomicity proof, mirroring <see cref="SimulateInterruptedCommit"/>:
+    /// performs the same writes as <see cref="CommitPaymentAtomically"/> but
+    /// never commits. Disposing an uncommitted <see cref="SqliteTransaction"/>
+    /// rolls it back, proving that an interrupted payment commit leaves
+    /// BOTH tables byte-identical across a restart.
+    /// </summary>
+    public void SimulateInterruptedPaymentCommit(SyncEnvelope envelope, PaymentEffect effect)
+    {
+        lock (_writeGate)
+        {
+            using var transaction = _connection.BeginTransaction();
+
+            InsertPaymentEffectRow(effect, transaction);
+            InsertPaymentOutboxRow(envelope, transaction);
+
+            // Deliberately abandoned: no Commit().
+        }
+    }
+
+    public IReadOnlyList<PaymentOutboxRow> GetPendingPaymentOutbox(Guid branchId)
+    {
+        using var command = _connection.CreateCommand();
+        command.CommandText = """
+            SELECT operation_id, branch_id, organization_id, aggregate_id, aggregate_version,
+                   actor_id, correlation_id, occurred_at_utc, payload_kind, payload, status
+            FROM payment_outbox
+            WHERE branch_id = $branchId AND status = 'Pending';
+            """;
+        command.Parameters.AddWithValue("$branchId", branchId.ToString());
+
+        var results = new List<PaymentOutboxRow>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            results.Add(ReadPaymentOutboxRow(reader));
+        }
+        return results;
+    }
+
+    /// <summary>
+    /// Idempotent, mirroring <see cref="Acknowledge"/>: acknowledging an
+    /// already-acknowledged (or unknown-but-previously-seen) operation must
+    /// not fail the retry.
+    /// </summary>
+    public bool AcknowledgePayment(Guid operationId)
+    {
+        lock (_writeGate)
+        {
+            using var command = _connection.CreateCommand();
+            command.CommandText = """
+                UPDATE payment_outbox SET status = 'Acknowledged', acknowledged_at_utc = $now
+                WHERE operation_id = $operationId;
+                """;
+            command.Parameters.AddWithValue("$operationId", operationId.ToString());
+            command.Parameters.AddWithValue("$now", DateTimeOffset.UtcNow.ToString("O"));
+            var affected = command.ExecuteNonQuery();
+
+            if (affected > 0)
+            {
+                return true;
+            }
+
+            using var exists = _connection.CreateCommand();
+            exists.CommandText = "SELECT COUNT(1) FROM payment_outbox WHERE operation_id = $operationId;";
+            exists.Parameters.AddWithValue("$operationId", operationId.ToString());
+            return (long)exists.ExecuteScalar()! > 0;
+        }
+    }
+
+    private void InsertPaymentEffectRow(PaymentEffect effect, SqliteTransaction transaction)
+    {
+        using var insert = _connection.CreateCommand();
+        insert.Transaction = transaction;
+        insert.CommandText = """
+            INSERT INTO payment_effects
+                (entry_id, branch_id, subject_kind, subject_id, method, amount, entry_kind, reverses_entry_id, occurred_at_utc)
+            VALUES ($entryId, $branchId, $subjectKind, $subjectId, $method, $amount, $entryKind, $reversesEntryId, $occurredAt);
+            """;
+        insert.Parameters.AddWithValue("$entryId", effect.EntryId.ToString());
+        insert.Parameters.AddWithValue("$branchId", effect.BranchId.ToString());
+        insert.Parameters.AddWithValue("$subjectKind", effect.SubjectKind);
+        insert.Parameters.AddWithValue("$subjectId", effect.SubjectId.ToString());
+        insert.Parameters.AddWithValue("$method", effect.Method);
+        insert.Parameters.AddWithValue("$amount", effect.Amount.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        insert.Parameters.AddWithValue("$entryKind", effect.EntryKind);
+        insert.Parameters.AddWithValue("$reversesEntryId", (object?)effect.ReversesEntryId?.ToString() ?? DBNull.Value);
+        insert.Parameters.AddWithValue("$occurredAt", effect.OccurredAtUtc.ToString("O"));
+        insert.ExecuteNonQuery();
+    }
+
+    private void InsertPaymentOutboxRow(SyncEnvelope envelope, SqliteTransaction transaction)
+    {
+        using var insert = _connection.CreateCommand();
+        insert.Transaction = transaction;
+        insert.CommandText = """
+            INSERT INTO payment_outbox (
+                operation_id, branch_id, organization_id, aggregate_id, aggregate_version,
+                actor_id, correlation_id, occurred_at_utc, payload_kind, payload, status, acknowledged_at_utc)
+            VALUES (
+                $operationId, $branchId, $organizationId, $aggregateId, $aggregateVersion,
+                $actorId, $correlationId, $occurredAt, $payloadKind, $payload, 'Pending', NULL);
+            """;
+        insert.Parameters.AddWithValue("$operationId", envelope.OperationId.ToString());
+        insert.Parameters.AddWithValue("$branchId", envelope.BranchId.ToString());
+        insert.Parameters.AddWithValue("$organizationId", envelope.OrganizationId.ToString());
+        insert.Parameters.AddWithValue("$aggregateId", envelope.AggregateId.ToString());
+        insert.Parameters.AddWithValue("$aggregateVersion", envelope.AggregateVersion);
+        insert.Parameters.AddWithValue("$actorId", envelope.ActorId.ToString());
+        insert.Parameters.AddWithValue("$correlationId", envelope.CorrelationId.ToString());
+        insert.Parameters.AddWithValue("$occurredAt", envelope.OccurredAtUtc.ToString("O"));
+        insert.Parameters.AddWithValue("$payloadKind", envelope.PayloadKind);
+        insert.Parameters.AddWithValue("$payload", envelope.Payload);
+        insert.ExecuteNonQuery();
+    }
+
+    private static PaymentOutboxRow ReadPaymentOutboxRow(SqliteDataReader reader) => new(
+        OperationId: Guid.Parse(reader.GetString(0)),
+        BranchId: Guid.Parse(reader.GetString(1)),
+        OrganizationId: Guid.Parse(reader.GetString(2)),
+        AggregateId: Guid.Parse(reader.GetString(3)),
+        AggregateVersion: reader.GetInt64(4),
+        ActorId: Guid.Parse(reader.GetString(5)),
+        CorrelationId: Guid.Parse(reader.GetString(6)),
+        OccurredAtUtc: DateTimeOffset.Parse(reader.GetString(7)),
+        PayloadKind: reader.GetString(8),
+        Payload: reader.GetString(9),
+        Status: reader.GetString(10));
 
     public void Dispose()
     {

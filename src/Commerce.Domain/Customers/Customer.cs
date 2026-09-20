@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace Commerce.Domain.Customers;
 
 /// <summary>
@@ -28,6 +30,16 @@ public sealed class Customer
     public string? DeliveryNotes { get; }
     public decimal? DiscountPercentage { get; }
     public string? PaymentTerms { get; }
+
+    /// <summary>
+    /// Opaque provider token/alias (commerce-payments design.md "Customer
+    /// instrument reference", Decision 4) — a NEW, separately-named field.
+    /// <see cref="PaymentTerms"/> is free-text commercial terms and is
+    /// NEVER touched by this field: not its type, not its position, not its
+    /// guard. Rejects any 13-19 digit (PAN-shaped) value; the platform
+    /// stores a reference, never a card number.
+    /// </summary>
+    public string? BillingInstrumentReference { get; }
     public string? Notes { get; }
     public bool IsEnabled { get; private set; }
     public DateTimeOffset CreatedAtUtc { get; }
@@ -56,7 +68,8 @@ public sealed class Customer
         string? notes,
         Guid createdByUserId,
         bool isEnabled = true,
-        DateTimeOffset? createdAtUtc = null)
+        DateTimeOffset? createdAtUtc = null,
+        string? billingInstrumentReference = null)
     {
         if (string.IsNullOrWhiteSpace(displayName))
         {
@@ -75,6 +88,16 @@ public sealed class Customer
         if (taxIdType != TaxIdType.None && !hasTaxId)
         {
             throw new ArgumentException("TaxId is required when TaxIdType is not None.", nameof(taxId));
+        }
+
+        // commerce-payments design.md "Customer instrument reference": reject
+        // any 13-19 digit (PAN-shaped) value, mirroring the DB CHECK
+        // customers_instrument_not_pan_shaped.
+        if (billingInstrumentReference is not null && PanShapePattern.IsMatch(billingInstrumentReference))
+        {
+            throw new ArgumentException(
+                "BillingInstrumentReference must not be a PAN-shaped (13-19 digit) value.",
+                nameof(billingInstrumentReference));
         }
 
         Id = id;
@@ -96,6 +119,7 @@ public sealed class Customer
         DeliveryNotes = deliveryNotes;
         DiscountPercentage = discountPercentage;
         PaymentTerms = paymentTerms;
+        BillingInstrumentReference = billingInstrumentReference;
         Notes = notes;
         CreatedByUserId = createdByUserId;
         IsEnabled = isEnabled;
@@ -105,4 +129,6 @@ public sealed class Customer
     public void Enable() => IsEnabled = true;
 
     public void Disable() => IsEnabled = false;
+
+    private static readonly Regex PanShapePattern = new("^[0-9]{13,19}$", RegexOptions.Compiled);
 }
