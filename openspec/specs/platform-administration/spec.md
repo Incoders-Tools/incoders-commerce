@@ -168,4 +168,3 @@ capability representation, decided at design time.)
 - THEN an audit row exists in that same transaction recording the
   sysadmin as actor, the created organization and admin user as acted-on
   entities, the action, and the timestamp
-

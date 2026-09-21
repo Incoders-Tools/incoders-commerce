@@ -147,8 +147,8 @@ Coverage analysis skipped — no coverage command is available in initialized ca
 
 ### Quality Metrics
 
-**Linter**: ➖ Not available in initialized capabilities  
-**Type checker**: ✅ `npm run build` passed  
+**Linter**: ➖ Not available in initialized capabilities
+**Type checker**: ✅ `npm run build` passed
 **Build**: ✅ `dotnet build Commerce.sln` passed with known package-advisory warnings
 
 ### Issues Found

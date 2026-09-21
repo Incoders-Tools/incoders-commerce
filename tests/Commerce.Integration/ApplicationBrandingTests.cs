@@ -48,7 +48,7 @@ public sealed class ApplicationBrandingTests
             Environment.SetEnvironmentVariable("Commerce__ApplicationName", previous);
             Directory.Delete(directory, recursive: true);
         }
-    
+
 }
 
     [Fact]
