@@ -24,6 +24,7 @@ public partial class App : System.Windows.Application
 
         _host = PosHostBuilder.Build();
         _host.Start();
+        var branding = _host.Services.GetRequiredService<ApplicationBranding>();
 
         var localInstallationStore = _host.Services.GetRequiredService<LocalInstallationStore>();
         var identity = localInstallationStore.LoadOrCreate();
@@ -31,7 +32,7 @@ public partial class App : System.Windows.Application
         if (identity.Pairing is null)
         {
             var pairingClient = _host.Services.GetRequiredService<DevicePairingClient>();
-            var pairingWindow = new PairingWindow(pairingClient, localInstallationStore, identity.InstallationId);
+            var pairingWindow = new PairingWindow(pairingClient, localInstallationStore, identity.InstallationId) { Title = $"{branding.MainWindowTitle} — Pair terminal" };
             var paired = pairingWindow.ShowDialog();
 
             if (paired != true || pairingWindow.PairedRecord is null)
@@ -73,6 +74,8 @@ public partial class App : System.Windows.Application
             _host.Services.GetRequiredService<CatalogPriceReplicaClient>(),
             _host.Services.GetRequiredService<Commerce.Application.Pricing.PricingResolutionService>(),
             _host.Services.GetRequiredService<Func<CustomerAdminClient>>(),
+            _host.Services.GetRequiredService<Func<UserAdminClient>>(),
+            branding,
             identity);
 
         // ShutdownMode is OnExplicitShutdown (App.xaml) specifically so that

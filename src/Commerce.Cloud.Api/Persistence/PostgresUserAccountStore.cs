@@ -102,7 +102,7 @@ public sealed class PostgresUserAccountStore
         await SetTenantScopeAsync(connection, tx, scope, ct);
 
         await using var cmd = new NpgsqlCommand(
-            "SELECT organization_id, branch_scope, roles, is_revoked, customer_id FROM users WHERE id = $1",
+            "SELECT organization_id, branch_scope, roles, is_revoked, customer_id, is_system_admin FROM users WHERE id = $1",
             connection, tx);
         cmd.Parameters.AddWithValue(userId);
 
@@ -116,6 +116,7 @@ public sealed class PostgresUserAccountStore
                 var rolesJson = reader.GetString(2);
                 var isRevoked = reader.GetBoolean(3);
                 var customerId = reader.IsDBNull(4) ? (Guid?)null : reader.GetGuid(4);
+                var isSystemAdmin = reader.GetBoolean(5);
 
                 var roleDtos = JsonSerializer.Deserialize<List<RoleDto>>(rolesJson, RoleSerializerOptions) ?? [];
                 var roles = roleDtos.Select(r => new Role(r.Name, r.Permissions));
@@ -125,7 +126,7 @@ public sealed class PostgresUserAccountStore
                 // (sign-in, /account/me, ManageUsers-gated endpoints) sees the
                 // same denied-by-construction EffectivePermissions the domain
                 // guard already enforces.
-                actor = new UserAccount(userId, organizationId, branchScope, roles, customerId);
+                actor = new UserAccount(userId, organizationId, branchScope, roles, customerId, isSystemAdmin);
                 if (isRevoked)
                 {
                     actor.Revoke();
@@ -355,6 +356,26 @@ public sealed class PostgresUserAccountStore
         await tx.CommitAsync(ct);
     }
 
+    public async Task<IReadOnlyList<UserSummaryDto>> ListStaffAsync(CloudTenantScope scope, CancellationToken ct)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+        await SetTenantScopeAsync(connection, tx, scope, ct);
+
+        var users = new List<UserSummaryDto>();
+        await using var cmd = new NpgsqlCommand(
+            "SELECT id, email, roles, is_revoked FROM users WHERE customer_id IS NULL ORDER BY email", connection, tx);
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            var roles = JsonSerializer.Deserialize<List<RoleDto>>(reader.GetString(2), RoleSerializerOptions) ?? [];
+            users.Add(new UserSummaryDto(reader.GetGuid(0), reader.GetString(1), roles.Select(role => role.Name).ToList(), reader.GetBoolean(3)));
+        }
+        await reader.CloseAsync();
+
+        await tx.CommitAsync(ct);
+        return users;
+    }
     private static string Normalize(string email) => email.Trim().ToLowerInvariant();
 
     /// <summary>

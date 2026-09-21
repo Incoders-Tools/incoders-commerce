@@ -1,5 +1,16 @@
 # Deploy notes
 
+## Local development administrator
+
+Use one local identity for Web and Desktop administration:
+
+1. Copy `deploy/dev/.env.example` to the ignored `deploy/dev/.env` and set unique values for both variables.
+2. Start the complete local stack: `docker compose -f deploy/dev/compose.yaml --profile full up -d`.
+3. Run `pwsh -File deploy/dev/provision-admin.ps1`.
+4. Sign in to Web and Desktop with the **same** email and password from `deploy/dev/.env`.
+
+Desktop pairing happens before its admin window opens. The provisioning script verifies that the same identity can pair a Desktop terminal; keep credentials only in the ignored `.env` file, never in compose or init SQL.
+
 ## Unit 2 — Transaction-pooler proof-of-concept outcome
 
 **Result: PASS (for the tested local approximation) — transaction-mode pooling accepted, with a documented gap.**
@@ -533,3 +544,7 @@ is unchanged; `full` is strictly additive.
 
 Commerce.Pos.Windows never requires Docker: it only needs an already-running
 Cloud.Api (local, containerized, or staging) to sync against.
+
+### commerce-admin-console — `0012_admin_console.sql`
+
+Apply `0012_admin_console.sql` after the existing migration lineage. It migrates legacy platform administrator identities into the reserved Incoders Platform organization, preserves the password hashes, and removes the legacy `platform_admins` table. After rollout, reset each migrated system administrator password through the unified `/account` identity flow; do not run the retired platform-genesis workflow.

@@ -83,6 +83,7 @@ CREATE TABLE IF NOT EXISTS users (
     branch_scope    uuid[] NOT NULL DEFAULT '{}',
     roles           jsonb NOT NULL DEFAULT '[]',
     is_revoked      boolean NOT NULL DEFAULT false,
+    is_system_admin boolean NOT NULL DEFAULT false,
     created_at_utc  timestamptz NOT NULL DEFAULT now()
 );
 CREATE UNIQUE INDEX IF NOT EXISTS users_org_email_unique ON users (organization_id, email);
@@ -656,3 +657,9 @@ DROP POLICY IF EXISTS payment_entries_tenant_isolation ON payment_entries;
 CREATE POLICY payment_entries_tenant_isolation ON payment_entries
     USING      (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid)
     WITH CHECK (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid);
+
+
+
+-- commerce-admin-console: dev initialization represents the final 0012 shape.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_system_admin boolean NOT NULL DEFAULT false;
+DROP TABLE IF EXISTS platform_admins;

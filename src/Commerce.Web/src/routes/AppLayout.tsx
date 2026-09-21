@@ -30,9 +30,12 @@ export function AppLayout() {
         {/* commerce-customer-identity "Web admin gating": hidden, not just
             unreachable — a UX affordance, not the security boundary. The
             server's ManageUsers check on every /customers call is that. */}
-        {hasPermission(user, Permission.ManageUsers) && (
+        {hasPermission(user, Permission.ManageUsers) && <>
           <NavTab to="/app/customers">Customers</NavTab>
-        )}
+          <NavTab to="/app/users">Users</NavTab>
+          <NavTab to="/app/branches">Branches</NavTab>
+        </>}
+        {user?.isSystemAdmin && <NavTab to="/app/organizations">Organizations</NavTab>}
         <NavTab to="/app/password">Change password</NavTab>
       </nav>
       <Outlet />

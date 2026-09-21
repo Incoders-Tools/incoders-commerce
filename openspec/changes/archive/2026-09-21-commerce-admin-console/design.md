@@ -71,6 +71,7 @@ this change undoes.
 | **`GET /account/organizations/{id}`** | **Not built.** The onboarding screen only needs list + create for this phase; the proposal names this endpoint as deferred-and-optional, and nothing in scope reads a single organization's detail. | Building it speculatively — no consumer exists yet; add it when an organization-detail/edit screen is actually scoped. |
 | **Web nav placement** | Two new `AppLayout` nav entries, "Users" and "Branches", visible whenever `RequireAdmin`'s existing `ManageUsers` check would pass (both screens sit at `/app/users` and `/app/branches`, nested exactly like `/app/customers` under the existing `<Route element={<RequireAdmin />}>` block). A third entry, "Organizations", renders only when `user.isSystemAdmin` (new field on `SignedInResponse`) is true, and its route uses a new `RequireSystemAdmin` guard mirroring `RequireAdmin`'s shape but checking `isSystemAdmin` instead of a permission bit. | **One `RequireAdmin` guard for everything including Organizations** — `ManageUsers` and cross-org sysadmin capability are deliberately different axes (a business-admin holding every org permission must still be denied Organizations); collapsing them into one guard would be the exact default-visibility bug the proposal's risk table names. |
 | **POS staff/role window entry point** | New `ManageStaffButton` on `MainWindow`, visibility gated by `Permission.ManageUsers` exactly like `ManageCustomersButton` (same `RefreshIdentityText` block), opening a new `UsersWindow` via `ShowDialog()` with a fresh `Func<UserAdminClient>` factory-created client, mirroring `ManageCustomersButton_Click`/`CustomerAdminClient` line for line. | **Reuse `CustomersWindow` with a mode flag** — the two screens manage structurally different entities (users+roles vs. customers) with different endpoints and DTOs; a mode flag would make one window do two unrelated jobs, the opposite of the precedent this change is told to follow "directly." |
+| **POS installation branding** | Keep the stable binary/process identity `Commerce.Pos.Windows.exe`; resolve `Commerce:ApplicationName` with precedence `"Vaca Verde"` default < `%LOCALAPPDATA%\Incoders\Commerce\branding.json` < `Commerce__ApplicationName` environment variable. Normalize by trimming, then accept only non-blank values of at most 80 characters with no Unicode control characters; any invalid highest-precedence value fails safely to the validated default instead of falling through to a lower untrusted value. The validated name drives `MainWindow` and dialog titles and is the contract for a future shortcut display name. `branding.json` is deliberately separate from security-sensitive `installation.json` and lives in the data directory so upgrades preserve it. A future installer may expose a `COMMERCE_APPLICATION_NAME` property that writes this file; this change documents that contract only and does not fabricate an installer. | Renaming the executable per customer would destabilize process monitoring, update paths, support tooling, and executable identity. Storing presentation branding in `installation.json` would mix mutable display data with pairing/security-sensitive state. Using assembly metadata alone would not support per-install overrides. |
 | **`GET /account/users` shape** | Flat list, no pagination — matches `CustomersScreen`'s existing list endpoint at current scale, and neither screen has a pagination precedent to extend. | Building pagination now — no current org has staff counts anywhere near needing it; add later against real scale data. |
 | **Role-reassignment UI** | Reuses the existing full-replace `PUT /account/users/{id}/roles` request shape as-is: a simple multi-select checkbox list sourced from `RoleCatalog.OrgAssignable` (already excludes `platform-admin`), submitting the complete resulting name list. | **A dedicated add/remove-role endpoint** — not requested, and the server already only accepts full-replace; a delta-based UI would have to reconstruct the full set client-side anyway before submitting, adding a translation layer for no behavioral gain. |
 
@@ -124,15 +125,26 @@ Bootstrap an organization (cross-org write, explicit target org, moved from /pla
        set_config('app.current_org_id', organizationId)      <- UNCHANGED, every policy applies
     -> audit row (actor_kind='org-user', organization_id=organizationId)
     -> 201 {organizationId, branchId, userId}
+
+Resolve POS application branding (local, per installation)
+  validated default = "Vaca Verde"
+    -> load optional %LOCALAPPDATA%\Incoders\Commerce\branding.json
+       [separate from installation.json]
+    -> overlay Commerce__ApplicationName from the environment
+    -> trim and validate the selected value
+       [non-blank, <= 80 characters, no Unicode control characters]
+    -> invalid selected value => "Vaca Verde"
+    -> apply to MainWindow and dialog titles
+       [Commerce.Pos.Windows.exe remains unchanged]
 ```
 
 ## File Changes
 
 | Path | Action | Purpose |
 |---|---|---|
-| `deploy/db/migrations/0008_admin_console.sql` | Create | `users.is_system_admin boolean NOT NULL DEFAULT false`; `branches` table already exists (no schema change there beyond an endpoint); reserved pseudo-organization insert (idempotent, `ON CONFLICT DO NOTHING`); copy each `platform_admins` row into `users`/`user_directory` under the pseudo-org with `is_system_admin = true`; `DROP TABLE platform_admins`. |
+| `deploy/db/migrations/0012_admin_console.sql` | Create | Runs after the existing `0008_customer_registry.sql` through `0011_payments.sql` lineage; adds `users.is_system_admin boolean NOT NULL DEFAULT false`; `branches` table already exists (no schema change there beyond an endpoint); reserved pseudo-organization insert (idempotent, `ON CONFLICT DO NOTHING`); copy each `platform_admins` row into `users`/`user_directory` under the pseudo-org with `is_system_admin = true`; `DROP TABLE platform_admins`. |
 | `deploy/dev/db/init-rls.sql` | Modify | Same DDL appended verbatim, minus the drop (dev init has no pre-existing `platform_admins` rows to migrate — it creates the final shape directly). |
-| `deploy/README.md` | Modify | `0008` apply section; removes the platform-genesis runbook step (superseded by the migration's pseudo-org sysadmin row plus an explicit post-migration password reset for that row, documented as the new one-time operator step). |
+| `deploy/README.md` | Modify | `0012` apply section; removes the platform-genesis runbook step (superseded by the migration's pseudo-org sysadmin row plus an explicit post-migration password reset for that row, documented as the new one-time operator step). |
 | `src/Commerce.Domain/Identity/UserAccount.cs` | Modify | Add `IsSystemAdmin` property. |
 | `src/Commerce.Domain/Identity/PlatformAdmin.cs` | Delete | Superseded by `IsSystemAdmin` on `UserAccount`. |
 | `src/Commerce.Cloud.Api/Persistence/PostgresUserAccountStore.cs` | Modify | `LoadActorAsync` reads `is_system_admin`; new `ListStaffAsync(scope)` (excludes `CustomerId`-linked rows); `CreateStaffUserAsync`/row-mapping read/write the new column. |
@@ -154,14 +166,15 @@ Bootstrap an organization (cross-org write, explicit target org, moved from /pla
 | `src/Commerce.Pos.Windows/UsersWindow.xaml` + `.xaml.cs` | Create | `CustomersWindow`'s exact shape: list, create, role-reassign, reset-password. |
 | `src/Commerce.Pos.Windows/MainWindow.xaml` + `.xaml.cs` | Modify | New `ManageStaffButton`, gated identically to `ManageCustomersButton`; new `Func<UserAdminClient>` DI factory; `ManageStaffButton_Click` mirroring `ManageCustomersButton_Click`. |
 | `src/Commerce.Pos.Windows/PosHostBuilder.cs` | Modify | Register `Func<UserAdminClient>` factory, same registration shape as the existing `Func<CustomerAdminClient>`. |
+| `src/Commerce.Pos.Windows` branding configuration and tests (exact files selected during RED) | Modify/Create | Resolve and validate `Commerce:ApplicationName` from the `Vaca Verde` default, optional data-directory `branding.json`, and environment override; bind the validated value to main/dialog titles without renaming the executable. Document the future installer-property/shortcut contract without adding installer assets. |
 | `tests/Commerce.Cloud/UserAccountTests.cs` (or equivalent) | Modify | `IsSystemAdmin` round-trips through `LoadActorAsync`. |
 | `tests/Commerce.Integration/AdminConsoleTests.cs` | Create | `GET /account/users` (org isolation, excludes customer-linked), branch creation/listing (own-org only), `GET /account/organizations` (sysadmin-only, fail-closed, 503-without-datasource), `POST /account/organizations` (sysadmin-only). |
-| `tests/Commerce.Integration/MigrationRlsTests.cs` | Modify | `0008` applies cleanly; a seeded `platform_admins` row migrates to a `users` row with `is_system_admin = true` under the pseudo-org, its original password hash still verifies, and `platform_admins` no longer exists afterward. |
+| `tests/Commerce.Integration/MigrationRlsTests.cs` | Modify | `0012` applies cleanly; a seeded `platform_admins` row migrates to a `users` row with `is_system_admin = true` under the pseudo-org, its original password hash still verifies, and `platform_admins` no longer exists afterward. |
 
 ## Interfaces / Contracts
 
 ```sql
--- 0008_admin_console.sql (forward-only: migrate platform_admins into users, then drop it)
+-- 0012_admin_console.sql (forward-only: migrate platform_admins into users, then drop it)
 ALTER TABLE users ADD COLUMN IF NOT EXISTS is_system_admin boolean NOT NULL DEFAULT false;
 
 INSERT INTO organizations (id, name)
@@ -222,6 +235,22 @@ interface SignedInResponse {
 }
 ```
 
+Optional `%LOCALAPPDATA%\Incoders\Commerce\branding.json`:
+
+```json
+{
+  "Commerce": {
+    "ApplicationName": "Vaca Verde"
+  }
+}
+```
+
+`Commerce__ApplicationName` is the environment-variable form of the same
+configuration key and has higher precedence than `branding.json`. The
+resolved value is trimmed and valid only when it is non-empty, at most 80
+characters, and contains no Unicode control characters; otherwise the
+validated `Vaca Verde` default is used.
+
 ## Testing Strategy
 
 | Layer | What to test | Approach |
@@ -232,8 +261,10 @@ interface SignedInResponse {
 | Integration | `GET /account/organizations`: a caller without `IsSystemAdmin` -> 403 and the response is not silently narrowed to their own org; a sysadmin sees both seeded orgs; datasource absent -> 503 | same |
 | Integration | `POST /account/organizations`: sysadmin creates org+branch+business-admin who can then sign in; non-sysadmin -> 403 | same |
 | Integration | Sign-in: a migrated sysadmin row (seeded with a `PasswordHasher<PlatformAdmin>`-produced hash) signs in successfully through `PasswordHasher<UserAccount>` verification, proving hash-format compatibility across the `TUser` type parameter | same |
-| Integration (migration) | `0008` migrates a seeded `platform_admins` row into `users` under the pseudo-org with `is_system_admin = true`, the row's original password still verifies, and `platform_admins` no longer exists after the migration runs | `MigrationRlsTests` |
+| Integration (migration) | `0012` migrates a seeded `platform_admins` row into `users` under the pseudo-org with `is_system_admin = true`, the row's original password still verifies, and `platform_admins` no longer exists after the migration runs | `MigrationRlsTests` |
 | Integration (RLS) | `platform_readonly`'s existing privilege boundary is unaffected by this change — still only `SELECT (id, name, created_at)` on `organizations`, nothing else | same, unchanged from `commerce-role-taxonomy`'s suite, re-run as a regression check |
+| Unit | POS application-name precedence and validation: default, per-install file, environment override, trimming, and safe fallback for blank/control/overlong input | xUnit; RED before the resolver/configuration implementation |
+| Unit/UI boundary | Main and dialog title composition consumes the validated application name while executable identity remains unchanged | xUnit over the title/application-branding boundary, followed by a manual Windows smoke check |
 
 ## Threat Matrix
 
@@ -251,8 +282,9 @@ interface SignedInResponse {
 ## Migration / Rollout
 
 Forward-only. Per environment, before deploying the new image: apply
-`0008_admin_console.sql` via `psql` against the direct (non-pooled)
-connection. This migrates any existing `platform_admins` row(s) — in
+`0012_admin_console.sql` via `psql` against the direct (non-pooled)
+connection, after the existing `0008_customer_registry.sql` through
+`0011_payments.sql` migrations. This migrates any existing `platform_admins` row(s) — in
 every deployed environment today, that is at most the dev-bootstrap
 genesis admin — into `users` under the reserved pseudo-organization with
 `is_system_admin = true`, preserving the original password hash, then
@@ -272,20 +304,27 @@ No impact on any org-scoped session: existing org cookies are untouched
 is removed from `Program.cs` — this is intended, not a regression, since
 that scheme no longer exists to validate against.
 
-Rollback: revert the commit, then apply `0008`'s documented inverse
+Rollback: revert the commit, then apply `0012`'s documented inverse
 (recreate `platform_admins`, copy `is_system_admin = true` rows back out
 by email, delete them from `users`/`user_directory`, drop the column).
+
+POS upgrades replace application binaries but MUST NOT remove
+`%LOCALAPPDATA%\Incoders\Commerce\branding.json`; keeping branding outside
+the install directory preserves the installation-specific name. A future
+installer may accept a `COMMERCE_APPLICATION_NAME` property, persist the
+validated value to `branding.json`, and use the same value as the shortcut
+display name. No installer or shortcut mutation is included in this change.
 
 ## Work Units
 
 | Unit | Scope | Budget | Test / runtime boundary | Rollback |
 |---|---|---|---|---|
-| 1 | `0008` migration + dev init sync + `UserAccount.IsSystemAdmin` + `PostgresUserAccountStore` read/write + migration/RLS tests | ~220 | Migration applies cleanly, migrated row signs in, `is_system_admin` round-trips | Revert; run the inverse migration |
+| 1 | `0012` migration + dev init sync + `UserAccount.IsSystemAdmin` + `PostgresUserAccountStore` read/write + migration/RLS tests | ~220 | Migration applies cleanly, migrated row signs in, `is_system_admin` round-trips | Revert; run the inverse migration |
 | 2 | `GET /account/users` + `ListStaffAsync` + integration tests | ~180 | Org isolation, customer-link exclusion, `ManageUsers` gate | Revert; endpoint disappears |
 | 3 | `POST/GET /account/branches` + `PostgresOrganizationStore` branch methods + integration tests | ~220 | Own-org-only creation/listing, `ManageBranchSettings` gate | Revert; endpoints disappear |
 | 4 | `GET/POST /account/organizations` (moved) + delete `PlatformAdmin.cs`/`PostgresPlatformAdminStore.cs`/`PlatformAdmin.cs` (domain) + `Program.cs` scheme/policy removal + `SignedInResponse.IsSystemAdmin` + health check update + integration tests | ~320 | Sysadmin-only gate, fail-closed 503 preserved, old `/platform/*` routes gone, existing org sign-in unaffected | Revert; the platform scheme/endpoints return |
 | 5 | Web: `RequireSystemAdmin` + `UsersScreen` + `BranchesScreen` + `OrganizationsScreen` + `AppLayout`/`App.tsx` routing + api client calls + tests | ~450 | Each screen renders/guards correctly per permission/flag; existing screens unaffected | Revert; routes/screens disappear |
-| 6 | POS: `UserAdminClient` + `UsersWindow` + `MainWindow` entry point + `PosHostBuilder` registration + tests | ~280 | Button visibility, window lifecycle matches `CustomersWindow`, server-side gate re-checked | Revert; window/entry disappear |
+| 6 | POS: `UserAdminClient` + `UsersWindow` + `MainWindow` entry point + `PosHostBuilder` registration + configurable installation branding + tests | ~360 | Button visibility, window lifecycle matches `CustomersWindow`, branding precedence/validation, stable executable identity, server-side gate re-checked | Revert; window/entry and branding override disappear |
 
 Decision needed before apply: Yes
 Chained PRs recommended: Yes
@@ -311,7 +350,7 @@ before `sdd-apply` runs — see Review Workload Guard.**
       every deployed environment's `platform_admins` table today holds at
       most the dev-bootstrap genesis admin (no reported production
       sysadmin onboarding has happened yet) — if a real environment
-      turns out to hold additional rows, `0008`'s migration still handles
+      turns out to hold additional rows, `0012`'s migration still handles
       them correctly (it copies every row, not just one), so this is a
       scale assumption about *how many* rows migrate, not a correctness
       gap.

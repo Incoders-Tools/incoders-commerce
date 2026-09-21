@@ -36,6 +36,8 @@ public partial class MainWindow : Window
     private readonly CatalogPriceReplicaClient _catalogPriceReplicaClient;
     private readonly PricingResolutionService _pricingResolutionService;
     private readonly Func<CustomerAdminClient> _customerAdminClientFactory;
+    private readonly Func<UserAdminClient> _userAdminClientFactory;
+    private readonly ApplicationBranding _branding;
     private readonly Guid _installationId;
     private readonly ObservableCollection<ScannedSaleLineViewModel> _scannedLines = new();
     private readonly SyncRunner _syncRunner;
@@ -55,6 +57,8 @@ public partial class MainWindow : Window
         CatalogPriceReplicaClient catalogPriceReplicaClient,
         PricingResolutionService pricingResolutionService,
         Func<CustomerAdminClient> customerAdminClientFactory,
+        Func<UserAdminClient> userAdminClientFactory,
+        ApplicationBranding branding,
         LocalInstallationRecord identity)
     {
         InitializeComponent();
@@ -71,6 +75,9 @@ public partial class MainWindow : Window
         _catalogPriceReplicaClient = catalogPriceReplicaClient;
         _pricingResolutionService = pricingResolutionService;
         _customerAdminClientFactory = customerAdminClientFactory;
+        _userAdminClientFactory = userAdminClientFactory;
+        _branding = branding;
+        Title = branding.MainWindowTitle;
         _installationId = identity.InstallationId;
         _pairing = identity.Pairing
             ?? throw new InvalidOperationException("MainWindow requires an already-paired identity; App.xaml.cs must pair first.");
@@ -119,6 +126,7 @@ public partial class MainWindow : Window
             _currentOperator.Value is { } current && ((Permission)current.Permissions).HasFlag(Permission.ManageUsers)
                 ? Visibility.Visible
                 : Visibility.Collapsed;
+        ManageStaffButton.Visibility = ManageCustomersButton.Visibility;
     }
 
     private void RefreshStatus()
@@ -434,9 +442,17 @@ public partial class MainWindow : Window
         using var adminClient = _customerAdminClientFactory();
         var customersWindow = new CustomersWindow(adminClient)
         {
+            Title = _branding.CustomersWindowTitle,
             Owner = this
         };
         customersWindow.ShowDialog();
+    }
+
+    private void ManageStaffButton_Click(object sender, RoutedEventArgs e)
+    {
+        using var adminClient = _userAdminClientFactory();
+        var usersWindow = new UsersWindow(adminClient, _pairing.BranchId, _branding) { Owner = this };
+        usersWindow.ShowDialog();
     }
 
     // Task 4.6: the customer pull, catalog/price pull, and operator

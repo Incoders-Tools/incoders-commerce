@@ -207,7 +207,7 @@ public sealed class CustomerSessionIsolationTests : IClassFixture<WebApplication
         yield return new object[] { HttpMethod.Get, "/customers" };
         yield return new object[] { HttpMethod.Get, "/pricing/price-lists" };
         yield return new object[] { HttpMethod.Post, "/account/users" };
-        yield return new object[] { HttpMethod.Get, "/platform/organizations" };
+        yield return new object[] { HttpMethod.Get, "/account/organizations" };
     }
 
     [Theory]

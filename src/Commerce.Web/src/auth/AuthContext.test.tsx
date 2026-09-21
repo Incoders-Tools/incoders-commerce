@@ -13,12 +13,14 @@ describe('hasPermission', () => {
     userId: 'user-1',
     displayName: 'Jane',
     permissions: Permission.ViewSales | Permission.ManageUsers,
+    isSystemAdmin: false,
   }
   const seller: SignedInResponse = {
     organizationId: 'org-1',
     userId: 'user-2',
     displayName: 'Sam',
     permissions: Permission.ViewSales,
+    isSystemAdmin: false,
   }
 
   it('returns true when the user holds the requested bit', () => {
