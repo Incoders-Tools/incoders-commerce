@@ -8,7 +8,7 @@ Prepare `feat/unified-admin-console` for a pull request into `dev`.
 - [ ] Create ODD tracking for PR cleanup.
 - [x] Clean local/untracked artifacts and whitespace.
 - [x] Validate branch and test impact.
-- [ ] Ensure approved issue and open PR to `dev`.
+- [x] Ensure approved issue and open PR to `dev`.
 
 ## Evidence
 
@@ -19,4 +19,7 @@ Prepare `feat/unified-admin-console` for a pull request into `dev`.
 - Validation evidence: `git status --short --untracked-files=all` now shows only allowed cleanup edits (`.gitignore`, whitespace target files, and `odd/tasks/unified-admin-console-pr.md`); ignored local artifacts no longer appear.
 - Validation evidence: `git diff --check dev` returned no whitespace errors for the working tree candidate.
 - Validation evidence: `dotnet build Commerce.sln` passed with 0 errors and 26 warnings (known `System.IO.Packaging 8.0.0` NU1903 advisory plus existing nullable warnings in `PaymentRecordingServiceTests.cs`).
-- Validation caveat before committing: `git diff --check dev...HEAD` still reports the original committed whitespace in `HEAD`; after committing cleanup, re-run against the PR branch range.
+- Validation evidence after cleanup commit: `git diff --check dev...HEAD` passed with no output.
+- Issue evidence: created approved issue #62, `feat: unify commerce administration console`, with `status:approved` and `type:feature` labels.
+- PR evidence: opened PR #63 to `dev`, https://github.com/Incoders-Tools/incoders-commerce/pull/63, and applied exactly one PR type label: `type:feature`.
+- Git evidence: pushed `feat/unified-admin-console` to `incoders/feat/unified-admin-console`.
