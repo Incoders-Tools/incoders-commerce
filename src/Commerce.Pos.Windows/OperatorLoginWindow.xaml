@@ -1,40 +1,77 @@
 <Window x:Class="Commerce.Pos.Windows.OperatorLoginWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Operator Login" Height="480" Width="420" WindowStartupLocation="CenterScreen" Icon="app.ico">
-    <StackPanel Margin="16">
-        <TextBlock Text="Operator login" FontWeight="Bold" FontSize="16" Margin="0,0,0,8" />
+        Title="Acceso de operador" Height="700" Width="520" WindowStartupLocation="CenterScreen" Icon="app.ico"
+        Background="{DynamicResource ShellBrush}" Foreground="{DynamicResource TextBrush}" ResizeMode="NoResize">
+    <Grid Margin="20">
+        <Border Style="{StaticResource CardBorder}">
+            <StackPanel>
+                <StackPanel Margin="0,0,0,14">
+                    <TextBlock Text="ACCESO DE OPERADOR" Style="{StaticResource EyebrowTextBlock}" />
+                    <TextBlock Text="Ingresar al punto de venta" Style="{StaticResource HeroTextBlock}" />
+                    <TextBlock Text="Use el PIN de un operador guardado o agregue otro operador cuando haya conexión."
+                               Style="{StaticResource MutedTextBlock}" TextWrapping="Wrap" />
+                </StackPanel>
 
-        <StackPanel x:Name="OperatorPickerPanel" Visibility="Collapsed" Margin="0,0,0,8">
-            <TextBlock Text="Select an operator:" Margin="0,0,0,4" />
-            <ListBox x:Name="OperatorListBox" Height="80" DisplayMemberPath="Email" />
 
-            <TextBlock Text="PIN:" Margin="0,8,0,4" />
-            <PasswordBox x:Name="PinBox" Margin="0,0,0,8" />
+                <StackPanel x:Name="OperatorPickerPanel" Visibility="Collapsed" Margin="0,0,0,10">
+                    <Border Style="{StaticResource SoftCardBorder}" Padding="14">
+                        <StackPanel>
+                            <TextBlock Text="Operador" Style="{StaticResource SectionTitleTextBlock}" Margin="0,0,0,8" />
+                            <ListBox x:Name="OperatorListBox" Height="88" DisplayMemberPath="Email" Margin="0,0,0,10" />
 
-            <Button x:Name="LoginButton" Content="Log in" HorizontalAlignment="Left" Click="LoginButton_Click" />
-        </StackPanel>
+                            <TextBlock Text="PIN" Style="{StaticResource MutedTextBlock}" Margin="0,0,0,5" />
+                            <PasswordBox x:Name="PinBox" Margin="0,0,0,10" />
 
-        <Button x:Name="AddOperatorToggleButton" Content="Add another operator" HorizontalAlignment="Left" Margin="0,0,0,8" Click="AddOperatorToggleButton_Click" />
+                            <Button x:Name="LoginButton" Content="Ingresar" HorizontalAlignment="Stretch" Click="LoginButton_Click" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
 
-        <StackPanel x:Name="AddOperatorPanel" Visibility="Collapsed" Margin="0,0,0,8">
-            <TextBlock Text="Email:" Margin="0,0,0,4" />
-            <TextBox x:Name="EmailTextBox" Margin="0,0,0,8" />
+                <Button x:Name="AddOperatorToggleButton" Content="Agregar otro operador" HorizontalAlignment="Stretch" Margin="0,0,0,10" Click="AddOperatorToggleButton_Click" Style="{StaticResource SecondaryButton}" />
 
-            <TextBlock Text="Password:" Margin="0,0,0,4" />
-            <PasswordBox x:Name="PasswordBox" Margin="0,0,0,8" />
+                <StackPanel x:Name="AddOperatorPanel" Visibility="Collapsed" Margin="0,0,0,10">
+                    <Border Style="{StaticResource SoftCardBorder}" Padding="14">
+                        <StackPanel>
+                            <TextBlock Text="Agregar operador" Style="{StaticResource SectionTitleTextBlock}" Margin="0,0,0,8" />
 
-            <TextBlock Text="Choose a PIN (6 digits):" Margin="0,0,0,4" />
-            <PasswordBox x:Name="NewPinBox" Margin="0,0,0,8" />
+                            <TextBlock Text="Correo" Style="{StaticResource MutedTextBlock}" Margin="0,0,0,4" />
+                            <TextBox x:Name="EmailTextBox" Margin="0,0,0,8" />
 
-            <TextBlock Text="Confirm PIN:" Margin="0,0,0,4" />
-            <PasswordBox x:Name="ConfirmPinBox" Margin="0,0,0,8" />
+                            <TextBlock Text="Contraseña" Style="{StaticResource MutedTextBlock}" Margin="0,0,0,4" />
+                            <PasswordBox x:Name="PasswordBox" Margin="0,0,0,8" />
 
-            <Button x:Name="ProvisionButton" Content="Provision" HorizontalAlignment="Left" Click="ProvisionButton_Click" />
-        </StackPanel>
+                            <TextBlock Text="PIN nuevo (6 dígitos)" Style="{StaticResource MutedTextBlock}" Margin="0,0,0,4" />
+                            <PasswordBox x:Name="NewPinBox" Margin="0,0,0,8" />
 
-        <Button x:Name="ContinueWithoutOperatorButton" Content="Continue without operator" HorizontalAlignment="Left" Margin="0,8,0,0" Click="ContinueWithoutOperatorButton_Click" />
+                            <TextBlock Text="Confirmar PIN" Style="{StaticResource MutedTextBlock}" Margin="0,0,0,4" />
+                            <PasswordBox x:Name="ConfirmPinBox" Margin="0,0,0,10" />
 
-        <TextBlock x:Name="StatusText" TextWrapping="Wrap" Margin="0,16,0,0" Foreground="DarkRed" />
-    </StackPanel>
+                            <Button x:Name="ProvisionButton" Content="Guardar operador" HorizontalAlignment="Stretch" Click="ProvisionButton_Click" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <Button x:Name="ContinueWithoutOperatorButton" Content="Continuar sin operador" HorizontalAlignment="Stretch" Margin="0,0,0,10" Click="ContinueWithoutOperatorButton_Click" Style="{StaticResource GhostButton}" />
+
+                <Border Background="{DynamicResource DangerSurfaceBrush}" BorderBrush="{DynamicResource DangerBrush}" BorderThickness="1"
+                        CornerRadius="10" Padding="10">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Setter Property="Visibility" Value="Visible" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Text, ElementName=StatusText}" Value="">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Text, ElementName=StatusText}" Value="{x:Null}">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                    <TextBlock x:Name="StatusText" TextWrapping="Wrap" Foreground="{DynamicResource DangerBrush}" />
+                </Border>
+            </StackPanel>
+        </Border>
+    </Grid>
 </Window>
