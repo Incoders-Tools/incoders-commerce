@@ -4,19 +4,10 @@ name: Release
 # main -> stable. Only these three protected branches are authorized to
 # produce a release candidate; any other ref is not releasable.
 on:
-  push:
-    branches:
-      - dev
-      - staging
-      - main
-  # NEW: pre-merge gate. Base-branch scoped to the three ADR-004 protected
-  # refs — branch protection (and therefore required checks) only exists on
-  # them, so a PR into any other base has nothing to satisfy. Default
-  # `types` (opened/synchronize/reopened) apply.
+  # Keep CI off push events and off development branches. The only automatic
+  # gate left is a pre-merge signal for pull requests targeting `main`.
   pull_request:
     branches:
-      - dev
-      - staging
       - main
 
 permissions:
