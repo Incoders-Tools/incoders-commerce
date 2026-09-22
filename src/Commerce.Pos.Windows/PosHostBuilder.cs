@@ -36,6 +36,7 @@ public static class PosHostBuilder
         builder.Services.AddSingleton(_ => new LocalInstallationStore(Path.Combine(dataDirectory, "installation.json")));
         builder.Services.AddSingleton(_ => new LocalOperatorStore(Path.Combine(dataDirectory, "operators.json")));
         builder.Services.AddSingleton<CurrentOperator>();
+        builder.Services.AddSingleton(_ => ApplicationBranding.Load(dataDirectory));
 
         // Task 7.2: the POS half of the shared IEffectivePriceSource port
         // (design.md "PricingResolutionService contract and location") — the
@@ -74,6 +75,9 @@ public static class PosHostBuilder
         // per CustomersWindow open, without holding an IServiceProvider itself.
         builder.Services.AddSingleton<Func<CustomerAdminClient>>(
             sp => () => sp.GetRequiredService<CustomerAdminClient>());
+        builder.Services.AddTransient(_ => new UserAdminClient(cloudApiBaseUrl));
+        builder.Services.AddSingleton<Func<UserAdminClient>>(
+            sp => () => sp.GetRequiredService<UserAdminClient>());
 
         // MainWindow is NOT registered here: it requires an already-paired
         // LocalInstallationRecord, which App.xaml.cs resolves via

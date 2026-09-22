@@ -56,16 +56,15 @@ builder.Services.AddSingleton<ICustomerOrderingAccessResolver>(sp => sp.GetRequi
 // "Platform-admin cross-org read"): the ONLY cross-organization read
 // capability in the system, a distinct least-privilege Postgres LOGIN.
 // Registered ONLY when its connection string is configured — absent means
-// PostgresPlatformAdminStore.CanListOrganizations is false and
-// GET /platform/organizations fails closed with 503, NEVER falling back to
+// PostgresOrganizationStore.CanListOrganizations is false and
+// GET /account/organizations fails closed with 503, NEVER falling back to
 // the shared app_runtime pool.
 var platformReadConnectionString = builder.Configuration.GetConnectionString("CommercePlatformRead");
 if (!string.IsNullOrWhiteSpace(platformReadConnectionString))
 {
     builder.Services.AddKeyedSingleton(
-        PostgresPlatformAdminStore.PlatformReadDataSourceKey, NpgsqlDataSource.Create(platformReadConnectionString));
+        PostgresOrganizationStore.PlatformReadDataSourceKey, NpgsqlDataSource.Create(platformReadConnectionString));
 }
-builder.Services.AddSingleton<PostgresPlatformAdminStore>();
 
 // --- Credentials: PasswordHasher<UserAccount> is a framework type
 // (Microsoft.AspNetCore.Identity, part of the ASP.NET Core shared framework)
@@ -74,7 +73,6 @@ builder.Services.AddSingleton<PostgresPlatformAdminStore>();
 // in-memory per-org token state survives across requests within one process
 // (design.md "Bootstrap token storage").
 builder.Services.AddSingleton<PasswordHasher<UserAccount>>();
-builder.Services.AddSingleton<PasswordHasher<PlatformAdmin>>();
 builder.Services.AddSingleton<BootstrapTokenRegistry>();
 
 // --- Session invalidation (commerce-password-recovery design.md "Session
@@ -177,35 +175,8 @@ builder.Services
     })
     .AddScheme<DeviceBearerAuthenticationOptions, DeviceBearerAuthenticationHandler>(
         CloudAuthenticationSchemes.DeviceBearer, _ => { })
-    // Second, genuinely separate cookie scheme (design.md "Scheme mutual
-    // exclusivity"): its OWN Cookie.Name and Cookie.Path = "/platform", so a
-    // platform cookie is not even SENT to /account, and an org cookie
-    // authenticates nothing under /platform because the "PlatformAdmin"
-    // policy below names only this scheme.
-    .AddCookie(CloudAuthenticationSchemes.PlatformAdminCookie, options =>
-    {
-        options.Cookie.Name = "commerce.platform";
-        options.Cookie.Path = "/platform";
-        options.Cookie.HttpOnly = true;
-        options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
-        options.Cookie.SameSite = SameSiteMode.Lax;
-        // API-only scheme: never redirect to an HTML login page — return the
-        // real status code instead (spec: "Org-scoped caller cannot reach a
-        // platform-admin endpoint" / "Platform-admin cannot reach an
-        // org-scoped endpoint").
-        options.Events.OnRedirectToLogin = context =>
-        {
-            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-            return Task.CompletedTask;
-        };
-        options.Events.OnRedirectToAccessDenied = context =>
-        {
-            context.Response.StatusCode = StatusCodes.Status403Forbidden;
-            return Task.CompletedTask;
-        };
-    })
     // Fourth, genuinely separate cookie scheme (commerce-guest-ordering
-    // design.md "Customer session"): the PlatformAdminCookie pattern applied
+    // design.md "Customer session"): the separate staff-cookie pattern applied
     // a second time — its own Cookie.Name and Cookie.Path = "/customer", so
     // a customer cookie is not even SENT to a staff path, and the "Customer"
     // policy below names only this scheme.
@@ -231,9 +202,6 @@ builder.Services
 builder.Services.AddAuthorizationBuilder()
     .AddPolicy("DeviceBearer", policy => policy
         .AddAuthenticationSchemes(CloudAuthenticationSchemes.DeviceBearer)
-        .RequireAuthenticatedUser())
-    .AddPolicy("PlatformAdmin", policy => policy
-        .AddAuthenticationSchemes(CloudAuthenticationSchemes.PlatformAdminCookie)
         .RequireAuthenticatedUser())
     .AddPolicy("Customer", policy => policy
         .AddAuthenticationSchemes(CloudAuthenticationSchemes.CustomerCookie)
@@ -316,7 +284,6 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions
 });
 
 app.MapAccountEndpoints();
-app.MapPlatformAdminEndpoints();
 app.MapDeviceEndpoints();
 app.MapSyncEndpoints();
 app.MapCatalogEndpoints();

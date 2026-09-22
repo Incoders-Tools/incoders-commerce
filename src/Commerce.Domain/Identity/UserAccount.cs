@@ -7,6 +7,7 @@ public sealed class UserAccount
     public IReadOnlySet<Guid> BranchScope { get; }
     public IReadOnlyList<Role> Roles { get; }
     public bool IsRevoked { get; private set; }
+    public bool IsSystemAdmin { get; }
     public AdminPermissionSnapshot? CachedAdminSnapshot { get; private set; }
 
     /// <summary>
@@ -22,13 +23,15 @@ public sealed class UserAccount
         Guid organizationId,
         IEnumerable<Guid> branchScope,
         IEnumerable<Role> roles,
-        Guid? customerId = null)
+        Guid? customerId = null,
+        bool isSystemAdmin = false)
     {
         Id = id;
         OrganizationId = organizationId;
         BranchScope = branchScope.ToHashSet();
         Roles = roles.ToList();
         CustomerId = customerId;
+        IsSystemAdmin = isSystemAdmin;
     }
 
     /// <summary>

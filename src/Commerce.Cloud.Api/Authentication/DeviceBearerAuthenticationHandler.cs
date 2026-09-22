@@ -11,18 +11,10 @@ public static class CloudAuthenticationSchemes
 {
     public const string DeviceBearer = "DeviceBearer";
 
-    /// <summary>
-    /// Platform-admin cookie scheme (commerce-role-taxonomy design.md
-    /// "Scheme mutual exclusivity") — its own <c>Cookie.Name</c> and
-    /// <c>Cookie.Path = "/platform"</c>, named explicitly by the
-    /// "PlatformAdmin" authorization policy so the default org cookie
-    /// authenticates nothing under <c>/platform</c> and vice versa.
-    /// </summary>
-    public const string PlatformAdminCookie = "PlatformAdminCookie";
 
     /// <summary>
     /// Customer-scoped session cookie scheme (commerce-guest-ordering
-    /// design.md "Customer session"): the <c>PlatformAdminCookie</c> pattern
+    /// design.md "Customer session"): the separate staff-cookie pattern
     /// applied a second time — its own <c>Cookie.Name</c> and
     /// <c>Cookie.Path = "/customer"</c>, named explicitly by the "Customer"
     /// authorization policy so the default staff cookie authenticates

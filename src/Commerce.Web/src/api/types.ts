@@ -15,6 +15,7 @@ export interface SignedInResponse {
   // commerce-customer-identity "Web admin gating": server-derived
   // (actor.EffectivePermissions), never trusted from the client.
   permissions: number
+  isSystemAdmin: boolean
 }
 
 // Mirrors Commerce.Domain.Identity.Permission's [Flags] bit layout exactly —
@@ -457,3 +458,15 @@ export interface CustomerSignedInResponse {
   customerId: string
   email: string
 }
+
+
+
+export interface UserSummary { userId: string; email: string; roleNames: string[]; isRevoked: boolean }
+export interface CreateUserRequest { email: string; password: string; roleNames: string[]; branchIds: string[]; customerId?: string | null }
+export interface CreateUserResponse { userId: string }
+export interface BranchSummary { branchId: string; branchName: string }
+export interface CreateBranchRequest { branchName: string }
+export interface CreateBranchResponse { branchId: string }
+export interface OrganizationSummary { id: string; name: string; createdAt: string }
+export interface CreateOrganizationRequest { organizationName: string; branchName?: string | null; adminEmail: string; adminPassword: string }
+export interface CreateOrganizationResponse { organizationId: string; branchId: string; userId: string }

@@ -106,23 +106,6 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
                         SELECT 1 FROM pg_policies
                         WHERE tablename = 'password_reset_tokens' AND policyname = 'password_reset_tokens_consume'
                     ) AS password_reset_tokens_consume_policy_exists,
-                    EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'platform_admins') AS platform_admins_table_exists,
-                    EXISTS (
-                        SELECT 1 FROM pg_class
-                        WHERE relname = 'platform_admins' AND relrowsecurity AND relforcerowsecurity
-                    ) AS platform_admins_rls_forced,
-                    EXISTS (
-                        SELECT 1 FROM pg_policies
-                        WHERE tablename = 'platform_admins' AND policyname = 'platform_admins_lookup'
-                    ) AS platform_admins_lookup_policy_exists,
-                    EXISTS (
-                        SELECT 1 FROM pg_policies
-                        WHERE tablename = 'platform_admins' AND policyname = 'platform_admins_touch'
-                    ) AS platform_admins_touch_policy_exists,
-                    EXISTS (
-                        SELECT 1 FROM pg_policies
-                        WHERE tablename = 'platform_admins' AND policyname = 'platform_admins_genesis'
-                    ) AS platform_admins_genesis_policy_exists,
                     EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'audit_log') AS audit_log_table_exists,
                     EXISTS (
                         SELECT 1 FROM pg_class
@@ -254,44 +237,38 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
             var passwordResetTokensRlsForced = reader.GetBoolean(22);
             var passwordResetTokensLookupPolicyExists = reader.GetBoolean(23);
             var passwordResetTokensIssuePolicyExists = reader.GetBoolean(24);
-            var passwordResetTokensConsumePolicyExists = reader.GetBoolean(25);
-            var platformAdminsTableExists = reader.GetBoolean(26);
-            var platformAdminsRlsForced = reader.GetBoolean(27);
-            var platformAdminsLookupPolicyExists = reader.GetBoolean(28);
-            var platformAdminsTouchPolicyExists = reader.GetBoolean(29);
-            var platformAdminsGenesisPolicyExists = reader.GetBoolean(30);
-            var auditLogTableExists = reader.GetBoolean(31);
-            var auditLogRlsForced = reader.GetBoolean(32);
-            var auditLogAppendPolicyExists = reader.GetBoolean(33);
-            var platformReadonlyRoleExists = reader.GetBoolean(34);
-            var customersTableExists = reader.GetBoolean(35);
-            var customersRlsForced = reader.GetBoolean(36);
-            var customersPolicyExists = reader.GetBoolean(37);
-            var customerOrderingAccessTableExists = reader.GetBoolean(38);
-            var customerOrderingAccessRlsForced = reader.GetBoolean(39);
-            var customerOrderingAccessLookupPolicyExists = reader.GetBoolean(40);
-            var customerOrderingAccessIssuePolicyExists = reader.GetBoolean(41);
-            var customerOrderingAccessRevokePolicyExists = reader.GetBoolean(42);
-            var productsTableExists = reader.GetBoolean(43);
-            var productsRlsForced = reader.GetBoolean(44);
-            var productsPolicyExists = reader.GetBoolean(45);
-            var presentationsTableExists = reader.GetBoolean(46);
-            var presentationsRlsForced = reader.GetBoolean(47);
-            var presentationsPolicyExists = reader.GetBoolean(48);
-            var priceListsTableExists = reader.GetBoolean(49);
-            var priceListsRlsForced = reader.GetBoolean(50);
-            var priceListsPolicyExists = reader.GetBoolean(51);
-            var priceListEntriesTableExists = reader.GetBoolean(52);
-            var priceListEntriesRlsForced = reader.GetBoolean(53);
-            var priceListEntriesPolicyExists = reader.GetBoolean(54);
-            var guestOrderVerificationsTableExists = reader.GetBoolean(55);
-            var guestOrderVerificationsRlsForced = reader.GetBoolean(56);
-            var guestOrderVerificationsLookupPolicyExists = reader.GetBoolean(57);
-            var guestOrderVerificationsIssuePolicyExists = reader.GetBoolean(58);
-            var guestOrderVerificationsUpdatePolicyExists = reader.GetBoolean(59);
-            var paymentEntriesTableExists = reader.GetBoolean(60);
-            var paymentEntriesRlsForced = reader.GetBoolean(61);
-            var paymentEntriesPolicyExists = reader.GetBoolean(62);
+            var passwordResetTokensConsumePolicyExists = reader.GetBoolean(25);            var auditLogTableExists = reader.GetBoolean(26);
+            var auditLogRlsForced = reader.GetBoolean(27);
+            var auditLogAppendPolicyExists = reader.GetBoolean(28);
+            var platformReadonlyRoleExists = reader.GetBoolean(29);
+            var customersTableExists = reader.GetBoolean(30);
+            var customersRlsForced = reader.GetBoolean(31);
+            var customersPolicyExists = reader.GetBoolean(32);
+            var customerOrderingAccessTableExists = reader.GetBoolean(33);
+            var customerOrderingAccessRlsForced = reader.GetBoolean(34);
+            var customerOrderingAccessLookupPolicyExists = reader.GetBoolean(35);
+            var customerOrderingAccessIssuePolicyExists = reader.GetBoolean(36);
+            var customerOrderingAccessRevokePolicyExists = reader.GetBoolean(37);
+            var productsTableExists = reader.GetBoolean(38);
+            var productsRlsForced = reader.GetBoolean(39);
+            var productsPolicyExists = reader.GetBoolean(40);
+            var presentationsTableExists = reader.GetBoolean(41);
+            var presentationsRlsForced = reader.GetBoolean(42);
+            var presentationsPolicyExists = reader.GetBoolean(43);
+            var priceListsTableExists = reader.GetBoolean(44);
+            var priceListsRlsForced = reader.GetBoolean(45);
+            var priceListsPolicyExists = reader.GetBoolean(46);
+            var priceListEntriesTableExists = reader.GetBoolean(47);
+            var priceListEntriesRlsForced = reader.GetBoolean(48);
+            var priceListEntriesPolicyExists = reader.GetBoolean(49);
+            var guestOrderVerificationsTableExists = reader.GetBoolean(50);
+            var guestOrderVerificationsRlsForced = reader.GetBoolean(51);
+            var guestOrderVerificationsLookupPolicyExists = reader.GetBoolean(52);
+            var guestOrderVerificationsIssuePolicyExists = reader.GetBoolean(53);
+            var guestOrderVerificationsUpdatePolicyExists = reader.GetBoolean(54);
+            var paymentEntriesTableExists = reader.GetBoolean(55);
+            var paymentEntriesRlsForced = reader.GetBoolean(56);
+            var paymentEntriesPolicyExists = reader.GetBoolean(57);
 
             var allHealthy = syncInboxTableExists && syncInboxRlsForced && syncInboxPolicyExists && roleExists
                 && usersTableExists && usersRlsForced && usersPolicyExists
@@ -302,8 +279,7 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
                 && deviceCredentialsLookupPolicyExists && deviceCredentialsIssuePolicyExists && deviceCredentialsRevokePolicyExists
                 && passwordResetTokensTableExists && passwordResetTokensRlsForced
                 && passwordResetTokensLookupPolicyExists && passwordResetTokensIssuePolicyExists && passwordResetTokensConsumePolicyExists
-                && platformAdminsTableExists && platformAdminsRlsForced
-                && platformAdminsLookupPolicyExists && platformAdminsTouchPolicyExists && platformAdminsGenesisPolicyExists
+
                 && auditLogTableExists && auditLogRlsForced && auditLogAppendPolicyExists
                 && platformReadonlyRoleExists
                 && customersTableExists && customersRlsForced && customersPolicyExists
@@ -323,7 +299,7 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
             {
                 return HealthCheckResult.Healthy(
                     "sync_inbox, users, user_directory, organizations, branches, device_credentials, " +
-                    "password_reset_tokens, platform_admins, audit_log, customers, customer_ordering_access, " +
+                    "password_reset_tokens, audit_log, customers, customer_ordering_access, " +
                     "products, presentations, price_lists, price_list_entries, guest_order_verifications, and " +
                     "payment_entries tables, forced RLS, tenant-isolation policies, and app_runtime/platform_readonly roles all verified.");
             }
@@ -338,8 +314,6 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
                 $"lookup_policy={deviceCredentialsLookupPolicyExists}, issue_policy={deviceCredentialsIssuePolicyExists}, revoke_policy={deviceCredentialsRevokePolicyExists}), " +
                 $"password_reset_tokens(table={passwordResetTokensTableExists}, rls_forced={passwordResetTokensRlsForced}, " +
                 $"lookup_policy={passwordResetTokensLookupPolicyExists}, issue_policy={passwordResetTokensIssuePolicyExists}, consume_policy={passwordResetTokensConsumePolicyExists}), " +
-                $"platform_admins(table={platformAdminsTableExists}, rls_forced={platformAdminsRlsForced}, " +
-                $"lookup_policy={platformAdminsLookupPolicyExists}, touch_policy={platformAdminsTouchPolicyExists}, genesis_policy={platformAdminsGenesisPolicyExists}), " +
                 $"audit_log(table={auditLogTableExists}, rls_forced={auditLogRlsForced}, append_policy={auditLogAppendPolicyExists}), " +
                 $"platform_readonly_role_exists={platformReadonlyRoleExists}, " +
                 $"customers(table={customersTableExists}, rls_forced={customersRlsForced}, policy={customersPolicyExists}), " +

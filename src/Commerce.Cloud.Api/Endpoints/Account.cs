@@ -109,7 +109,7 @@ public static class AccountEndpoints
 
             await httpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal);
 
-            return Results.Ok(new SignedInResponse(credential.OrganizationId, credential.Id, credential.Email, permissions));
+            return Results.Ok(new SignedInResponse(credential.OrganizationId, credential.Id, credential.Email, permissions, signedInActor?.IsSystemAdmin ?? false));
         });
 
         // --- Renew: authenticated, self-service, known-current-password
@@ -293,6 +293,57 @@ public static class AccountEndpoints
             return Results.NoContent();
         }).AllowAnonymous();
 
+        var organizationGroup = app.MapGroup("/account/organizations").RequireAuthorization();
+        organizationGroup.MapGet("", async (HttpContext httpContext, PostgresUserAccountStore userStore, PostgresOrganizationStore organizationStore, CancellationToken ct) =>
+        {
+            if (!TenantScopeResolver.TryResolve(httpContext.User, out var scope, out _)) return Results.StatusCode(StatusCodes.Status403Forbidden);
+            var claim = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (claim is null || !Guid.TryParse(claim, out var userId)) return Results.StatusCode(StatusCodes.Status403Forbidden);
+            var actor = await userStore.LoadActorAsync(scope!, userId, ct);
+            if (actor is null || !actor.IsSystemAdmin) return Results.StatusCode(StatusCodes.Status403Forbidden);
+            if (!organizationStore.CanListOrganizations) return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+            return Results.Ok(await organizationStore.ListOrganizationsAsync(ct));
+        });
+        organizationGroup.MapPost("", async (CreateOrganizationRequest request, HttpContext httpContext, PostgresUserAccountStore userStore, PostgresOrganizationStore organizationStore, PasswordHasher<UserAccount> hasher, CancellationToken ct) =>
+        {
+            if (string.IsNullOrWhiteSpace(request.OrganizationName) || string.IsNullOrWhiteSpace(request.AdminEmail) || string.IsNullOrWhiteSpace(request.AdminPassword)) return Results.ValidationProblem(new Dictionary<string,string[]> { ["request"] = ["organizationName, adminEmail and adminPassword are required."] });
+            if (!TenantScopeResolver.TryResolve(httpContext.User, out var scope, out _)) return Results.StatusCode(StatusCodes.Status403Forbidden);
+            var claim = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (claim is null || !Guid.TryParse(claim, out var actorId)) return Results.StatusCode(StatusCodes.Status403Forbidden);
+            var actor = await userStore.LoadActorAsync(scope!, actorId, ct);
+            if (actor is null || !actor.IsSystemAdmin) return Results.StatusCode(StatusCodes.Status403Forbidden);
+            var organizationId=Guid.NewGuid(); var branchId=Guid.NewGuid(); var userId=Guid.NewGuid(); var target=new CloudTenantScope(organizationId);
+            var hash=hasher.HashPassword(new UserAccount(userId, organizationId, [], []),request.AdminPassword);
+            var outcome=await organizationStore.TryCreateBootstrapAsync(target,new NewOrganization(organizationId,request.OrganizationName.Trim()),new NewBranch(branchId,string.IsNullOrWhiteSpace(request.BranchName)?"Main":request.BranchName.Trim()),new NewUserAccount(userId,request.AdminEmail,hash,[branchId],[new RoleDto(RoleCatalog.BusinessAdmin,Permission.ViewSales|Permission.ManageCatalog|Permission.ManageUsers|Permission.ManageBranchSettings)]),new UserManagementAuditEntry("org-user",actorId,organizationId,"organization",organizationId,"organization.bootstrapped",null,JsonSerializer.Serialize(new { organizationName=request.OrganizationName.Trim(),adminEmail=request.AdminEmail.Trim().ToLowerInvariant()})),ct);
+            return outcome==BootstrapOutcome.Created ? Results.Created($"/account/organizations/{organizationId}",new CreateOrganizationResponse(organizationId,branchId,userId)) : Results.Conflict();
+        });
+        var branchGroup = app.MapGroup("/account/branches")
+            .RequireAuthorization()
+            .AddEndpointFilter<TenantScopeEndpointFilter>();
+
+        branchGroup.MapPost("", async (CreateBranchRequest request, HttpContext httpContext, PostgresUserAccountStore userStore, PostgresOrganizationStore organizationStore, CancellationToken ct) =>
+        {
+            if (string.IsNullOrWhiteSpace(request.BranchName)) return Results.ValidationProblem(new Dictionary<string, string[]> { ["branchName"] = ["branchName is required."] });
+            var scope = TenantScopeEndpointFilter.GetScope(httpContext);
+            var claim = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (claim is null || !Guid.TryParse(claim, out var callerId)) return Results.StatusCode(StatusCodes.Status403Forbidden);
+            var caller = await userStore.LoadActorAsync(scope, callerId, ct);
+            if (caller is null || caller.IsRevoked || !caller.EffectivePermissions.HasFlag(Permission.ManageBranchSettings)) return Results.StatusCode(StatusCodes.Status403Forbidden);
+            var branchId = Guid.NewGuid();
+            await organizationStore.CreateBranchAsync(scope, new NewBranch(branchId, request.BranchName), ct);
+            return Results.Created($"/account/branches/{branchId}", new CreateBranchResponse(branchId));
+        });
+
+        branchGroup.MapGet("", async (HttpContext httpContext, PostgresUserAccountStore userStore, PostgresOrganizationStore organizationStore, CancellationToken ct) =>
+        {
+            var scope = TenantScopeEndpointFilter.GetScope(httpContext);
+            var claim = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (claim is null || !Guid.TryParse(claim, out var callerId)) return Results.StatusCode(StatusCodes.Status403Forbidden);
+            var caller = await userStore.LoadActorAsync(scope, callerId, ct);
+            if (caller is null || caller.IsRevoked || !caller.EffectivePermissions.HasFlag(Permission.ManageBranchSettings)) return Results.StatusCode(StatusCodes.Status403Forbidden);
+            var branches = await organizationStore.ListBranchesAsync(scope, ct);
+            return Results.Ok(branches.Select(branch => new BranchSummaryDto(branch.Id, branch.Name)));
+        });
         // --- Admin-forced reset: authenticated, ManageUsers-gated, same-org
         // only (commerce-password-recovery design.md "Admin-forced reset" /
         // "Admin authorization shape"). Catalog.cs's exact pattern:
@@ -303,6 +354,26 @@ public static class AccountEndpoints
             .RequireAuthorization()
             .AddEndpointFilter<TenantScopeEndpointFilter>();
 
+        adminGroup.MapGet("", async (
+            HttpContext httpContext,
+            PostgresUserAccountStore userStore,
+            CancellationToken ct) =>
+        {
+            var scope = TenantScopeEndpointFilter.GetScope(httpContext);
+            var callerIdClaim = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (callerIdClaim is null || !Guid.TryParse(callerIdClaim, out var callerId))
+            {
+                return Results.Forbid();
+            }
+
+            var caller = await userStore.LoadActorAsync(scope, callerId, ct);
+            if (caller is null || caller.IsRevoked || !caller.EffectivePermissions.HasFlag(Permission.ManageUsers))
+            {
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+
+            return Results.Ok(await userStore.ListStaffAsync(scope, ct));
+        });
         adminGroup.MapPost("/{userId:guid}/reset-password", async (
             Guid userId,
             AdminResetPasswordRequest request,
@@ -564,7 +635,7 @@ public static class AccountEndpoints
             var actor = await userStore.LoadActorAsync(scope!, userId, ct);
             var permissions = actor is null ? 0 : (int)actor.EffectivePermissions;
 
-            return Results.Ok(new SignedInResponse(scope!.OrganizationId, userId, displayName ?? string.Empty, permissions));
+            return Results.Ok(new SignedInResponse(scope!.OrganizationId, userId, displayName ?? string.Empty, permissions, actor?.IsSystemAdmin ?? false));
         });
 
         // --- Bootstrap: one-time first-admin creation gated by a log-only
@@ -669,7 +740,7 @@ public sealed record AdminResetPasswordRequest(string NewPassword);
 /// caller-supplied value — commerce-customer-identity design.md "Web admin
 /// gating".
 /// </summary>
-public sealed record SignedInResponse(Guid OrganizationId, Guid UserId, string DisplayName, int Permissions);
+public sealed record SignedInResponse(Guid OrganizationId, Guid UserId, string DisplayName, int Permissions, bool IsSystemAdmin);
 
 public sealed record BootstrapTokenRequest(Guid OrganizationId);
 
@@ -688,5 +759,13 @@ public sealed record BootstrapResponse(Guid OrganizationId, Guid BranchId, Guid 
 public sealed record CreateUserRequest(string Email, string Password, string[] RoleNames, Guid[] BranchIds, Guid? CustomerId = null);
 
 public sealed record CreateUserResponse(Guid UserId);
+
+public sealed record UserSummaryDto(Guid UserId, string Email, IReadOnlyList<string> RoleNames, bool IsRevoked);
+public sealed record CreateBranchRequest(string BranchName);
+public sealed record CreateBranchResponse(Guid BranchId);
+public sealed record BranchSummaryDto(Guid BranchId, string BranchName);
+public sealed record OrganizationSummary(Guid Id, string Name, DateTimeOffset CreatedAt);
+public sealed record CreateOrganizationRequest(string OrganizationName, string? BranchName, string AdminEmail, string AdminPassword);
+public sealed record CreateOrganizationResponse(Guid OrganizationId, Guid BranchId, Guid UserId);
 
 public sealed record AssignRolesRequest(string[] RoleNames);
