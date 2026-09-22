@@ -244,6 +244,25 @@ jobs:
           echo "GUEST_ORDERING_ORGANIZATION_ID=$ORG_ID" >> "$GITHUB_ENV"
           echo "GUEST_ORDERING_BRANCH_ID=$BRANCH_ID" >> "$GITHUB_ENV"
 
+      - name: Seed migrated system administrator
+        env:
+          PGPASSWORD: dev-only-password
+        run: |
+          set -euo pipefail
+          SYSADMIN_ORG_ID=$(python3 -c "import uuid; print(uuid.uuid4())")
+          SYSADMIN_EMAIL="system-admin-e2e@example.com"
+          SYSADMIN_PASSWORD="correct-horse-battery-staple"
+          RESPONSE=$(curl -sf -X POST http://localhost:8080/internal/test-seed/user \
+            -H "Content-Type: application/json" \
+            -d "{\"organizationId\":\"$SYSADMIN_ORG_ID\",\"email\":\"$SYSADMIN_EMAIL\",\"password\":\"$SYSADMIN_PASSWORD\"}")
+          SYSADMIN_USER_ID=$(echo "$RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin)['userId'])")
+          psql -h localhost -U commerce_owner -d commerce_dev \
+            -v ON_ERROR_STOP=1 \
+            -c "UPDATE users SET is_system_admin = true WHERE id = '$SYSADMIN_USER_ID'::uuid RETURNING id;"
+          echo "Seeded migrated system administrator: email=$SYSADMIN_EMAIL userId=$SYSADMIN_USER_ID"
+          echo "SYSADMIN_EMAIL=$SYSADMIN_EMAIL" >> "$GITHUB_ENV"
+          echo "SYSADMIN_PASSWORD=$SYSADMIN_PASSWORD" >> "$GITHUB_ENV"
+
       - name: Stop ephemeral Commerce.Cloud.Api
         run: |
           kill "$(cat cloud-api.pid)" 2>/dev/null || true

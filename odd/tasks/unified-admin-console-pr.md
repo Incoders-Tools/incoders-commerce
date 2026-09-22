@@ -22,4 +22,5 @@ Prepare `feat/unified-admin-console` for a pull request into `dev`.
 - Validation evidence after cleanup commit: `git diff --check dev...HEAD` passed with no output.
 - Issue evidence: created approved issue #62, `feat: unify commerce administration console`, with `status:approved` and `type:feature` labels.
 - PR evidence: opened PR #63 to `dev`, https://github.com/Incoders-Tools/incoders-commerce/pull/63, and applied exactly one PR type label: `type:feature`.
+- CI follow-up: the first PR run failed `web-e2e` because `system-admin.spec.ts` expected `SYSADMIN_EMAIL`/`SYSADMIN_PASSWORD`; `.github/workflows/release.yml` now seeds a migrated system administrator and exports those variables before Playwright runs.
 - Git evidence: pushed `feat/unified-admin-console` to `incoders/feat/unified-admin-console`.
