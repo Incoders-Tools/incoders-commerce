@@ -10,7 +10,7 @@ import { resolveLandingPath } from './landing'
  */
 describe('resolveLandingPath', () => {
   it('returns the staff app destination for any signed-in user shape', () => {
-    const user: SignedInResponse = { organizationId: 'org-1', userId: 'user-1', displayName: 'Jane Doe', permissions: 0 }
+    const user: SignedInResponse = { organizationId: 'org-1', userId: 'user-1', displayName: 'Jane Doe', permissions: 0 , isSystemAdmin: false}
     expect(resolveLandingPath(user)).toBe('/app')
   })
 })

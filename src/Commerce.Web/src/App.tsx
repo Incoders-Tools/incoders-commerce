@@ -3,6 +3,7 @@ import { AuthProvider } from '@/auth/AuthContext'
 import { AppLayout } from '@/routes/AppLayout'
 import { RequireAuth } from '@/routes/RequireAuth'
 import { RequireAdmin } from '@/routes/RequireAdmin'
+import { RequireSystemAdmin } from '@/routes/RequireSystemAdmin'
 import { LoginRoute } from '@/routes/LoginRoute'
 import { ForgotPasswordRoute } from '@/routes/ForgotPasswordRoute'
 import { ResetPasswordRoute } from '@/routes/ResetPasswordRoute'
@@ -12,6 +13,9 @@ import { OrderScreen } from '@/screens/OrderScreen'
 import { StaffOrderScreen } from '@/screens/StaffOrderScreen'
 import { RenewPasswordScreen } from '@/screens/RenewPasswordScreen'
 import { CustomersScreen } from '@/screens/CustomersScreen'
+import { UsersScreen } from '@/screens/UsersScreen'
+import { BranchesScreen } from '@/screens/BranchesScreen'
+import { OrganizationsScreen } from '@/screens/OrganizationsScreen'
 
 /**
  * Route tree replacing the former auth ternary (design.md "Route tree").
@@ -43,6 +47,11 @@ function App() {
             <Route path="password" element={<RenewPasswordScreen />} />
             <Route element={<RequireAdmin />}>
               <Route path="customers" element={<CustomersScreen />} />
+              <Route path="users" element={<UsersScreen />} />
+              <Route path="branches" element={<BranchesScreen />} />
+            </Route>
+            <Route element={<RequireSystemAdmin />}>
+              <Route path="organizations" element={<OrganizationsScreen />} />
             </Route>
           </Route>
         </Route>

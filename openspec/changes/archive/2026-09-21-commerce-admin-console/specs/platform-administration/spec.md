@@ -160,3 +160,25 @@ capability representation, decided at design time.)
 - THEN an audit row exists in that same transaction recording the
   sysadmin as actor, the created organization and admin user as acted-on
   entities, the action, and the timestamp
+
+## RENAMED Requirements
+
+### Requirement: Platform Admin Identity and Credentials → Sysadmin Identity Lives in the Unified Model
+
+(Reason: The capability is now represented in the unified user identity model.)
+(Migration: Update references and tests to use the unified sysadmin capability.)
+
+### Requirement: Platform-Admin Sign-In → Single Sign-In Endpoint For Every Identity
+
+(Reason: All account types now authenticate through one sign-in surface.)
+(Migration: Update references and tests to the unified sign-in endpoint and cookie scheme.)
+
+### Requirement: List Organizations → Cross-Org Read Requires Explicit Sysadmin Capability, Fail-Closed
+
+(Reason: Cross-organization listing is now gated by unified sysadmin capability.)
+(Migration: Update references and tests to the capability-gated cross-org endpoint.)
+
+### Requirement: Platform-Admin Scope Isolation → Cross-Org Endpoint Isolation From Org-Scoped Callers
+
+(Reason: Isolation is now enforced within the unified authentication model.)
+(Migration: Update references and tests to the unified cross-org isolation requirement.)

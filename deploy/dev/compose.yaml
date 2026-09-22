@@ -100,5 +100,6 @@ services:
       # (pgbouncer, above) is exercised by PoolerScopingTests, not by this
       # everyday local-stack profile.
       ConnectionStrings__Commerce: "Host=postgres;Port=5432;Database=commerce_dev;Username=app_runtime;Password=dev-only-password"
+      ConnectionStrings__CommercePlatformRead: "Host=postgres;Port=5432;Database=commerce_dev;Username=platform_readonly;Password=dev-only-platform-readonly-password"
     ports:
       - "8080:8080"

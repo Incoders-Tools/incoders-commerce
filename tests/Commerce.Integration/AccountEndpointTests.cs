@@ -74,6 +74,9 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
         var catalogAndPricingSql = File.ReadAllText(Path.Combine(repoRoot.FullName, "deploy", "db", "migrations", "0009_catalog_and_pricing.sql"));
         using (var cmd = new NpgsqlCommand(catalogAndPricingSql, owner)) cmd.ExecuteNonQuery();
 
+        var adminConsoleSql = File.ReadAllText(Path.Combine(repoRoot.FullName, "deploy", "db", "migrations", "0012_admin_console.sql"));
+        using (var cmd = new NpgsqlCommand(adminConsoleSql, owner)) cmd.ExecuteNonQuery();
+
         // device_credentials (0004) and password_reset_tokens (0005) carry
         // FKs to organizations/branches, so they must be truncated
         // before/alongside them. CASCADE additionally covers `customers`
@@ -178,8 +181,61 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
         var body = await response.Content.ReadFromJsonAsync<SignedInResponse>();
         Assert.Equal(organizationId, body!.OrganizationId);
         Assert.Equal(userId, body.UserId);
+        Assert.False(body.IsSystemAdmin);
     }
 
+    [Fact]
+    public async Task SignIn_AndMe_MigratedSystemAdmin_ReturnSystemAdminCapability()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var userId = Guid.NewGuid();
+        const string email = "migrated-system-admin@example.com";
+        const string password = "correct-password";
+        var platformAdmin = new Commerce.Domain.Identity.UserAccount(userId, Guid.Empty, [], []);
+        var hash = new Microsoft.AspNetCore.Identity.PasswordHasher<Commerce.Domain.Identity.UserAccount>()
+            .HashPassword(platformAdmin, password);
+
+        var repoRoot = new DirectoryInfo(AppContext.BaseDirectory);
+        while (repoRoot is not null && !File.Exists(Path.Combine(repoRoot.FullName, "Commerce.sln"))) repoRoot = repoRoot.Parent;
+        Assert.NotNull(repoRoot);
+
+        using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            owner.Open();
+            var platformSql = File.ReadAllText(Path.Combine(repoRoot!.FullName, "deploy", "db", "migrations", "0007_platform_administration.sql"))
+                .Replace("__PLATFORM_READONLY_PASSWORD__", "dev-only-password");
+            using (var createLegacyTable = new NpgsqlCommand(platformSql, owner)) createLegacyTable.ExecuteNonQuery();
+            using (var clearLegacyRows = new NpgsqlCommand("TRUNCATE TABLE platform_admins", owner)) clearLegacyRows.ExecuteNonQuery();
+            using (var seedLegacyAdmin = new NpgsqlCommand(
+                "INSERT INTO platform_admins (id, email, password_hash) VALUES ($1, $2, $3)", owner))
+            {
+                seedLegacyAdmin.Parameters.AddWithValue(userId);
+                seedLegacyAdmin.Parameters.AddWithValue(email);
+                seedLegacyAdmin.Parameters.AddWithValue(hash);
+                Assert.Equal(1, seedLegacyAdmin.ExecuteNonQuery());
+            }
+            var migrationSql = File.ReadAllText(Path.Combine(repoRoot.FullName, "deploy", "db", "migrations", "0012_admin_console.sql"));
+            using var migrate = new NpgsqlCommand(migrationSql, owner);
+            migrate.ExecuteNonQuery();
+        }
+
+        var client = _factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            HandleCookies = true,
+            BaseAddress = new Uri("https://localhost"),
+        });
+        var signIn = await client.PostAsJsonAsync("/account/sign-in", new SignInRequest(email, password));
+
+        Assert.Equal(HttpStatusCode.OK, signIn.StatusCode);
+        var signInBody = await signIn.Content.ReadFromJsonAsync<SignedInResponse>();
+        Assert.True(signInBody!.IsSystemAdmin);
+
+        var me = await client.GetAsync("/account/me");
+        Assert.Equal(HttpStatusCode.OK, me.StatusCode);
+        var meBody = await me.Content.ReadFromJsonAsync<SignedInResponse>();
+        Assert.True(meBody!.IsSystemAdmin);
+    }
     /// <summary>
     /// commerce-customer-identity task 4.3: `permissions` on the sign-in
     /// response and on `/account/me` is server-derived from the store

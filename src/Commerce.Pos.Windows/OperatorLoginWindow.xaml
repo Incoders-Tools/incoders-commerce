@@ -1,7 +1,7 @@
 <Window x:Class="Commerce.Pos.Windows.OperatorLoginWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Operator Login" Height="480" Width="420" WindowStartupLocation="CenterScreen">
+        Title="Operator Login" Height="480" Width="420" WindowStartupLocation="CenterScreen" Icon="app.ico">
     <StackPanel Margin="16">
         <TextBlock Text="Operator login" FontWeight="Bold" FontSize="16" Margin="0,0,0,8" />
 

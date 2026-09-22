@@ -130,6 +130,51 @@ is discarded on close.
 - THEN its per-window HTTP client and cookie are discarded, matching
   `CustomersWindow`'s existing lifecycle
 
+### Requirement: POS Application Branding Is Configurable Per Installation
+
+`Commerce.Pos.Windows` MUST keep `Commerce.Pos.Windows.exe` as its stable
+binary and process identity while using the validated
+`Commerce:ApplicationName` value for the main-window and dialog titles.
+The product default MUST be `Vaca Verde`. An installation MAY override the
+default through `%LOCALAPPDATA%\Incoders\Commerce\branding.json`, which MUST
+remain separate from the security-sensitive `installation.json`, or through
+the `Commerce__ApplicationName` environment variable. Precedence MUST be
+default, then the per-install file, then the environment variable. Blank,
+control-character-containing, or longer-than-80-character values MUST fall
+back safely to `Vaca Verde`.
+
+The same validated value MUST be the source for a future installer-created
+shortcut display name, but this change MUST NOT fabricate an installer that
+does not yet exist. Upgrades MUST preserve the per-install branding file.
+
+#### Scenario: Per-install branding changes window titles only
+
+- GIVEN `branding.json` contains a valid `Commerce:ApplicationName`
+- WHEN the POS application starts
+- THEN the main window and its dialogs use that name in their titles
+- AND the running process remains `Commerce.Pos.Windows.exe`
+
+#### Scenario: Environment branding overrides the per-install file
+
+- GIVEN the per-install file and `Commerce__ApplicationName` contain
+  different valid names
+- WHEN the POS application starts
+- THEN the environment value is used for window and dialog titles
+
+#### Scenario: Invalid branding fails safely
+
+- GIVEN the highest-precedence configured application name is blank,
+  contains a control character, or exceeds 80 characters
+- WHEN the POS application starts
+- THEN `Vaca Verde` is used instead
+
+#### Scenario: Upgrade preserves installation branding
+
+- GIVEN an installation has a valid `branding.json` in its POS data directory
+- WHEN the application binaries are upgraded
+- THEN the branding file remains in place and the configured display name is
+  still used
+
 ### Requirement: Branch Management UI
 
 `Commerce.Web` MUST expose a `RequireAdmin`-gated UI, scoped to the

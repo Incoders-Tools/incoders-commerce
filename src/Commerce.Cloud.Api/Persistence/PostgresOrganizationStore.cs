@@ -1,6 +1,8 @@
 using Commerce.Cloud.Api.Auditing;
 using Commerce.Cloud.Api.Tenancy;
 using Npgsql;
+using Microsoft.Extensions.DependencyInjection;
+using Commerce.Cloud.Api.Endpoints;
 
 namespace Commerce.Cloud.Api.Persistence;
 
@@ -24,11 +26,14 @@ public sealed class PostgresOrganizationStore
 {
     private readonly NpgsqlDataSource _dataSource;
     private readonly PostgresUserAccountStore _userStore;
+    private readonly NpgsqlDataSource? _platformReadDataSource;
+    public const string PlatformReadDataSourceKey = "platform-read";
 
-    public PostgresOrganizationStore(NpgsqlDataSource dataSource, PostgresUserAccountStore userStore)
+    public PostgresOrganizationStore(NpgsqlDataSource dataSource, PostgresUserAccountStore userStore, [FromKeyedServices(PlatformReadDataSourceKey)] NpgsqlDataSource? platformReadDataSource = null)
     {
         _dataSource = dataSource;
         _userStore = userStore;
+        _platformReadDataSource = platformReadDataSource;
     }
 
     public Task<BootstrapOutcome> TryCreateBootstrapAsync(
@@ -39,7 +44,7 @@ public sealed class PostgresOrganizationStore
     /// SQL otherwise unchanged from the original overload (design.md "File
     /// Changes"): <paramref name="audit"/> is optional so the anonymous
     /// `/account/bootstrap` flow keeps zero behavior change, while
-    /// `POST /platform/organizations` supplies a `platform-admin` audit row
+    /// `POST /account/organizations` supplies a `system-admin` audit row
     /// written inside this SAME transaction — the audit row and the
     /// created organization/branch/admin commit together or not at all.
     /// </summary>
@@ -162,5 +167,51 @@ public sealed class PostgresOrganizationStore
 
         await tx.CommitAsync(ct);
         return results;
+    }
+    public async Task CreateBranchAsync(CloudTenantScope scope, NewBranch branch, CancellationToken ct)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+        await using (var scopeCmd = new NpgsqlCommand("SELECT set_config('app.current_org_id', $1, true)", connection, tx))
+        {
+            scopeCmd.Parameters.AddWithValue(scope.OrganizationId.ToString());
+            await scopeCmd.ExecuteNonQueryAsync(ct);
+        }
+        await using (var cmd = new NpgsqlCommand("INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, $3)", connection, tx))
+        {
+            cmd.Parameters.AddWithValue(branch.Id); cmd.Parameters.AddWithValue(scope.OrganizationId); cmd.Parameters.AddWithValue(branch.Name);
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+        await tx.CommitAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<BranchOption>> ListBranchesAsync(CloudTenantScope scope, CancellationToken ct)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+        await using (var scopeCmd = new NpgsqlCommand("SELECT set_config('app.current_org_id', $1, true)", connection, tx))
+        {
+            scopeCmd.Parameters.AddWithValue(scope.OrganizationId.ToString());
+            await scopeCmd.ExecuteNonQueryAsync(ct);
+        }
+        var branches = new List<BranchOption>();
+        await using var cmd = new NpgsqlCommand("SELECT id, name FROM branches ORDER BY name", connection, tx);
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct)) branches.Add(new BranchOption(reader.GetGuid(0), reader.GetString(1)));
+        await reader.CloseAsync();
+        await tx.CommitAsync(ct);
+        return branches;
+    }
+    public bool CanListOrganizations => _platformReadDataSource is not null;
+
+    public async Task<IReadOnlyList<OrganizationSummary>> ListOrganizationsAsync(CancellationToken ct)
+    {
+        if (_platformReadDataSource is null) throw new InvalidOperationException("platform_readonly datasource is not configured.");
+        await using var connection = await _platformReadDataSource.OpenConnectionAsync(ct);
+        await using var cmd = new NpgsqlCommand("SELECT id, name, created_at FROM organizations ORDER BY name", connection);
+        var organizations = new List<OrganizationSummary>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct)) organizations.Add(new OrganizationSummary(reader.GetGuid(0), reader.GetString(1), reader.GetFieldValue<DateTimeOffset>(2)));
+        return organizations;
     }
 }

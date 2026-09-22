@@ -13,7 +13,7 @@ namespace Commerce.Cloud.Api.Endpoints;
 /// <summary>
 /// The `/customer` group (commerce-guest-ordering design.md "Customer
 /// session"): a FOURTH auth scheme, <see cref="CloudAuthenticationSchemes.CustomerCookie"/>,
-/// applying the `PlatformAdminCookie` pattern a second time — its own
+/// applying the separate staff-cookie pattern a second time — its own
 /// `Cookie.Name`/`Cookie.Path`, and a `"Customer"` authorization policy that
 /// names ONLY this scheme, so the default staff cookie authenticates
 /// nothing here and vice versa (`EffectivePermissions ⇒ Permission.None`

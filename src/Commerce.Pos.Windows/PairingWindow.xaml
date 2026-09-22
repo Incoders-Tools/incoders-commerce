@@ -1,7 +1,7 @@
 <Window x:Class="Commerce.Pos.Windows.PairingWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Pair Terminal" Height="420" Width="420" WindowStartupLocation="CenterScreen">
+        Title="Pair Terminal" Height="420" Width="420" WindowStartupLocation="CenterScreen" Icon="app.ico">
     <StackPanel Margin="16">
         <TextBlock Text="Sign in to pair this terminal" FontWeight="Bold" FontSize="16" Margin="0,0,0,8" />
 

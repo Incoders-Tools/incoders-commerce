@@ -42,3 +42,8 @@ src/Commerce.Web/test-results/
 src/Commerce.Web/playwright-report/
 src/Commerce.Web/blob-report/
 src/Commerce.Web/playwright/.cache/
+
+# Local agent/runtime artifacts
+.engram/
+System.Management.Automation.Internal.Host.InternalHost
+src/Commerce.Cloud.Api/Properties/launchSettings.json
