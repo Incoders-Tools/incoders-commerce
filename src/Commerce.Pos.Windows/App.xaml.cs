@@ -22,6 +22,8 @@ public partial class App : System.Windows.Application
     {
         base.OnStartup(e);
 
+        DesktopThemeService.ApplySavedTheme();
+
         _host = PosHostBuilder.Build();
         _host.Start();
         var branding = _host.Services.GetRequiredService<ApplicationBranding>();

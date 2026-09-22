@@ -1,0 +1,20 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Color x:Key="ColorShell">#F8FAFC</Color>
+    <Color x:Key="ColorShellElevated">#FFFFFF</Color>
+    <Color x:Key="ColorSurface">#FFFFFF</Color>
+    <Color x:Key="ColorSurfaceSoft">#F1F5F9</Color>
+    <Color x:Key="ColorBorder">#D6DEE8</Color>
+    <Color x:Key="ColorPrimary">#2563EB</Color>
+    <Color x:Key="ColorPrimaryHover">#1D4ED8</Color>
+    <Color x:Key="ColorAccent">#0EA5E9</Color>
+    <Color x:Key="ColorSuccess">#15803D</Color>
+    <Color x:Key="ColorWarningSurface">#FFF7ED</Color>
+    <Color x:Key="ColorWarningBorder">#F59E0B</Color>
+    <Color x:Key="ColorWarningText">#92400E</Color>
+    <Color x:Key="ColorDanger">#B91C1C</Color>
+    <Color x:Key="ColorDangerSurface">#FEF2F2</Color>
+    <Color x:Key="ColorText">#111827</Color>
+    <Color x:Key="ColorTextMuted">#475569</Color>
+    <Color x:Key="ColorInput">#FFFFFF</Color>
+</ResourceDictionary>
