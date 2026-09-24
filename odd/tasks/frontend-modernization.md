@@ -71,16 +71,27 @@ admin panel.
 - [x] T4. Reusable list/card view-switch component, applied first to one
       data-heavy screen (Customers or Catalog TBD) as the reference
       implementation, then rolled out. Route: delegated direct.
-- [ ] T4b. Roll the `components/data/*` layer (PageHeader + DataToolbar +
-      ViewSwitch + DataView + `useViewPreference`) out to the remaining data
-      screens: `CustomersScreen`, `PriceListsScreen`, `UsersScreen`,
-      `OrganizationsScreen`, `BranchesScreen` — each dropping its
+- [x] T4b. Roll the `components/data/*` layer (PageHeader + DataToolbar +
+      ViewSwitch + DataView + `useViewPreference`) out to `CustomersScreen`,
+      `UsersScreen` and `BranchesScreen` — each dropping its
       `mx-auto … max-w-*` centered card, getting its own
-      `view:<screen>` preference key and real columns from `api/types.ts`.
+      `view:<screen>` preference key (`view:customers`, `view:users`,
+      `view:branches`) and real columns from `api/types.ts`.
       Auth screens (`SignInScreen`, `ForgotPasswordScreen`,
       `ResetPasswordScreen`, `RenewPasswordScreen`) are explicitly OUT of
       scope — the narrow centered card is the correct pattern there.
-      Route: delegated direct (5 non-trivial screens + tests).
+      Route: delegated direct (3 non-trivial screens + tests).
+- [ ] T4c. Finish the rollout: `PriceListsScreen` onto the same
+      `components/data/*` layer, with a `view:price-lists` preference key and
+      real columns from `PriceListRecord` / `PriceListEntryRecord`. Split out
+      of T4b as its own slice because the screen carries a second nested list
+      (price entries) plus the supplier-import surface, which needs its own
+      column/expansion design rather than a mechanical migration.
+      `OrganizationsScreen` is deliberately NOT part of this rollout — it is
+      absorbed into T5, which rebuilds that screen wholesale (settings form,
+      colour picker, logo) rather than migrating the current 45-line
+      create+list stub twice.
+      Route: delegated direct.
 - [ ] T5. Organization settings: backend fields (logo, theme colors, date
       format, geolocation, usage plan) on the Organization entity +
       sysadmin-gated endpoints, plus rebuilt `OrganizationsScreen.tsx` UI
@@ -476,8 +487,70 @@ admin panel.
   push-protected integration branch: report it, fall back to a short-lived
   branch and PR, never force-push, never change protection settings.
 
+- 2026-09-24: T4b done (delegated-direct route, 3 rewritten screens + 2
+  extended test files + 1 new test file). Rolled the T4 `components/data/*`
+  layer onto `CustomersScreen`, `UsersScreen` and `BranchesScreen`, following
+  `CatalogScreen.tsx` as the reference implementation. **No file under
+  `components/data/` was modified** — the layer covered all three screens as
+  built.
+  - `CustomersScreen.tsx`: dropped the `mx-auto mt-8 w-full max-w-3xl` Card
+    wrapper for a full-width `<section>`; `PageHeader` ("Customers" + the
+    "New customer" button in the actions slot); columns from the real
+    `CustomerRecord` type — Name (`displayName`), Kind (`customerKind`),
+    Status (`isEnabled`), Tax ID (`taxId`, `hideOnMobile`), Phone (`phone`,
+    `hideOnMobile`); `renderActions` carries the existing Edit and
+    "Issue ordering access" buttons. The one-time issued credential
+    (`data-testid="issued-credential"`) and the full-screen `CustomerForm`
+    takeover for create/edit are both unchanged — the form is long, not an
+    inline row edit, so it deliberately still replaces the screen. Error text
+    moved from the raw `text-red-600` to the `text-destructive` token.
+  - `UsersScreen.tsx`: was 15 lines of ~1 KB each; reformatted and migrated.
+    Columns from `UserSummary` — Email, Roles (`roleNames.join`), Status
+    (`isRevoked`, `hideOnMobile`). "Save roles", the per-user replacement
+    password `Input` and "Force reset" all live in `renderActions`, so they
+    work identically in both layouts. **Pre-existing quirk preserved
+    verbatim and now documented inline**: "Save roles" sends the *create
+    form's* checked `roles`, not the row's own `user.roleNames` — changing it
+    would be a functional change, which this presentation migration is not.
+  - `BranchesScreen.tsx`: was a single ~1 KB line; reformatted and migrated.
+    Columns from `BranchSummary` — Branch name, Identifier (`branchId`,
+    mono, `hideOnMobile`).
+  - **Create forms deliberately stay permanently visible** on Users and
+    Branches rather than moving behind a "New user"/"New branch" toggle:
+    `e2e/admin-console.spec.ts` fills `User email` / `User password` /
+    `Branch name` straight after navigating to each screen, so a toggle would
+    have silently broken that real-backend journey. Branches' single-field
+    form fits in `PageHeader`'s action slot; Users' larger form sits in a
+    bordered panel under the header. Reasoning is recorded inline in both
+    files.
+  TDD: strict RED confirmed for all three before any implementation —
+  19 of the 34 cases across the three files failed against the pre-T4b
+  screens (every new T4b-specific case: columns, search filter, no-match
+  empty state, empty state, view switch + persistence, per-screen key
+  isolation, and Customers' full-width case). The remaining new cases
+  (Users/Branches full-width, and the two "still works from the card view"
+  cases) passed already and were kept as regression guards, same precedent as
+  T4. Additionally mutation-checked the per-screen preference key: pointing
+  `BranchesScreen` at `useViewPreference('customers')` fails 2 tests,
+  reverting restores green — so the key-isolation assertions can genuinely
+  fail. **No existing test was deleted or weakened.** Two existing
+  assertions were consciously tightened, both because the new markup made the
+  old query ambiguous or vacuous: `CustomersScreen`'s edit-form case now
+  matches `/^edit$/i` instead of `/edit/i` (the row also renders
+  "Issue ordering access", which the looser pattern would have matched
+  non-deterministically), and the two "from the card view" cases now assert
+  no `role="table"` plus a `data-view-card` count, so they actually prove
+  they are exercising the card layout. 29 new tests (10 Customers,
+  8 Users, 11 Branches — `BranchesScreen.test.tsx` is new, the screen had no
+  test file at all before). Full suite: **145/145 passing across 35 files**
+  (116/34 before). `npm run lint`: exit 0, no new warnings — the
+  `set-state-in-effect` entries now reported on `UsersScreen` and
+  `BranchesScreen` were both present on the baseline too (verified by
+  re-running lint against a stashed tree). `npm run build`: `tsc -b && vite
+  build` clean (340.12 kB / 102.89 kB gzip JS, 21.00 kB / 4.90 kB gzip CSS).
+
 ## Next step
 
-Start T4b (roll the `components/data/*` layer out to Customers,
-PriceLists, Users, Organizations and Branches), or jump to T5
-(organization settings) if the user prefers backend progress first.
+T4c (roll the same layer onto `PriceListsScreen`), or jump to T5
+(organization settings, which absorbs the `OrganizationsScreen` rebuild) if
+the user prefers backend progress first.
