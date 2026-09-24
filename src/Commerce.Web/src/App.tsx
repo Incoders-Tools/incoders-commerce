@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router'
 import { AuthProvider } from '@/auth/AuthContext'
+import { ThemeProvider } from '@/theme/ThemeProvider'
 import { AppLayout } from '@/routes/AppLayout'
 import { RequireAuth } from '@/routes/RequireAuth'
 import { RequireAdmin } from '@/routes/RequireAdmin'
@@ -26,37 +27,43 @@ import { OrganizationsScreen } from '@/screens/OrganizationsScreen'
 function App() {
   return (
     <AuthProvider>
-      <Routes>
-        <Route path="/" element={<HomeScreen />} />
-        <Route path="/login" element={<LoginRoute />} />
-        <Route path="/forgot-password" element={<ForgotPasswordRoute />} />
-        <Route path="/reset-password/:token" element={<ResetPasswordRoute />} />
-        <Route path="/reset-password" element={<ResetPasswordRoute />} />
-        {/* commerce-guest-ordering design.md "One screen, guest and
-            registered as peers": the platform's first public-reachable
-            path — no RequireAuth, a guest has no staff or customer session
-            yet. */}
-        <Route path="/order" element={<OrderScreen />} />
-        <Route element={<RequireAuth />}>
-          <Route path="/app" element={<AppLayout />}>
-            <Route index element={<Navigate to="catalog" replace />} />
-            <Route path="catalog" element={<CatalogScreen />} />
-            {/* tasks.md 6.8 regression guard: unchanged staff-operated
-                submission path, extracted to its own component. */}
-            <Route path="orders" element={<StaffOrderScreen />} />
-            <Route path="password" element={<RenewPasswordScreen />} />
-            <Route element={<RequireAdmin />}>
-              <Route path="customers" element={<CustomersScreen />} />
-              <Route path="users" element={<UsersScreen />} />
-              <Route path="branches" element={<BranchesScreen />} />
-            </Route>
-            <Route element={<RequireSystemAdmin />}>
-              <Route path="organizations" element={<OrganizationsScreen />} />
+      {/* Inside AuthProvider so ThemeProvider can read the signed-in user
+          (useOptionalAuth) for per-user localStorage keying, while staying
+          mounted for public routes too, where it falls back to an
+          anonymous key. */}
+      <ThemeProvider>
+        <Routes>
+          <Route path="/" element={<HomeScreen />} />
+          <Route path="/login" element={<LoginRoute />} />
+          <Route path="/forgot-password" element={<ForgotPasswordRoute />} />
+          <Route path="/reset-password/:token" element={<ResetPasswordRoute />} />
+          <Route path="/reset-password" element={<ResetPasswordRoute />} />
+          {/* commerce-guest-ordering design.md "One screen, guest and
+              registered as peers": the platform's first public-reachable
+              path — no RequireAuth, a guest has no staff or customer session
+              yet. */}
+          <Route path="/order" element={<OrderScreen />} />
+          <Route element={<RequireAuth />}>
+            <Route path="/app" element={<AppLayout />}>
+              <Route index element={<Navigate to="catalog" replace />} />
+              <Route path="catalog" element={<CatalogScreen />} />
+              {/* tasks.md 6.8 regression guard: unchanged staff-operated
+                  submission path, extracted to its own component. */}
+              <Route path="orders" element={<StaffOrderScreen />} />
+              <Route path="password" element={<RenewPasswordScreen />} />
+              <Route element={<RequireAdmin />}>
+                <Route path="customers" element={<CustomersScreen />} />
+                <Route path="users" element={<UsersScreen />} />
+                <Route path="branches" element={<BranchesScreen />} />
+              </Route>
+              <Route element={<RequireSystemAdmin />}>
+                <Route path="organizations" element={<OrganizationsScreen />} />
+              </Route>
             </Route>
           </Route>
-        </Route>
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </ThemeProvider>
     </AuthProvider>
   )
 }
