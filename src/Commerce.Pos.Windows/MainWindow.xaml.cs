@@ -1,11 +1,13 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Input;
 using Commerce.Application.Pricing;
 using Commerce.BranchNode;
 using Commerce.Domain.Identity;
+using Commerce.Updater;
 using Commerce.Domain.Sync;
 
 namespace Commerce.Pos.Windows;
@@ -38,6 +40,10 @@ public partial class MainWindow : Window
     private readonly Func<CustomerAdminClient> _customerAdminClientFactory;
     private readonly Func<UserAdminClient> _userAdminClientFactory;
     private readonly ApplicationBranding _branding;
+    private readonly ReleaseDiscovery _releaseDiscovery;
+    private readonly LocalUpdateManifestSource _updateManifestSource;
+    private readonly Version _localVersion;
+    private UpdateCheckResult _updateCheckResult;
     private readonly Guid _installationId;
     private readonly ObservableCollection<ScannedSaleLineViewModel> _scannedLines = new();
     private readonly SyncRunner _syncRunner;
@@ -60,6 +66,8 @@ public partial class MainWindow : Window
         Func<CustomerAdminClient> customerAdminClientFactory,
         Func<UserAdminClient> userAdminClientFactory,
         ApplicationBranding branding,
+        ReleaseDiscovery releaseDiscovery,
+        LocalUpdateManifestSource updateManifestSource,
         LocalInstallationRecord identity)
     {
         InitializeComponent();
@@ -78,6 +86,10 @@ public partial class MainWindow : Window
         _customerAdminClientFactory = customerAdminClientFactory;
         _userAdminClientFactory = userAdminClientFactory;
         _branding = branding;
+        _releaseDiscovery = releaseDiscovery;
+        _updateManifestSource = updateManifestSource;
+        _localVersion = ReadLocalVersion();
+        _updateCheckResult = _releaseDiscovery.CheckForUpdates(_localVersion, _updateManifestSource);
         Title = branding.MainWindowTitle;
         _installationId = identity.InstallationId;
         _pairing = identity.Pairing
@@ -144,7 +156,19 @@ public partial class MainWindow : Window
         return $"Sincronización: {status.PendingOperationCount} pendientes - Última confirmación: {lastAck} - {_lastSyncResult}";
     }
 
-    private static string BuildVersionStatus() => "Versión local - Actualizaciones: sin servicio configurado";
+    private string BuildVersionStatus() => $"Versión {_localVersion} · {ReleaseDiscovery.FormatCompactStatus(_updateCheckResult)}";
+
+    private static Version ReadLocalVersion()
+    {
+        var informationalVersion = typeof(App).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+            ?.InformationalVersion
+            .Split('+', 2)[0];
+
+        return Version.TryParse(informationalVersion, out var parsed)
+            ? parsed
+            : new Version(0, 0, 0);
+    }
 
     private string BuildIdentitySummary()
     {

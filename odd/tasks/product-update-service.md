@@ -25,25 +25,25 @@ Define and implement the installed-terminal update path for Windows POS terminal
   - Checks: Documentation readback; no code build required for docs-only change.
   - Commit: pending.
 
-- [ ] Add POS version metadata
-  - Evidence: pending.
-  - Checks: pending.
+- [x] Add POS version metadata
+  - Evidence: Added `Version`, `AssemblyVersion`, `FileVersion`, and `InformationalVersion` metadata to `src/Commerce.Pos.Windows/Commerce.Pos.Windows.csproj`; `MainWindow` reads `AssemblyInformationalVersionAttribute` for footer display.
+  - Checks: `dotnet build src/Commerce.Pos.Windows/Commerce.Pos.Windows.csproj` succeeded with existing NU1903 warnings and 0 errors.
 
-- [ ] Add release manifest model and parser
-  - Evidence: pending.
-  - Checks: pending.
+- [x] Add release manifest model and parser
+  - Evidence: Added `src/Commerce.Updater/ReleaseDiscovery.cs` with local release manifest records, typed update outcomes, manifest schema validation, version comparison, and compact Spanish status formatting.
+  - Checks: `dotnet test tests/Commerce.Upgrade/Commerce.Upgrade.csproj --no-build` passed 27/27 after build.
 
-- [ ] Add local-file manifest source for VM testing
-  - Evidence: pending.
-  - Checks: pending.
+- [x] Add local-file manifest source for VM testing
+  - Evidence: Added `LocalUpdateManifestSource`, defaulting from POS DI to `%LocalAppData%/Incoders/Commerce/update-manifest.json`, overrideable with `Commerce:UpdateManifestPath`.
+  - Checks: Missing manifest returns `ManifestNotConfigured` instead of claiming the service is absent.
 
-- [ ] Wire footer/settings update status
-  - Evidence: pending.
-  - Checks: pending.
+- [x] Wire footer/settings update status
+  - Evidence: `MainWindow` now displays `Versión <local> · <update status>` in the footer/settings version provider using `ReleaseDiscovery.CheckForUpdates(...)` at startup.
+  - Checks: Desktop build succeeded.
 
-- [ ] Add update compatibility tests
-  - Evidence: pending.
-  - Checks: pending.
+- [x] Add update compatibility tests
+  - Evidence: Added `tests/Commerce.Upgrade/UpdateDiscoveryTests.cs` for missing manifest, up-to-date, available update, incompatible Windows, incompatible architecture, invalid manifest, unsupported schema, and no compatible package.
+  - Checks: `dotnet test tests/Commerce.Upgrade/Commerce.Upgrade.csproj --no-build` passed 27/27.
 
 ## References
 

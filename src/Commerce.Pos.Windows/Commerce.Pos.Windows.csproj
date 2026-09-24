@@ -7,6 +7,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <ApplicationIcon>app.ico</ApplicationIcon>
+    <Version>0.1.0</Version>
+    <AssemblyVersion>0.1.0.0</AssemblyVersion>
+    <FileVersion>0.1.0.0</FileVersion>
+    <InformationalVersion>0.1.0</InformationalVersion>
   </PropertyGroup>
 
   <ItemGroup>
@@ -31,6 +35,7 @@
     <ProjectReference Include="..\Commerce.Domain\Commerce.Domain.csproj" />
     <ProjectReference Include="..\Commerce.Application\Commerce.Application.csproj" />
     <ProjectReference Include="..\Commerce.BranchNode\Commerce.BranchNode.csproj" />
+    <ProjectReference Include="..\Commerce.Updater\Commerce.Updater.csproj" />
   </ItemGroup>
 
 </Project>
