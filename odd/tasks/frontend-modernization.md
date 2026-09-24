@@ -321,6 +321,51 @@ admin panel.
   build`: `tsc -b && vite build` succeed clean (330.84 kB / 100.79 kB gzip
   JS bundle, 17.55 kB / 4.27 kB gzip CSS).
 
+- 2026-09-24: `gentle-ai review` #2 (lineage `review-924803f734cd5ae0`,
+  base-ref = T2's acknowledged tree, 29 files / 2547 lines, risk **high**
+  via `hot_path` on `odd/tasks/product-update-service.md`, all 4 lenses):
+  **approved** after one bounded correction, acknowledged, authority
+  burned. The correction was NOT in this feature's frontend work — the
+  reliability lens found a CRITICAL defect in
+  `src/Commerce.Updater/ReleaseDiscovery.cs`, code that arrived via the
+  `dev` merge (PR #70, POS update service). Verified independently before
+  accepting: `System.Text.Json` overwrites the manifest records'
+  collection initializers when the payload carries explicit nulls, so
+  `"packages": null`, `"architectures": null`, a null package entry, or a
+  null package `"architecture"` each threw `NullReferenceException`;
+  `CheckForUpdates` only converted IO/JSON exceptions, so the NRE escaped
+  into `MainWindow`'s constructor (`MainWindow.xaml.cs:92`, called
+  synchronously) and crashed POS startup — directly contradicting
+  `docs/pos-product-updates.md:25`'s documented non-goal "Blocking offline
+  sales because update detection failed". Reproduced as 4 RED tests
+  (all `NullReferenceException`) before fixing. User explicitly authorized
+  taking this fix in this branch rather than deferring it, because `dev`
+  is about to be promoted to `main`. Fix committed as `6672267`
+  (79 lines, within the declared 80-line correction plan; budget was 200):
+  null-checked collections, skip null package entries,
+  `NormalizeArchitecture` accepts null. `dotnet test Commerce.Upgrade`:
+  31/31 green.
+  Non-blocking advisory findings recorded for later (none reopen this
+  review): `R1-001` (risk, package-selection suggestion),
+  `R2-repair-button-now-opens-settings` (WARNING),
+  `R2-unchecked-compat-trust-fields` (WARNING),
+  `R2-update-outcome-doc-code-drift` (WARNING),
+  `R2-vite-comment-misattributes-proxy`, `R2-duplicated-status-builders`,
+  `R2-mutable-update-result-field`, `R2-theme-registry-duplicated`. Of
+  these, only `R2-vite-comment-misattributes-proxy` was fixed immediately,
+  since it flagged a comment this session had just written that became
+  wrong after the `dev` merge (the HTTPS proxy fronts the API, not Vite).
+- 2026-09-24: Workspace hygiene. The "13 pending changes" the user saw in
+  their git client were not files — the working tree was clean. They were
+  13 unpushed *commits* measured against the wrong upstream: creating the
+  branch with `git checkout -b ... incoders/main` set its tracking ref to
+  `incoders/main`, which is also why pushes targeted `main`. Repointed the
+  upstream to `incoders/feat/frontend-modernization` (local config only,
+  no commit). Also committed `.codegraph/.gitignore`: CodeGraph ships a
+  229-byte self-ignoring file (`*` plus `!.gitignore`) that is meant to be
+  tracked so its 18 MB local `codegraph.db` stays ignored — committing it
+  is what clears the last untracked entry.
+
 ## Next step
 
 Start T4 (list/card view switch).
