@@ -80,10 +80,13 @@ public sealed class ReleaseDiscovery
             return new UpdateCheckResult(UpdateCheckStatus.UnsupportedSchema, localVersion);
         }
 
+        // Collections are null-checked despite their non-nullable declarations:
+        // System.Text.Json overwrites property initializers with an explicit
+        // null in the payload.
         if (!string.Equals(manifest.Product, ProductId, StringComparison.OrdinalIgnoreCase) ||
             !Version.TryParse(manifest.Version, out var manifestVersion) ||
             manifest.Compatibility is null ||
-            manifest.Packages.Count == 0)
+            manifest.Packages is null or { Count: 0 })
         {
             return new UpdateCheckResult(UpdateCheckStatus.CheckFailedInvalid, localVersion);
         }
@@ -101,13 +104,16 @@ public sealed class ReleaseDiscovery
             return new UpdateCheckResult(UpdateCheckStatus.IncompatibleWindows, localVersion, manifestVersion);
         }
 
-        var manifestArchitectures = manifest.Compatibility.Architectures.Select(NormalizeArchitecture).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var manifestArchitectures = (manifest.Compatibility.Architectures ?? [])
+            .Select(NormalizeArchitecture)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
         if (manifestArchitectures.Count > 0 && !manifestArchitectures.Contains(architecture))
         {
             return new UpdateCheckResult(UpdateCheckStatus.IncompatibleArchitecture, localVersion, manifestVersion);
         }
 
         var package = manifest.Packages.FirstOrDefault(candidate =>
+            candidate is not null &&
             string.Equals(NormalizeArchitecture(candidate.Architecture), architecture, StringComparison.OrdinalIgnoreCase) &&
             targetEnvironment.WindowsBuild >= candidate.MinimumWindowsBuild &&
             !string.IsNullOrWhiteSpace(candidate.Url) &&
@@ -132,7 +138,7 @@ public sealed class ReleaseDiscovery
         _ => "No se pudo comprobar updates"
     };
 
-    private static string NormalizeArchitecture(string architecture) => architecture.Trim().ToLowerInvariant() switch
+    private static string NormalizeArchitecture(string? architecture) => (architecture ?? string.Empty).Trim().ToLowerInvariant() switch
     {
         "amd64" => "x64",
         "x86_64" => "x64",

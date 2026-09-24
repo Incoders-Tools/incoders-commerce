@@ -63,7 +63,7 @@ admin panel.
       user id). "Custom" theme is a placeholder consumer of org-level
       tokens until T5 exists. Route: delegated direct (provider + switcher
       component + hook = 2+ non-trivial files).
-- [ ] T3. App shell redesign: enterprise nav (sidebar or responsive
+- [x] T3. App shell redesign: enterprise nav (sidebar or responsive
       top-nav — decide during task), responsive breakpoints, account
       dropdown menu (user display name, Change password, Sign out). Move
       `RenewPasswordScreen` off the top-level tab bar into that menu.
@@ -252,9 +252,120 @@ admin panel.
   sign-in verified 200 over `https://localhost:5443` with the sysadmin
   account.
 
+- 2026-09-24: T3 done (delegated-direct route, 2 non-trivial source files +
+  2 test files — confirmed trigger: `AppLayout.tsx` full rewrite +
+  new `AccountMenu.tsx`). User complaint driving this task (Spanish): "el
+  front lo sigo viendo horrible sin maqueta... no aprovechamos la totalidad
+  de la pantalla" — no real shell, everything loose, not using full screen
+  width. Read `auth/AuthContext.tsx` first and confirmed `SignedInResponse`
+  (`api/types.ts`) has no `email` field, only `displayName` — the account
+  menu header and trigger use `displayName` only, documented inline in
+  `AccountMenu.tsx` so a future reader doesn't go looking for an `email`
+  that doesn't exist. Confirmed no Radix/headless-ui dependency exists in
+  `package.json` and added none.
+  New files: `src/Commerce.Web/src/components/layout/AccountMenu.tsx`,
+  `src/Commerce.Web/src/components/layout/AccountMenu.test.tsx`,
+  `src/Commerce.Web/src/routes/AppLayout.test.tsx` (new — none existed
+  before). Rewrote `src/Commerce.Web/src/routes/AppLayout.tsx` in place.
+  Structure: `AppLayout` is now a flex shell — a `<aside>` sidebar
+  (`bg-card`, `border-border` tokens from T1) fixed/off-canvas and
+  translated off-screen (`-translate-x-full`) below the `md:` breakpoint,
+  toggled by a header hamburger button (`useState` bool, no external state
+  lib, closes on nav-link click and on the mobile scrim overlay click); at
+  `md:` it becomes `static`/`w-64 shrink-0` and sits in normal flex flow
+  next to the content column, which drops the old `mx-auto max-w-3xl`
+  centered-column artifact entirely — content area is now `w-full flex-1`
+  so it fills all remaining width. Nav items mirror the exact gating
+  `AppLayout` already used (UI-only mirror; `App.tsx`'s
+  `RequireAuth`/`RequireAdmin`/`RequireSystemAdmin` untouched, confirmed
+  not modified): Catalog/Orders unconditional,
+  Customers/Users/Branches behind `hasPermission(user,
+  Permission.ManageUsers)`, Organizations behind `user?.isSystemAdmin`.
+  "Change password" removed from the nav list entirely and now lives only
+  inside `AccountMenu`. `AccountMenu` is a hand-built dropdown (no
+  Radix/headless-ui — none was installed, none was added): a header button
+  showing `user.displayName` with `aria-haspopup="menu"`/
+  `aria-expanded`, and a `role="menu"` panel with a display-name header,
+  a `Link` (react-router, not an external lib) to `/app/password`, the
+  existing `ThemeSwitcher` (moved out of the header where T2 had mounted
+  it temporarily — that mount point and its "T3 will move this" comment
+  are both gone now), and a "Sign out" button reusing `useAuth().signOut()`
+  unchanged. Open/close state is a local `useState`; a `useEffect` (only
+  active while `open`) attaches `keydown`/`mousedown` document listeners
+  for Escape-to-close and click-outside-to-close, cleaned up on close/
+  unmount — no new dependency, following the same hand-rolled-primitive
+  precedent `ThemeSwitcher` already set for icons.
+  TDD: strict RED confirmed for both new test files before writing any
+  implementation — `AccountMenu.test.tsx` failed on unresolved import
+  (`./AccountMenu` didn't exist yet); `AppLayout.test.tsx` (5 of 6 cases)
+  failed against the pre-T3 `AppLayout.tsx` (old flat `NavTab` bar,
+  `Change password` still present as a nav link, no account-menu trigger
+  button, no mobile-sidebar toggle) — captured verbatim in this session's
+  transcript. Implemented to GREEN, one follow-up correction during GREEN:
+  the mobile-toggle test initially queried `getByRole('navigation')`
+  (the inner `<nav>`, whose classes never change) instead of the `<aside>`
+  that actually carries the transform classes — fixed the test to query
+  the `<aside>` via `container.querySelector`, not a production-code
+  change. 11 new tests (5 `AccountMenu`, 6 `AppLayout`) covering: nav
+  visibility for a plain authenticated user (Catalog/Orders only, no
+  Change-password link in the nav), a `ManageUsers` user (additionally
+  Customers/Users/Branches, still no Organizations), a system admin
+  (Organizations too); no `max-w-3xl` column present; mobile sidebar
+  toggle via the hamburger button; account-menu trigger shows the display
+  name; dropdown opens on click and shows display name + a `/app/password`
+  `menuitem` link + the `ThemeSwitcher` `radiogroup`; closes on Escape;
+  closes on outside click; "Sign out" calls the mocked `signOut()`. Full
+  suite: 90/90 passing (79 pre-existing + 11 new). `npm run lint`: exit 0,
+  same pre-existing warning categories only (no new ones — `AccountMenu.tsx`
+  and the rewritten `AppLayout.tsx` triggered no new warnings). `npm run
+  build`: `tsc -b && vite build` succeed clean (330.84 kB / 100.79 kB gzip
+  JS bundle, 17.55 kB / 4.27 kB gzip CSS).
+
+- 2026-09-24: `gentle-ai review` #2 (lineage `review-924803f734cd5ae0`,
+  base-ref = T2's acknowledged tree, 29 files / 2547 lines, risk **high**
+  via `hot_path` on `odd/tasks/product-update-service.md`, all 4 lenses):
+  **approved** after one bounded correction, acknowledged, authority
+  burned. The correction was NOT in this feature's frontend work — the
+  reliability lens found a CRITICAL defect in
+  `src/Commerce.Updater/ReleaseDiscovery.cs`, code that arrived via the
+  `dev` merge (PR #70, POS update service). Verified independently before
+  accepting: `System.Text.Json` overwrites the manifest records'
+  collection initializers when the payload carries explicit nulls, so
+  `"packages": null`, `"architectures": null`, a null package entry, or a
+  null package `"architecture"` each threw `NullReferenceException`;
+  `CheckForUpdates` only converted IO/JSON exceptions, so the NRE escaped
+  into `MainWindow`'s constructor (`MainWindow.xaml.cs:92`, called
+  synchronously) and crashed POS startup — directly contradicting
+  `docs/pos-product-updates.md:25`'s documented non-goal "Blocking offline
+  sales because update detection failed". Reproduced as 4 RED tests
+  (all `NullReferenceException`) before fixing. User explicitly authorized
+  taking this fix in this branch rather than deferring it, because `dev`
+  is about to be promoted to `main`. Fix committed as `6672267`
+  (79 lines, within the declared 80-line correction plan; budget was 200):
+  null-checked collections, skip null package entries,
+  `NormalizeArchitecture` accepts null. `dotnet test Commerce.Upgrade`:
+  31/31 green.
+  Non-blocking advisory findings recorded for later (none reopen this
+  review): `R1-001` (risk, package-selection suggestion),
+  `R2-repair-button-now-opens-settings` (WARNING),
+  `R2-unchecked-compat-trust-fields` (WARNING),
+  `R2-update-outcome-doc-code-drift` (WARNING),
+  `R2-vite-comment-misattributes-proxy`, `R2-duplicated-status-builders`,
+  `R2-mutable-update-result-field`, `R2-theme-registry-duplicated`. Of
+  these, only `R2-vite-comment-misattributes-proxy` was fixed immediately,
+  since it flagged a comment this session had just written that became
+  wrong after the `dev` merge (the HTTPS proxy fronts the API, not Vite).
+- 2026-09-24: Workspace hygiene. The "13 pending changes" the user saw in
+  their git client were not files — the working tree was clean. They were
+  13 unpushed *commits* measured against the wrong upstream: creating the
+  branch with `git checkout -b ... incoders/main` set its tracking ref to
+  `incoders/main`, which is also why pushes targeted `main`. Repointed the
+  upstream to `incoders/feat/frontend-modernization` (local config only,
+  no commit). Also committed `.codegraph/.gitignore`: CodeGraph ships a
+  229-byte self-ignoring file (`*` plus `!.gitignore`) that is meant to be
+  tracked so its 18 MB local `codegraph.db` stays ignored — committing it
+  is what clears the last untracked entry.
+
 ## Next step
 
-Push `feat/frontend-modernization` and open the PR against `dev` (not
-`main`). Then start T3 (app shell redesign: nav + account menu, reusable
-component layer — user reports the UI still looks unstyled/scattered,
-e.g. no logged-in-user section, everything loose on the home screen).
+Start T4 (list/card view switch).
