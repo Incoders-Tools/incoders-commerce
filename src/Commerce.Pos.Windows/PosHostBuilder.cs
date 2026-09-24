@@ -3,6 +3,7 @@ using Commerce.Application.Access;
 using Commerce.Application.Audit;
 using Commerce.Application.Pricing;
 using Commerce.BranchNode;
+using Commerce.Updater;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -28,6 +29,8 @@ public static class PosHostBuilder
         var databasePath = Path.Combine(dataDirectory, "branch.db");
 
         var cloudApiBaseUrl = builder.Configuration["Commerce:CloudApiBaseUrl"] ?? "http://localhost:8080";
+        var updateManifestPath = builder.Configuration["Commerce:UpdateManifestPath"]
+            ?? Path.Combine(dataDirectory, "update-manifest.json");
 
         builder.Services.AddSingleton(_ => new BranchSyncStore($"Data Source={databasePath}"));
         builder.Services.AddSingleton<IAuditSink, InMemoryAuditSink>();
@@ -37,6 +40,8 @@ public static class PosHostBuilder
         builder.Services.AddSingleton(_ => new LocalOperatorStore(Path.Combine(dataDirectory, "operators.json")));
         builder.Services.AddSingleton<CurrentOperator>();
         builder.Services.AddSingleton(_ => ApplicationBranding.Load(dataDirectory));
+        builder.Services.AddSingleton(new LocalUpdateManifestSource(updateManifestPath));
+        builder.Services.AddSingleton<ReleaseDiscovery>();
 
         // Task 7.2: the POS half of the shared IEffectivePriceSource port
         // (design.md "PricingResolutionService contract and location") — the
