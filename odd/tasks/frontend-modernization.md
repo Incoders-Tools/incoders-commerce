@@ -102,8 +102,12 @@ admin panel.
   accent-foreground, destructive/destructive-foreground, border, input,
   ring) for `:root` (light) and `.dark` (class selector, not
   `prefers-color-scheme` — future ThemeProvider owns the toggle), mapped to
-  Tailwind v4 utilities via `@theme inline`. Removed hardcoded
-  `color-scheme: light`. Updated `components/ui/{button,card,input,label}.tsx`
+  Tailwind v4 utilities via `@theme inline`. **Correction (2026-09-24,
+  review finding R3-task-log-color-scheme-claim): `color-scheme: light`
+  was NOT removed from `:root` as originally logged here — it remains
+  unchanged as the `:root` default, and `.dark` correctly overrides it to
+  `color-scheme: dark`. Behavior is correct; only this log entry was
+  wrong.** Updated `components/ui/{button,card,input,label}.tsx`
   to consume the semantic utilities instead of raw `neutral-*`/`red-*`/
   `white` classes; no visual/behavioral change intended. Added RED-then-
   GREEN vitest + Testing Library tests for all 4 primitives (asserting
@@ -151,6 +155,69 @@ admin panel.
   from one file), not a new category. `npm run build`: `tsc -b && vite
   build` succeed clean.
 
+- 2026-09-24: `gentle-ai review` (lineage `review-51be7d67b03768e2`,
+  base-ref pre-T1 `incoders/main` → T1+T2 combined, 17 files / 764 lines,
+  risk medium, lens `review-reliability` only): **approved**, acknowledged,
+  authority burned. Reviewed boundary now advances to the T2 commit
+  (`316359a`). 4 non-blocking advisory findings (no correction opened):
+  - WARNING `R3-identity-change-untested`: `ThemeProvider`'s re-read effect
+    on user-identity change (sign-in/out swapping accounts on a mounted
+    provider) is untested; a regression could leak the previous account's
+    theme, plus a one-frame flash on identity change. Follow-up, not fixed
+    now.
+  - WARNING `R3-per-user-isolation-test-weak`: the "separate themes per
+    user" test seeds one user with the DEFAULT_THEME value, so it would
+    still pass even if per-user key scoping were broken. Follow-up: seed
+    both users with non-default, distinct values.
+  - SUGGESTION `R3-dark-class-applied-post-mount`: `.dark` is applied in a
+    post-render `useEffect`, so a user with a persisted "dark" preference
+    sees a flash of the light theme on full page load before React mounts.
+    Follow-up: apply the class synchronously before paint (e.g. inline
+    script or `useLayoutEffect`).
+  - SUGGESTION `R3-task-log-color-scheme-claim`: corrected above.
+  These are tracked here as future follow-up work, not re-opened against
+  this closed review.
+
+- 2026-09-24: Bugfix (unrelated to T1-T6, found while helping the user get
+  the local stack running to test T1/T2): `src/Commerce.Web/vite.config.ts`
+  proxied `/account`, `/catalog`, `/orders`, `/sync` to
+  `http://localhost:5080`, but `Commerce.Cloud.Api` always binds `8080` by
+  default (`Program.cs:28`, `PORT` env var or "8080" when unset — nothing
+  sets `PORT` for a local `dotnet run`). Nothing ever listened on 5080, so
+  every sign-in attempt through Vite (`:5173`) hit `ECONNREFUSED`
+  regardless of Docker/timing state. Fixed both targets to `8080`.
+  Separately, `deploy/dev/run-all.ps1` never launched the HTTPS proxy step
+  its own launcher `.bat` already advertises on screen
+  (`https://localhost:5443/login`) — and it matters functionally, not just
+  cosmetically: the sign-in cookie is `CookieSecurePolicy.Always`
+  (`Program.cs:164,188`), so a browser silently drops it over plain HTTP,
+  meaning a "successful" login via bare `http://localhost:5173` would not
+  actually persist a session. Added a 4th launcher step:
+  `npx local-ssl-proxy --source 5443 --target 5173` (fronting Vite itself,
+  not the raw API, so hot-reload dev editing and real cookie auth both
+  work at once — the API-fronting `--target 8080` pattern in
+  `README.md`/E2E docs is for the separately-built static SPA, a different
+  workflow). Added a `-NoHttps` switch. Verified end-to-end: API `:8080`
+  healthy, Vite `:5173` proxy now returns the API's real response instead
+  of `ECONNREFUSED`, HTTPS proxy `:5443/login` returns 200. Not
+  TDD-applicable (dev-environment/launcher config, no application
+  behavior to unit-test). Also confirmed and explained to the user,
+  without fixing (out of scope): the WPF POS desktop window showing "an
+  old version" is expected, not a bug — its modernization work
+  (`b488bf7 feat(pos): modernize desktop shell and themes`) lives only on
+  the unrelated, unmerged `feat/product-update-service` branch, not on
+  `main`, which `feat/frontend-modernization` was branched from.
+- 2026-09-24: Recreated `sysadmin@incoders.local` and
+  `admin@vacaverde.local` (same credentials as originally provisioned)
+  after the local Postgres data was lost — `deploy/dev/compose.yaml`'s
+  `postgres` service has no named volume, only a read-only bind mount for
+  `init-rls.sql`, so `docker compose down` (even without `-v`) destroys
+  the data since it only ever lived in the container's own writable
+  layer. Corrected here since an earlier message in this session wrongly
+  told the user the accounts would survive a plain `down`.
+
 ## Next step
 
-Start T3 (app shell redesign: nav + account menu).
+Start T3 (app shell redesign: nav + account menu). Local stack is running
+and verified (API, Vite with corrected proxy, HTTPS proxy on 5443); both
+test accounts recreated.
