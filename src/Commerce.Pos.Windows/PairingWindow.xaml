@@ -1,24 +1,72 @@
 <Window x:Class="Commerce.Pos.Windows.PairingWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Pair Terminal" Height="420" Width="420" WindowStartupLocation="CenterScreen" Icon="app.ico">
-    <StackPanel Margin="16">
-        <TextBlock Text="Sign in to pair this terminal" FontWeight="Bold" FontSize="16" Margin="0,0,0,8" />
+        Title="Configurar terminal" Height="620" Width="500" WindowStartupLocation="CenterScreen" Icon="app.ico"
+        Background="{DynamicResource ShellBrush}" Foreground="{DynamicResource TextBrush}" ResizeMode="NoResize">
+    <Grid Margin="24">
+        <Border Style="{StaticResource CardBorder}" VerticalAlignment="Center">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
 
-        <TextBlock Text="Email:" Margin="0,0,0,4" />
-        <TextBox x:Name="EmailTextBox" Margin="0,0,0,8" />
+                <StackPanel Grid.Row="0" Margin="0,0,0,18">
+                    <TextBlock Text="ACCESO DE TERMINAL" Style="{StaticResource EyebrowTextBlock}" />
+                    <TextBlock Text="Configure esta terminal" Style="{StaticResource HeroTextBlock}" />
+                    <TextBlock Text="Conecte este punto de venta con la organización y sucursal correctas antes de vender."
+                               Style="{StaticResource MutedTextBlock}" TextWrapping="Wrap" />
+                </StackPanel>
 
-        <TextBlock Text="Password:" Margin="0,0,0,4" />
-        <PasswordBox x:Name="PasswordBox" Margin="0,0,0,8" />
 
-        <Button x:Name="SignInButton" Content="Sign in" HorizontalAlignment="Left" Click="SignInButton_Click" />
+                <StackPanel Grid.Row="1" Margin="0,0,0,12">
+                    <TextBlock Text="Correo" Style="{StaticResource MutedTextBlock}" Margin="0,0,0,5" />
+                    <TextBox x:Name="EmailTextBox" />
+                </StackPanel>
 
-        <StackPanel x:Name="BranchSelectionPanel" Visibility="Collapsed" Margin="0,16,0,0">
-            <TextBlock Text="Select a branch:" FontWeight="Bold" Margin="0,0,0,8" />
-            <ListBox x:Name="BranchListBox" Height="100" DisplayMemberPath="Name" />
-            <Button x:Name="PairButton" Content="Pair" Margin="0,8,0,0" HorizontalAlignment="Left" Click="PairButton_Click" />
-        </StackPanel>
+                <StackPanel Grid.Row="2" Margin="0,0,0,16">
+                    <TextBlock Text="Contraseña" Style="{StaticResource MutedTextBlock}" Margin="0,0,0,5" />
+                    <PasswordBox x:Name="PasswordBox" />
+                </StackPanel>
 
-        <TextBlock x:Name="StatusText" TextWrapping="Wrap" Margin="0,16,0,0" Foreground="DarkRed" />
-    </StackPanel>
+                <StackPanel Grid.Row="3">
+                    <Button x:Name="SignInButton" Content="Ingresar" HorizontalAlignment="Stretch" Click="SignInButton_Click" />
+
+                    <StackPanel x:Name="BranchSelectionPanel" Visibility="Collapsed" Margin="0,16,0,0">
+                        <Border Style="{StaticResource SoftCardBorder}">
+                            <StackPanel>
+                                <TextBlock Text="Seleccione una sucursal" Style="{StaticResource SectionTitleTextBlock}" />
+                                <TextBlock Text="Esta cuenta tiene varias sucursales. Elija a cuál pertenece esta terminal."
+                                           Style="{StaticResource MutedTextBlock}" TextWrapping="Wrap" Margin="0,0,0,10" />
+                                <ListBox x:Name="BranchListBox" Height="118" DisplayMemberPath="Name" />
+                                <Button x:Name="PairButton" Content="Configurar terminal" Margin="0,10,0,0" HorizontalAlignment="Stretch" Click="PairButton_Click" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </StackPanel>
+
+                <Border Grid.Row="4" Background="{DynamicResource DangerSurfaceBrush}" BorderBrush="{DynamicResource DangerBrush}" BorderThickness="1"
+                        CornerRadius="10" Padding="12" Margin="0,16,0,0">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Setter Property="Visibility" Value="Visible" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Text, ElementName=StatusText}" Value="">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Text, ElementName=StatusText}" Value="{x:Null}">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                    <TextBlock x:Name="StatusText" TextWrapping="Wrap" Foreground="{DynamicResource DangerBrush}" />
+                </Border>
+            </Grid>
+        </Border>
+    </Grid>
 </Window>

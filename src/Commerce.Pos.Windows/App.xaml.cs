@@ -1,5 +1,6 @@
 using System.Windows;
 using Commerce.BranchNode;
+using Commerce.Updater;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
@@ -21,6 +22,8 @@ public partial class App : System.Windows.Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        DesktopThemeService.ApplySavedTheme();
 
         _host = PosHostBuilder.Build();
         _host.Start();
@@ -76,6 +79,8 @@ public partial class App : System.Windows.Application
             _host.Services.GetRequiredService<Func<CustomerAdminClient>>(),
             _host.Services.GetRequiredService<Func<UserAdminClient>>(),
             branding,
+            _host.Services.GetRequiredService<ReleaseDiscovery>(),
+            _host.Services.GetRequiredService<LocalUpdateManifestSource>(),
             identity);
 
         // ShutdownMode is OnExplicitShutdown (App.xaml) specifically so that

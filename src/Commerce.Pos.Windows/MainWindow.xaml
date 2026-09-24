@@ -1,85 +1,161 @@
 <Window x:Class="Commerce.Pos.Windows.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Commerce Pos.Windows" Height="620" Width="640" Icon="app.ico">
-    <ScrollViewer VerticalScrollBarVisibility="Auto">
-    <StackPanel Margin="16">
-        <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
-            <StackPanel>
-                <TextBlock Text="Terminal Identity" FontWeight="Bold" FontSize="16" Margin="0,0,0,8" />
-                <TextBlock x:Name="IdentityText" TextWrapping="Wrap" />
-            </StackPanel>
-            <Button x:Name="RepairButton" Content="Re-pair terminal" VerticalAlignment="Top" Margin="24,0,0,0" Click="RepairButton_Click" />
-            <Button x:Name="SwitchOperatorButton" Content="Switch operator" VerticalAlignment="Top" Margin="8,0,0,0" Click="SwitchOperatorButton_Click" />
-            <Button x:Name="ManageCustomersButton" Content="Manage customers" VerticalAlignment="Top" Margin="8,0,0,0" Click="ManageCustomersButton_Click" Visibility="Collapsed" />
-            <Button x:Name="ManageStaffButton" Content="Manage staff" VerticalAlignment="Top" Margin="8,0,0,0" Click="ManageStaffButton_Click" Visibility="Collapsed" />
-        </StackPanel>
+        Title="Commerce Pos.Windows" Height="760" Width="1180" MinHeight="700" MinWidth="1120" Icon="app.ico"
+        Background="{DynamicResource ShellBrush}" Foreground="{DynamicResource TextBrush}" WindowStartupLocation="CenterScreen">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
 
-        <TextBlock Text="Branch Status" FontWeight="Bold" FontSize="16" Margin="0,0,0,8" />
-        <TextBlock x:Name="StatusText" TextWrapping="Wrap" Margin="0,0,0,8" />
-        <!-- Task 7.7: ADR-002's existing freshness policy (CachedOperator.Ttl,
-             14 days), read off the catalog-prices sync cursor age. No new
-             freshness mechanism is introduced. A stale cache never blocks a
-             sale (ADR-002: the branch stays authoritative for its own sale) —
-             it is only made visible. -->
-        <Border x:Name="StaleCatalogBanner" Background="#FFF3CD" BorderBrush="#FFECB5" BorderThickness="1"
-                Padding="8" Margin="0,0,0,16" Visibility="Collapsed">
-            <TextBlock x:Name="StaleCatalogBannerText" TextWrapping="Wrap" Foreground="#664D03" />
+        <Border Grid.Row="0" Background="{DynamicResource ShellElevatedBrush}" BorderBrush="{DynamicResource BorderBrushMuted}" BorderThickness="0,0,0,1" Padding="22,16">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                    <TextBlock Text="COMMERCE POS" Style="{StaticResource EyebrowTextBlock}" />
+                    <TextBlock Text="Punto de venta" FontSize="24" FontWeight="Bold" />
+                </StackPanel>
+
+                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <Button Content="Venta" MinWidth="104" Margin="0,0,10,0" IsEnabled="False" />
+                    <Button x:Name="ManageCustomersButton" Content="Clientes" MinWidth="104" Margin="0,0,10,0" Click="ManageCustomersButton_Click" Visibility="Collapsed" Style="{StaticResource SecondaryButton}" />
+                    <Button x:Name="ManageStaffButton" Content="Personal" MinWidth="104" Margin="0,0,10,0" Click="ManageStaffButton_Click" Visibility="Collapsed" Style="{StaticResource SecondaryButton}" />
+                    <Button x:Name="SyncButton" Content="Sincronización" MinWidth="136" Margin="0,0,10,0" Click="SyncButton_Click" Style="{StaticResource SecondaryButton}" />
+                    <Button x:Name="RepairButton" Content="Configuración / terminal" MinWidth="180" Click="RepairButton_Click" Style="{StaticResource SecondaryButton}" />
+                </StackPanel>
+
+                <Border Grid.Column="2" Style="{StaticResource SoftCardBorder}" Padding="14,10" MinWidth="230">
+                    <StackPanel>
+                        <TextBlock Text="OPERADOR" Style="{StaticResource EyebrowTextBlock}" />
+                        <TextBlock x:Name="OperatorDisplayText" Text="Sin operador activo" FontWeight="SemiBold" TextWrapping="Wrap" />
+                        <Button x:Name="SwitchOperatorButton" Content="Cambiar operador" Margin="0,10,0,0" HorizontalAlignment="Stretch" Click="SwitchOperatorButton_Click" Style="{StaticResource GhostButton}" />
+                    </StackPanel>
+                </Border>
+            </Grid>
         </Border>
 
-        <!-- Task 7.4/7.5: scan is the PRIMARY flow, above a visual separator
-             from the demoted manual fallback (design.md "POS: two explicit
-             buttons, not a mode toggle"). -->
-        <TextBlock Text="Scan Item" FontWeight="Bold" FontSize="16" Margin="0,0,0,8" />
-        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-            <TextBlock Text="Code:" VerticalAlignment="Center" Margin="0,0,8,0" />
-            <TextBox x:Name="ScanCodeTextBox" Width="220" KeyDown="ScanCodeTextBox_KeyDown" />
-        </StackPanel>
-        <TextBlock x:Name="ScanMessageText" TextWrapping="Wrap" Foreground="#B00020" Margin="0,0,0,8" />
+        <Grid Grid.Row="1">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="28">
+                    <Border x:Name="StaleCatalogBanner" Background="{DynamicResource WarningSurfaceBrush}" BorderBrush="{DynamicResource WarningBorderBrush}" BorderThickness="1"
+                            Padding="14" Margin="0,0,0,18" CornerRadius="12" Visibility="Collapsed">
+                        <TextBlock x:Name="StaleCatalogBannerText" TextWrapping="Wrap" Foreground="{DynamicResource WarningTextBrush}" />
+                    </Border>
 
-        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-            <TextBlock Text="Item" FontWeight="Bold" Width="220" />
-            <TextBlock Text="Qty" FontWeight="Bold" Width="60" />
-            <TextBlock Text="Unit Price" FontWeight="Bold" Width="100" />
-            <TextBlock Text="Line Total" FontWeight="Bold" Width="100" />
-        </StackPanel>
-        <ListView x:Name="ScannedLinesListView" Height="140" Margin="0,0,0,8">
-            <ListView.ItemTemplate>
-                <DataTemplate>
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="{Binding DisplayName}" Width="220" />
-                        <TextBlock Text="{Binding QuantityText}" Width="60" />
-                        <TextBlock Text="{Binding UnitPriceText}" Width="100" />
-                        <TextBlock Text="{Binding LineTotalText}" Width="100" />
-                    </StackPanel>
-                </DataTemplate>
-            </ListView.ItemTemplate>
-        </ListView>
+                    <Border Style="{StaticResource CardBorder}" Margin="0,0,0,18">
+                        <StackPanel>
+                            <TextBlock Text="VENTA" Style="{StaticResource EyebrowTextBlock}" />
+                            <TextBlock Text="Listo para vender" Style="{StaticResource HeroTextBlock}" />
+                            <TextBlock Text="Escanee un código de barras o escriba el código del producto y presione Enter."
+                                       Style="{StaticResource MutedTextBlock}" TextWrapping="Wrap" Margin="0,0,0,16" />
 
-        <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
-            <TextBlock Text="Scanned Total:" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,8,0" />
-            <TextBlock x:Name="ScannedTotalText" Text="$0.00" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,16,0" />
-            <Button x:Name="CommitScannedSaleButton" Content="Commit scanned sale" Click="CommitScannedSaleButton_Click" />
-        </StackPanel>
+                            <Grid Margin="0,0,0,10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBox x:Name="ScanCodeTextBox" Grid.Column="0" FontSize="20" MinHeight="54" KeyDown="ScanCodeTextBox_KeyDown" />
+                                <TextBlock Grid.Column="1" Text="ENTER" VerticalAlignment="Center" Margin="14,0,0,0" Style="{StaticResource EyebrowTextBlock}" />
+                            </Grid>
+                            <TextBlock x:Name="ScanMessageText" TextWrapping="Wrap" Foreground="{DynamicResource DangerBrush}" Margin="0,0,0,16" />
 
-        <Separator Margin="0,0,0,16" />
+                            <Border Style="{StaticResource SoftCardBorder}" Padding="0">
+                                <StackPanel>
+                                    <Grid Margin="14,12,14,8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="2*" />
+                                            <ColumnDefinition Width="70" />
+                                            <ColumnDefinition Width="110" />
+                                            <ColumnDefinition Width="110" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="Producto" FontWeight="SemiBold" Style="{StaticResource MutedTextBlock}" />
+                                        <TextBlock Grid.Column="1" Text="Cant." FontWeight="SemiBold" Style="{StaticResource MutedTextBlock}" />
+                                        <TextBlock Grid.Column="2" Text="Precio" FontWeight="SemiBold" Style="{StaticResource MutedTextBlock}" />
+                                        <TextBlock Grid.Column="3" Text="Total" FontWeight="SemiBold" Style="{StaticResource MutedTextBlock}" />
+                                    </Grid>
+                                    <ListView x:Name="ScannedLinesListView" Height="220" BorderThickness="0" Background="Transparent">
+                                        <ListView.ItemTemplate>
+                                            <DataTemplate>
+                                                <Grid Margin="6,2">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="2*" />
+                                                        <ColumnDefinition Width="70" />
+                                                        <ColumnDefinition Width="110" />
+                                                        <ColumnDefinition Width="110" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Text="{Binding DisplayName}" TextWrapping="Wrap" />
+                                                    <TextBlock Grid.Column="1" Text="{Binding QuantityText}" />
+                                                    <TextBlock Grid.Column="2" Text="{Binding UnitPriceText}" />
+                                                    <TextBlock Grid.Column="3" Text="{Binding LineTotalText}" />
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ListView.ItemTemplate>
+                                    </ListView>
+                                </StackPanel>
+                            </Border>
 
-        <!-- Task 7.5: demoted fallback group, kept per the locked proposal
-             decision, clearly labelled and visually separated from the scan
-             flow above. -->
-        <TextBlock Text="Miscellaneous / No Barcode (fallback)" FontWeight="Bold" FontSize="16" Margin="0,0,0,8" />
-        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-            <TextBlock Text="Amount:" VerticalAlignment="Center" Margin="0,0,8,0" />
-            <TextBox x:Name="AmountTextBox" Width="120" Text="19.99" />
-            <TextBlock Text="Customer:" VerticalAlignment="Center" Margin="16,0,8,0" />
-            <ComboBox x:Name="CustomerPickerComboBox" Width="160" DisplayMemberPath="Label" />
-            <Button x:Name="CommitSaleButton" Content="Commit manual sale" Margin="16,0,0,0" Click="CommitSaleButton_Click" />
-        </StackPanel>
-        <TextBlock x:Name="SaleResultText" TextWrapping="Wrap" Margin="0,0,0,16" />
+                            <Grid Margin="0,16,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                    <TextBlock Text="Total escaneado" Style="{StaticResource MutedTextBlock}" VerticalAlignment="Center" Margin="0,0,10,0" />
+                                    <TextBlock x:Name="ScannedTotalText" Text="$0.00" FontSize="26" FontWeight="Bold" VerticalAlignment="Center" />
+                                </StackPanel>
+                                <Button x:Name="CommitScannedSaleButton" Grid.Column="1" Content="Cobrar venta escaneada" Click="CommitScannedSaleButton_Click" />
+                            </Grid>
+                        </StackPanel>
+                    </Border>
 
-        <TextBlock Text="Sync to Cloud.Api" FontWeight="Bold" FontSize="16" Margin="0,0,0,8" />
-        <Button x:Name="SyncButton" Content="Sync Pending Outbox" HorizontalAlignment="Left" Click="SyncButton_Click" />
-        <TextBlock x:Name="SyncResultText" TextWrapping="Wrap" Margin="0,8,0,0" />
-    </StackPanel>
-    </ScrollViewer>
+                    <Border Style="{StaticResource CardBorder}">
+                        <StackPanel>
+                            <TextBlock Text="VENTA MANUAL" Style="{StaticResource EyebrowTextBlock}" />
+                            <TextBlock Text="Artículo sin código" Style="{StaticResource SectionTitleTextBlock}" />
+                            <TextBlock Text="Use esta opción solo cuando el producto no pueda escanearse desde el catálogo local."
+                                       Style="{StaticResource MutedTextBlock}" TextWrapping="Wrap" Margin="0,0,0,16" />
+
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="140" MinWidth="120" />
+                                    <ColumnDefinition Width="12" />
+                                    <ColumnDefinition Width="*" MinWidth="180" />
+                                    <ColumnDefinition Width="12" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Importe" Style="{StaticResource MutedTextBlock}" Margin="0,0,0,6" />
+                                    <TextBox x:Name="AmountTextBox" Text="19.99" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="Cliente" Style="{StaticResource MutedTextBlock}" Margin="0,0,0,6" />
+                                    <ComboBox x:Name="CustomerPickerComboBox" DisplayMemberPath="Label" />
+                                </StackPanel>
+                                <Button x:Name="CommitSaleButton" Grid.Column="4" Content="Cobrar venta manual" MinWidth="170" VerticalAlignment="Bottom" Click="CommitSaleButton_Click" />
+                            </Grid>
+                            <TextBlock x:Name="SaleResultText" TextWrapping="Wrap" Style="{StaticResource MutedTextBlock}" Margin="0,14,0,0" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+
+        <Border Grid.Row="2" Background="{DynamicResource ShellElevatedBrush}" BorderBrush="{DynamicResource BorderBrushMuted}" BorderThickness="0,1,0,0" Padding="16,4">
+            <Grid MinHeight="24">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="BottomSyncStatusText" Grid.Column="0" Style="{StaticResource MutedTextBlock}" FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                <TextBlock x:Name="BottomVersionStatusText" Grid.Column="1" Style="{StaticResource MutedTextBlock}" FontSize="12" VerticalAlignment="Center" Margin="18,0,0,0" />
+            </Grid>
+        </Border>
+    </Grid>
 </Window>
