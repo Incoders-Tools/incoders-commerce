@@ -222,8 +222,39 @@ admin panel.
   119 lines, `review_due: false` (`under_budget`). Reviewed boundary
   stays at `316359a` until the running slice reaches ~400 lines again.
 
+- 2026-09-24: Branch-target correction. User couldn't open a PR ("no veo
+  PR a dev... falla cuando intento pushear, le quiere pegar a main"):
+  this repo's real convention (confirmed via `gh pr list`) is feature
+  branches → PR into `dev`; `dev` → `main` is promoted separately
+  ("chore: promote dev to main"). `feat/frontend-modernization` had been
+  branched off `incoders/main` (a deliberate earlier choice to avoid an
+  unrelated in-flight branch), missing 6 commits already on `dev`:
+  `main` is a clean ancestor of `dev` (no divergence), so merged
+  `incoders/dev` in (commit `aaee9ac`) rather than rebasing, to avoid a
+  force-push on an already-pushed branch. One conflict, in
+  `deploy/dev/run-all.ps1`: `dev`'s `11df256` had already added a more
+  complete, tested version (builds the SPA statically into
+  `Commerce.Cloud.Api/wwwroot`, proper env vars, health-check polling,
+  HTTPS proxy fronting the API on 5443, auto-opens the browser) — this
+  supersedes the ad-hoc HTTPS-proxy-fronting-Vite step added in this
+  session's earlier bugfix commit. Resolved by taking `dev`'s canonical
+  version whole; the `vite.config.ts` 5080→8080 fix from that same
+  bugfix commit remains valid and kept (still used by a bare `npm run
+  dev` Vite session, a separate/faster iteration workflow this official
+  launcher doesn't cover since it only serves a rebuilt static SPA, no
+  hot reload). Other 5 commits (POS desktop theme incl.
+  `Themes/VacaVerdeTheme.xaml` — existing prior art for an org-branded
+  theme, relevant reference for future T5/T6 web work; POS update-service
+  detection; docs) merged cleanly, no conflicts, do not touch
+  `src/Commerce.Web`. Re-ran `deploy/dev/run-all.ps1 -NoPos -NoBrowser`
+  end to end: Postgres healthy, SPA rebuilt from current branch (T1+T2
+  included) and copied into `wwwroot`, API healthy, HTTPS proxy up,
+  sign-in verified 200 over `https://localhost:5443` with the sysadmin
+  account.
+
 ## Next step
 
-Start T3 (app shell redesign: nav + account menu). Local stack is running
-and verified (API, Vite with corrected proxy, HTTPS proxy on 5443); both
-test accounts recreated.
+Push `feat/frontend-modernization` and open the PR against `dev` (not
+`main`). Then start T3 (app shell redesign: nav + account menu, reusable
+component layer — user reports the UI still looks unstyled/scattered,
+e.g. no logged-in-user section, everything loose on the home screen).
