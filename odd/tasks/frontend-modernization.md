@@ -216,6 +216,12 @@ admin panel.
   layer. Corrected here since an earlier message in this session wrongly
   told the user the accounts would survive a plain `down`.
 
+- 2026-09-24: Bugfix commit `c89ee50`. `gentle-ai review assess` against
+  the correct last-reviewed boundary (`--base-ref 316359a`, the T2
+  commit): risk medium (executable_change on `run-all.ps1`), 3 files /
+  119 lines, `review_due: false` (`under_budget`). Reviewed boundary
+  stays at `316359a` until the running slice reaches ~400 lines again.
+
 ## Next step
 
 Start T3 (app shell redesign: nav + account menu). Local stack is running
