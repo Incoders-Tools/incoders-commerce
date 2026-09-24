@@ -68,9 +68,19 @@ admin panel.
       dropdown menu (user display name, Change password, Sign out). Move
       `RenewPasswordScreen` off the top-level tab bar into that menu.
       Route: delegated direct.
-- [ ] T4. Reusable list/card view-switch component, applied first to one
+- [x] T4. Reusable list/card view-switch component, applied first to one
       data-heavy screen (Customers or Catalog TBD) as the reference
       implementation, then rolled out. Route: delegated direct.
+- [ ] T4b. Roll the `components/data/*` layer (PageHeader + DataToolbar +
+      ViewSwitch + DataView + `useViewPreference`) out to the remaining data
+      screens: `CustomersScreen`, `PriceListsScreen`, `UsersScreen`,
+      `OrganizationsScreen`, `BranchesScreen` — each dropping its
+      `mx-auto … max-w-*` centered card, getting its own
+      `view:<screen>` preference key and real columns from `api/types.ts`.
+      Auth screens (`SignInScreen`, `ForgotPasswordScreen`,
+      `ResetPasswordScreen`, `RenewPasswordScreen`) are explicitly OUT of
+      scope — the narrow centered card is the correct pattern there.
+      Route: delegated direct (5 non-trivial screens + tests).
 - [ ] T5. Organization settings: backend fields (logo, theme colors, date
       format, geolocation, usage plan) on the Organization entity +
       sysadmin-gated endpoints, plus rebuilt `OrganizationsScreen.tsx` UI
@@ -366,6 +376,83 @@ admin panel.
   tracked so its 18 MB local `codegraph.db` stays ignored — committing it
   is what clears the last untracked entry.
 
+- 2026-09-24: **Branching convention changed.** From now on this feature
+  works directly on `dev` — no per-feature branch, no PR. Work-unit commits
+  land on `dev` and are pushed there (`git push`). The earlier
+  `feat/frontend-modernization` → PR-into-`dev` flow (PR #72, merged) is
+  superseded; T4 onwards commits straight to `dev`.
+
+- 2026-09-24: T4 done (delegated-direct route, 5 new source files + 1
+  rewritten screen + 4 new test files + 1 extended test file). User
+  complaint driving it (Spanish): the app "no se parece en nada a un
+  sistema" and "no aprovechamos la totalidad de la pantalla" — T3 made the
+  shell full-width, but every screen was still wrapped in
+  `<Card className="mx-auto mt-8 w-full max-w-2xl">`, so content stayed
+  narrow and centered inside a wide shell.
+  New reusable layer in `src/Commerce.Web/src/components/data/` (new folder,
+  mirroring the `components/layout/` convention T3 established):
+  - `PageHeader.tsx` — `title` / optional `description` / optional `actions`
+    slot; stacks on mobile, actions move right from `sm:` up.
+  - `DataToolbar.tsx` — client-side search `Input` (label is `sr-only`,
+    id via `useId`) + `ViewSwitch`, plus a `children` slot for future extra
+    filters; column on mobile, one row from `sm:` up.
+  - `ViewSwitch.tsx` — exports `DataViewMode = 'table' | 'cards'` and a
+    segmented `role="radiogroup"` control with `aria-checked` buttons and
+    inline SVG icons (no icon library added — same precedent as T2's
+    `ThemeSwitcher`, whose exact class set and markup shape this copies so
+    both read as one design system). Native `<button>`s keep it tab- and
+    Enter/Space-operable with no custom key handling.
+  - `DataView.tsx` — generic `DataView<T>` over `items` + `columns`
+    (`DataViewColumn<T>`: `key`, `header`, `cell`, plus `hideOnMobile` /
+    `hideInCards`) + `getRowKey`, rendering either a table or a responsive
+    card grid, and owning the three states: `loading` (`role="status"`),
+    empty (`emptyMessage`, never a blank area) and populated. Optional
+    `renderActions` (per-item buttons) and `renderExpanded` (inline form
+    under the item, as a `colSpan` row in the table and inside the card in
+    the grid). Deliberately NOT a table framework: no sorting, pagination
+    or column resizing — only what these screens actually need.
+  - `useViewPreference.ts` — `[view, setView]` persisted at
+    `view:<screenKey>` (e.g. `view:catalog`), with the same tolerant
+    localStorage handling as `theme/ThemeProvider.tsx` (try/catch on read
+    and write, corrupt/unknown values fall back to `'table'`).
+  `screens/CatalogScreen.tsx` rewritten as the reference implementation:
+  the `mx-auto mt-8 w-full max-w-2xl` Card wrapper is gone, replaced by a
+  full-width `<section className="flex w-full flex-col gap-6">` with
+  `PageHeader` + error alert + `DataToolbar` + `DataView`. Columns come
+  from the real `PresentationRecord` fields (`api/types.ts`): Name,
+  Identification code (`'No code'` placeholder kept verbatim so existing
+  assertions stay meaningful), Quantity behavior (mapped through a new
+  `QUANTITY_BEHAVIOR_LABELS` record over the numeric `QuantityBehavior`
+  enum) and Last updated (`updatedAtUtc`, `toLocaleDateString`, `'—'` on an
+  unparseable value); the last two are `hideOnMobile`. Search is a
+  `useMemo` client-side filter over the already-loaded list by name or
+  identification code — no new endpoint, `fetch` is still called exactly
+  once. Edit-code flow is unchanged in behavior: the button moved into
+  `renderActions` and the `IdentificationCodeForm` into `renderExpanded`,
+  so it works identically in both views. Error text now uses the
+  `text-destructive` token instead of the leftover raw `text-red-600`.
+  TDD: strict RED confirmed twice. (1) All 4 new `components/data/*` test
+  files failed on unresolved imports before the implementations existed.
+  (2) The 4 new `CatalogScreen` cases (full-width/no-`max-w-2xl`, search
+  filter, no-match empty state, card-view switch + persistence across
+  remount) failed against the pre-T4 screen, while the 2 other new cases
+  (empty catalog, editing from the card view) passed already — kept anyway
+  as regression coverage for behavior T4 must not break. 25 new tests
+  (4 `ViewSwitch`, 5 `useViewPreference`, 6 `DataView`, 4
+  `DataToolbar`/`PageHeader`, 6 `CatalogScreen`). **No existing test was
+  deleted or weakened**; `CatalogScreen.test.tsx` gained a second
+  `labelled` fixture and a `localStorage.clear()` in `afterEach` (needed
+  now that the view preference persists between cases) — all 3 original
+  cases still assert exactly what they did before and still pass unmodified
+  against the new markup. Full suite: **115/115 passing** (90 pre-existing +
+  25 new). `npm run lint`: exit 0, only pre-existing warning categories —
+  no new warnings from any `components/data/*` file (`CatalogScreen`'s
+  `set-state-in-effect` warning pre-dates T4). `npm run build`: `tsc -b &&
+  vite build` clean (337.08 kB / 102.32 kB gzip JS, 20.84 kB / 4.86 kB gzip
+  CSS).
+
 ## Next step
 
-Start T4 (list/card view switch).
+Start T4b (roll the `components/data/*` layer out to Customers,
+PriceLists, Users, Organizations and Branches), or jump to T5
+(organization settings) if the user prefers backend progress first.
