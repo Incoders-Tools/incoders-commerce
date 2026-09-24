@@ -99,6 +99,73 @@ public sealed class UpdateDiscoveryTests : IDisposable
         Assert.Equal(UpdateCheckStatus.NoCompatiblePackage, result.Status);
     }
 
+    // A crash on these payloads reaches MainWindow's constructor and blocks
+    // sales, which this feature's documented non-goals rule out.
+    [Fact]
+    public void NullPackagesCollection_ReturnsCheckFailedInvalid()
+    {
+        WriteRawManifest("""
+          "compatibility": { "minimumWindowsBuild": 19041, "architectures": ["x64"], "syncContractVersion": 1, "schemaVersion": 1 },
+          "packages": null
+        """);
+
+        var result = _discovery.CheckForUpdates(LocalVersion, new LocalUpdateManifestSource(_manifestPath), CompatibleMachine);
+
+        Assert.Equal(UpdateCheckStatus.CheckFailedInvalid, result.Status);
+    }
+
+    [Fact]
+    public void NullArchitecturesCollection_DoesNotCrash()
+    {
+        WriteRawManifest("""
+          "compatibility": { "minimumWindowsBuild": 19041, "architectures": null, "syncContractVersion": 1, "schemaVersion": 1 },
+          "packages": [ { "format": "msi", "architecture": "x64", "minimumWindowsBuild": 0, "url": "file:///C:/u.msi", "sha256": "abc123", "publisherId": "trusted-publisher", "signatureRequired": true, "attestationRequired": true } ]
+        """);
+
+        var result = _discovery.CheckForUpdates(LocalVersion, new LocalUpdateManifestSource(_manifestPath), CompatibleMachine);
+
+        Assert.Equal(UpdateCheckStatus.Available, result.Status);
+    }
+
+    [Fact]
+    public void NullPackageArchitecture_ReturnsNoCompatiblePackage()
+    {
+        WriteRawManifest("""
+          "compatibility": { "minimumWindowsBuild": 19041, "architectures": ["x64"], "syncContractVersion": 1, "schemaVersion": 1 },
+          "packages": [ { "format": "msi", "architecture": null, "minimumWindowsBuild": 0, "url": "file:///C:/u.msi", "sha256": "abc123", "publisherId": "trusted-publisher", "signatureRequired": true, "attestationRequired": true } ]
+        """);
+
+        var result = _discovery.CheckForUpdates(LocalVersion, new LocalUpdateManifestSource(_manifestPath), CompatibleMachine);
+
+        Assert.Equal(UpdateCheckStatus.NoCompatiblePackage, result.Status);
+    }
+
+    [Fact]
+    public void NullPackageEntry_ReturnsNoCompatiblePackage()
+    {
+        WriteRawManifest("""
+          "compatibility": { "minimumWindowsBuild": 19041, "architectures": ["x64"], "syncContractVersion": 1, "schemaVersion": 1 },
+          "packages": [ null ]
+        """);
+
+        var result = _discovery.CheckForUpdates(LocalVersion, new LocalUpdateManifestSource(_manifestPath), CompatibleMachine);
+
+        Assert.Equal(UpdateCheckStatus.NoCompatiblePackage, result.Status);
+    }
+
+    private void WriteRawManifest(string compatibilityAndPackagesJson)
+    {
+        File.WriteAllText(_manifestPath, $$"""
+        {
+          "schemaVersion": 1,
+          "product": "Commerce.Pos.Windows",
+          "channel": "internal",
+          "version": "1.1.0",
+        {{compatibilityAndPackagesJson}}
+        }
+        """);
+    }
+
     private void WriteManifest(
         string version,
         int schemaVersion = 1,
