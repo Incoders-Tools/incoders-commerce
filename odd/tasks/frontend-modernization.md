@@ -451,6 +451,31 @@ admin panel.
   vite build` clean (337.08 kB / 102.32 kB gzip JS, 20.84 kB / 4.86 kB gzip
   CSS).
 
+- 2026-09-24: T4 `gentle-ai review` (lineage `review-f4066cafa0bbc71a`,
+  base-ref = pre-T4 commit, 12 files / 1001 lines, risk medium, lens
+  `review-reliability`): **approved**, acknowledged, authority burned. Four
+  non-blocking advisory findings. One was fixed immediately —
+  `R3-expanded-vacuous-assertion` (WARNING): the "renders expanded content
+  under the matching item only" test asserted the absence of
+  `expanded beta`, text the callback never produces for any row, so it
+  would have passed even if the component repeated one expanded node under
+  every row. Replaced with a match count plus a companion test that renders
+  expanded content for both rows, then mutation-checked both: injecting the
+  scoping bug (`renderExpanded?.(items[0])` in the table branch) fails both,
+  and reverting restores green. Suite now 116/116 across 34 files.
+  Remaining advisory findings left as follow-up:
+  `R3-cards-title-empty-columns`, `R3-new-columns-unasserted`,
+  `R3-storage-failure-untested`.
+- 2026-09-24: `dev` branch protection. The first direct push to `dev` was
+  rejected (`GH006 ... Changes must be made through a pull request`) even
+  though both the classic branch-protection and rulesets APIs returned
+  empty — the token lacks admin read on protection settings, so enforcement
+  was only visible by attempting the push. The user removed the protection
+  rule, and the direct-to-`dev` workflow now works as intended. The global
+  `branch-strategy` skill gained a hard rule plus a gate row for a
+  push-protected integration branch: report it, fall back to a short-lived
+  branch and PR, never force-push, never change protection settings.
+
 ## Next step
 
 Start T4b (roll the `components/data/*` layer out to Customers,
