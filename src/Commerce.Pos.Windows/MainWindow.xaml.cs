@@ -1,11 +1,13 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Input;
 using Commerce.Application.Pricing;
 using Commerce.BranchNode;
 using Commerce.Domain.Identity;
+using Commerce.Updater;
 using Commerce.Domain.Sync;
 
 namespace Commerce.Pos.Windows;
@@ -38,11 +40,16 @@ public partial class MainWindow : Window
     private readonly Func<CustomerAdminClient> _customerAdminClientFactory;
     private readonly Func<UserAdminClient> _userAdminClientFactory;
     private readonly ApplicationBranding _branding;
+    private readonly ReleaseDiscovery _releaseDiscovery;
+    private readonly LocalUpdateManifestSource _updateManifestSource;
+    private readonly Version _localVersion;
+    private UpdateCheckResult _updateCheckResult;
     private readonly Guid _installationId;
     private readonly ObservableCollection<ScannedSaleLineViewModel> _scannedLines = new();
     private readonly SyncRunner _syncRunner;
     private readonly SyncScheduler _syncScheduler;
     private DevicePairing _pairing;
+    private string _lastSyncResult = "Sincronización lista.";
 
     public MainWindow(
         BranchSyncStore store,
@@ -59,6 +66,8 @@ public partial class MainWindow : Window
         Func<CustomerAdminClient> customerAdminClientFactory,
         Func<UserAdminClient> userAdminClientFactory,
         ApplicationBranding branding,
+        ReleaseDiscovery releaseDiscovery,
+        LocalUpdateManifestSource updateManifestSource,
         LocalInstallationRecord identity)
     {
         InitializeComponent();
@@ -77,6 +86,10 @@ public partial class MainWindow : Window
         _customerAdminClientFactory = customerAdminClientFactory;
         _userAdminClientFactory = userAdminClientFactory;
         _branding = branding;
+        _releaseDiscovery = releaseDiscovery;
+        _updateManifestSource = updateManifestSource;
+        _localVersion = ReadLocalVersion();
+        _updateCheckResult = _releaseDiscovery.CheckForUpdates(_localVersion, _updateManifestSource);
         Title = branding.MainWindowTitle;
         _installationId = identity.InstallationId;
         _pairing = identity.Pairing
@@ -105,16 +118,9 @@ public partial class MainWindow : Window
 
     private void RefreshIdentityText()
     {
-        var operatorLine = _currentOperator.Value is { } op
-            ? $"Current operator: {op.Email}"
-            : "Current operator: none";
-
-        IdentityText.Text =
-            $"Organization: {_pairing.OrganizationId}\n" +
-            $"Branch: {_pairing.BranchName} ({_pairing.BranchId})\n" +
-            $"Operator: {_pairing.OperatorEmail}\n" +
-            $"Installation: {_installationId}\n" +
-            $"{operatorLine}";
+        OperatorDisplayText.Text = _currentOperator.Value is { } currentOperator
+            ? currentOperator.Email
+            : "Sin operador activo";
 
         // pos-operator-session spec "Admin-Only Customer Management Screen
         // Gated by Current Operator Role": no operator identified, or an
@@ -129,12 +135,53 @@ public partial class MainWindow : Window
         ManageStaffButton.Visibility = ManageCustomersButton.Visibility;
     }
 
-    private void RefreshStatus()
+    private string BuildStatusSummary()
     {
         var status = _branchNodeService.GetStatus(_pairing.BranchId, isOffline: true);
-        StatusText.Text =
-            $"Pending outbox operations: {status.PendingOperationCount}\n" +
-            $"Last acknowledged: {(status.LastAcknowledgedUtc?.ToString("O") ?? "never")}";
+        return
+            $"Operaciones pendientes: {status.PendingOperationCount}\n" +
+            $"Última confirmación: {(status.LastAcknowledgedUtc?.ToString("O") ?? "nunca")}";
+    }
+
+    private void RefreshStatus()
+    {
+        BottomSyncStatusText.Text = BuildCompactSyncStatus();
+        BottomVersionStatusText.Text = BuildVersionStatus();
+    }
+
+    private string BuildCompactSyncStatus()
+    {
+        var status = _branchNodeService.GetStatus(_pairing.BranchId, isOffline: true);
+        var lastAck = status.LastAcknowledgedUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "nunca";
+        return $"Sincronización: {status.PendingOperationCount} pendientes - Última confirmación: {lastAck} - {_lastSyncResult}";
+    }
+
+    private string BuildVersionStatus() => $"Versión {_localVersion} · {ReleaseDiscovery.FormatCompactStatus(_updateCheckResult)}";
+
+    private static Version ReadLocalVersion()
+    {
+        var informationalVersion = typeof(App).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+            ?.InformationalVersion
+            .Split('+', 2)[0];
+
+        return Version.TryParse(informationalVersion, out var parsed)
+            ? parsed
+            : new Version(0, 0, 0);
+    }
+
+    private string BuildIdentitySummary()
+    {
+        var operatorLine = _currentOperator.Value is { } op
+            ? $"Operador actual: {op.Email}"
+            : "Operador actual: sin operador activo";
+
+        return
+            $"Organización: {_pairing.OrganizationId}\n" +
+            $"Sucursal: {_pairing.BranchName} ({_pairing.BranchId})\n" +
+            $"Operador de emparejamiento: {_pairing.OperatorEmail}\n" +
+            $"Instalación: {_installationId}\n" +
+            $"{operatorLine}";
     }
 
     private void CommitSaleButton_Click(object sender, RoutedEventArgs e)
@@ -146,13 +193,13 @@ public partial class MainWindow : Window
         // silently mixing the two flows in one transaction.
         if (_scannedLines.Count > 0)
         {
-            SaleResultText.Text = "Cannot commit a manual sale while scanned lines are pending — commit the scanned sale or clear the scan list first.";
+            SaleResultText.Text = "No se puede cobrar una venta manual mientras hay productos escaneados pendientes. Cobre la venta escaneada o vacíe la lista primero.";
             return;
         }
 
         if (!decimal.TryParse(AmountTextBox.Text, NumberStyles.Number, CultureInfo.InvariantCulture, out var amount))
         {
-            SaleResultText.Text = "Invalid amount.";
+            SaleResultText.Text = "Importe inválido.";
             return;
         }
 
@@ -168,8 +215,8 @@ public partial class MainWindow : Window
             correlationId: Guid.NewGuid());
 
         SaleResultText.Text = result.WasNewlyCommitted
-            ? $"Committed sale {result.Effect.SaleId} for {result.Effect.TotalAmount:C} to branch.db."
-            : $"Sale {result.Effect.SaleId} was already committed (idempotent replay).";
+            ? $"Venta {result.Effect.SaleId} registrada por {result.Effect.TotalAmount:C} en branch.db."
+            : $"La venta {result.Effect.SaleId} ya estaba registrada (reintento idempotente).";
 
         RefreshStatus();
 
@@ -230,7 +277,7 @@ public partial class MainWindow : Window
         var item = _store.FindByIdentificationCode(_pairing.OrganizationId, code);
         if (item is null)
         {
-            ScanMessageText.Text = $"Code {code} is not in this terminal's catalog.";
+            ScanMessageText.Text = $"El código {code} no está en el catálogo de esta terminal.";
             ScanCodeTextBox.Focus();
             return;
         }
@@ -244,7 +291,7 @@ public partial class MainWindow : Window
 
         if (outcome is not PriceResolutionOutcome.Resolved resolved)
         {
-            ScanMessageText.Text = $"No effective price for {item.PresentationName} on {effectiveOn:yyyy-MM-dd} — use the manual path or sync.";
+            ScanMessageText.Text = $"No hay precio vigente para {item.PresentationName} el {effectiveOn:yyyy-MM-dd}. Use venta manual o sincronice.";
             ScanCodeTextBox.Focus();
             return;
         }
@@ -283,7 +330,7 @@ public partial class MainWindow : Window
     {
         if (_scannedLines.Count == 0)
         {
-            ScanMessageText.Text = "Scan at least one item before committing.";
+            ScanMessageText.Text = "Escanee al menos un producto antes de cobrar.";
             return;
         }
 
@@ -306,8 +353,8 @@ public partial class MainWindow : Window
             correlationId: Guid.NewGuid());
 
         SaleResultText.Text = result.WasNewlyCommitted
-            ? $"Committed scanned sale {result.Effect.SaleId} for {result.Effect.TotalAmount:C} to branch.db."
-            : $"Sale {result.Effect.SaleId} was already committed (idempotent replay).";
+            ? $"Venta escaneada {result.Effect.SaleId} registrada por {result.Effect.TotalAmount:C} en branch.db."
+            : $"La venta {result.Effect.SaleId} ya estaba registrada (reintento idempotente).";
 
         _scannedLines.Clear();
         RefreshScannedTotal();
@@ -337,8 +384,8 @@ public partial class MainWindow : Window
         }
 
         StaleCatalogBannerText.Text =
-            $"Catalog/price cache last synced {cursor.Value:O} — older than the {CachedOperator.Ttl.TotalDays:0}-day freshness window. " +
-            "Prices may be stale; sales are not blocked.";
+            $"El catálogo/precios se sincronizó por última vez {cursor.Value:O}; supera la ventana de vigencia de {CachedOperator.Ttl.TotalDays:0} días. " +
+            "Los precios pueden estar desactualizados; las ventas no se bloquean.";
         StaleCatalogBanner.Visibility = Visibility.Visible;
     }
 
@@ -356,7 +403,8 @@ public partial class MainWindow : Window
     {
         if (trigger == SyncTrigger.Button)
         {
-            SyncResultText.Text = "Syncing...";
+            _lastSyncResult = "Sincronizando...";
+            RefreshStatus();
         }
 
         var result = await _syncRunner.RunAsync(trigger);
@@ -376,7 +424,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        SyncResultText.Text = result.Summary;
+        _lastSyncResult = result.Summary;
         RefreshStatus();
     }
 
@@ -391,19 +439,46 @@ public partial class MainWindow : Window
     /// </summary>
     private void RepairButton_Click(object sender, RoutedEventArgs e)
     {
-        var pairingWindow = new PairingWindow(_pairingClient, _localInstallationStore, _installationId)
+        var settingsWindow = new SettingsWindow(
+            BuildStatusSummary,
+            BuildIdentitySummary,
+            () => _lastSyncResult,
+            BuildVersionStatus,
+            async () =>
+            {
+                await RunSyncAsync(SyncTrigger.Button);
+                return _lastSyncResult;
+            },
+            ReconfigureTerminal)
         {
             Owner = this
         };
 
-        var result = pairingWindow.ShowDialog();
-        if (result == true && pairingWindow.PairedRecord?.Pairing is not null)
+        settingsWindow.ShowDialog();
+        RefreshStatus();
+    }
+
+    /// <summary>
+    /// Explicit terminal re-pairing action used from the configuration window.
+    /// </summary>
+    private bool ReconfigureTerminal(Window owner)
+    {
+        var pairingWindow = new PairingWindow(_pairingClient, _localInstallationStore, _installationId)
         {
-            _pairing = pairingWindow.PairedRecord.Pairing;
-            RefreshIdentityText();
-            RefreshStatus();
-            SyncResultText.Text = "Re-paired. Previously pending outbox items will flush on the next sync.";
+            Owner = owner
+        };
+
+        var result = pairingWindow.ShowDialog();
+        if (result != true || pairingWindow.PairedRecord?.Pairing is null)
+        {
+            return false;
         }
+
+        _pairing = pairingWindow.PairedRecord.Pairing;
+        RefreshIdentityText();
+        _lastSyncResult = "Terminal reconfigurada. Los pendientes se enviarán en la próxima sincronización.";
+        RefreshStatus();
+        return true;
     }
 
     /// <summary>

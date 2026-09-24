@@ -1,0 +1,371 @@
+# Frontend Modernization (organic, no SDD)
+
+## Objective
+
+Rebuild `src/Commerce.Web` (Vite + React 19 + react-router 7 + Tailwind 4,
+embedded in `Commerce.Cloud.Api`'s wwwroot) into an enterprise-grade,
+responsive UI: real navigation shell, account-scoped user menu, list/card
+view switching, a 3-way theme system (light / dark / org-custom via
+sysadmin-assigned color picker), and an organization settings surface
+(logo, date format, geolocation, usage plan). Framework stays Vite/React —
+Next.js was explicitly rejected (breaks the single-container deploy shape
+for no SSR benefit in an authenticated admin app). Component base is
+shadcn/ui (already partially present: `components/ui/{button,card,input,label}.tsx`).
+
+## Why
+
+Current UI (per exploration, 2026-09-24): no sidebar/nav menu, no dark mode,
+no design tokens, no responsive layout work, "change password" is a loose
+top-level tab instead of account-menu-scoped, `OrganizationsScreen.tsx` is a
+45-line unformatted file with only create+list (no settings: logo/theme/date
+format/geo/plan). This blocks the user's stated goal of an enterprise-caliber
+admin panel.
+
+## Constraints
+
+- No SDD: organic task-by-task work, user explicitly chose this route.
+- Periodically re-check against `openspec/specs/` to confirm we're not
+  drifting from what the product already defines; adjust tasks if gaps or
+  contradictions surface.
+- TDD mode: unresolved — no explicit project/session TDD config found for
+  the frontend; will confirm before first implementation task and record
+  here.
+- Delivery: work-unit commits on a feature branch (currently on
+  `feat/product-update-service` — branch off before first write per ODD
+  policy, since this is unrelated feature work).
+
+## Baseline (exploration findings, 2026-09-24)
+
+- Routing: `App.tsx`, public (`/`, `/login`, `/forgot-password`,
+  `/reset-password/:token`, `/order`) + protected under `/app`
+  (`RequireAuth` → catalog/orders/password; `RequireAdmin` →
+  customers/users/branches; `RequireSystemAdmin` → organizations).
+- Layout: `routes/AppLayout.tsx` — header + horizontal `NavTab` bar +
+  `Outlet`. No sidebar, no account dropdown, no theming.
+- Change password: `screens/RenewPasswordScreen.tsx`, mounted as a loose
+  `NavTab` at `/app/password` alongside Catalog/Orders — needs to move
+  into an account menu.
+- `OrganizationsScreen.tsx`: create + list only, no settings fields.
+- No CSS variables / design tokens, no `tailwind.config`, `color-scheme:
+  light` hardcoded in `index.css`. shadcn `ui/*` components use direct
+  Tailwind classes, not semantic tokens yet.
+- shadcn/ui pattern already correctly bootstrapped (`cva` + `cn`) — extend,
+  don't replace.
+
+## Task list
+
+- [x] T1. Design token foundation: semantic CSS vars (shadcn-style
+      `--background`, `--foreground`, `--primary`, etc.) in `index.css`,
+      Tailwind v4 `@theme` mapping, remove hardcoded `color-scheme: light`.
+      Route: direct inline (1 file, mechanical once tokens are chosen).
+- [x] T2. Theme system: `ThemeProvider` + 3-way switcher (light/dark/
+      custom), Vercel-style UI, persisted per-user (localStorage keyed by
+      user id). "Custom" theme is a placeholder consumer of org-level
+      tokens until T5 exists. Route: delegated direct (provider + switcher
+      component + hook = 2+ non-trivial files).
+- [x] T3. App shell redesign: enterprise nav (sidebar or responsive
+      top-nav — decide during task), responsive breakpoints, account
+      dropdown menu (user display name, Change password, Sign out). Move
+      `RenewPasswordScreen` off the top-level tab bar into that menu.
+      Route: delegated direct.
+- [ ] T4. Reusable list/card view-switch component, applied first to one
+      data-heavy screen (Customers or Catalog TBD) as the reference
+      implementation, then rolled out. Route: delegated direct.
+- [ ] T5. Organization settings: backend fields (logo, theme colors, date
+      format, geolocation, usage plan) on the Organization entity +
+      sysadmin-gated endpoints, plus rebuilt `OrganizationsScreen.tsx` UI
+      (color picker, logo upload/URL, settings form). Backend touches
+      `Commerce.Cloud.Api` (entity, migration, endpoint) — cross-checked
+      against `organization-persistence` / `platform-administration` /
+      `admin-console` specs for consistency. Route: delegated direct,
+      likely its own sub-breakdown given size.
+- [ ] T6. Wire the authenticated user's resolved organization to the
+      "custom" theme option (fetch org theme on session load, feed
+      `ThemeProvider`). Depends on T2 + T5.
+
+## Progress
+
+- 2026-09-24: Task file created after exploration (mapping fork). No
+  source writes yet.
+- 2026-09-24: Engram mirror write failed (`multiple active runtime
+  sessions match`) — mirror is PENDING, resync when available.
+- 2026-09-24: Branched `feat/frontend-modernization` off `incoders/main`
+  (not off the unrelated in-flight `feat/product-update-service`, which
+  carries unrelated POS-update-detection commits). TDD resolved: global
+  config has Strict TDD Mode enabled; frontend runner is `vitest`
+  (`npm run test` = `vitest run`).
+
+- 2026-09-24: T1 done (direct inline, 1 file + 4 mechanical component
+  swaps). `index.css` now defines the shadcn-style semantic token set
+  (background, foreground, card/card-foreground, primary/primary-foreground,
+  secondary/secondary-foreground, muted/muted-foreground, accent/
+  accent-foreground, destructive/destructive-foreground, border, input,
+  ring) for `:root` (light) and `.dark` (class selector, not
+  `prefers-color-scheme` — future ThemeProvider owns the toggle), mapped to
+  Tailwind v4 utilities via `@theme inline`. **Correction (2026-09-24,
+  review finding R3-task-log-color-scheme-claim): `color-scheme: light`
+  was NOT removed from `:root` as originally logged here — it remains
+  unchanged as the `:root` default, and `.dark` correctly overrides it to
+  `color-scheme: dark`. Behavior is correct; only this log entry was
+  wrong.** Updated `components/ui/{button,card,input,label}.tsx`
+  to consume the semantic utilities instead of raw `neutral-*`/`red-*`/
+  `white` classes; no visual/behavioral change intended. Added RED-then-
+  GREEN vitest + Testing Library tests for all 4 primitives (asserting
+  `toHaveClass('bg-primary')` etc., confirmed failing against the old raw
+  classes before the swap). Full suite: 70/70 passing. `npm run lint`: only
+  pre-existing warnings, no new issues. `npm run build`: tsc + vite build
+  succeed. "Custom" org theme intentionally left unimplemented — only
+  token names are ready for a future runtime override.
+
+- 2026-09-24: T1 `gentle-ai review assess` (base-ref `incoders/main`,
+  committed-only, untracked excluded): risk `medium` (executable_change on
+  `button.test.tsx`), 300 changed lines, `review_due: false`
+  (`under_budget`). Reviewed boundary stays at pre-T1 until the running
+  slice total reaches ~400 lines or a high-risk commit lands; T1's 300
+  lines carry forward into the next assessment.
+
+- 2026-09-24: T2 done (delegated-direct route, 4 non-trivial source files +
+  2 test files). Added `src/theme/ThemeProvider.tsx` (context + `useTheme()`
+  hook, `Theme = 'light' | 'dark' | 'custom'`) and
+  `src/theme/organizationTheme.ts` (`getOrganizationThemeOverrides()`
+  placeholder, always `null` today — explicit T6 integration point,
+  documented inline). Applies/removes the `.dark` class on
+  `document.documentElement` (consumed by T1's tokens); "custom" without
+  org overrides intentionally falls back to light (no `.dark` class) rather
+  than doing nothing. Persists per authenticated user via
+  `localStorage` keyed `theme:${userId}` (read through `useOptionalAuth()`
+  so it also works, key `theme:anonymous`, on public routes with no
+  `AuthProvider` gating). Added `src/components/theme/ThemeSwitcher.tsx`, a
+  Vercel-style 3-option segmented control (`role="radiogroup"`, inline SVG
+  icons — no icon library was installed, so none was added for 3 glyphs),
+  built on the existing `cn()` helper, mounted in `AppLayout.tsx`'s header
+  (temporary; comment marks T3 to move it into the future account dropdown).
+  `ThemeProvider` wraps `<Routes>` inside `AuthProvider` in `App.tsx`, so
+  it's available on both public and authenticated routes.
+  TDD: strict RED→GREEN confirmed for both new files (import-resolution
+  failure before the implementation existed, documented as the RED
+  evidence, then implemented to GREEN). 9 new tests (7 `ThemeProvider`, 2
+  `ThemeSwitcher`) covering: dark class applied/removed, custom-without-
+  overrides stays light, localStorage persistence and restore-on-remount
+  keyed per user, per-user isolation, anonymous fallback key, and switcher
+  rendering/selection. Full suite: 79/79 passing (70 pre-existing + 9 new).
+  `npm run lint`: exit 0, only pre-existing warning categories plus one new
+  `react(only-export-components)` warning on `ThemeProvider.tsx` — same
+  pattern already present on `AuthContext.tsx` (context + hook co-exported
+  from one file), not a new category. `npm run build`: `tsc -b && vite
+  build` succeed clean.
+
+- 2026-09-24: `gentle-ai review` (lineage `review-51be7d67b03768e2`,
+  base-ref pre-T1 `incoders/main` → T1+T2 combined, 17 files / 764 lines,
+  risk medium, lens `review-reliability` only): **approved**, acknowledged,
+  authority burned. Reviewed boundary now advances to the T2 commit
+  (`316359a`). 4 non-blocking advisory findings (no correction opened):
+  - WARNING `R3-identity-change-untested`: `ThemeProvider`'s re-read effect
+    on user-identity change (sign-in/out swapping accounts on a mounted
+    provider) is untested; a regression could leak the previous account's
+    theme, plus a one-frame flash on identity change. Follow-up, not fixed
+    now.
+  - WARNING `R3-per-user-isolation-test-weak`: the "separate themes per
+    user" test seeds one user with the DEFAULT_THEME value, so it would
+    still pass even if per-user key scoping were broken. Follow-up: seed
+    both users with non-default, distinct values.
+  - SUGGESTION `R3-dark-class-applied-post-mount`: `.dark` is applied in a
+    post-render `useEffect`, so a user with a persisted "dark" preference
+    sees a flash of the light theme on full page load before React mounts.
+    Follow-up: apply the class synchronously before paint (e.g. inline
+    script or `useLayoutEffect`).
+  - SUGGESTION `R3-task-log-color-scheme-claim`: corrected above.
+  These are tracked here as future follow-up work, not re-opened against
+  this closed review.
+
+- 2026-09-24: Bugfix (unrelated to T1-T6, found while helping the user get
+  the local stack running to test T1/T2): `src/Commerce.Web/vite.config.ts`
+  proxied `/account`, `/catalog`, `/orders`, `/sync` to
+  `http://localhost:5080`, but `Commerce.Cloud.Api` always binds `8080` by
+  default (`Program.cs:28`, `PORT` env var or "8080" when unset — nothing
+  sets `PORT` for a local `dotnet run`). Nothing ever listened on 5080, so
+  every sign-in attempt through Vite (`:5173`) hit `ECONNREFUSED`
+  regardless of Docker/timing state. Fixed both targets to `8080`.
+  Separately, `deploy/dev/run-all.ps1` never launched the HTTPS proxy step
+  its own launcher `.bat` already advertises on screen
+  (`https://localhost:5443/login`) — and it matters functionally, not just
+  cosmetically: the sign-in cookie is `CookieSecurePolicy.Always`
+  (`Program.cs:164,188`), so a browser silently drops it over plain HTTP,
+  meaning a "successful" login via bare `http://localhost:5173` would not
+  actually persist a session. Added a 4th launcher step:
+  `npx local-ssl-proxy --source 5443 --target 5173` (fronting Vite itself,
+  not the raw API, so hot-reload dev editing and real cookie auth both
+  work at once — the API-fronting `--target 8080` pattern in
+  `README.md`/E2E docs is for the separately-built static SPA, a different
+  workflow). Added a `-NoHttps` switch. Verified end-to-end: API `:8080`
+  healthy, Vite `:5173` proxy now returns the API's real response instead
+  of `ECONNREFUSED`, HTTPS proxy `:5443/login` returns 200. Not
+  TDD-applicable (dev-environment/launcher config, no application
+  behavior to unit-test). Also confirmed and explained to the user,
+  without fixing (out of scope): the WPF POS desktop window showing "an
+  old version" is expected, not a bug — its modernization work
+  (`b488bf7 feat(pos): modernize desktop shell and themes`) lives only on
+  the unrelated, unmerged `feat/product-update-service` branch, not on
+  `main`, which `feat/frontend-modernization` was branched from.
+- 2026-09-24: Recreated `sysadmin@incoders.local` and
+  `admin@vacaverde.local` (same credentials as originally provisioned)
+  after the local Postgres data was lost — `deploy/dev/compose.yaml`'s
+  `postgres` service has no named volume, only a read-only bind mount for
+  `init-rls.sql`, so `docker compose down` (even without `-v`) destroys
+  the data since it only ever lived in the container's own writable
+  layer. Corrected here since an earlier message in this session wrongly
+  told the user the accounts would survive a plain `down`.
+
+- 2026-09-24: Bugfix commit `c89ee50`. `gentle-ai review assess` against
+  the correct last-reviewed boundary (`--base-ref 316359a`, the T2
+  commit): risk medium (executable_change on `run-all.ps1`), 3 files /
+  119 lines, `review_due: false` (`under_budget`). Reviewed boundary
+  stays at `316359a` until the running slice reaches ~400 lines again.
+
+- 2026-09-24: Branch-target correction. User couldn't open a PR ("no veo
+  PR a dev... falla cuando intento pushear, le quiere pegar a main"):
+  this repo's real convention (confirmed via `gh pr list`) is feature
+  branches → PR into `dev`; `dev` → `main` is promoted separately
+  ("chore: promote dev to main"). `feat/frontend-modernization` had been
+  branched off `incoders/main` (a deliberate earlier choice to avoid an
+  unrelated in-flight branch), missing 6 commits already on `dev`:
+  `main` is a clean ancestor of `dev` (no divergence), so merged
+  `incoders/dev` in (commit `aaee9ac`) rather than rebasing, to avoid a
+  force-push on an already-pushed branch. One conflict, in
+  `deploy/dev/run-all.ps1`: `dev`'s `11df256` had already added a more
+  complete, tested version (builds the SPA statically into
+  `Commerce.Cloud.Api/wwwroot`, proper env vars, health-check polling,
+  HTTPS proxy fronting the API on 5443, auto-opens the browser) — this
+  supersedes the ad-hoc HTTPS-proxy-fronting-Vite step added in this
+  session's earlier bugfix commit. Resolved by taking `dev`'s canonical
+  version whole; the `vite.config.ts` 5080→8080 fix from that same
+  bugfix commit remains valid and kept (still used by a bare `npm run
+  dev` Vite session, a separate/faster iteration workflow this official
+  launcher doesn't cover since it only serves a rebuilt static SPA, no
+  hot reload). Other 5 commits (POS desktop theme incl.
+  `Themes/VacaVerdeTheme.xaml` — existing prior art for an org-branded
+  theme, relevant reference for future T5/T6 web work; POS update-service
+  detection; docs) merged cleanly, no conflicts, do not touch
+  `src/Commerce.Web`. Re-ran `deploy/dev/run-all.ps1 -NoPos -NoBrowser`
+  end to end: Postgres healthy, SPA rebuilt from current branch (T1+T2
+  included) and copied into `wwwroot`, API healthy, HTTPS proxy up,
+  sign-in verified 200 over `https://localhost:5443` with the sysadmin
+  account.
+
+- 2026-09-24: T3 done (delegated-direct route, 2 non-trivial source files +
+  2 test files — confirmed trigger: `AppLayout.tsx` full rewrite +
+  new `AccountMenu.tsx`). User complaint driving this task (Spanish): "el
+  front lo sigo viendo horrible sin maqueta... no aprovechamos la totalidad
+  de la pantalla" — no real shell, everything loose, not using full screen
+  width. Read `auth/AuthContext.tsx` first and confirmed `SignedInResponse`
+  (`api/types.ts`) has no `email` field, only `displayName` — the account
+  menu header and trigger use `displayName` only, documented inline in
+  `AccountMenu.tsx` so a future reader doesn't go looking for an `email`
+  that doesn't exist. Confirmed no Radix/headless-ui dependency exists in
+  `package.json` and added none.
+  New files: `src/Commerce.Web/src/components/layout/AccountMenu.tsx`,
+  `src/Commerce.Web/src/components/layout/AccountMenu.test.tsx`,
+  `src/Commerce.Web/src/routes/AppLayout.test.tsx` (new — none existed
+  before). Rewrote `src/Commerce.Web/src/routes/AppLayout.tsx` in place.
+  Structure: `AppLayout` is now a flex shell — a `<aside>` sidebar
+  (`bg-card`, `border-border` tokens from T1) fixed/off-canvas and
+  translated off-screen (`-translate-x-full`) below the `md:` breakpoint,
+  toggled by a header hamburger button (`useState` bool, no external state
+  lib, closes on nav-link click and on the mobile scrim overlay click); at
+  `md:` it becomes `static`/`w-64 shrink-0` and sits in normal flex flow
+  next to the content column, which drops the old `mx-auto max-w-3xl`
+  centered-column artifact entirely — content area is now `w-full flex-1`
+  so it fills all remaining width. Nav items mirror the exact gating
+  `AppLayout` already used (UI-only mirror; `App.tsx`'s
+  `RequireAuth`/`RequireAdmin`/`RequireSystemAdmin` untouched, confirmed
+  not modified): Catalog/Orders unconditional,
+  Customers/Users/Branches behind `hasPermission(user,
+  Permission.ManageUsers)`, Organizations behind `user?.isSystemAdmin`.
+  "Change password" removed from the nav list entirely and now lives only
+  inside `AccountMenu`. `AccountMenu` is a hand-built dropdown (no
+  Radix/headless-ui — none was installed, none was added): a header button
+  showing `user.displayName` with `aria-haspopup="menu"`/
+  `aria-expanded`, and a `role="menu"` panel with a display-name header,
+  a `Link` (react-router, not an external lib) to `/app/password`, the
+  existing `ThemeSwitcher` (moved out of the header where T2 had mounted
+  it temporarily — that mount point and its "T3 will move this" comment
+  are both gone now), and a "Sign out" button reusing `useAuth().signOut()`
+  unchanged. Open/close state is a local `useState`; a `useEffect` (only
+  active while `open`) attaches `keydown`/`mousedown` document listeners
+  for Escape-to-close and click-outside-to-close, cleaned up on close/
+  unmount — no new dependency, following the same hand-rolled-primitive
+  precedent `ThemeSwitcher` already set for icons.
+  TDD: strict RED confirmed for both new test files before writing any
+  implementation — `AccountMenu.test.tsx` failed on unresolved import
+  (`./AccountMenu` didn't exist yet); `AppLayout.test.tsx` (5 of 6 cases)
+  failed against the pre-T3 `AppLayout.tsx` (old flat `NavTab` bar,
+  `Change password` still present as a nav link, no account-menu trigger
+  button, no mobile-sidebar toggle) — captured verbatim in this session's
+  transcript. Implemented to GREEN, one follow-up correction during GREEN:
+  the mobile-toggle test initially queried `getByRole('navigation')`
+  (the inner `<nav>`, whose classes never change) instead of the `<aside>`
+  that actually carries the transform classes — fixed the test to query
+  the `<aside>` via `container.querySelector`, not a production-code
+  change. 11 new tests (5 `AccountMenu`, 6 `AppLayout`) covering: nav
+  visibility for a plain authenticated user (Catalog/Orders only, no
+  Change-password link in the nav), a `ManageUsers` user (additionally
+  Customers/Users/Branches, still no Organizations), a system admin
+  (Organizations too); no `max-w-3xl` column present; mobile sidebar
+  toggle via the hamburger button; account-menu trigger shows the display
+  name; dropdown opens on click and shows display name + a `/app/password`
+  `menuitem` link + the `ThemeSwitcher` `radiogroup`; closes on Escape;
+  closes on outside click; "Sign out" calls the mocked `signOut()`. Full
+  suite: 90/90 passing (79 pre-existing + 11 new). `npm run lint`: exit 0,
+  same pre-existing warning categories only (no new ones — `AccountMenu.tsx`
+  and the rewritten `AppLayout.tsx` triggered no new warnings). `npm run
+  build`: `tsc -b && vite build` succeed clean (330.84 kB / 100.79 kB gzip
+  JS bundle, 17.55 kB / 4.27 kB gzip CSS).
+
+- 2026-09-24: `gentle-ai review` #2 (lineage `review-924803f734cd5ae0`,
+  base-ref = T2's acknowledged tree, 29 files / 2547 lines, risk **high**
+  via `hot_path` on `odd/tasks/product-update-service.md`, all 4 lenses):
+  **approved** after one bounded correction, acknowledged, authority
+  burned. The correction was NOT in this feature's frontend work — the
+  reliability lens found a CRITICAL defect in
+  `src/Commerce.Updater/ReleaseDiscovery.cs`, code that arrived via the
+  `dev` merge (PR #70, POS update service). Verified independently before
+  accepting: `System.Text.Json` overwrites the manifest records'
+  collection initializers when the payload carries explicit nulls, so
+  `"packages": null`, `"architectures": null`, a null package entry, or a
+  null package `"architecture"` each threw `NullReferenceException`;
+  `CheckForUpdates` only converted IO/JSON exceptions, so the NRE escaped
+  into `MainWindow`'s constructor (`MainWindow.xaml.cs:92`, called
+  synchronously) and crashed POS startup — directly contradicting
+  `docs/pos-product-updates.md:25`'s documented non-goal "Blocking offline
+  sales because update detection failed". Reproduced as 4 RED tests
+  (all `NullReferenceException`) before fixing. User explicitly authorized
+  taking this fix in this branch rather than deferring it, because `dev`
+  is about to be promoted to `main`. Fix committed as `6672267`
+  (79 lines, within the declared 80-line correction plan; budget was 200):
+  null-checked collections, skip null package entries,
+  `NormalizeArchitecture` accepts null. `dotnet test Commerce.Upgrade`:
+  31/31 green.
+  Non-blocking advisory findings recorded for later (none reopen this
+  review): `R1-001` (risk, package-selection suggestion),
+  `R2-repair-button-now-opens-settings` (WARNING),
+  `R2-unchecked-compat-trust-fields` (WARNING),
+  `R2-update-outcome-doc-code-drift` (WARNING),
+  `R2-vite-comment-misattributes-proxy`, `R2-duplicated-status-builders`,
+  `R2-mutable-update-result-field`, `R2-theme-registry-duplicated`. Of
+  these, only `R2-vite-comment-misattributes-proxy` was fixed immediately,
+  since it flagged a comment this session had just written that became
+  wrong after the `dev` merge (the HTTPS proxy fronts the API, not Vite).
+- 2026-09-24: Workspace hygiene. The "13 pending changes" the user saw in
+  their git client were not files — the working tree was clean. They were
+  13 unpushed *commits* measured against the wrong upstream: creating the
+  branch with `git checkout -b ... incoders/main` set its tracking ref to
+  `incoders/main`, which is also why pushes targeted `main`. Repointed the
+  upstream to `incoders/feat/frontend-modernization` (local config only,
+  no commit). Also committed `.codegraph/.gitignore`: CodeGraph ships a
+  229-byte self-ignoring file (`*` plus `!.gitignore`) that is meant to be
+  tracked so its 18 MB local `codegraph.db` stays ignored — committing it
+  is what clears the last untracked entry.
+
+## Next step
+
+Start T4 (list/card view switch).
