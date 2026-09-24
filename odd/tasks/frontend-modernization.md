@@ -58,7 +58,7 @@ admin panel.
       `--background`, `--foreground`, `--primary`, etc.) in `index.css`,
       Tailwind v4 `@theme` mapping, remove hardcoded `color-scheme: light`.
       Route: direct inline (1 file, mechanical once tokens are chosen).
-- [ ] T2. Theme system: `ThemeProvider` + 3-way switcher (light/dark/
+- [x] T2. Theme system: `ThemeProvider` + 3-way switcher (light/dark/
       custom), Vercel-style UI, persisted per-user (localStorage keyed by
       user id). "Custom" theme is a placeholder consumer of org-level
       tokens until T5 exists. Route: delegated direct (provider + switcher
@@ -113,6 +113,44 @@ admin panel.
   succeed. "Custom" org theme intentionally left unimplemented — only
   token names are ready for a future runtime override.
 
+- 2026-09-24: T1 `gentle-ai review assess` (base-ref `incoders/main`,
+  committed-only, untracked excluded): risk `medium` (executable_change on
+  `button.test.tsx`), 300 changed lines, `review_due: false`
+  (`under_budget`). Reviewed boundary stays at pre-T1 until the running
+  slice total reaches ~400 lines or a high-risk commit lands; T1's 300
+  lines carry forward into the next assessment.
+
+- 2026-09-24: T2 done (delegated-direct route, 4 non-trivial source files +
+  2 test files). Added `src/theme/ThemeProvider.tsx` (context + `useTheme()`
+  hook, `Theme = 'light' | 'dark' | 'custom'`) and
+  `src/theme/organizationTheme.ts` (`getOrganizationThemeOverrides()`
+  placeholder, always `null` today — explicit T6 integration point,
+  documented inline). Applies/removes the `.dark` class on
+  `document.documentElement` (consumed by T1's tokens); "custom" without
+  org overrides intentionally falls back to light (no `.dark` class) rather
+  than doing nothing. Persists per authenticated user via
+  `localStorage` keyed `theme:${userId}` (read through `useOptionalAuth()`
+  so it also works, key `theme:anonymous`, on public routes with no
+  `AuthProvider` gating). Added `src/components/theme/ThemeSwitcher.tsx`, a
+  Vercel-style 3-option segmented control (`role="radiogroup"`, inline SVG
+  icons — no icon library was installed, so none was added for 3 glyphs),
+  built on the existing `cn()` helper, mounted in `AppLayout.tsx`'s header
+  (temporary; comment marks T3 to move it into the future account dropdown).
+  `ThemeProvider` wraps `<Routes>` inside `AuthProvider` in `App.tsx`, so
+  it's available on both public and authenticated routes.
+  TDD: strict RED→GREEN confirmed for both new files (import-resolution
+  failure before the implementation existed, documented as the RED
+  evidence, then implemented to GREEN). 9 new tests (7 `ThemeProvider`, 2
+  `ThemeSwitcher`) covering: dark class applied/removed, custom-without-
+  overrides stays light, localStorage persistence and restore-on-remount
+  keyed per user, per-user isolation, anonymous fallback key, and switcher
+  rendering/selection. Full suite: 79/79 passing (70 pre-existing + 9 new).
+  `npm run lint`: exit 0, only pre-existing warning categories plus one new
+  `react(only-export-components)` warning on `ThemeProvider.tsx` — same
+  pattern already present on `AuthContext.tsx` (context + hook co-exported
+  from one file), not a new category. `npm run build`: `tsc -b && vite
+  build` succeed clean.
+
 ## Next step
 
-Start T2 (theme system: ThemeProvider + 3-way switcher).
+Start T3 (app shell redesign: nav + account menu).

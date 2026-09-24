@@ -4,6 +4,7 @@ import { Button, buttonVariants } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { hasPermission, useAuth } from '@/auth/AuthContext'
 import { Permission } from '@/api/types'
+import { ThemeSwitcher } from '@/components/theme/ThemeSwitcher'
 
 /**
  * Authenticated shell chrome — moved from `App.tsx`'s `AuthenticatedApp`
@@ -18,6 +19,9 @@ export function AppLayout() {
       <header className="mb-6 flex items-center justify-between">
         <h1 className="text-xl font-semibold">Commerce</h1>
         <div className="flex items-center gap-3">
+          {/* T3 will move this into an account dropdown menu; mounted here
+              temporarily so it's visible on every authenticated screen. */}
+          <ThemeSwitcher />
           <span className="text-sm text-neutral-500">{user!.displayName}</span>
           <Button variant="outline" size="sm" onClick={() => void signOut()}>
             Sign out
