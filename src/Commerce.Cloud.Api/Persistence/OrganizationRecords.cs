@@ -31,3 +31,10 @@ public enum BootstrapOutcome
 /// flow").
 /// </summary>
 public sealed record BranchOption(Guid Id, string Name);
+
+/// <summary>
+/// One organization's web branding (T5, organization-persistence spec
+/// "Organization Branding Fields"). Either field is <c>null</c> when unset —
+/// there is no separate "has branding" flag, an unset field IS the value.
+/// </summary>
+public sealed record OrganizationBranding(string? LogoUrl, string? PrimaryColor);

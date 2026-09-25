@@ -3,6 +3,7 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Commerce.Cloud.Api.Auditing;
 using Commerce.Cloud.Api.Authentication;
 using Commerce.Cloud.Api.Email;
@@ -38,6 +39,12 @@ public static class AccountEndpoints
         new PasswordHasher<UserAccount>().HashPassword(
             new UserAccount(Guid.Empty, Guid.Empty, [], []),
             "dummy-password-for-timing-parity-only");
+
+    /// <summary>T5a branding validation: `#rrggbb`, nothing looser (no 3-digit shorthand, no alpha channel).</summary>
+    private static readonly Regex HexColorPattern = new("^#[0-9a-fA-F]{6}$", RegexOptions.Compiled);
+
+    /// <summary>T5a branding validation: sensible upper bound on a caller-submitted URL, well above any real logo URL.</summary>
+    private const int LogoUrlMaxLength = 2048;
 
     public static RouteGroupBuilder MapAccountEndpoints(this IEndpointRouteBuilder app)
     {
@@ -317,6 +324,81 @@ public static class AccountEndpoints
             var outcome=await organizationStore.TryCreateBootstrapAsync(target,new NewOrganization(organizationId,request.OrganizationName.Trim()),new NewBranch(branchId,string.IsNullOrWhiteSpace(request.BranchName)?"Main":request.BranchName.Trim()),new NewUserAccount(userId,request.AdminEmail,hash,[branchId],[new RoleDto(RoleCatalog.BusinessAdmin,Permission.ViewSales|Permission.ManageCatalog|Permission.ManageUsers|Permission.ManageBranchSettings)]),new UserManagementAuditEntry("org-user",actorId,organizationId,"organization",organizationId,"organization.bootstrapped",null,JsonSerializer.Serialize(new { organizationName=request.OrganizationName.Trim(),adminEmail=request.AdminEmail.Trim().ToLowerInvariant()})),ct);
             return outcome==BootstrapOutcome.Created ? Results.Created($"/account/organizations/{organizationId}",new CreateOrganizationResponse(organizationId,branchId,userId)) : Results.Conflict();
         });
+
+        // --- T5a: organization branding (organization-persistence spec
+        // "Organization Branding Fields"). System-admin-gated read/update by
+        // id, mirroring the manual IsSystemAdmin gate this file already uses
+        // for the two endpoints above (no [Authorize(Policy=...)] shape
+        // exists in this codebase for sysadmin — LoadActorAsync + the flag
+        // is the established pattern). A caller-submitted `id` is safe here
+        // because the store scopes strictly to it via `set_config` and the
+        // gate has already confirmed the CALLER is a system admin — the
+        // target organization id itself is never trusted beyond that.
+        organizationGroup.MapGet("/{id:guid}/branding", async (Guid id, HttpContext httpContext, PostgresUserAccountStore userStore, PostgresOrganizationStore organizationStore, CancellationToken ct) =>
+        {
+            if (!TenantScopeResolver.TryResolve(httpContext.User, out var scope, out _)) return Results.StatusCode(StatusCodes.Status403Forbidden);
+            var claim = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (claim is null || !Guid.TryParse(claim, out var actorId)) return Results.StatusCode(StatusCodes.Status403Forbidden);
+            var actor = await userStore.LoadActorAsync(scope!, actorId, ct);
+            if (actor is null || !actor.IsSystemAdmin) return Results.StatusCode(StatusCodes.Status403Forbidden);
+            var branding = await organizationStore.GetBrandingAsync(id, ct);
+            return branding is null ? Results.NotFound() : Results.Ok(new OrganizationBrandingResponse(branding.LogoUrl, branding.PrimaryColor));
+        });
+
+        organizationGroup.MapPut("/{id:guid}/branding", async (Guid id, UpdateOrganizationBrandingRequest request, HttpContext httpContext, PostgresUserAccountStore userStore, PostgresOrganizationStore organizationStore, CancellationToken ct) =>
+        {
+            if (!TenantScopeResolver.TryResolve(httpContext.User, out var scope, out _)) return Results.StatusCode(StatusCodes.Status403Forbidden);
+            var claim = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (claim is null || !Guid.TryParse(claim, out var actorId)) return Results.StatusCode(StatusCodes.Status403Forbidden);
+            var actor = await userStore.LoadActorAsync(scope!, actorId, ct);
+            if (actor is null || !actor.IsSystemAdmin) return Results.StatusCode(StatusCodes.Status403Forbidden);
+
+            // Empty/whitespace clears the field — no separate "clear" flag.
+            var logoUrl = string.IsNullOrWhiteSpace(request.LogoUrl) ? null : request.LogoUrl.Trim();
+            var primaryColor = string.IsNullOrWhiteSpace(request.PrimaryColor) ? null : request.PrimaryColor.Trim();
+
+            var errors = new Dictionary<string, string[]>();
+            if (logoUrl is not null)
+            {
+                if (logoUrl.Length > LogoUrlMaxLength)
+                {
+                    errors["logoUrl"] = [$"logoUrl must be {LogoUrlMaxLength} characters or fewer."];
+                }
+                else if (!Uri.TryCreate(logoUrl, UriKind.Absolute, out var parsedUrl) ||
+                         (parsedUrl.Scheme != Uri.UriSchemeHttp && parsedUrl.Scheme != Uri.UriSchemeHttps))
+                {
+                    errors["logoUrl"] = ["logoUrl must be an absolute http or https URL."];
+                }
+            }
+            if (primaryColor is not null && !HexColorPattern.IsMatch(primaryColor))
+            {
+                errors["primaryColor"] = ["primaryColor must be a #rrggbb hex color."];
+            }
+            if (errors.Count > 0) return Results.ValidationProblem(errors);
+
+            var audit = new UserManagementAuditEntry(
+                "org-user", actorId, id, "organization", id, "organization.branding_updated", null,
+                JsonSerializer.Serialize(new { logoUrl, primaryColor }));
+            var updated = await organizationStore.UpdateBrandingAsync(id, logoUrl, primaryColor, audit, ct);
+            return updated ? Results.NoContent() : Results.NotFound();
+        });
+
+        // --- T5a: the signed-in user's OWN organization's branding (feeds
+        // T6's "custom" theme). Scope comes ONLY from
+        // TenantScopeEndpointFilter (the authenticated claim), same as
+        // branchGroup below — never from a route/query parameter — so this
+        // can never return another tenant's branding.
+        var ownOrganizationGroup = app.MapGroup("/account/organization")
+            .RequireAuthorization()
+            .AddEndpointFilter<TenantScopeEndpointFilter>();
+
+        ownOrganizationGroup.MapGet("/branding", async (HttpContext httpContext, PostgresOrganizationStore organizationStore, CancellationToken ct) =>
+        {
+            var scope = TenantScopeEndpointFilter.GetScope(httpContext);
+            var branding = await organizationStore.GetBrandingAsync(scope.OrganizationId, ct);
+            return branding is null ? Results.NotFound() : Results.Ok(new OrganizationBrandingResponse(branding.LogoUrl, branding.PrimaryColor));
+        });
+
         var branchGroup = app.MapGroup("/account/branches")
             .RequireAuthorization()
             .AddEndpointFilter<TenantScopeEndpointFilter>();
@@ -767,5 +849,7 @@ public sealed record BranchSummaryDto(Guid BranchId, string BranchName);
 public sealed record OrganizationSummary(Guid Id, string Name, DateTimeOffset CreatedAt);
 public sealed record CreateOrganizationRequest(string OrganizationName, string? BranchName, string AdminEmail, string AdminPassword);
 public sealed record CreateOrganizationResponse(Guid OrganizationId, Guid BranchId, Guid UserId);
+public sealed record OrganizationBrandingResponse(string? LogoUrl, string? PrimaryColor);
+public sealed record UpdateOrganizationBrandingRequest(string? LogoUrl, string? PrimaryColor);
 
 public sealed record AssignRolesRequest(string[] RoleNames);

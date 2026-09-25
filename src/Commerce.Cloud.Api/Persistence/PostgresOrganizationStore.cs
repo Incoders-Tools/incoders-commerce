@@ -214,4 +214,87 @@ public sealed class PostgresOrganizationStore
         while (await reader.ReadAsync(ct)) organizations.Add(new OrganizationSummary(reader.GetGuid(0), reader.GetString(1), reader.GetFieldValue<DateTimeOffset>(2)));
         return organizations;
     }
+
+    /// <summary>
+    /// Reads one organization's branding (T5a, organization-persistence spec
+    /// "Organization Branding Fields"). <paramref name="organizationId"/> is
+    /// ALWAYS a value the CALLER already trusts — either a system-admin-gated
+    /// route parameter (the endpoint checks `IsSystemAdmin` before calling
+    /// this) or the authenticated caller's own
+    /// <see cref="Tenancy.CloudTenantScope.OrganizationId"/> for the
+    /// "my organization" endpoint. This method never re-derives or validates
+    /// that trust itself — RLS scopes strictly to whatever id `set_config`
+    /// receives here, so the caller is what keeps it trustworthy. Returns
+    /// <c>null</c> when no organization with that id exists.
+    /// </summary>
+    public async Task<OrganizationBranding?> GetBrandingAsync(Guid organizationId, CancellationToken ct)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+
+        await using (var scopeCmd = new NpgsqlCommand("SELECT set_config('app.current_org_id', $1, true)", connection, tx))
+        {
+            scopeCmd.Parameters.AddWithValue(organizationId.ToString());
+            await scopeCmd.ExecuteNonQueryAsync(ct);
+        }
+
+        OrganizationBranding? branding = null;
+        await using (var cmd = new NpgsqlCommand("SELECT logo_url, primary_color FROM organizations WHERE id = $1", connection, tx))
+        {
+            cmd.Parameters.AddWithValue(organizationId);
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            if (await reader.ReadAsync(ct))
+            {
+                branding = new OrganizationBranding(
+                    reader.IsDBNull(0) ? null : reader.GetString(0),
+                    reader.IsDBNull(1) ? null : reader.GetString(1));
+            }
+        }
+
+        await tx.CommitAsync(ct);
+        return branding;
+    }
+
+    /// <summary>
+    /// Updates one organization's branding and writes the audit row in the
+    /// SAME transaction (same convention as
+    /// <see cref="TryCreateBootstrapAsync"/>'s optional audit parameter) —
+    /// they commit together or not at all. Same trust note as
+    /// <see cref="GetBrandingAsync"/>: the caller (the system-admin-gated
+    /// endpoint) is what makes <paramref name="organizationId"/> safe to use.
+    /// Returns <c>false</c> when no organization with that id exists, in
+    /// which case nothing — including the audit row — is written.
+    /// </summary>
+    public async Task<bool> UpdateBrandingAsync(
+        Guid organizationId, string? logoUrl, string? primaryColor, UserManagementAuditEntry audit, CancellationToken ct)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+
+        await using (var scopeCmd = new NpgsqlCommand("SELECT set_config('app.current_org_id', $1, true)", connection, tx))
+        {
+            scopeCmd.Parameters.AddWithValue(organizationId.ToString());
+            await scopeCmd.ExecuteNonQueryAsync(ct);
+        }
+
+        int rowsAffected;
+        await using (var cmd = new NpgsqlCommand(
+            "UPDATE organizations SET logo_url = $1, primary_color = $2 WHERE id = $3", connection, tx))
+        {
+            cmd.Parameters.AddWithValue((object?)logoUrl ?? DBNull.Value);
+            cmd.Parameters.AddWithValue((object?)primaryColor ?? DBNull.Value);
+            cmd.Parameters.AddWithValue(organizationId);
+            rowsAffected = await cmd.ExecuteNonQueryAsync(ct);
+        }
+
+        if (rowsAffected == 0)
+        {
+            await tx.RollbackAsync(ct);
+            return false;
+        }
+
+        await AuditLogWriter.InsertAsync(connection, tx, audit, ct);
+        await tx.CommitAsync(ct);
+        return true;
+    }
 }

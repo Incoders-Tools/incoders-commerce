@@ -100,6 +100,62 @@ scope, even if they belong to the user's own organization.
 - WHEN the branch-by-user query runs for that user
 - THEN no branches are returned
 
+### Requirement: Organization Branding Fields
+
+The system MUST persist an optional `logoUrl` and an optional
+`primaryColor` on each organization, additive to the existing `id`/`name`
+fields. Minimal scope by explicit user decision ("lo mas simple posible, a
+futuro ampliamos"): date format, geolocation and usage plan are NOT
+persisted. `logoUrl`, when set, MUST be an absolute `http`/`https` URL
+within a bounded maximum length. `primaryColor`, when set, MUST match
+`#rrggbb` hex notation. Either field MUST be clearable back to unset by
+submitting an empty value.
+
+A system-admin-gated endpoint MUST allow reading and updating any
+organization's branding by id, writing an audit entry for each update,
+following the `UserManagementAuditEntry` pattern already used for
+organization bootstrap. A separate endpoint, available to any authenticated
+user, MUST return only the caller's OWN organization's branding, scoped by
+the same row-level security as every other organization-scoped read —
+never a caller-submitted organization id.
+
+#### Scenario: System admin sets and reads an organization's branding
+
+- GIVEN an authenticated system admin and a persisted organization with no
+  branding set
+- WHEN the system admin submits a valid `logoUrl` and `primaryColor` to
+  that organization's branding endpoint
+- THEN a subsequent read of that organization's branding returns the
+  submitted values
+
+#### Scenario: Clearing branding
+
+- GIVEN an organization with a previously set `logoUrl` and `primaryColor`
+- WHEN a system admin submits empty values for both fields
+- THEN a subsequent read of that organization's branding returns both
+  fields unset
+
+#### Scenario: Invalid branding values are rejected
+
+- GIVEN an authenticated system admin
+- WHEN they submit a `logoUrl` that is not an absolute `http`/`https` URL,
+  or a `primaryColor` that is not `#rrggbb` hex
+- THEN the request is rejected and no branding value is persisted
+
+#### Scenario: Non-system-admin is denied
+
+- GIVEN an authenticated caller who is not a system admin
+- WHEN they call the system-admin branding read or update endpoint
+- THEN the request is rejected with no data returned or changed
+
+#### Scenario: A user reads only their own organization's branding
+
+- GIVEN Organization A and Organization B each have branding set
+- WHEN an authenticated caller belonging to Organization A calls the
+  own-organization branding endpoint
+- THEN Organization A's branding is returned and Organization B's branding
+  is never exposed
+
 ### Requirement: Price and Identification Tables Follow Established RLS Convention
 
 New org-scoped tables introduced for price list entries and per-supplier

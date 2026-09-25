@@ -837,3 +837,31 @@ DROP INDEX IF EXISTS rate_components_one_code_per_set_ci;
 ALTER TABLE rate_components DROP CONSTRAINT IF EXISTS rate_components_one_code_per_set;
 CREATE UNIQUE INDEX IF NOT EXISTS rate_components_one_code_per_set_ci
     ON rate_components (set_id, lower(code));
+
+-- commerce-organization-persistence: 0015_organization_branding.sql,
+-- appended verbatim per the hand-kept mirror convention. Optional web
+-- branding on organizations (T5, "lo mas simple posible, a futuro
+-- ampliamos"): logo URL + primary color, nothing else.
+
+ALTER TABLE organizations
+    ADD COLUMN IF NOT EXISTS logo_url      text NULL,
+    ADD COLUMN IF NOT EXISTS primary_color text NULL;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'organizations_logo_url_length_ck'
+    ) THEN
+        ALTER TABLE organizations
+            ADD CONSTRAINT organizations_logo_url_length_ck
+            CHECK (logo_url IS NULL OR char_length(logo_url) <= 2048);
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'organizations_primary_color_format_ck'
+    ) THEN
+        ALTER TABLE organizations
+            ADD CONSTRAINT organizations_primary_color_format_ck
+            CHECK (primary_color IS NULL OR primary_color ~ '^#[0-9a-fA-F]{6}$');
+    END IF;
+END $$;
