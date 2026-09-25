@@ -5,6 +5,7 @@ using Commerce.Cloud.Api.Ordering;
 using Commerce.Cloud.Api.Persistence;
 using Commerce.Cloud.Api.Tenancy;
 using Commerce.Domain.Customers;
+using Commerce.Domain.Pricing;
 using Npgsql;
 
 namespace Commerce.Integration;
@@ -73,10 +74,17 @@ public sealed class OrderPricingTests : IDisposable
         Apply("0007_platform_administration.sql", "__PLATFORM_READONLY_PASSWORD__", "dev-only-platform-readonly-password");
         Apply("0008_customer_registry.sql");
         Apply("0009_catalog_and_pricing.sql");
+        // commerce-price-composition: order pricing now composes rate
+        // components on every priced line, so this fixture owns those tables
+        // too. Without the TRUNCATE below a set left behind by a sibling class
+        // would silently reprice these orders.
+        Apply("0013_rate_components.sql");
+        Apply("0014_rate_component_tenancy.sql");
 
         using var resetCmd = new NpgsqlCommand(
             """
-            TRUNCATE TABLE price_list_entries, price_lists, presentations, products,
+            TRUNCATE TABLE rate_components, rate_component_sets,
+                price_list_entries, price_lists, presentations, products,
                 customer_ordering_access, customers, password_reset_tokens,
                 user_directory, users, device_credentials, branches, organizations CASCADE
             """,
@@ -150,6 +158,106 @@ public sealed class OrderPricingTests : IDisposable
             accessService, customerStore, orderStore, catalogStore, priceListStore,
             new PostgresRateComponentStore(_dataSource!));
         return (accessService, submissionService, accessStore);
+    }
+
+    private async Task PublishRateComponentsAsync(
+        CloudTenantScope scope, Guid priceListId, Guid actorId, params RateComponent[] components)
+    {
+        await new PostgresRateComponentStore(_dataSource!).PublishSetAsync(
+            scope,
+            new NewRateComponentSet(
+                Guid.NewGuid(), priceListId, DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-1), components, actorId),
+            "org-user", actorId, CancellationToken.None);
+    }
+
+    /// <summary>
+    /// R3-submission-wiring-unproved. `CloudOrderSubmissionService` binds a
+    /// `PostgresRateComponentSource` to the default price list, but until this
+    /// test every submission test ran with ZERO published sets — the identity
+    /// case, which an unbound source produces just as well. The wiring was
+    /// therefore unproven: deleting the second constructor argument and its
+    /// binding would have left the whole submission suite green.
+    ///
+    /// This is the real end-to-end assertion. A set IS published, and the
+    /// snapshot frozen onto the order carries the COMPOSED price:
+    /// 10,600 base x 1.45 (Vaca Verde's four `Base` rates) = 15,370 list,
+    /// less the customer's 10 % = 13,833 net, x 2 = 27,666.
+    ///
+    /// `UnitListPrice` is what makes this fail if composition is removed;
+    /// `UnitNetPrice` alone could not, because composition and the discount
+    /// are both multiplications and commute.
+    /// </summary>
+    [Fact]
+    public async Task SubmitAsync_WithAPublishedRateComponentSet_FreezesTheComposedPriceOnTheLine()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var orgId = Guid.NewGuid();
+        var actorId = Guid.NewGuid();
+        var scope = new CloudTenantScope(orgId);
+        await SeedOrganizationAsync(orgId);
+        var customerId = await SeedCustomerAsync(scope, actorId, discountPercentage: 10m);
+        var presentationId = await SeedPresentationAsync(scope, actorId);
+        var priceListId = await SeedDefaultPriceListAsync(scope, actorId);
+        await PublishPriceAsync(scope, priceListId, presentationId, 10_600m, actorId);
+        await PublishRateComponentsAsync(
+            scope, priceListId, actorId,
+            new RateComponent("IVA", "IVA (10,5%)", 10.5m, RateCalculationBase.Base, 1),
+            new RateComponent("IB", "IB (2,5%)", 2.5m, RateCalculationBase.Base, 2),
+            new RateComponent("FLETE", "Flete (7%)", 7m, RateCalculationBase.Base, 3),
+            new RateComponent("REMARCACION", "Remarcacion (25%)", 25m, RateCalculationBase.Base, 4));
+
+        var (_, submissionService, accessStore) = NewServices();
+        var credential = await accessStore.IssueAsync(scope, customerId, actorId, CancellationToken.None);
+        var line = new SubmitOrderLine(Guid.NewGuid(), presentationId, Quantity: 2m);
+
+        var outcome = await submissionService.SubmitAsync(
+            scope, customerId, credential, Guid.NewGuid(), Guid.NewGuid(), actorId,
+            new[] { line }, Guid.NewGuid(), destination: null, hasAvailableStock: true, CancellationToken.None);
+
+        Assert.Equal(OrderSubmissionOutcomeStatus.Accepted, outcome.Status);
+        var resolvedLine = outcome.Order!.Lines[0];
+
+        // The stored entry is 10,600. Anything asserting 10,600 here would be
+        // asserting that composition did NOT happen.
+        Assert.Equal(15_370m, resolvedLine.UnitListPrice);
+        Assert.Equal(10m, resolvedLine.AppliedDiscountPercentage);
+        Assert.Equal(13_833m, resolvedLine.UnitNetPrice);
+        Assert.Equal(27_666m, resolvedLine.LineTotal);
+    }
+
+    /// <summary>
+    /// The guest half of the same wiring: `SubmitGuestAsync` shares
+    /// `ResolveLinesAsync`, so the guest pays the composed LIST price with no
+    /// discount — 15,370, not the stored 10,600.
+    /// </summary>
+    [Fact]
+    public async Task SubmitAsync_GuestAndRegistered_BothComposeFromTheSamePublishedSet()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var orgId = Guid.NewGuid();
+        var actorId = Guid.NewGuid();
+        var scope = new CloudTenantScope(orgId);
+        await SeedOrganizationAsync(orgId);
+        var customerId = await SeedCustomerAsync(scope, actorId, discountPercentage: 0m);
+        var presentationId = await SeedPresentationAsync(scope, actorId);
+        var priceListId = await SeedDefaultPriceListAsync(scope, actorId);
+        await PublishPriceAsync(scope, priceListId, presentationId, 10_600m, actorId);
+        await PublishRateComponentsAsync(
+            scope, priceListId, actorId,
+            new RateComponent("REMARCACION", "Remarcacion (45%)", 45m, RateCalculationBase.Base, 1));
+
+        var (_, submissionService, accessStore) = NewServices();
+        var credential = await accessStore.IssueAsync(scope, customerId, actorId, CancellationToken.None);
+
+        var outcome = await submissionService.SubmitAsync(
+            scope, customerId, credential, Guid.NewGuid(), Guid.NewGuid(), actorId,
+            new[] { new SubmitOrderLine(Guid.NewGuid(), presentationId, Quantity: 1m) },
+            Guid.NewGuid(), destination: null, hasAvailableStock: true, CancellationToken.None);
+
+        Assert.Equal(OrderSubmissionOutcomeStatus.Accepted, outcome.Status);
+        Assert.Equal(15_370m, outcome.Order!.Lines[0].UnitListPrice);
     }
 
     /// <summary>Spec scenario: guest/registered resolution happens, and the frozen line carries all four resolved fields.</summary>
