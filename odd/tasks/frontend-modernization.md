@@ -92,14 +92,18 @@ admin panel.
       colour picker, logo) rather than migrating the current 45-line
       create+list stub twice.
       Route: delegated direct.
-- [ ] T5. Organization settings: backend fields (logo, theme colors, date
-      format, geolocation, usage plan) on the Organization entity +
-      sysadmin-gated endpoints, plus rebuilt `OrganizationsScreen.tsx` UI
-      (color picker, logo upload/URL, settings form). Backend touches
-      `Commerce.Cloud.Api` (entity, migration, endpoint) — cross-checked
-      against `organization-persistence` / `platform-administration` /
-      `admin-console` specs for consistency. Route: delegated direct,
-      likely its own sub-breakdown given size.
+- [x] T5. Organization branding, minimal scope (user decision 2026-09-25:
+      "lo mas simple posible, a futuro ampliamos"): only `logoUrl`
+      (optional absolute http/https URL, no upload) and `primaryColor`
+      (optional `#rrggbb`) on the Organization. Date format, geolocation and
+      usage plan are explicitly deferred. Steps:
+      T5a backend — spec requirement in `openspec/specs/`, entity fields,
+      numbered SQL migration, sysadmin-gated read/update endpoints, and a
+      read endpoint for the signed-in user's own organization branding;
+      integration tests including cross-tenant denial.
+      T5b UI — "Edit branding" from the Organizations list opens a
+      full-screen `FormPage` with logo URL + color picker and a preview.
+      Route: delegated direct (writer).
 - [ ] T6. Wire the authenticated user's resolved organization to the
       "custom" theme option (fetch org theme on session load, feed
       `ThemeProvider`). Depends on T2 + T5.
@@ -835,8 +839,25 @@ admin panel.
   (CustomerForm.test.tsx:117-128 only asserts absence of old classes),
   `R3-stale-load-test-timing` (OrganizationsScreen.test.tsx:278-284).
 
+- 2026-09-25: T5 done (delegated direct). `83b8d86` backend: spec
+  requirement in `organization-persistence`, `Organization` gains
+  `LogoUrl`/`PrimaryColor`, migration `0015_organization_branding.sql`
+  (nullable + CHECK, mirrored into `deploy/dev/db/init-rls.sql`),
+  `GET/PUT /account/organizations/{id}/branding` (system admin, audited
+  `organization.branding_updated`), `GET /account/organization/branding`
+  (caller's own org from the tenant scope, never a submitted id). Response
+  `{ logoUrl, primaryColor }`; http/https <= 2048 chars, `#rrggbb`, blank
+  clears. `48034db` UI: "Edit branding" row action -> full-screen
+  `OrganizationBrandingForm` (URL, color picker + hex, preview).
+  TDD strict: RED observed (compile errors backend; unresolved import and
+  3 failing screen tests frontend). Checks: integration suite 698/699 —
+  the one failure is the known-environmental `PublicRateLimitTests`
+  (populated `wwwroot`); `dotnet build` 0 errors; `npm run test` 218/218
+  (40 files); lint exit 0, 14 warnings (+1 `set-state-in-effect`, existing
+  category); build clean; e2e untouched. Parent spot check: branding
+  integration tests 16/16. Writer started Docker Desktop and only the
+  `postgres` service (`up -d`, never `down`).
+
 ## Next step
 
-Push `dev` when the user decides; CI runs Playwright (not run locally).
-Then T5: organization settings need a spec decision (no field exists for
-logo/theme/date format/geolocation/usage plan).
+T6 (custom theme from the signed-in user's organization branding).
