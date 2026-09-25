@@ -1,10 +1,12 @@
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { AuthContext } from '@/auth/AuthContext'
+import { OrganizationBrandingContext } from '@/theme/OrganizationBrandingProvider'
 import { ThemeProvider } from '@/theme/ThemeProvider'
 import { Permission, type SignedInResponse } from '@/api/types'
+import type { OrganizationBranding } from '@/api/types'
 import { AppLayout } from './AppLayout'
 
 function buildUser(overrides: Partial<SignedInResponse> = {}): SignedInResponse {
@@ -18,17 +20,22 @@ function buildUser(overrides: Partial<SignedInResponse> = {}): SignedInResponse 
   }
 }
 
-function renderLayout(user: SignedInResponse) {
+function renderLayout(
+  user: SignedInResponse,
+  branding: OrganizationBranding = { logoUrl: null, primaryColor: null },
+) {
   return render(
     <MemoryRouter initialEntries={['/app/catalog']}>
       <AuthContext.Provider value={{ user, error: null, signIn: async () => {}, signOut: async () => {} }}>
-        <ThemeProvider>
-          <Routes>
-            <Route path="/app" element={<AppLayout />}>
-              <Route path="catalog" element={<div>Catalog content</div>} />
-            </Route>
-          </Routes>
-        </ThemeProvider>
+        <OrganizationBrandingContext.Provider value={{ branding, loading: false }}>
+          <ThemeProvider>
+            <Routes>
+              <Route path="/app" element={<AppLayout />}>
+                <Route path="catalog" element={<div>Catalog content</div>} />
+              </Route>
+            </Routes>
+          </ThemeProvider>
+        </OrganizationBrandingContext.Provider>
       </AuthContext.Provider>
     </MemoryRouter>,
   )
@@ -124,5 +131,30 @@ describe('AppLayout', () => {
     renderLayout(buildUser())
 
     expect(screen.getByRole('button', { name: /ada lovelace/i })).toBeInTheDocument()
+  })
+
+  it('keeps the text brand when the organization has no logo', () => {
+    renderLayout(buildUser())
+
+    expect(screen.getByRole('heading', { name: 'Commerce' })).toBeInTheDocument()
+    expect(screen.queryByRole('img')).not.toBeInTheDocument()
+  })
+
+  it('renders the organization logo in the brand spot when logoUrl is set', () => {
+    renderLayout(buildUser(), { logoUrl: 'https://cdn.example.com/logo.png', primaryColor: null })
+
+    const logo = screen.getByRole('img', { name: 'Organization logo' })
+    expect(logo).toHaveAttribute('src', 'https://cdn.example.com/logo.png')
+    expect(screen.queryByRole('heading', { name: 'Commerce' })).not.toBeInTheDocument()
+  })
+
+  it('falls back to the text brand when the logo fails to load', () => {
+    renderLayout(buildUser(), { logoUrl: 'https://cdn.example.com/logo.png', primaryColor: null })
+
+    const logo = screen.getByRole('img', { name: 'Organization logo' })
+    fireEvent.error(logo)
+
+    expect(screen.getByRole('heading', { name: 'Commerce' })).toBeInTheDocument()
+    expect(screen.queryByRole('img')).not.toBeInTheDocument()
   })
 })

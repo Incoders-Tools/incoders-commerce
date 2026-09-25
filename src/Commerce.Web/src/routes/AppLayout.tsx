@@ -15,6 +15,7 @@ import { cn } from '@/lib/utils'
 import { hasPermission, useAuth } from '@/auth/AuthContext'
 import { Permission } from '@/api/types'
 import { AccountMenu } from '@/components/layout/AccountMenu'
+import { useOrganizationBranding } from '@/theme/OrganizationBrandingProvider'
 
 /**
  * Enterprise app shell (T3): fixed sidebar nav on desktop, hamburger-toggled
@@ -48,7 +49,7 @@ export function AppLayout() {
         )}
       >
         <div className="flex h-14 items-center border-b border-border px-4">
-          <h1 className="text-lg font-semibold">Commerce</h1>
+          <BrandMark />
         </div>
         <nav aria-label="Primary" className="flex flex-1 flex-col gap-1 overflow-y-auto p-3">
           <NavItem to="/app/catalog" icon={Package} onNavigate={closeMobileNav}>Catalog</NavItem>
@@ -93,6 +94,33 @@ export function AppLayout() {
       </div>
     </div>
   )
+}
+
+/**
+ * T6: the sidebar brand spot. `SignedInResponse` carries no organization
+ * name (only `displayName`/`organizationId`), so the logo's alt text is
+ * always the generic "Organization logo" rather than a name we don't have.
+ * No `logoUrl`, or a `logoUrl` that fails to load (broken link, blocked
+ * origin), both fall back to the original text brand — never a broken
+ * image icon.
+ */
+function BrandMark() {
+  const { branding } = useOrganizationBranding()
+  const [logoFailed, setLogoFailed] = useState(false)
+  const logoUrl = branding?.logoUrl
+
+  if (logoUrl && !logoFailed) {
+    return (
+      <img
+        src={logoUrl}
+        alt="Organization logo"
+        className="h-8 max-w-full object-contain"
+        onError={() => setLogoFailed(true)}
+      />
+    )
+  }
+
+  return <h1 className="text-lg font-semibold">Commerce</h1>
 }
 
 function NavItem({

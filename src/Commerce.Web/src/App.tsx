@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router'
 import { AuthProvider } from '@/auth/AuthContext'
+import { OrganizationBrandingProvider } from '@/theme/OrganizationBrandingProvider'
 import { ThemeProvider } from '@/theme/ThemeProvider'
 import { AppLayout } from '@/routes/AppLayout'
 import { RequireAuth } from '@/routes/RequireAuth'
@@ -31,48 +32,53 @@ function App() {
       {/* Inside AuthProvider so ThemeProvider can read the signed-in user
           (useOptionalAuth) for per-user localStorage keying, while staying
           mounted for public routes too, where it falls back to an
-          anonymous key. */}
-      <ThemeProvider>
-        <Routes>
-          <Route path="/" element={<HomeScreen />} />
-          <Route path="/login" element={<LoginRoute />} />
-          <Route path="/forgot-password" element={<ForgotPasswordRoute />} />
-          <Route path="/reset-password/:token" element={<ResetPasswordRoute />} />
-          <Route path="/reset-password" element={<ResetPasswordRoute />} />
-          {/* commerce-guest-ordering design.md "One screen, guest and
-              registered as peers": the platform's first public-reachable
-              path — no RequireAuth, a guest has no staff or customer session
-              yet. */}
-          <Route path="/order" element={<OrderScreen />} />
-          <Route element={<RequireAuth />}>
-            <Route path="/app" element={<AppLayout />}>
-              <Route index element={<Navigate to="catalog" replace />} />
-              <Route path="catalog" element={<CatalogScreen />} />
-              {/* tasks.md 6.8 regression guard: unchanged staff-operated
-                  submission path, extracted to its own component. */}
-              <Route path="orders" element={<StaffOrderScreen />} />
-              <Route path="password" element={<RenewPasswordScreen />} />
-              <Route element={<RequireAdmin />}>
-                <Route path="customers" element={<CustomersScreen />} />
-                <Route path="users" element={<UsersScreen />} />
-                <Route path="branches" element={<BranchesScreen />} />
-                {/* commerce-pricing-engine design.md "Web: `PriceListsScreen`
-                    under the existing `RequireAdmin`". The screen existed
-                    since Work Unit 9 but was never mounted here, which left
-                    `price-list-management` ("Admin Create, Edit, and History
-                    Access") and `supplier-price-import` ("Staged Batch
-                    Requires Admin Review Before Commit") without any reachable
-                    surface. `src/App.test.tsx` guards the mount itself. */}
-                <Route path="price-lists" element={<PriceListsScreen />} />
-              </Route>
-              <Route element={<RequireSystemAdmin />}>
-                <Route path="organizations" element={<OrganizationsScreen />} />
+          anonymous key. OrganizationBrandingProvider sits between the two
+          (T6): it also reads the signed-in user to fetch/clear the org's
+          branding, and ThemeProvider consumes its result for the "custom"
+          theme's colors. */}
+      <OrganizationBrandingProvider>
+        <ThemeProvider>
+          <Routes>
+            <Route path="/" element={<HomeScreen />} />
+            <Route path="/login" element={<LoginRoute />} />
+            <Route path="/forgot-password" element={<ForgotPasswordRoute />} />
+            <Route path="/reset-password/:token" element={<ResetPasswordRoute />} />
+            <Route path="/reset-password" element={<ResetPasswordRoute />} />
+            {/* commerce-guest-ordering design.md "One screen, guest and
+                registered as peers": the platform's first public-reachable
+                path — no RequireAuth, a guest has no staff or customer session
+                yet. */}
+            <Route path="/order" element={<OrderScreen />} />
+            <Route element={<RequireAuth />}>
+              <Route path="/app" element={<AppLayout />}>
+                <Route index element={<Navigate to="catalog" replace />} />
+                <Route path="catalog" element={<CatalogScreen />} />
+                {/* tasks.md 6.8 regression guard: unchanged staff-operated
+                    submission path, extracted to its own component. */}
+                <Route path="orders" element={<StaffOrderScreen />} />
+                <Route path="password" element={<RenewPasswordScreen />} />
+                <Route element={<RequireAdmin />}>
+                  <Route path="customers" element={<CustomersScreen />} />
+                  <Route path="users" element={<UsersScreen />} />
+                  <Route path="branches" element={<BranchesScreen />} />
+                  {/* commerce-pricing-engine design.md "Web: `PriceListsScreen`
+                      under the existing `RequireAdmin`". The screen existed
+                      since Work Unit 9 but was never mounted here, which left
+                      `price-list-management` ("Admin Create, Edit, and History
+                      Access") and `supplier-price-import` ("Staged Batch
+                      Requires Admin Review Before Commit") without any reachable
+                      surface. `src/App.test.tsx` guards the mount itself. */}
+                  <Route path="price-lists" element={<PriceListsScreen />} />
+                </Route>
+                <Route element={<RequireSystemAdmin />}>
+                  <Route path="organizations" element={<OrganizationsScreen />} />
+                </Route>
               </Route>
             </Route>
-          </Route>
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </ThemeProvider>
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </ThemeProvider>
+      </OrganizationBrandingProvider>
     </AuthProvider>
   )
 }
