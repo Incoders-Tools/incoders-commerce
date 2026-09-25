@@ -152,6 +152,11 @@ builder.Services.AddSingleton<CustomerOrderingAccessService>();
 builder.Services.AddSingleton<CloudSyncReceiver>();
 builder.Services.AddSingleton<CloudCatalogManagementAdapter>();
 builder.Services.AddSingleton<CloudOrderStore>();
+// commerce-price-composition slice 2: resolution composes the effective rate
+// components onto the entry's base price, so the submission service needs the
+// component store. Registered here rather than defaulted to null inside the
+// service — a missing registration must fail at startup, not reprice silently.
+builder.Services.AddSingleton<PostgresRateComponentStore>();
 builder.Services.AddSingleton<CloudOrderSubmissionService>();
 
 // --- Auth: Identity cookie (browser, same-origin SPA) + device bearer

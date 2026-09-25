@@ -26,9 +26,12 @@ namespace Commerce.Cloud.Api.Persistence;
 /// read re-validates the invariants (no duplicate code, no duplicate order,
 /// a declared calculation base) instead of trusting the table.
 ///
-/// SLICE BOUNDARY: nothing here is wired into `PricingResolutionService`.
-/// Composing a resolved price from the effective set is slice 2 (the
-/// `pricing-resolution` spec delta), so no resolved price changes yet.
+/// As of slice 2, <see cref="GetEffectiveSetAsync"/> is on the resolution path:
+/// `PostgresRateComponentSource` adapts it to
+/// `IEffectiveRateComponentSource`, and `PricingResolutionService` composes its
+/// result onto the entry's base price. This store stays the ONLY place the
+/// effective-set selection rules (list first, organization default second,
+/// all-or-nothing, `null` for none) are written.
 /// </summary>
 public sealed class PostgresRateComponentStore
 {

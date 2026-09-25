@@ -90,8 +90,19 @@ Entraña          base 22,500 -> 2,362.50 + 562.50 + 1,575.00 + 5,625.00 -> 32,6
 ```
 
 The same four percentages declared with `CalculationBase = Subtotal`
-would give 10,600 -> 15,559.xx. The two results differing by ~190 pesos on
-one cut is the reason the calculation base is a required explicit value.
+compound instead of summing:
+
+```text
+10,600 x 1.105 x 1.025 x 1.07 x 1.25 = 16,057.79
+```
+
+The two results differing by ~688 pesos on one cut is the reason the
+calculation base is a required explicit value. (Slice 2 correction: this
+paragraph previously read "15,559.xx" and "~190 pesos", which does not
+follow from these four percentages. The exact figure is now pinned by
+`PricingCompositionTests.ResolveAsync_SameFourPercentagesOnSubtotal_...`;
+the spec scenario's requirement — strictly greater than 15,370 — is
+unchanged and was never in question.)
 
 ## Migration Strategy for `UnitPrice`
 
@@ -117,6 +128,56 @@ The migration is a **semantic reinterpretation with zero data rewrite**.
   sequence — publish base entries and the component set with the same
   `EffectiveFrom`, as one dated cutover — is an operational requirement of
   this model and must be stated in any future runbook.
+
+## Cutover Runbook (slice 2)
+
+Slice 2 put composition on the resolution path. Turning it on changed no
+price, because every list that has published no component set composes to
+the identity — proven end to end against a real database by
+`PricingCompositionTests.ResolveAsync_OverLivePostgres_WithNoPublishedComponents_...`.
+
+The hazard is therefore **not** the release; it is the first
+`PublishSetAsync` onto a list whose entries were imported as finals.
+
+**Why there is no code guard.** A deliberate decision, not an omission.
+`PriceListEntry` records one amount and no provenance of its meaning: an
+entry holding a base price and an entry holding a final price are the same
+row. A legitimate adoption (base entries published the same day) and a
+mistaken one (components published over old finals) are byte-identical
+INSERTs, so any check would have to guess. The two candidate guards were
+rejected for that reason:
+
+- *Refuse a non-empty set when the list already has entries* — blocks the
+  correct adoption sequence too, since the base entries are published
+  first. It would train operators to work around it.
+- *Flag a "suspicious" ratio between old and new entries* — a heuristic
+  over business data, with no true answer, that would fail on a genuine
+  price change.
+
+Adding either would grow the system without shrinking the risk. The
+correct mitigation is ordering, which is operational, so it is written
+down here and named on `PriceListEntry.UnitPrice`, and a real-database
+regression test guards the identity that makes the ordering safe.
+
+**The sequence, per price list:**
+
+1. Read the current entries. Every amount is a FINAL price.
+2. Decide the component set (for Vaca Verde: `IVA` 10.5, `IB` 2.5,
+   `FLETE` 7, `REMARCACION` 25, all `Base` — multiplier 1.45).
+3. Pick one `EffectiveFrom` date, `D`, for the whole cutover.
+4. INSERT new `PriceListEntry` rows effective `D` carrying the BASE
+   prices (`final / 1.45` for Vaca Verde, or the negotiated base if the
+   business has it). Never UPDATE the historical rows — resolutions dated
+   before `D` must keep returning the old numbers.
+5. INSERT the component set effective `D`, in the same maintenance window.
+6. Verify before announcing: resolve one known presentation for `D` and
+   for `D - 1 day`. Both must return the same final price. If the `D`
+   resolution is 1.45x the `D - 1` one, step 4 was skipped or dated wrong.
+
+**If step 5 lands without step 4**, the correction is append-only like
+everything else: INSERT base-priced entries dated `D`. The wrong prices
+resolved between the mistake and the fix remain historically accurate,
+which is the point of the append-only discipline.
 
 ## Known Limitation: VAT Belongs on the Product, Not the List
 

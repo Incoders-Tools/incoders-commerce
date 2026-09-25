@@ -116,11 +116,10 @@ public sealed class RateComponentSet
     /// resolution already applies and introduces neither a new money type nor
     /// per-component rounding.
     ///
-    /// SLICE BOUNDARY: this is pure arithmetic and is NOT yet called by
-    /// `PricingResolutionService`. Wiring it in — between reading the
-    /// effective entry and applying the customer's `DiscountPercentage` — is
-    /// slice 2 (the `pricing-resolution` spec delta), so no resolved price
-    /// changes yet.
+    /// Called by `PricingResolutionService` as of slice 2, between reading the
+    /// effective entry and applying the customer's `DiscountPercentage` — that
+    /// position is the contract, not an implementation detail (spec
+    /// "Resolution Composes Rate Components Before The Customer Discount").
     /// </summary>
     public decimal Compose(decimal basePrice)
     {

@@ -42,14 +42,23 @@ public sealed class CloudOrderSubmissionService
     private readonly CloudOrderStore _orderStore;
     private readonly PostgresCatalogStore _catalogStore;
     private readonly PostgresPriceListStore _priceListStore;
+    private readonly PostgresRateComponentStore _rateComponentStore;
     private readonly GuestVerificationService? _guestVerificationService;
 
+    /// <summary>
+    /// <paramref name="rateComponentStore"/> is REQUIRED, not optional, even
+    /// though a list with no published set composes to the identity: an
+    /// optional default here would let a host silently resolve base prices as
+    /// if they were finals, and the failure would be invisible until a set is
+    /// published. Every call site declares it.
+    /// </summary>
     public CloudOrderSubmissionService(
         CustomerCatalogAccessService accessService,
         PostgresCustomerStore customerStore,
         CloudOrderStore orderStore,
         PostgresCatalogStore catalogStore,
         PostgresPriceListStore priceListStore,
+        PostgresRateComponentStore rateComponentStore,
         GuestVerificationService? guestVerificationService = null)
     {
         _accessService = accessService;
@@ -57,6 +66,7 @@ public sealed class CloudOrderSubmissionService
         _orderStore = orderStore;
         _catalogStore = catalogStore;
         _priceListStore = priceListStore;
+        _rateComponentStore = rateComponentStore;
         _guestVerificationService = guestVerificationService;
     }
 
@@ -247,7 +257,12 @@ public sealed class CloudOrderSubmissionService
             var defaultPriceList = await _priceListStore.FindDefaultPriceListAsync(scope, ct);
             pricingService = defaultPriceList is null
                 ? null
-                : new PricingResolutionService(new PostgresEffectivePriceSource(_priceListStore, scope, defaultPriceList.Id));
+                // commerce-price-composition slice 2: the SAME default price
+                // list binds both ports, so the entry's base price and the
+                // components composed onto it can never come from two lists.
+                : new PricingResolutionService(
+                    new PostgresEffectivePriceSource(_priceListStore, scope, defaultPriceList.Id),
+                    new PostgresRateComponentSource(_rateComponentStore, scope, defaultPriceList.Id));
         }
 
         var snapshots = new List<OrderLineSnapshot>(lines.Count);

@@ -1,4 +1,4 @@
-using Commerce.Application.Audit;
+﻿using Commerce.Application.Audit;
 using Commerce.Application.Ordering;
 using Commerce.Cloud.Api.Endpoints;
 using Commerce.Cloud.Api.Ordering;
@@ -117,7 +117,9 @@ public sealed class CustomerOrderingAccessTests : IDisposable
         var orderStore = new CloudOrderStore();
         var catalogStore = new PostgresCatalogStore(_dataSource!);
         var priceListStore = new PostgresPriceListStore(_dataSource!);
-        var submissionService = new CloudOrderSubmissionService(accessService, customerStore, orderStore, catalogStore, priceListStore);
+        var submissionService = new CloudOrderSubmissionService(
+            accessService, customerStore, orderStore, catalogStore, priceListStore,
+            new PostgresRateComponentStore(_dataSource!));
         return (accessService, submissionService, accessStore, auditSink);
     }
 

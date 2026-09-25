@@ -1,4 +1,4 @@
-using Commerce.Application.Audit;
+﻿using Commerce.Application.Audit;
 using Commerce.Application.Ordering;
 using Commerce.Cloud.Api.Email;
 using Commerce.Cloud.Api.Endpoints;
@@ -191,7 +191,8 @@ public sealed class GuestOrderingTests : IDisposable
         var sender = new FakeEmailSender();
         var verificationService = new GuestVerificationService(verificationStore, sender);
         var submissionService = new CloudOrderSubmissionService(
-            accessService, customerStore, orderStore, catalogStore, priceListStore, verificationService);
+            accessService, customerStore, orderStore, catalogStore, priceListStore,
+            new PostgresRateComponentStore(_dataSource!), verificationService);
         return (orderStore, submissionService, verificationService, sender, accessStore);
     }
 
@@ -351,7 +352,8 @@ public sealed class GuestOrderingTests : IDisposable
         var clockBox = new[] { now };
         var verificationService = new GuestVerificationService(verificationStore, sender, () => clockBox[0]);
         var submissionService = new CloudOrderSubmissionService(
-            accessService, customerStore, orderStore, catalogStore, priceListStore, verificationService);
+            accessService, customerStore, orderStore, catalogStore, priceListStore,
+            new PostgresRateComponentStore(_dataSource!), verificationService);
 
         var (verificationId, contact) = await IssueAndConfirmVerificationAsync(
             verificationService, sender, scope, "30111222333", "expired@example.com");

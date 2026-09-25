@@ -71,17 +71,22 @@ observable resolution).
 - [x] S1.5 Respecify `PriceListEntry.UnitPrice` as the base price in the
       domain documentation, naming what slice 2 still owes.
 
-### Slice 2 — resolution (NOT this slice)
+### Slice 2 — resolution
 
 Covers the whole `specs/pricing-resolution/spec.md` delta.
 
-- [ ] S2.1 Compose inside `PricingResolutionService`: base -> components in
-      order -> final list price -> customer discount.
-- [ ] S2.2 Vaca Verde verified rows as resolution tests
-      (10,600 -> 15,370; 11,400 -> 16,530; 22,500 -> 32,625).
-- [ ] S2.3 Empty composition resolves to the stored base price, unchanged,
-      across every channel (web / POS / admin console parity).
-- [ ] S2.4 Guest vs registered divergence over the *composed* price.
+- [x] S2.1 Compose inside `PricingResolutionService`: base -> components in
+      order -> final list price -> customer discount. New port
+      `IEffectiveRateComponentSource` + `PostgresRateComponentSource`; the
+      submission service binds both ports to the SAME default price list.
+- [x] S2.2 Vaca Verde verified rows as resolution tests
+      (10,600 -> 15,370; 11,400 -> 16,530; 22,500 -> 32,625), plus the
+      `Subtotal` negative case pinned at 16,057.7909375.
+- [x] S2.3 Empty composition resolves to the stored base price, unchanged —
+      no set, no source at all, and an explicitly empty set; proven against
+      live Postgres, and channel parity re-proven over the composed price.
+- [x] S2.4 Guest vs registered divergence over the *composed* price: one
+      shared list price of 15,370, registered strictly lower at 13,833.
 
 Explicitly out of both slices: admin UI, changes to
 `supplier-price-import`, per-product/per-category VAT, rounding policy
@@ -191,8 +196,86 @@ changes.
   Interrupted once mid-S1.5 by a session rate limit, and once earlier by DLL
   locks from the user's running apps; neither left anything committed.
 
+- 2026-09-25: **Slice 2 complete and verified (S2.1-S2.4).** Composition is
+  now on the resolution path.
+
+  **Order, and where.** `PricingResolutionService.ResolveAsync` runs three
+  ordered steps: read the effective entry (base price) -> compose the
+  effective `RateComponentSet` onto it -> apply the customer's
+  `DiscountPercentage` to the COMPOSED list price. `Resolved.UnitListPrice`
+  is now the composed price, not the stored amount. Rounding is unchanged:
+  `Compose` does not round, so `Money.Round2` still runs exactly twice.
+
+  **Two ports, one list.** Composition needed the effective set, which
+  `IEffectivePriceSource` cannot supply, so a second port
+  `IEffectiveRateComponentSource` was added, mirroring the first: no channel
+  parameter, no caller-supplied set, price list bound by the implementation.
+  `PostgresRateComponentSource` adapts the existing
+  `PostgresRateComponentStore.GetEffectiveSetAsync` — the date-selection and
+  organization-default-inheritance rules were NOT reimplemented.
+  `CloudOrderSubmissionService` binds both ports to the same default price
+  list, so the entry and the components can never come from two lists. Its
+  `PostgresRateComponentStore` parameter is REQUIRED, not optional-with-null,
+  and the store is registered in `Program.cs`: a missing registration fails
+  at startup instead of silently resolving base prices as finals.
+
+  **Effective dating.** By the RESOLUTION date, independently of which entry
+  is effective — the store's existing SQL (`effective_from <= $2 ORDER BY
+  effective_from DESC LIMIT 1`, list first then organization default). Tested
+  both ways: a later set does not affect an earlier resolution, and a
+  2026-01-01 entry resolving on 2026-07-01 composes with the 2026-06-01 set.
+
+  **Cutover hazard — decision: documentation + regression test, no code
+  guard.** Justified in design.md's new "Cutover Runbook". `PriceListEntry`
+  stores one amount and no provenance of its meaning, so a legitimate
+  adoption and a mistaken one are byte-identical INSERTs; both candidate
+  guards (refuse a set when entries exist / flag a suspicious ratio) would
+  block the correct sequence or guess at business data. The mitigation is
+  ordering, which is operational: publish base entries and the set with the
+  same `EffectiveFrom`, verify `D` against `D - 1`. What IS enforced in code
+  is the property that makes turning the slice on safe — an empty
+  composition is the identity — guarded against live Postgres by
+  `ResolveAsync_OverLivePostgres_WithNoPublishedComponents_ResolvesToTheStoredAmountUnchanged`.
+  The stale "slice 1, documentation only" notes on `PriceListEntry`,
+  `RateComponentSet` and `PostgresRateComponentStore` were corrected.
+
+  **Mutation check (order), performed and reported.** Inverted the order —
+  discount applied to the base, composition after — and re-ran. 4 tests
+  failed: the discount-order test, the guest/registered divergence test, the
+  live-Postgres composition test and the composed channel-parity test. All
+  four failed on `UnitListPrice`. Finding worth keeping: composition and the
+  discount are both multiplications, so they COMMUTE — `UnitNetPrice` was
+  13,833 under both orders. An order test that asserts only the net price
+  cannot fail. The order is provable only through `UnitListPrice`, which the
+  spec defines as the composed price; that is now asserted explicitly and
+  the reason is written into the test and the service.
+
+  **Also corrected:** design.md claimed the four percentages on `Subtotal`
+  give "15,559.xx (~190 pesos)". They give 16,057.7909375 (~688 pesos); the
+  figure is now pinned by test. The spec scenario ("strictly greater than
+  15,370") was always satisfied and is unchanged.
+
+  **Known gap, disclosed:** the POS passes no component source, because its
+  `price_replica` carries prices and not rate components. It therefore
+  composes the identity and its prices are unchanged. That is a REPLICATION
+  gap, not a resolution one — the arithmetic is in the one shared compiled
+  method — and it is out of scope for both slices. Documented on the
+  `PricingResolutionService` constructor.
+
+  **Verification.** `dotnet build Commerce.sln`: 0 errors, 24 warnings (all
+  pre-existing: NU1903 on `System.IO.Packaging`, 2 × CS8602 in
+  `PaymentRecordingServiceTests`). `dotnet test Commerce.sln`:
+  `Commerce.Integration` 675 passed / 676 (up from 658/659 — 17 new),
+  `Commerce.Upgrade` 31/31, `Commerce.Bootstrap.Tests` 1/1. The single
+  failure is the same known environmental one,
+  `PublicRateLimitTests.WithGuestOrderingConfigAbsent_...`, caused by a
+  populated `wwwroot` making `MapFallbackToFile` answer unmapped public
+  routes with 200. Unrelated to this work and unchanged by it.
+
 ## Next step
 
-Start slice 2 (S2.1-S2.4): compose inside `PricingResolutionService`.
-The hazard recorded on `PriceListEntry.UnitPrice` must be resolved as part
-of that cutover, not after it.
+Both slices are implemented. Remaining, and explicitly out of scope of
+this change: the admin UI for publishing component sets, replicating
+components to the POS, per-product/per-category VAT (design.md "Known
+Limitation"), and executing the cutover runbook against Vaca Verde's real
+imported rows.

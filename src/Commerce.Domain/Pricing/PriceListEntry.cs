@@ -29,18 +29,27 @@ public sealed class PriceListEntry
     /// every entry written before rate components existed keeps resolving to
     /// the number it always resolved to.
     ///
-    /// SLICE BOUNDARY: as of slice 1 this is a documentation change only.
-    /// `PricingResolutionService` still returns this value directly and no
-    /// resolved price has changed; wiring
-    /// <see cref="RateComponentSet.Compose"/> in between reading the entry
-    /// and applying the customer discount is slice 2 (the
-    /// `pricing-resolution` spec delta).
+    /// LIVE as of slice 2: `PricingResolutionService` now reads this amount as
+    /// the base, applies the effective <see cref="RateComponentSet"/>, and only
+    /// then the customer's discount. Entries on a list that has published no
+    /// component set still resolve to exactly this number, because an empty
+    /// composition is the identity — that is why turning slice 2 on repriced
+    /// nothing, and `PricingCompositionTests` guards it against a real database.
     ///
-    /// OPERATIONAL NOTE for that cutover (design.md "Rollback Plan"): rows
-    /// already imported for Vaca Verde hold `15,370`-style FINAL prices. If a
-    /// 1.45 composition is switched on before base-priced entries are
-    /// published with the same `EffectiveFrom`, those rows would resolve to
-    /// `15,370 x 1.45`.
+    /// CUTOVER HAZARD — the one way this model can silently misprice, stated
+    /// here because the data cannot distinguish the two cases and no code check
+    /// can: every entry written BEFORE this change holds a FINAL price, and
+    /// this type has no field recording which meaning an amount carries.
+    /// Publishing a component set over such rows composes a final price a
+    /// second time — for Vaca Verde, `15,370 x 1.45`, a silent 45% increase.
+    /// Nothing in the domain or the database can detect that, because a
+    /// legitimate adoption and a mistaken one are byte-identical INSERTs.
+    ///
+    /// The mitigation is therefore ORDERING, not validation, and it is an
+    /// operational requirement: publish the base-priced entries and the
+    /// component set with the SAME `EffectiveFrom`, as one dated cutover. See
+    /// `openspec/changes/commerce-price-composition/design.md`, "Cutover
+    /// Runbook", for the sequence and its verification query.
     /// </summary>
     public decimal UnitPrice { get; }
 

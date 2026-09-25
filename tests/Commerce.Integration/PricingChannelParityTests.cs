@@ -3,6 +3,7 @@ using Commerce.Cloud.Api.Persistence;
 using Commerce.Cloud.Api.Pricing;
 using Commerce.Cloud.Api.Tenancy;
 using Commerce.Domain.Catalog;
+using Commerce.Domain.Pricing;
 using Microsoft.Data.Sqlite;
 using Npgsql;
 
@@ -124,9 +125,13 @@ public sealed class PricingChannelParityTests : IDisposable
         Apply("0002_users.sql");
         Apply("0003_organizations_branches.sql");
         Apply("0009_catalog_and_pricing.sql");
+        Apply("0013_rate_components.sql");
 
         using var resetCmd = new NpgsqlCommand(
-            "TRUNCATE TABLE price_list_entries, price_lists, presentations, products, branches, organizations CASCADE", owner);
+            """
+            TRUNCATE TABLE rate_components, rate_component_sets, price_list_entries, price_lists,
+                           presentations, products, branches, organizations CASCADE
+            """, owner);
         resetCmd.ExecuteNonQuery();
     }
 
@@ -190,5 +195,90 @@ public sealed class PricingChannelParityTests : IDisposable
         Assert.Equal(postgresResolved, sqliteResolved);
         Assert.Equal(224.99m, postgresResolved.UnitNetPrice);
         Assert.Equal(899.96m, postgresResolved.LineTotal);
+    }
+
+    /// <summary>
+    /// commerce-price-composition spec scenario "Same tuple composes
+    /// identically across channels": the same parity argument, now over the
+    /// COMPOSED price. The Postgres side reads Vaca Verde's four components
+    /// through the real <see cref="PostgresRateComponentSource"/>; the second
+    /// channel is given the SAME domain set through an independently written
+    /// source. Both produce 10,600 -> 15,370 -> a 10% discount, byte-identical,
+    /// because composition lives in the one shared compiled method and neither
+    /// call site has a channel parameter to differ on.
+    /// </summary>
+    [Fact]
+    public async Task ResolveAsync_WithRateComponents_PostgresAndSecondChannel_ComposeByteIdentically()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var organizationId = Guid.NewGuid();
+        SeedOrganization(organizationId);
+        var scope = new CloudTenantScope(organizationId);
+        var actorId = Guid.NewGuid();
+
+        var catalogStore = new PostgresCatalogStore(_dataSource!);
+        var product = await catalogStore.CreateProductAsync(
+            scope, new NewProduct(Guid.NewGuid(), "Asado completo", Guid.NewGuid(), Guid.NewGuid(), actorId),
+            "org-user", actorId, CancellationToken.None);
+        var presentation = await catalogStore.CreatePresentationAsync(
+            scope, new NewPresentation(Guid.NewGuid(), product.Id, "Kg", QuantityBehavior.FixedQuantity, Guid.NewGuid(), null, actorId),
+            "org-user", actorId, CancellationToken.None);
+
+        var priceStore = new PostgresPriceListStore(_dataSource!);
+        var priceList = await priceStore.CreatePriceListAsync(
+            scope, new NewPriceList(Guid.NewGuid(), "Reparto", true, actorId), "org-user", actorId, CancellationToken.None);
+
+        var effectiveFrom = new DateOnly(2026, 1, 1);
+        await priceStore.AppendEntryAsync(
+            scope, new NewPriceListEntry(Guid.NewGuid(), priceList.Id, presentation.Id, 10600m, effectiveFrom, "Manual", null, actorId),
+            "org-user", actorId, CancellationToken.None);
+
+        IReadOnlyList<RateComponent> components =
+        [
+            new("IVA", "IVA (10,5%)", 10.5m, RateCalculationBase.Base, 1),
+            new("IB", "IB (2,5%)", 2.5m, RateCalculationBase.Base, 2),
+            new("FLETE", "Flete (7%)", 7m, RateCalculationBase.Base, 3),
+            new("REMARCACION", "Remarcación (25%)", 25m, RateCalculationBase.Base, 4),
+        ];
+
+        var componentStore = new PostgresRateComponentStore(_dataSource!);
+        await componentStore.PublishSetAsync(
+            scope, new NewRateComponentSet(Guid.NewGuid(), priceList.Id, effectiveFrom, components, actorId),
+            "org-user", actorId, CancellationToken.None);
+
+        var postgresService = new PricingResolutionService(
+            new PostgresEffectivePriceSource(priceStore, scope, priceList.Id),
+            new PostgresRateComponentSource(componentStore, scope, priceList.Id));
+
+        using var sqliteSource = new SqliteEffectivePriceSourceStub();
+        sqliteSource.Seed(presentation.Id, 10600m, effectiveFrom);
+        var secondChannelService = new PricingResolutionService(
+            sqliteSource,
+            new ReplicatedRateComponentSourceStub(
+                RateComponentSet.ForPriceList(Guid.NewGuid(), organizationId, priceList.Id, effectiveFrom, components)));
+
+        var resolveOn = new DateOnly(2026, 3, 1);
+        var postgresOutcome = await postgresService.ResolveAsync(presentation.Id, 2m, 10m, resolveOn, CancellationToken.None);
+        var secondOutcome = await secondChannelService.ResolveAsync(presentation.Id, 2m, 10m, resolveOn, CancellationToken.None);
+
+        var postgresResolved = Assert.IsType<PriceResolutionOutcome.Resolved>(postgresOutcome);
+        var secondResolved = Assert.IsType<PriceResolutionOutcome.Resolved>(secondOutcome);
+
+        Assert.Equal(postgresResolved, secondResolved);
+        Assert.Equal(15370m, postgresResolved.UnitListPrice);
+        Assert.Equal(13833m, postgresResolved.UnitNetPrice);
+        Assert.Equal(27666m, postgresResolved.LineTotal);
+    }
+
+    /// <summary>
+    /// Test-only stand-in for a replica-backed component source, written
+    /// independently of <see cref="PostgresRateComponentSource"/> so the parity
+    /// assertion compares two implementations rather than one called twice.
+    /// </summary>
+    private sealed class ReplicatedRateComponentSourceStub(RateComponentSet set) : IEffectiveRateComponentSource
+    {
+        public Task<RateComponentSet?> GetEffectiveSetAsync(DateOnly effectiveOn, CancellationToken ct)
+            => Task.FromResult(set.EffectiveFrom <= effectiveOn ? set : null);
     }
 }
