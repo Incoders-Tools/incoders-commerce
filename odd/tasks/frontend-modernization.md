@@ -132,7 +132,7 @@ admin panel.
       `Edit code` button name and form field labels used by
       `e2e/catalog.spec.ts`; update E2E where the flow changes and
       typecheck `e2e/` explicitly. Route: delegated direct (writer).
-- [ ] T10. Forms actually use the width + dark-mode-safe selects: found by
+- [x] T10. Forms actually use the width + dark-mode-safe selects: found by
       the parent while verifying T9. `CustomerForm` keeps ~20 fields in a
       single `max-w-lg` column inside the full-screen shell, and its three
       native `<select>`s (plus `OrderLinesEditor`'s) hardcode `bg-white
@@ -818,7 +818,25 @@ admin panel.
   build clean, e2e typecheck clean; `e2e/catalog.spec.ts` needed no change
   (role/label selectors unchanged). Parent spot check: full suite 204/204.
 
+- 2026-09-25: T10 done (delegated direct). `2bde2bc` token-based
+  `ui/select.tsx` replacing every hardcoded select (CustomerForm x3,
+  OrderLinesEditor); `662aed2` CustomerForm in five fieldset sections
+  (Identity, Tax, Contact, Address, Commercial) on a 1/2/3-column grid,
+  `max-w-lg` removed. Catalog code form left at `max-w-md` on purpose
+  (single field). TDD strict: RED observed (missing module; 3 failing
+  CustomerForm cases; OrderLinesEditor color assertion). Checks: `npm run
+  test` 208/208 (39 files), lint exit 0 / 13 baseline warnings, build clean;
+  e2e untouched (`#order-line-presentation` id unchanged). Parent spot
+  check: full suite 208/208.
+  RDD over `6f8eeba..662aed2`: medium, `slice_budget_reached` (989 lines,
+  20 files); user granted; lineage `review-ca0149decfc067f7`, reliability
+  lens, APPROVED and acknowledged. Reviewed boundary -> `662aed2`.
+  Non-blocking follow-ups: `R3-select-tests-negative-only`
+  (CustomerForm.test.tsx:117-128 only asserts absence of old classes),
+  `R3-stale-load-test-timing` (OrganizationsScreen.test.tsx:278-284).
+
 ## Next step
 
-T10, then RDD review over `6f8eeba..HEAD`. T5 backend settings need a spec
-decision first.
+Push `dev` when the user decides; CI runs Playwright (not run locally).
+Then T5: organization settings need a spec decision (no field exists for
+logo/theme/date format/geolocation/usage plan).
