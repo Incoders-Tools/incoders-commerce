@@ -33,6 +33,12 @@ services:
       # commerce_dev (and the cluster-wide roles) first, then init-test-db.sql
       # reuses them for commerce_test.
       - ./db/init-test-db.sql:/docker-entrypoint-initdb.d/init-test-db.sql:ro
+      # Without this, the data directory lives in the container's writable
+      # layer and `docker compose down` — or any recreate — silently destroys
+      # the developer's signed-in accounts along with it. The init scripts
+      # above only run when this volume is empty, so a normal stop/start
+      # keeps everything; `down -v` is the deliberate way to start clean.
+      - postgres-data:/var/lib/postgresql/data
     # The integration test suite spins up a short-lived WebApplicationFactory
     # (and its own Npgsql connection pool) per test method rather than
     # sharing one pool across the run. Pool teardown isn't instantaneous at
@@ -123,3 +129,6 @@ services:
       ConnectionStrings__CommercePlatformRead: "Host=postgres;Port=5432;Database=commerce_dev;Username=platform_readonly;Password=dev-only-platform-readonly-password"
     ports:
       - "8080:8080"
+
+volumes:
+  postgres-data:
