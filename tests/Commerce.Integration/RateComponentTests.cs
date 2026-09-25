@@ -9,11 +9,14 @@ namespace Commerce.Integration;
 /// Component", "Append-Only Effective-Dated Rate Component History"). No
 /// Postgres: these are construction rules and arithmetic, not persistence.
 ///
-/// <see cref="RateComponentSet.Compose"/> is exercised here even though slice
-/// 1 deliberately does NOT wire it into `PricingResolutionService` — without
-/// it, <see cref="RateComponent.CalculationBase"/> would be an inert stored
-/// string and the spec's "base-calculated components do not compound"
-/// scenario would have nothing to assert against.
+/// <see cref="RateComponentSet.Compose"/> is exercised here as pure
+/// arithmetic, with no source, no store and no resolution service. Slice 2
+/// DID wire it into `PricingResolutionService` — `PricingCompositionTests`
+/// owns that half, including the ordering against the customer discount and
+/// the live-Postgres path. What is left here is the property that makes
+/// <see cref="RateComponent.CalculationBase"/> more than an inert stored
+/// string: the spec's "base-calculated components do not compound" scenario,
+/// which needs no infrastructure to assert.
 /// </summary>
 public sealed class RateComponentTests
 {

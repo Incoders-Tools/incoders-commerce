@@ -1,4 +1,4 @@
-﻿using Commerce.Application.Audit;
+using Commerce.Application.Audit;
 using Commerce.Application.Ordering;
 using Commerce.Cloud.Api.Endpoints;
 using Commerce.Cloud.Api.Ordering;

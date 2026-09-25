@@ -1,4 +1,4 @@
-﻿using Commerce.Domain.Pricing;
+using Commerce.Domain.Pricing;
 
 namespace Commerce.Application.Pricing;
 

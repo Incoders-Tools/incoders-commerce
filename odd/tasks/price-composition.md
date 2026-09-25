@@ -55,19 +55,21 @@ observable resolution).
 
 - [x] S1.1 Domain model: `RateCalculationBase`, `RateComponent`,
       `RateComponentSet` in `src/Commerce.Domain/Pricing`, with construction
-      validation and a pure composition function. **Written; compiles
-      (`dotnet build src/Commerce.Domain` — 0 errors, 0 warnings); its tests
-      have NOT been executed.**
+      validation and a pure composition function. Observed RED, then GREEN:
+      `RateComponentTests` runs green (see the 2026-09-25 slice 1 entry
+      below).
 - [x] S1.2 Migration `0013_rate_components.sql`: `rate_component_sets` +
       `rate_components`, RLS, append-only grants; mirrored into
       `deploy/dev/db/init-rls.sql`.
 - [x] S1.3 `PostgresRateComponentStore` + records: publish a set, read the
       effective set for a date with organization-default inheritance, read
       history.
-- [x] S1.4 Tests: `tests/Commerce.Integration/RateComponentTests.cs` written
-      (19 domain facts) and **observed RED** before S1.1. Store integration
-      tests, RLS isolation, append-only and `0013` coverage in
-      `MigrationRlsTests` are NOT written yet.
+- [x] S1.4 Tests: `tests/Commerce.Integration/RateComponentTests.cs`
+      (domain facts, observed RED before S1.1), plus
+      `RateComponentStoreTests` (store round trip, inheritance, append-only
+      history, cross-organization isolation) and the `0013` section of
+      `MigrationRlsTests`. All written and green; the RLS mutation check was
+      performed and is reported in the 2026-09-25 slice 1 entry below.
 - [x] S1.5 Respecify `PriceListEntry.UnitPrice` as the base price in the
       domain documentation, naming what slice 2 still owes.
 
@@ -109,6 +111,9 @@ changes.
 ## Progress
 
 - 2026-09-25 — **Slice 1 STOPPED partway: the build is blocked, not green.**
+  *(Historical. SUPERSEDED by the "Slice 1 complete and verified" entry
+  further down — everything listed here as not started was finished in that
+  same session. Kept because it records why the session stopped.)*
   `dotnet test` failed with `MSB3027`/`MSB3021` — `Commerce.Application.dll`,
   `Commerce.Domain.dll`, `Commerce.BranchNode.dll` and `Commerce.Updater.dll`
   could not be copied because `Commerce.Pos.Windows` (PID 6580) and
@@ -271,6 +276,96 @@ changes.
   `PublicRateLimitTests.WithGuestOrderingConfigAbsent_...`, caused by a
   populated `wwwroot` making `MapFallbackToFile` answer unmapped public
   routes with 200. Unrelated to this work and unchanged by it.
+
+- 2026-09-25: **Review round 1 closed — all 11 advisory findings attacked.**
+  The 4-lens `gentle-ai` review of `29a24c7` and `baee445` approved both
+  slices with 11 non-blocking findings. Five commits, grouped by concern.
+
+  **Correctness.** *Precision:* `RateComponent` now refuses a percentage
+  finer than four decimal places or wider than five integer digits — exactly
+  `numeric(9,4)`. `PublishSetAsync` returns a set rebuilt from the caller's
+  in-memory components, so anything the column silently rounded made the
+  returned set compose a different price than every later read of the same
+  set. Rejected at the edge rather than re-read after the write: a re-read
+  removes the divergence but keeps the silent rounding, handing the publisher
+  an altered number with nothing marking the change. *Submission wiring:*
+  two new `OrderPricingTests` publish a set and submit an order, asserting
+  the composed 15,370 on the frozen line — the previous submission tests all
+  ran with zero published sets, the identity case, so deleting the port
+  binding left them green. *Case folding:* the domain rejected duplicate codes
+  with `OrdinalIgnoreCase` while `UNIQUE (set_id, code)` was case-sensitive,
+  so an `IVA`/`iva` pair written outside the constructor persisted and then
+  made every later read of that set throw while rebuilding it — unreadable
+  and, the tables being append-only by grant, unrepairable. Aligned toward the
+  stricter side: `UNIQUE (set_id, lower(code))`.
+
+  **Tenancy.** RLS filters SELECT but does not run inside a foreign-key
+  check, so `rate_component_sets.price_list_id REFERENCES price_lists (id)`
+  confirmed the existence of a row the policy hides. One organization could
+  publish a set naming another's price list and, because
+  `rate_component_sets_list_day_uk` keyed only `(price_list_id,
+  effective_from)`, pre-empt that organization's own publication for the day.
+  Migration **`0014_rate_component_tenancy.sql`** (new file — `0013` is
+  committed and forward-only) makes both references tenant-composite against
+  a `(organization_id, id)` key and adds `organization_id` to the same-day
+  index. `MATCH SIMPLE` leaves the organization-default case
+  (`price_list_id IS NULL`) unchecked, which is correct: it references no
+  list. Mirrored into `deploy/dev/db/init-rls.sql`.
+
+  **Maintenance.** The fallback query's dead `priceListId` binding is gone —
+  each arm binds its own parameters in its own order instead of sharing a
+  fixed three-parameter signature. `PostgresRateComponentSource` memoizes the
+  effective set per date, so an N-line order makes one lookup per distinct
+  resolution date instead of N connection acquisitions with their own
+  transactions and `set_config`; keyed by date so effective dating is
+  untouched, instance-scoped so nothing outlives the submission, and `null`
+  is cached too because "no set" is a real answer and the commonest one.
+  Readiness now verifies both rate tables, turning "API deployed ahead of
+  `0013`" from a silent total ordering outage into a red `/health/ready` that
+  names the migration; the runbook half is design.md's new "Deploy Order"
+  section. `RepoRoot`, the migration chain and the TRUNCATE reset were
+  byte-identical in three fixtures and now live once in
+  `PostgresTestFixture`; `MigrationRlsTests` keeps its own partial-chain
+  helpers, because hand-picked subsets are its purpose.
+
+  **Documentation.** The UTF-8 BOM was removed from
+  `PricingResolutionService.cs` and three test files; the stale "slice 1
+  deliberately does NOT wire `Compose`" note on `RateComponentTests` was
+  corrected; S1.1 and S1.4 above were corrected to match what the entries
+  below already reported.
+
+  **Mutation checks, both performed and reported.**
+  *Precision, two ways.* (a) Replacing the scale guard with `if (false)` —
+  `Component_WithAPercentageFinerThanFourDecimalPlaces_IsRejected` fails.
+  (b) Rounding the percentage to 2 places on INSERT, simulating a narrower
+  column — the live-Postgres
+  `PublishSetAsync_ReturnedSet_ComposesExactlyWhatEveryLaterReadComposes`
+  fails on `10,5005` vs `10,5000`. Both halves can fail.
+  *Cross-tenant isolation.* Reverting `0014`'s composite reference to the
+  single-column `FOREIGN KEY (price_list_id) REFERENCES price_lists (id)`
+  (and dropping the existing constraint first, since the migration's
+  idempotency guard otherwise keeps the good one) —
+  `PublishSetAsync_NamingAnotherOrganizationsPriceList_IsRefusedByTheDatabase`
+  fails: the cross-tenant publish succeeds. Restored and re-verified green.
+  *Also checked, though not required:* unbinding
+  `PostgresRateComponentSource` from `CloudOrderSubmissionService` fails both
+  new submission tests, which is the finding's whole point.
+
+  **Verification.** `dotnet build Commerce.sln`: 0 errors, 26 warnings (all
+  pre-existing: NU1903 on `System.IO.Packaging`, 2 × CS8602 in
+  `PaymentRecordingServiceTests`). `dotnet test Commerce.sln`:
+  `Commerce.Integration` **691 passed / 692** (up from 675/676 — 16 new),
+  `Commerce.Upgrade` 31/31, `Commerce.Bootstrap.Tests` 1/1. The single
+  failure is the same known environmental one,
+  `PublicRateLimitTests.WithGuestOrderingConfigAbsent_...` — a populated
+  `wwwroot` makes `MapFallbackToFile` answer unmapped public routes with 200.
+  Unrelated to this work and unchanged by it.
+
+  **Not fixed, and why:** nothing. All 11 findings were addressed.
+  Maintenance and documentation items that changed no behaviour got no new
+  test (BOM removal, the two stale doc corrections, the dead parameter
+  binding); the per-date cache and the readiness gate DID change behaviour
+  and each got tests, the readiness one observed RED first.
 
 ## Next step
 
