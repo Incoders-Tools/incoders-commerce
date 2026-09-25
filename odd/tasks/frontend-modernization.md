@@ -104,11 +104,19 @@ admin panel.
       T5b UI — "Edit branding" from the Organizations list opens a
       full-screen `FormPage` with logo URL + color picker and a preview.
       Route: delegated direct (writer).
-- [ ] T6. Wire the authenticated user's resolved organization to the
+- [x] T6. Wire the authenticated user's resolved organization to the
       "custom" theme option (fetch org theme on session load, feed
       `ThemeProvider`). Depends on T2 + T5. Also fixes review WARNING
       `R3-branding-load-failure-save-clears`: when loading branding fails
       the form must not let Save wipe the stored values.
+- [ ] T6b. T6 review follow-ups: WARNING
+      `R3-custom-availability-validation-mismatch` (ThemeSwitcher.tsx:26 —
+      the Custom option's availability check and the theme's color
+      validation disagree, so Custom can be enabled for a color that
+      applies nothing), WARNING `R3-stale-branding-on-identity-change`
+      (OrganizationBrandingProvider.tsx:40-42 — the previous user's
+      branding stays visible while the next identity loads), SUGGESTION
+      `R3-logo-failed-never-resets` (AppLayout.tsx:109-112).
 - [x] T7. Navigation icons: add `lucide-react` (the shadcn/ui icon
       standard) and give every primary nav item and account-menu entry an
       identifying icon next to its text. Replace the hand-drawn
@@ -869,6 +877,51 @@ admin panel.
   folded into T6), SUGGESTION `R3-branding-error-contract-unproved`
   (OrganizationBrandingForm.test.tsx:115-117).
 
+- 2026-09-25: T6 done (delegated direct). `7e210ae`
+  `OrganizationBrandingProvider` (own-org branding per signed-in identity,
+  403/404/network -> null), `organizationTheme.ts` (primary, WCAG-contrast
+  foreground, ring), ThemeProvider applies them under "custom", Custom
+  disabled with an explanation when the org has no color, `BrandMark` logo
+  in the shell with text fallback. `2b54bef` fixes the T5 WARNING: a failed
+  branding load disables Save and offers Retry. TDD strict: RED observed
+  per commit. `npm run test` 241/241 (42 files), lint exit 0 / 17 warnings
+  (+3, existing categories), build clean, e2e untouched. Parent spot check
+  241/241. RDD over `e159daa..2b54bef`: medium (705 lines), user granted,
+  lineage `review-c156e2357c217f51`, APPROVED and acknowledged; follow-ups
+  in T6b.
+- 2026-09-25: Local sysadmin access lost again. Root cause: first
+  `compose up` after the named volume (59c3afa) recreated Postgres onto an
+  empty volume (one-time), and `deploy/dev/.env` had the sysadmin under a
+  wrong key so provisioning refused. `.env` fixed (SYSADMIN_* = platform
+  owner, ORGANIZATION_ADMIN_* = client), accounts re-provisioned.
+
+## Product review backlog (user, 2026-09-25)
+
+Reported by the product owner while using the app. Each item is being
+checked against `openspec/specs/` to classify it as a spec gap or an
+implementation gap before implementing.
+
+- [ ] B1. Users screen shows the platform sysadmin with the
+      `business-admin` role checked. Wrong: sysadmin is the platform
+      owner's role, business-admin is the client's user inside an
+      organization. They must never be conflated.
+- [ ] B2. Every entity in the system must be editable. Users cannot be
+      edited today.
+- [ ] B3. Roles are poorly presented; use better components (badges /
+      chips / proper multi-select) instead of bare checkboxes.
+- [ ] B4. There is no customer (client) role; customers need access to
+      review price lists and place orders.
+- [ ] B5. Modularization: organization management is sysadmin-only, and
+      each role should see only its own modules.
+- [ ] B6. Branches cannot be created from the UI.
+- [ ] B7. More attractive menu; for business admins, a top navbar with a
+      branch switcher.
+- [ ] B8. Owner's concern: the project is behind — determine whether the
+      cause is missing definition (specs) or failing implementation, per
+      item.
+
 ## Next step
 
-T6 (custom theme from the signed-in user's organization branding).
+Gap audit (mapping) of B1-B8 against specs and code, then plan and
+implement, spec changes first where the audit finds a spec gap. T6b in
+parallel as a small cleanup.
