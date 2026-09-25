@@ -241,6 +241,49 @@ describe('OrganizationsScreen', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
+  it('ignores a slow initial load that resolves after a newer refresh', async () => {
+    // The initial mount load (call 1) is left pending; a refresh triggered
+    // after a create (call 3, listed below) resolves first with fresher
+    // data, then call 1 resolves late with stale data that must not win.
+    let resolveInitialLoad!: (response: Response) => void
+    fetchMock.mockImplementationOnce(
+      () => new Promise<Response>((resolve) => { resolveInitialLoad = resolve }),
+    )
+
+    const user = userEvent.setup()
+    render(<OrganizationsScreen />)
+
+    // Still loading — the initial GET is deliberately unresolved.
+    expect(screen.getByRole('status')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'New organization' }))
+    await user.type(screen.getByLabelText('Organization name'), 'Acme Co')
+    await user.type(screen.getByLabelText('Administrator email'), 'admin@acme.test')
+    await user.type(screen.getByLabelText('Administrator password'), 'correct-horse-battery-staple')
+
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ organizationId: 'org-1', branchId: 'branch-1', userId: 'user-1' }), {
+          status: 201,
+        }),
+      ) // POST create
+      .mockResolvedValueOnce(new Response(JSON.stringify([acme]), { status: 200 })) // refresh after create (call 3)
+
+    await user.click(screen.getByRole('button', { name: 'Create organization' }))
+
+    await screen.findByText('Acme Co')
+    expect(screen.getByRole('button', { name: 'New organization' })).toBeInTheDocument()
+
+    // The stale initial load now resolves with different, older data.
+    resolveInitialLoad(new Response(JSON.stringify([vacaVerde]), { status: 200 }))
+
+    // Give the stale promise a turn to (incorrectly) apply its result.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(screen.getByText('Acme Co')).toBeInTheDocument()
+    expect(screen.queryByText('Vaca Verde')).not.toBeInTheDocument()
+  })
+
   it('surfaces a create failure as an alert without leaving the form', async () => {
     listOnce([]).mockResolvedValueOnce(
       new Response(JSON.stringify({ title: 'An organization with that name already exists.' }), {

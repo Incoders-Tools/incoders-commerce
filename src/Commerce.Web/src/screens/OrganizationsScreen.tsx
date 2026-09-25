@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { listOrganizations } from '@/api/account'
 import { ApiError } from '@/api/client'
 import type { OrganizationSummary } from '@/api/types'
@@ -34,16 +34,31 @@ export function OrganizationsScreen() {
   const [creating, setCreating] = useState(false)
   const [search, setSearch] = useState('')
   const [view, setView] = useViewPreference('organizations')
+  // Guards against a slow refresh resolving after a newer one: `refresh` can
+  // run more than once (mount, then again after a create), and a fetch has
+  // no cancellation of its own, so a stale response landing after a fresh
+  // one could otherwise overwrite it with older data. Each call claims the
+  // next sequence number and only applies its result if it is still the
+  // most recent call in flight when it resolves.
+  const refreshSequence = useRef(0)
 
   const refresh = async () => {
+    const sequence = ++refreshSequence.current
     setLoading(true)
     setLoadError(null)
     try {
-      setOrganizations(await listOrganizations())
+      const result = await listOrganizations()
+      if (sequence === refreshSequence.current) {
+        setOrganizations(result)
+      }
     } catch (err) {
-      setLoadError(err instanceof ApiError ? err.message : 'Unexpected error loading organizations.')
+      if (sequence === refreshSequence.current) {
+        setLoadError(err instanceof ApiError ? err.message : 'Unexpected error loading organizations.')
+      }
     } finally {
-      setLoading(false)
+      if (sequence === refreshSequence.current) {
+        setLoading(false)
+      }
     }
   }
 
