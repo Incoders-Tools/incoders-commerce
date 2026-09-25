@@ -68,9 +68,30 @@ admin panel.
       dropdown menu (user display name, Change password, Sign out). Move
       `RenewPasswordScreen` off the top-level tab bar into that menu.
       Route: delegated direct.
-- [ ] T4. Reusable list/card view-switch component, applied first to one
+- [x] T4. Reusable list/card view-switch component, applied first to one
       data-heavy screen (Customers or Catalog TBD) as the reference
       implementation, then rolled out. Route: delegated direct.
+- [x] T4b. Roll the `components/data/*` layer (PageHeader + DataToolbar +
+      ViewSwitch + DataView + `useViewPreference`) out to `CustomersScreen`,
+      `UsersScreen` and `BranchesScreen` — each dropping its
+      `mx-auto … max-w-*` centered card, getting its own
+      `view:<screen>` preference key (`view:customers`, `view:users`,
+      `view:branches`) and real columns from `api/types.ts`.
+      Auth screens (`SignInScreen`, `ForgotPasswordScreen`,
+      `ResetPasswordScreen`, `RenewPasswordScreen`) are explicitly OUT of
+      scope — the narrow centered card is the correct pattern there.
+      Route: delegated direct (3 non-trivial screens + tests).
+- [x] T4c. Finish the rollout: `PriceListsScreen` onto the same
+      `components/data/*` layer, with a `view:price-lists` preference key and
+      real columns from `PriceListRecord` / `PriceListEntryRecord`. Split out
+      of T4b as its own slice because the screen carries a second nested list
+      (price entries) plus the supplier-import surface, which needs its own
+      column/expansion design rather than a mechanical migration.
+      `OrganizationsScreen` is deliberately NOT part of this rollout — it is
+      absorbed into T5, which rebuilds that screen wholesale (settings form,
+      colour picker, logo) rather than migrating the current 45-line
+      create+list stub twice.
+      Route: delegated direct.
 - [ ] T5. Organization settings: backend fields (logo, theme colors, date
       format, geolocation, usage plan) on the Organization entity +
       sysadmin-gated endpoints, plus rebuilt `OrganizationsScreen.tsx` UI
@@ -366,6 +387,354 @@ admin panel.
   tracked so its 18 MB local `codegraph.db` stays ignored — committing it
   is what clears the last untracked entry.
 
+- 2026-09-24: **Branching convention changed.** From now on this feature
+  works directly on `dev` — no per-feature branch, no PR. Work-unit commits
+  land on `dev` and are pushed there (`git push`). The earlier
+  `feat/frontend-modernization` → PR-into-`dev` flow (PR #72, merged) is
+  superseded; T4 onwards commits straight to `dev`.
+
+- 2026-09-24: T4 done (delegated-direct route, 5 new source files + 1
+  rewritten screen + 4 new test files + 1 extended test file). User
+  complaint driving it (Spanish): the app "no se parece en nada a un
+  sistema" and "no aprovechamos la totalidad de la pantalla" — T3 made the
+  shell full-width, but every screen was still wrapped in
+  `<Card className="mx-auto mt-8 w-full max-w-2xl">`, so content stayed
+  narrow and centered inside a wide shell.
+  New reusable layer in `src/Commerce.Web/src/components/data/` (new folder,
+  mirroring the `components/layout/` convention T3 established):
+  - `PageHeader.tsx` — `title` / optional `description` / optional `actions`
+    slot; stacks on mobile, actions move right from `sm:` up.
+  - `DataToolbar.tsx` — client-side search `Input` (label is `sr-only`,
+    id via `useId`) + `ViewSwitch`, plus a `children` slot for future extra
+    filters; column on mobile, one row from `sm:` up.
+  - `ViewSwitch.tsx` — exports `DataViewMode = 'table' | 'cards'` and a
+    segmented `role="radiogroup"` control with `aria-checked` buttons and
+    inline SVG icons (no icon library added — same precedent as T2's
+    `ThemeSwitcher`, whose exact class set and markup shape this copies so
+    both read as one design system). Native `<button>`s keep it tab- and
+    Enter/Space-operable with no custom key handling.
+  - `DataView.tsx` — generic `DataView<T>` over `items` + `columns`
+    (`DataViewColumn<T>`: `key`, `header`, `cell`, plus `hideOnMobile` /
+    `hideInCards`) + `getRowKey`, rendering either a table or a responsive
+    card grid, and owning the three states: `loading` (`role="status"`),
+    empty (`emptyMessage`, never a blank area) and populated. Optional
+    `renderActions` (per-item buttons) and `renderExpanded` (inline form
+    under the item, as a `colSpan` row in the table and inside the card in
+    the grid). Deliberately NOT a table framework: no sorting, pagination
+    or column resizing — only what these screens actually need.
+  - `useViewPreference.ts` — `[view, setView]` persisted at
+    `view:<screenKey>` (e.g. `view:catalog`), with the same tolerant
+    localStorage handling as `theme/ThemeProvider.tsx` (try/catch on read
+    and write, corrupt/unknown values fall back to `'table'`).
+  `screens/CatalogScreen.tsx` rewritten as the reference implementation:
+  the `mx-auto mt-8 w-full max-w-2xl` Card wrapper is gone, replaced by a
+  full-width `<section className="flex w-full flex-col gap-6">` with
+  `PageHeader` + error alert + `DataToolbar` + `DataView`. Columns come
+  from the real `PresentationRecord` fields (`api/types.ts`): Name,
+  Identification code (`'No code'` placeholder kept verbatim so existing
+  assertions stay meaningful), Quantity behavior (mapped through a new
+  `QUANTITY_BEHAVIOR_LABELS` record over the numeric `QuantityBehavior`
+  enum) and Last updated (`updatedAtUtc`, `toLocaleDateString`, `'—'` on an
+  unparseable value); the last two are `hideOnMobile`. Search is a
+  `useMemo` client-side filter over the already-loaded list by name or
+  identification code — no new endpoint, `fetch` is still called exactly
+  once. Edit-code flow is unchanged in behavior: the button moved into
+  `renderActions` and the `IdentificationCodeForm` into `renderExpanded`,
+  so it works identically in both views. Error text now uses the
+  `text-destructive` token instead of the leftover raw `text-red-600`.
+  TDD: strict RED confirmed twice. (1) All 4 new `components/data/*` test
+  files failed on unresolved imports before the implementations existed.
+  (2) The 4 new `CatalogScreen` cases (full-width/no-`max-w-2xl`, search
+  filter, no-match empty state, card-view switch + persistence across
+  remount) failed against the pre-T4 screen, while the 2 other new cases
+  (empty catalog, editing from the card view) passed already — kept anyway
+  as regression coverage for behavior T4 must not break. 25 new tests
+  (4 `ViewSwitch`, 5 `useViewPreference`, 6 `DataView`, 4
+  `DataToolbar`/`PageHeader`, 6 `CatalogScreen`). **No existing test was
+  deleted or weakened**; `CatalogScreen.test.tsx` gained a second
+  `labelled` fixture and a `localStorage.clear()` in `afterEach` (needed
+  now that the view preference persists between cases) — all 3 original
+  cases still assert exactly what they did before and still pass unmodified
+  against the new markup. Full suite: **115/115 passing** (90 pre-existing +
+  25 new). `npm run lint`: exit 0, only pre-existing warning categories —
+  no new warnings from any `components/data/*` file (`CatalogScreen`'s
+  `set-state-in-effect` warning pre-dates T4). `npm run build`: `tsc -b &&
+  vite build` clean (337.08 kB / 102.32 kB gzip JS, 20.84 kB / 4.86 kB gzip
+  CSS).
+
+- 2026-09-24: T4 `gentle-ai review` (lineage `review-f4066cafa0bbc71a`,
+  base-ref = pre-T4 commit, 12 files / 1001 lines, risk medium, lens
+  `review-reliability`): **approved**, acknowledged, authority burned. Four
+  non-blocking advisory findings. One was fixed immediately —
+  `R3-expanded-vacuous-assertion` (WARNING): the "renders expanded content
+  under the matching item only" test asserted the absence of
+  `expanded beta`, text the callback never produces for any row, so it
+  would have passed even if the component repeated one expanded node under
+  every row. Replaced with a match count plus a companion test that renders
+  expanded content for both rows, then mutation-checked both: injecting the
+  scoping bug (`renderExpanded?.(items[0])` in the table branch) fails both,
+  and reverting restores green. Suite now 116/116 across 34 files.
+  Remaining advisory findings left as follow-up:
+  `R3-cards-title-empty-columns`, `R3-new-columns-unasserted`,
+  `R3-storage-failure-untested`.
+- 2026-09-24: `dev` branch protection. The first direct push to `dev` was
+  rejected (`GH006 ... Changes must be made through a pull request`) even
+  though both the classic branch-protection and rulesets APIs returned
+  empty — the token lacks admin read on protection settings, so enforcement
+  was only visible by attempting the push. The user removed the protection
+  rule, and the direct-to-`dev` workflow now works as intended. The global
+  `branch-strategy` skill gained a hard rule plus a gate row for a
+  push-protected integration branch: report it, fall back to a short-lived
+  branch and PR, never force-push, never change protection settings.
+
+- 2026-09-24: T4b done (delegated-direct route, 3 rewritten screens + 2
+  extended test files + 1 new test file). Rolled the T4 `components/data/*`
+  layer onto `CustomersScreen`, `UsersScreen` and `BranchesScreen`, following
+  `CatalogScreen.tsx` as the reference implementation. **No file under
+  `components/data/` was modified** — the layer covered all three screens as
+  built.
+  - `CustomersScreen.tsx`: dropped the `mx-auto mt-8 w-full max-w-3xl` Card
+    wrapper for a full-width `<section>`; `PageHeader` ("Customers" + the
+    "New customer" button in the actions slot); columns from the real
+    `CustomerRecord` type — Name (`displayName`), Kind (`customerKind`),
+    Status (`isEnabled`), Tax ID (`taxId`, `hideOnMobile`), Phone (`phone`,
+    `hideOnMobile`); `renderActions` carries the existing Edit and
+    "Issue ordering access" buttons. The one-time issued credential
+    (`data-testid="issued-credential"`) and the full-screen `CustomerForm`
+    takeover for create/edit are both unchanged — the form is long, not an
+    inline row edit, so it deliberately still replaces the screen. Error text
+    moved from the raw `text-red-600` to the `text-destructive` token.
+  - `UsersScreen.tsx`: was 15 lines of ~1 KB each; reformatted and migrated.
+    Columns from `UserSummary` — Email, Roles (`roleNames.join`), Status
+    (`isRevoked`, `hideOnMobile`). "Save roles", the per-user replacement
+    password `Input` and "Force reset" all live in `renderActions`, so they
+    work identically in both layouts. **Pre-existing quirk preserved
+    verbatim and now documented inline**: "Save roles" sends the *create
+    form's* checked `roles`, not the row's own `user.roleNames` — changing it
+    would be a functional change, which this presentation migration is not.
+  - `BranchesScreen.tsx`: was a single ~1 KB line; reformatted and migrated.
+    Columns from `BranchSummary` — Branch name, Identifier (`branchId`,
+    mono, `hideOnMobile`).
+  - **Create forms deliberately stay permanently visible** on Users and
+    Branches rather than moving behind a "New user"/"New branch" toggle:
+    `e2e/admin-console.spec.ts` fills `User email` / `User password` /
+    `Branch name` straight after navigating to each screen, so a toggle would
+    have silently broken that real-backend journey. Branches' single-field
+    form fits in `PageHeader`'s action slot; Users' larger form sits in a
+    bordered panel under the header. Reasoning is recorded inline in both
+    files.
+  TDD: strict RED confirmed for all three before any implementation —
+  19 of the 34 cases across the three files failed against the pre-T4b
+  screens (every new T4b-specific case: columns, search filter, no-match
+  empty state, empty state, view switch + persistence, per-screen key
+  isolation, and Customers' full-width case). The remaining new cases
+  (Users/Branches full-width, and the two "still works from the card view"
+  cases) passed already and were kept as regression guards, same precedent as
+  T4. Additionally mutation-checked the per-screen preference key: pointing
+  `BranchesScreen` at `useViewPreference('customers')` fails 2 tests,
+  reverting restores green — so the key-isolation assertions can genuinely
+  fail. **No existing test was deleted or weakened.** Two existing
+  assertions were consciously tightened, both because the new markup made the
+  old query ambiguous or vacuous: `CustomersScreen`'s edit-form case now
+  matches `/^edit$/i` instead of `/edit/i` (the row also renders
+  "Issue ordering access", which the looser pattern would have matched
+  non-deterministically), and the two "from the card view" cases now assert
+  no `role="table"` plus a `data-view-card` count, so they actually prove
+  they are exercising the card layout. 29 new tests (10 Customers,
+  8 Users, 11 Branches — `BranchesScreen.test.tsx` is new, the screen had no
+  test file at all before). Full suite: **145/145 passing across 35 files**
+  (116/34 before). `npm run lint`: exit 0, no new warnings — the
+  `set-state-in-effect` entries now reported on `UsersScreen` and
+  `BranchesScreen` were both present on the baseline too (verified by
+  re-running lint against a stashed tree). `npm run build`: `tsc -b && vite
+  build` clean (340.12 kB / 102.89 kB gzip JS, 21.00 kB / 4.90 kB gzip CSS).
+
+- 2026-09-25: **Per-row role editor in `UsersScreen`** (commit `a426cb3`,
+  direct inline, 1 source + 1 test file). Product decision by the user:
+  instead of removing the broken "Save roles" button, each row now owns its
+  role selection. Fixes the verified destructive bug at the old
+  `UsersScreen.tsx:176` — `onClick={() => void updateUserRoles(user.userId,
+  roles)}` sent the CREATE form's checked roles to whichever row was clicked,
+  overwriting that user's permissions with an unrelated selection (or
+  clearing them outright when nothing was checked). The comment that
+  documented this as "pre-existing behavior, preserved verbatim by T4b" is
+  gone together with the bug. New `rowRoles: Record<string, string[]>` state
+  is re-seeded from the server's `roleNames` on every load; each row renders
+  the three `assignableRoles` as checkboxes labelled `<role> for <email>`
+  (the create form's own checkboxes are now labelled `<role> for new user`,
+  so the two editors are unambiguous to both users and tests).
+  `platform-admin` is deliberately NOT offered: `Commerce.Domain/Identity/
+  RoleCatalog.cs` excludes it from the organization-assignable set and the
+  `user-credentials` spec requires an organization-scoped caller never to be
+  able to grant it — that reasoning is now an inline comment on the constant.
+  The promise is no longer discarded: `saveRoles` awaits the PUT, and on the
+  server's grant-cap rejection (a caller cannot hand out permissions it does
+  not itself hold) it surfaces the `ApiError` message as an alert AND resets
+  that row to `user.roleNames`, so the row never advertises a selection that
+  was not persisted. A successful save re-reads the list, so the row shows
+  what the server actually stored. Works identically in table and card view
+  (the editor lives in `DataView`'s `renderActions` slot).
+  TDD strict: 5 new cases written first, all 5 RED before the change.
+  **Mutation check** (explicitly requested): re-introducing the old bug
+  (`updateUserRoles(user.userId, roles)`) fails 3 of them
+  ("saves a row's own roles, not whatever the create form has checked",
+  "edits one row without touching another row", "edits and saves the roles of
+  a row from the card view too"); reverted immediately. Two existing
+  assertions consciously updated, neither weakened: "saves the selected roles
+  for a listed user" now expects 3 fetches instead of 2 and names the refresh
+  call (a successful save legitimately re-reads the list), and "renders the
+  real user columns" now scopes its lookups to the row's data CELLS, because
+  the actions cell repeats the role names as checkbox labels and an unscoped
+  `getByText('provider')` would be ambiguous rather than wrong. Suite:
+  150/150.
+
+- 2026-09-25: **"No X yet." no longer lies after a failed load** (commit
+  `0e49d87`, delegated-direct scope, 4 source + 4 test files). Closes the
+  three `review-4d6e15256b3b46f6` findings against our own T4b code:
+  WARNING `R3-branches-load-failure-empty-state`, WARNING
+  `R3-users-load-failure-empty-state`, and SUGGESTION
+  `R3-customers-error-empty-message-conflation`. Chosen solution, applied
+  identically to all three screens rather than three local patches:
+  1. `DataView` gains ONE additive optional prop, `loadErrorMessage?: string
+     | null`. When the collection is empty AND the last load failed, it
+     renders that message in a destructive-styled panel
+     (`data-testid="data-view-load-error"`) instead of `emptyMessage`.
+     Ordering is deliberate and tested: `loading` still wins over it, and
+     stale items already on screen keep rendering (a failed RELOAD should not
+     blank the last known rows — the screen's alert already reports it).
+     Extending the shared component was preferred over per-screen ternaries
+     because "empty" vs "unreadable" is a state of the list surface itself,
+     and the old per-screen ternary is exactly what produced finding 3.
+  2. Each screen splits its single `error` into `loadError` (set only by
+     `refresh`, cleared on a successful load) and `actionError` (set only by
+     create / force-reset / save-roles / issue-access). Only `loadError`
+     feeds `loadErrorMessage`, which is what actually fixes the conflation:
+     a failed `handleIssueAccess` can no longer make a later no-match search
+     claim the customers could not be loaded. Both errors render as their own
+     `role="alert"`.
+  TDD strict: 9 new cases, 6 of them RED before the change — DataView "says
+  the load failed instead of claiming
+  the collection is empty"; Branches "does not claim there are no branches"
+  and "stops reporting a load failure once a later load succeeds"; Users
+  "does not claim there are no users"; Customers "does not claim there are no
+  customers" and "does not blame the load when a failed action left an error
+  on screen"). The 3 that passed on arrival are ordering/regression guards,
+  and were mutation-checked rather than trusted: making the load-error panel
+  win over non-empty items fails "keeps showing the items it already has when
+  a later load fails", and feeding `actionError` into `loadErrorMessage`
+  fails "keeps the load failure separate from a failed action" (plus, as a
+  bonus, the role-rejection case). Reverted both. As the reviewer noted, the
+  pre-existing "surfaces a load failure as an alert" cases could not catch
+  this — they assert the alert only; the new cases assert the absence of a
+  message this screen genuinely renders in its empty state, so they can fail.
+  **No existing test was deleted or weakened.** Suite: **159/159 across 35
+  files** (145 baseline + 5 from the role editor + 9 here). `npm run lint`:
+  exit 0, 13 warnings, identical categories and count to the baseline (1
+  `no-unused-vars`, 6 `only-export-components`, 6 `set-state-in-effect`) —
+  no new warning. `npm run build`: `tsc -b && vite build` clean.
+
+- 2026-09-25: **T4c done** (delegated-direct route, 3 source files + 1 new
+  test file + 1 extended test file). Two halves.
+  1. **The screen was unreachable.** `PriceListsScreen.tsx` (488 lines),
+     `PriceHistory.tsx` (71) and `ImportReviewTable.tsx` (79) were ~638 lines
+     of working UI that `App.tsx` never imported, which left two specs with no
+     surface at all: `price-list-management` ("Admin Create, Edit, and History
+     Access") and `supplier-price-import` ("Staged Batch Requires Admin Review
+     Before Commit"). Mounted at `/app/price-lists` inside the existing
+     `RequireAdmin` block, next to customers/users/branches, and added a
+     "Price lists" `NavItem` to `AppLayout`'s sidebar inside the same
+     `hasPermission(user, Permission.ManageUsers)` block (presentation only —
+     `App.tsx`'s guard is the routing boundary, `Endpoints/Pricing.cs` the real
+     one).
+     The screen's own spec file could not have caught this: it hand-builds its
+     own `<Routes>`, so it passes whether or not `App.tsx` mounts the path.
+     New `src/App.test.tsx` fixes that class of blind spot — it renders the
+     REAL `App` tree with only `AuthProvider` stubbed, so the guards and every
+     screen stay real, and asserts the mount, the sidebar link, the non-admin
+     redirect to the catalog and the signed-out redirect to `/login`.
+  2. **Migration onto `components/data/*`.** Dropped the
+     `mx-auto mt-8 w-full max-w-3xl` Card for a full-width `<section>`;
+     `PageHeader` ("Price lists", with "Create default price list" in the
+     actions slot only while no default exists), `DataToolbar` (client-side
+     search by name, no new endpoint) and `DataView` over the price lists with
+     real `PriceListRecord` columns — Name, Is default (`Yes`/`No`), Created
+     (`createdAtUtc`, `hideOnMobile`). Preference key `view:price-lists`.
+     The header is "Is default", not "Default", because a list is also
+     routinely NAMED "Default" and the duplicate string made both the screen
+     and its queries ambiguous.
+     **Nested list decision**: only the price lists go through `DataView`. The
+     prices held BY the selected list render in a separate
+     `data-testid="price-list-entries"` panel below it, not a second
+     table/card grid — one view switch cannot sensibly own two grids, and the
+     nested surface is a per-presentation `PriceHistory` expander plus the
+     publish form, not a flat record list. The selected list is derived, not
+     stored: the operator's pick wins, otherwise the default list opens by
+     itself, so the previous "default list only" behavior is the unchanged
+     starting state while a second list is now reachable.
+     `loadError` / `actionError` split exactly as T4b's three screens: only
+     `loadError` feeds `loadErrorMessage`, so a failed create can no longer
+     make the list claim it could not be read. Raw `text-red-600`/`neutral-*`
+     replaced with the semantic tokens.
+     Functionality preserved verbatim: create default list, publish an entry,
+     price history, and the whole supplier import cycle (upload, review,
+     commit, reject).
+  **Price-composition hold**: `openspec/changes/commerce-price-composition`
+  (proposed, NOT implemented) will turn `PriceListEntry.unitPrice` into a BASE
+  price with the sellable price derived from rate components (IVA, IB,
+  freight, markup). So no derived column, tax breakdown or total was built
+  here; the "Unit price" label stays neutral and carries an inline comment
+  naming that proposal as the thing that will have to change it.
+  TDD strict: 16 of the 17 new cases were RED first (4 `App.test.tsx` — all
+  four failed with the route absent, since `*` sends `/app/price-lists` to the
+  home screen; 12 T4c screen cases). The 17th ("rejects a staged batch
+  through the endpoint") passed on arrival and was kept as a regression guard
+  for the import half, which had commit coverage but no reject coverage.
+  **Mutation checks (2)**: (a) deleting the `<Route path="price-lists">` line
+  fails all 4 route tests, then restored — so the most important assertion,
+  that the screen is actually reachable, can genuinely fail; (b) collapsing
+  `selectedList` to the default list only fails "publishes against the price
+  list the operator picked, not the default one", then restored.
+  **No existing test was deleted or weakened.** Two consciously updated, both
+  because the markup change made the old expectation wrong rather than
+  because it became inconvenient: the load-failure alert now asserts
+  `/unreachable/i` (a rejected `fetch` reaches the screen as `ApiError`
+  "Commerce.Cloud.Api is unreachable.", so the old wording was never the
+  rendered text), and the action-failure case sends a 409 with a real body so
+  its message is distinguishable from the load failure's. Suite:
+  **176/176 across 36 files** (159/35 before). `npm run lint`: exit 0, 13
+  warnings — identical count and categories to the baseline.
+  `npm run build`: `tsc -b && vite build` clean (355.29 kB / 105.79 kB gzip
+  JS, 20.98 kB / 4.90 kB gzip CSS). `.NET` builds/tests deliberately NOT run:
+  the user has `Commerce.Pos.Windows` and `Commerce.Cloud.Api` running
+  locally and holding the DLLs.
+
+- 2026-09-25: Playwright E2E regression caught by CI, not by us. Promotion
+  PR #75 sat unmerged with `web-e2e` failing 7 of 18 tests and `ci-gate`
+  failing behind it, while `web-tests` (Vitest) passed. Single root cause,
+  ours: T3 moved "Sign out" into the account dropdown, and ten assertions
+  across `catalog`, `customers`, `ordering` and `sign-in` specs used
+  `getByRole('button', { name: 'Sign out' })` as the signed-in signal, so it
+  is no longer visible until the menu is opened. Fixed by adding
+  `openAccountMenu`, `expectSignedIn` and `signOut` to `e2e/helpers.ts` and
+  routing all ten call sites through them; `expectSignedIn` closes the menu
+  with Escape afterwards so it cannot cover controls a test clicks next. The
+  trigger is addressed by `button[aria-haspopup="menu"]` because its
+  accessible name is the signed-in user's display name, which varies per
+  test. No production code changed.
+  **Process gap worth keeping:** the whole T1-T4b frontend overhaul was
+  verified with Vitest only. The E2E harness needs the SPA built into
+  `Commerce.Cloud.Api/wwwroot`, which this session deliberately forbade to
+  avoid disturbing the user's running stack and to keep
+  `PublicRateLimitTests` green — so Playwright never exercised the reshaped
+  DOM until CI did. Unit tests cover components in isolation; only E2E
+  covers the navigation contract. A DOM-structural change should be assumed
+  to break E2E selectors until proven otherwise.
+  Second gap: `e2e/` is outside the TypeScript project (`tsconfig.app.json`
+  includes only `src`), so `npm run build` never typechecks it and Playwright
+  only strips types. This fix was typechecked with an explicit `tsc` run.
+
 ## Next step
 
-Start T4 (list/card view switch).
+T5 (organization settings: backend fields + endpoints + the rebuilt
+`OrganizationsScreen`, which absorbs the last screen not on the
+`components/data/*` layer).

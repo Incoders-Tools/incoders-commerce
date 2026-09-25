@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { seedUser, uniqueEmail } from './helpers'
+import { expectSignedIn, seedUser, uniqueEmail } from './helpers'
 
 /**
  * commerce-pricing-engine's "Web: CatalogScreen rework" (design.md, archived
@@ -33,7 +33,7 @@ test.describe('catalog screen', () => {
     await otherPage.getByLabel('Email').fill(otherOrgUser.email)
     await otherPage.getByLabel('Password').fill(password)
     await otherPage.getByRole('button', { name: /sign in/i }).click()
-    await expect(otherPage.getByRole('button', { name: 'Sign out' })).toBeVisible()
+    await expectSignedIn(otherPage)
 
     const otherProduct = await otherPage.request.post('/catalog/products', {
       data: { name: 'Other Org Product', categoryId: crypto.randomUUID(), defaultUnitId: crypto.randomUUID() },
@@ -56,7 +56,7 @@ test.describe('catalog screen', () => {
     await page.getByLabel('Email').fill(user.email)
     await page.getByLabel('Password').fill(password)
     await page.getByRole('button', { name: /sign in/i }).click()
-    await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible()
+    await expectSignedIn(page)
 
     // Catalog is the default tab.
     await expect(page.getByText('No presentations yet.')).toBeVisible()
@@ -71,7 +71,7 @@ test.describe('catalog screen', () => {
     await page.getByLabel('Email').fill(user.email)
     await page.getByLabel('Password').fill(password)
     await page.getByRole('button', { name: /sign in/i }).click()
-    await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible()
+    await expectSignedIn(page)
 
     // Seed a real product + presentation through the same production
     // endpoints CatalogScreen itself calls, using this admin's own session.

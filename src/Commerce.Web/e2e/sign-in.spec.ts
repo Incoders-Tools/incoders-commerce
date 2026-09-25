@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { seedUser, uniqueEmail } from './helpers'
+import { expectSignedIn, seedUser, uniqueEmail } from './helpers'
 
 /**
  * Real browser -> real `/account/sign-in` -> real Postgres-backed
@@ -20,7 +20,7 @@ test.describe('sign-in', () => {
 
     // Real /account/sign-in issued a real cookie and returned a real
     // SignedInResponse; the SPA renders the authenticated shell.
-    await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible()
+    await expectSignedIn(page)
     await expect(page.getByText(user.email)).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Commerce' })).toBeVisible()
   })

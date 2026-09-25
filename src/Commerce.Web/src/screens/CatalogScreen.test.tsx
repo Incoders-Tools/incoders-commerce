@@ -27,6 +27,13 @@ describe('CatalogScreen', () => {
     updatedAtUtc: '2024-01-01T00:00:00Z',
   }
 
+  const labelled: PresentationRecord = {
+    ...unlabelled,
+    id: '44444444-4444-4444-4444-444444444444',
+    name: '330ml can',
+    identificationCode: '7790000000001',
+  }
+
   beforeEach(() => {
     vi.stubGlobal('fetch', fetchMock)
   })
@@ -34,6 +41,7 @@ describe('CatalogScreen', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     fetchMock.mockReset()
+    window.localStorage.clear()
   })
 
   it('lists presentations from GET /catalog/presentations', async () => {
@@ -83,5 +91,103 @@ describe('CatalogScreen', () => {
 
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent(/unreachable|error/i)
+  })
+
+  // T4: the shared data-view layer (PageHeader + DataToolbar + DataView).
+  it('uses the full width the shell gives it, with no centered narrow column', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify([unlabelled]), { status: 200 }))
+
+    const { container } = render(<CatalogScreen />)
+
+    await screen.findByText('1.5L bottle')
+    expect(container.querySelector('.max-w-2xl')).toBeNull()
+    expect(container.querySelector('.mx-auto')).toBeNull()
+  })
+
+  it('renders an empty state message when the catalog has no presentations', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify([]), { status: 200 }))
+
+    render(<CatalogScreen />)
+
+    expect(await screen.findByText(/no presentations/i)).toBeInTheDocument()
+  })
+
+  it('filters the listed presentations client-side by name or identification code', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify([unlabelled, labelled]), { status: 200 }))
+
+    const user = userEvent.setup()
+    render(<CatalogScreen />)
+
+    await screen.findByText('1.5L bottle')
+    expect(screen.getByText('330ml can')).toBeInTheDocument()
+
+    await user.type(screen.getByLabelText(/search presentations/i), '330')
+
+    expect(screen.getByText('330ml can')).toBeInTheDocument()
+    expect(screen.queryByText('1.5L bottle')).not.toBeInTheDocument()
+    // Filtering is purely client-side over what was already loaded.
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    await user.clear(screen.getByLabelText(/search presentations/i))
+    await user.type(screen.getByLabelText(/search presentations/i), '7790000000001')
+
+    expect(screen.getByText('330ml can')).toBeInTheDocument()
+    expect(screen.queryByText('1.5L bottle')).not.toBeInTheDocument()
+  })
+
+  it('shows a helpful empty state when the filter matches nothing', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify([unlabelled]), { status: 200 }))
+
+    const user = userEvent.setup()
+    render(<CatalogScreen />)
+
+    await screen.findByText('1.5L bottle')
+    await user.type(screen.getByLabelText(/search presentations/i), 'zzzz')
+
+    expect(screen.getByText(/no presentations match/i)).toBeInTheDocument()
+  })
+
+  it('switches to the card view and restores that preference on remount', async () => {
+    fetchMock
+      .mockResolvedValueOnce(new Response(JSON.stringify([unlabelled]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify([unlabelled]), { status: 200 }))
+
+    const user = userEvent.setup()
+    const first = render(<CatalogScreen />)
+
+    await screen.findByText('1.5L bottle')
+    expect(screen.getByRole('table')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('radio', { name: /card view/i }))
+
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    expect(screen.getAllByTestId('data-view-card')).toHaveLength(1)
+    expect(window.localStorage.getItem('view:catalog')).toBe('cards')
+
+    first.unmount()
+    render(<CatalogScreen />)
+
+    await screen.findByText('1.5L bottle')
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /card view/i })).toHaveAttribute('aria-checked', 'true')
+  })
+
+  it('still edits the identification code from the card view', async () => {
+    window.localStorage.setItem('view:catalog', 'cards')
+    fetchMock
+      .mockResolvedValueOnce(new Response(JSON.stringify([unlabelled]), { status: 200 })) // GET
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ...unlabelled, identificationCode: '7791234567890' }), { status: 200 }),
+      ) // PUT
+
+    const user = userEvent.setup()
+    render(<CatalogScreen />)
+
+    await screen.findByText('1.5L bottle')
+    await user.click(screen.getByRole('button', { name: /edit code/i }))
+    await user.type(screen.getByLabelText(/identification code/i), '7791234567890')
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+
+    await screen.findByText('7791234567890')
   })
 })

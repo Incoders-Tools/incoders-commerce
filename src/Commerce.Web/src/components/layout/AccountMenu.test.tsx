@@ -60,6 +60,12 @@ describe('AccountMenu', () => {
 
     expect(within(menu).getByRole('radiogroup', { name: /theme/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /ada lovelace/i })).toHaveAttribute('aria-expanded', 'true')
+
+    // Pinned because the E2E suite addresses this control by role: the
+    // explicit role="menuitem" overrides the element's implicit button role,
+    // so a query for a 'button' named Sign out finds nothing.
+    expect(within(menu).getByRole('menuitem', { name: 'Sign out' })).toBeInTheDocument()
+    expect(within(menu).queryByRole('button', { name: 'Sign out' })).not.toBeInTheDocument()
   })
 
   it('closes the menu when Escape is pressed', async () => {
