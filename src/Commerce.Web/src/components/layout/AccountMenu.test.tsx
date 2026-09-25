@@ -79,11 +79,16 @@ describe('AccountMenu', () => {
     const changePasswordIcon = changePasswordLink.querySelector('svg')
     expect(changePasswordIcon).not.toBeNull()
     expect(changePasswordIcon).toHaveAttribute('aria-hidden', 'true')
+    // A generic "has an svg" check would also pass for a hand-drawn one —
+    // lucide-react stamps every icon with a `lucide` + `lucide-<name>`
+    // class, so this is what actually proves it is the real KeyRound icon.
+    expect(changePasswordIcon).toHaveClass('lucide', 'lucide-key-round')
 
     const signOutItem = within(menu).getByRole('menuitem', { name: 'Sign out' })
     const signOutIcon = signOutItem.querySelector('svg')
     expect(signOutIcon).not.toBeNull()
     expect(signOutIcon).toHaveAttribute('aria-hidden', 'true')
+    expect(signOutIcon).toHaveClass('lucide', 'lucide-log-out')
   })
 
   it('replaces the hand-drawn chevron with a lucide ChevronDown icon on the trigger', () => {
@@ -93,6 +98,9 @@ describe('AccountMenu', () => {
     const icon = trigger.querySelector('svg')
     expect(icon).not.toBeNull()
     expect(icon).toHaveAttribute('aria-hidden', 'true')
+    // Same discrimination as above: a hand-drawn chevron also has an
+    // `aria-hidden` svg, so only the lucide class set proves which one it is.
+    expect(icon).toHaveClass('lucide', 'lucide-chevron-down')
   })
 
   it('closes the menu when Escape is pressed', async () => {

@@ -78,6 +78,10 @@ describe('AppLayout', () => {
     const icon = toggle.querySelector('svg')
     expect(icon).not.toBeNull()
     expect(icon).toHaveAttribute('aria-hidden', 'true')
+    // A generic "has an svg" check also passed against the old hand-drawn
+    // icon — lucide-react stamps every icon with a `lucide` + `lucide-<name>`
+    // class, so this is what actually proves it is the real Menu icon.
+    expect(icon).toHaveClass('lucide', 'lucide-menu')
   })
 
   it('additionally shows Customers, Users, and Branches to a user with ManageUsers, but not Organizations', () => {
