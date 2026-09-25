@@ -130,6 +130,41 @@ describe('CustomersScreen', () => {
     expect(fetchMock.mock.calls[1][0]).toBe(`/customers/${listedCustomer.id}/ordering-access`)
   })
 
+  it('does not claim there are no customers when the load failed', async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+
+    render(<CustomersScreen />)
+
+    await screen.findByRole('alert')
+    // "No customers yet." is a real rendering of this screen (see the empty
+    // state case above), so its absence here is a fact about this state.
+    expect(screen.queryByText('No customers yet.')).not.toBeInTheDocument()
+    expect(screen.getByTestId('data-view-load-error')).toHaveTextContent(/customers could not be loaded/i)
+  })
+
+  it('does not blame the load when a failed action left an error on screen', async () => {
+    fetchMock
+      .mockResolvedValueOnce(new Response(JSON.stringify([listedCustomer]), { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ title: 'Ordering access is already issued.' }), {
+          status: 409,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+
+    const user = userEvent.setup()
+    render(<CustomersScreen />)
+
+    await screen.findByText('Jane Doe')
+    await user.click(screen.getByRole('button', { name: /issue ordering access/i }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(/already issued/i)
+
+    // The list loaded fine; a search with no matches must say so.
+    await user.type(screen.getByLabelText(/search customers/i), 'zzzz')
+    expect(screen.getByText('No customers match this search.')).toBeInTheDocument()
+    expect(screen.queryByTestId('data-view-load-error')).not.toBeInTheDocument()
+  })
+
   // ---- T4b: the shared data-view layer (PageHeader + DataToolbar + DataView) ----
 
   it('uses the full width the shell gives it, with no centered narrow column', async () => {

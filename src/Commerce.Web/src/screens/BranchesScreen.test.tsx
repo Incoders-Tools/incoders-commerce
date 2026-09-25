@@ -70,6 +70,36 @@ describe('BranchesScreen', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/unable to load branches/i)
   })
 
+  it('does not claim there are no branches when the load failed', async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+
+    render(<BranchesScreen />)
+
+    await screen.findByRole('alert')
+    // "No branches yet." is a real rendering of this screen (see the empty
+    // state case above), so its absence here is a fact about this state.
+    expect(screen.queryByText('No branches yet.')).not.toBeInTheDocument()
+    expect(screen.getByTestId('data-view-load-error')).toHaveTextContent(/branches could not be loaded/i)
+  })
+
+  it('stops reporting a load failure once a later load succeeds', async () => {
+    fetchMock
+      .mockRejectedValueOnce(new TypeError('Failed to fetch')) // initial load
+      .mockResolvedValueOnce(new Response(JSON.stringify({ branchId: 'branch-1' }), { status: 201 })) // create
+    listOnce([central]) // refreshed list
+
+    const user = userEvent.setup()
+    render(<BranchesScreen />)
+
+    await screen.findByTestId('data-view-load-error')
+    await user.type(screen.getByLabelText('Branch name'), 'Central warehouse')
+    await user.click(screen.getByRole('button', { name: 'Create branch' }))
+
+    await screen.findByText('Central warehouse')
+    expect(screen.queryByTestId('data-view-load-error')).not.toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
   // ---- T4b: the shared data-view layer ----
 
   it('uses the full width the shell gives it, with no centered narrow column', async () => {

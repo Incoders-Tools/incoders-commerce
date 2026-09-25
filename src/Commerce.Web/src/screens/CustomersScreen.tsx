@@ -23,7 +23,10 @@ import type { CustomerRecord } from '@/api/types'
 export function CustomersScreen() {
   const [customers, setCustomers] = useState<CustomerRecord[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  /** Why the last load failed, if it did. Never set by an action: an action
+   * failing says nothing about whether the collection could be read. */
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
   const [editingCustomer, setEditingCustomer] = useState<CustomerRecord | null>(null)
   const [creating, setCreating] = useState(false)
   const [issuedCredential, setIssuedCredential] = useState<{ customerId: string; credential: string } | null>(null)
@@ -32,11 +35,11 @@ export function CustomersScreen() {
 
   const refresh = async () => {
     setLoading(true)
-    setError(null)
+    setLoadError(null)
     try {
       setCustomers(await listCustomers())
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Unexpected error loading customers.')
+      setLoadError(err instanceof ApiError ? err.message : 'Unexpected error loading customers.')
     } finally {
       setLoading(false)
     }
@@ -57,12 +60,12 @@ export function CustomersScreen() {
   }
 
   const handleIssueAccess = async (customerId: string) => {
-    setError(null)
+    setActionError(null)
     try {
       const result = await issueOrderingAccess(customerId)
       setIssuedCredential({ customerId, credential: result.credential })
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Unexpected error issuing ordering access.')
+      setActionError(err instanceof ApiError ? err.message : 'Unexpected error issuing ordering access.')
     }
   }
 
@@ -121,9 +124,15 @@ export function CustomersScreen() {
         actions={<Button onClick={() => setCreating(true)}>New customer</Button>}
       />
 
-      {error && (
+      {loadError && (
         <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          {error}
+          {loadError}
+        </p>
+      )}
+
+      {actionError && (
+        <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {actionError}
         </p>
       )}
 
@@ -151,13 +160,8 @@ export function CustomersScreen() {
         getRowKey={(customer) => customer.id}
         view={view}
         loading={loading}
-        emptyMessage={
-          error
-            ? 'Customers could not be loaded.'
-            : customers.length === 0
-              ? 'No customers yet.'
-              : 'No customers match this search.'
-        }
+        emptyMessage={customers.length === 0 ? 'No customers yet.' : 'No customers match this search.'}
+        loadErrorMessage={loadError === null ? null : 'Customers could not be loaded.'}
         renderActions={(customer) => (
           <>
             <Button variant="outline" size="sm" onClick={() => setEditingCustomer(customer)}>

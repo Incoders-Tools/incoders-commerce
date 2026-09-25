@@ -549,6 +549,90 @@ admin panel.
   re-running lint against a stashed tree). `npm run build`: `tsc -b && vite
   build` clean (340.12 kB / 102.89 kB gzip JS, 21.00 kB / 4.90 kB gzip CSS).
 
+- 2026-09-25: **Per-row role editor in `UsersScreen`** (commit `a426cb3`,
+  direct inline, 1 source + 1 test file). Product decision by the user:
+  instead of removing the broken "Save roles" button, each row now owns its
+  role selection. Fixes the verified destructive bug at the old
+  `UsersScreen.tsx:176` — `onClick={() => void updateUserRoles(user.userId,
+  roles)}` sent the CREATE form's checked roles to whichever row was clicked,
+  overwriting that user's permissions with an unrelated selection (or
+  clearing them outright when nothing was checked). The comment that
+  documented this as "pre-existing behavior, preserved verbatim by T4b" is
+  gone together with the bug. New `rowRoles: Record<string, string[]>` state
+  is re-seeded from the server's `roleNames` on every load; each row renders
+  the three `assignableRoles` as checkboxes labelled `<role> for <email>`
+  (the create form's own checkboxes are now labelled `<role> for new user`,
+  so the two editors are unambiguous to both users and tests).
+  `platform-admin` is deliberately NOT offered: `Commerce.Domain/Identity/
+  RoleCatalog.cs` excludes it from the organization-assignable set and the
+  `user-credentials` spec requires an organization-scoped caller never to be
+  able to grant it — that reasoning is now an inline comment on the constant.
+  The promise is no longer discarded: `saveRoles` awaits the PUT, and on the
+  server's grant-cap rejection (a caller cannot hand out permissions it does
+  not itself hold) it surfaces the `ApiError` message as an alert AND resets
+  that row to `user.roleNames`, so the row never advertises a selection that
+  was not persisted. A successful save re-reads the list, so the row shows
+  what the server actually stored. Works identically in table and card view
+  (the editor lives in `DataView`'s `renderActions` slot).
+  TDD strict: 5 new cases written first, all 5 RED before the change.
+  **Mutation check** (explicitly requested): re-introducing the old bug
+  (`updateUserRoles(user.userId, roles)`) fails 3 of them
+  ("saves a row's own roles, not whatever the create form has checked",
+  "edits one row without touching another row", "edits and saves the roles of
+  a row from the card view too"); reverted immediately. Two existing
+  assertions consciously updated, neither weakened: "saves the selected roles
+  for a listed user" now expects 3 fetches instead of 2 and names the refresh
+  call (a successful save legitimately re-reads the list), and "renders the
+  real user columns" now scopes its lookups to the row's data CELLS, because
+  the actions cell repeats the role names as checkbox labels and an unscoped
+  `getByText('provider')` would be ambiguous rather than wrong. Suite:
+  150/150.
+
+- 2026-09-25: **"No X yet." no longer lies after a failed load** (commit
+  `0e49d87`, delegated-direct scope, 4 source + 4 test files). Closes the
+  three `review-4d6e15256b3b46f6` findings against our own T4b code:
+  WARNING `R3-branches-load-failure-empty-state`, WARNING
+  `R3-users-load-failure-empty-state`, and SUGGESTION
+  `R3-customers-error-empty-message-conflation`. Chosen solution, applied
+  identically to all three screens rather than three local patches:
+  1. `DataView` gains ONE additive optional prop, `loadErrorMessage?: string
+     | null`. When the collection is empty AND the last load failed, it
+     renders that message in a destructive-styled panel
+     (`data-testid="data-view-load-error"`) instead of `emptyMessage`.
+     Ordering is deliberate and tested: `loading` still wins over it, and
+     stale items already on screen keep rendering (a failed RELOAD should not
+     blank the last known rows — the screen's alert already reports it).
+     Extending the shared component was preferred over per-screen ternaries
+     because "empty" vs "unreadable" is a state of the list surface itself,
+     and the old per-screen ternary is exactly what produced finding 3.
+  2. Each screen splits its single `error` into `loadError` (set only by
+     `refresh`, cleared on a successful load) and `actionError` (set only by
+     create / force-reset / save-roles / issue-access). Only `loadError`
+     feeds `loadErrorMessage`, which is what actually fixes the conflation:
+     a failed `handleIssueAccess` can no longer make a later no-match search
+     claim the customers could not be loaded. Both errors render as their own
+     `role="alert"`.
+  TDD strict: 9 new cases, 6 of them RED before the change — DataView "says
+  the load failed instead of claiming
+  the collection is empty"; Branches "does not claim there are no branches"
+  and "stops reporting a load failure once a later load succeeds"; Users
+  "does not claim there are no users"; Customers "does not claim there are no
+  customers" and "does not blame the load when a failed action left an error
+  on screen"). The 3 that passed on arrival are ordering/regression guards,
+  and were mutation-checked rather than trusted: making the load-error panel
+  win over non-empty items fails "keeps showing the items it already has when
+  a later load fails", and feeding `actionError` into `loadErrorMessage`
+  fails "keeps the load failure separate from a failed action" (plus, as a
+  bonus, the role-rejection case). Reverted both. As the reviewer noted, the
+  pre-existing "surfaces a load failure as an alert" cases could not catch
+  this — they assert the alert only; the new cases assert the absence of a
+  message this screen genuinely renders in its empty state, so they can fail.
+  **No existing test was deleted or weakened.** Suite: **159/159 across 35
+  files** (145 baseline + 5 from the role editor + 9 here). `npm run lint`:
+  exit 0, 13 warnings, identical categories and count to the baseline (1
+  `no-unused-vars`, 6 `only-export-components`, 6 `set-state-in-effect`) —
+  no new warning. `npm run build`: `tsc -b && vite build` clean.
+
 ## Next step
 
 T4c (roll the same layer onto `PriceListsScreen`), or jump to T5

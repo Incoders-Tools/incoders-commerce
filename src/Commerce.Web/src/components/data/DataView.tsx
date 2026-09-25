@@ -20,6 +20,15 @@ export interface DataViewProps<T> {
   view: DataViewMode
   loading?: boolean
   emptyMessage: string
+  /**
+   * Why the collection could not be read, when the last load failed. Replaces
+   * `emptyMessage` while there is nothing to show: "there are none" and "I
+   * could not fetch them" are different answers, and rendering the first one
+   * after a failed load tells the operator something untrue. Only a LOAD
+   * failure belongs here — an error from some unrelated action says nothing
+   * about whether the collection is empty.
+   */
+  loadErrorMessage?: string | null
   loadingMessage?: string
   /** Per-item action buttons (right-aligned in the table, footer in cards). */
   renderActions?: (item: T) => ReactNode
@@ -41,6 +50,7 @@ export function DataView<T>({
   view,
   loading = false,
   emptyMessage,
+  loadErrorMessage = null,
   loadingMessage = 'Loading…',
   renderActions,
   renderExpanded,
@@ -55,6 +65,20 @@ export function DataView<T>({
   }
 
   if (items.length === 0) {
+    // Stale items still on screen (a failed RELOAD) keep rendering below: the
+    // screen's own alert reports the failure, and showing the last known rows
+    // beats blanking them.
+    if (loadErrorMessage) {
+      return (
+        <p
+          data-testid="data-view-load-error"
+          className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-10 text-center text-sm text-destructive"
+        >
+          {loadErrorMessage}
+        </p>
+      )
+    }
+
     return (
       <p className="rounded-lg border border-dashed border-border bg-card px-4 py-10 text-center text-sm text-muted-foreground">
         {emptyMessage}

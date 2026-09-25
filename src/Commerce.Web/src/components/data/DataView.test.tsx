@@ -97,6 +97,28 @@ describe('DataView', () => {
     expect(screen.getByText('expanded Beta')).toBeInTheDocument()
   })
 
+  it('says the load failed instead of claiming the collection is empty', () => {
+    renderView({ items: [], loadErrorMessage: 'Rows could not be loaded.' })
+
+    expect(screen.getByTestId('data-view-load-error')).toHaveTextContent('Rows could not be loaded.')
+    // "there are none" and "I could not fetch them" are different answers.
+    expect(screen.queryByText('No rows yet.')).not.toBeInTheDocument()
+  })
+
+  it('keeps showing the items it already has when a later load fails', () => {
+    renderView({ loadErrorMessage: 'Rows could not be loaded.' })
+
+    expect(screen.getAllByRole('row')).toHaveLength(3)
+    expect(screen.queryByTestId('data-view-load-error')).not.toBeInTheDocument()
+  })
+
+  it('prefers the loading state over the load-failure message', () => {
+    renderView({ items: [], loading: true, loadErrorMessage: 'Rows could not be loaded.' })
+
+    expect(screen.getByRole('status')).toHaveTextContent(/loading/i)
+    expect(screen.queryByTestId('data-view-load-error')).not.toBeInTheDocument()
+  })
+
   it('renders expanded content under the matching item only', () => {
     renderView({ renderExpanded: (row) => (row.id === 'a' ? <p>expanded alpha</p> : null) })
 

@@ -24,7 +24,10 @@ import { useViewPreference } from '@/components/data/useViewPreference'
 export function BranchesScreen() {
   const [branches, setBranches] = useState<BranchSummary[]>([])
   const [name, setName] = useState('')
-  const [error, setError] = useState<string | null>(null)
+  /** Why the last load failed, if it did. Never set by an action: an action
+   * failing says nothing about whether the collection could be read. */
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [view, setView] = useViewPreference('branches')
@@ -32,8 +35,9 @@ export function BranchesScreen() {
   const refresh = async () => {
     try {
       setBranches(await listBranches())
+      setLoadError(null)
     } catch {
-      setError('Unable to load branches.')
+      setLoadError('Unable to load branches.')
     } finally {
       setLoading(false)
     }
@@ -45,12 +49,13 @@ export function BranchesScreen() {
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
+    setActionError(null)
     try {
       await createBranch({ branchName: name })
       setName('')
       await refresh()
     } catch {
-      setError('Unable to create branch.')
+      setActionError('Unable to create branch.')
     }
   }
 
@@ -90,9 +95,15 @@ export function BranchesScreen() {
         }
       />
 
-      {error && (
+      {loadError && (
         <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          {error}
+          {loadError}
+        </p>
+      )}
+
+      {actionError && (
+        <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {actionError}
         </p>
       )}
 
@@ -112,6 +123,7 @@ export function BranchesScreen() {
         view={view}
         loading={loading}
         emptyMessage={branches.length === 0 ? 'No branches yet.' : 'No branches match this search.'}
+        loadErrorMessage={loadError === null ? null : 'Branches could not be loaded.'}
       />
     </section>
   )

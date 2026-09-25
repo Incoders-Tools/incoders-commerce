@@ -221,6 +221,41 @@ describe('UsersScreen', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/unable to load users/i)
   })
 
+  it('does not claim there are no users when the load failed', async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+
+    render(<UsersScreen />)
+
+    await screen.findByRole('alert')
+    // "No users yet." is a real rendering of this screen (see the empty state
+    // case below), so its absence here is a fact about this state.
+    expect(screen.queryByText('No users yet.')).not.toBeInTheDocument()
+    expect(screen.getByTestId('data-view-load-error')).toHaveTextContent(/users could not be loaded/i)
+  })
+
+  it('keeps the load failure separate from a failed action', async () => {
+    listOnce([seller]).mockResolvedValueOnce(
+      new Response(JSON.stringify({ title: 'You cannot grant business-admin.' }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+
+    const user = userEvent.setup()
+    render(<UsersScreen />)
+
+    await screen.findByText('staff@example.com')
+    await user.click(screen.getByLabelText('business-admin for staff@example.com'))
+    await user.click(screen.getByRole('button', { name: 'Save roles' }))
+
+    await screen.findByRole('alert')
+    // The list loaded fine: a failed action must not make the list area
+    // claim the users could not be loaded.
+    await user.type(screen.getByLabelText(/search users/i), 'zzzz')
+    expect(screen.getByText(/no users match/i)).toBeInTheDocument()
+    expect(screen.queryByTestId('data-view-load-error')).not.toBeInTheDocument()
+  })
+
   // ---- T4b: the shared data-view layer ----
 
   it('uses the full width the shell gives it, with no centered narrow column', async () => {
