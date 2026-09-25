@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Select } from '@/components/ui/select'
 import { Label } from '@/components/ui/label'
 import type { PresentationRecord, SubmitOrderLine } from '@/api/types'
 
@@ -47,9 +48,8 @@ export function OrderLinesEditor({
     <div className="flex flex-col gap-3">
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="order-line-presentation">Presentation</Label>
-        <select
+        <Select
           id="order-line-presentation"
-          className="flex h-9 w-full rounded-md border border-neutral-300 bg-white px-3 py-1 text-sm shadow-sm"
           value={selectedPresentationId}
           onChange={(e) => setSelectedPresentationId(e.target.value)}
         >
@@ -58,7 +58,7 @@ export function OrderLinesEditor({
               {presentation.name}
             </option>
           ))}
-        </select>
+        </Select>
       </div>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="order-line-quantity">Quantity</Label>

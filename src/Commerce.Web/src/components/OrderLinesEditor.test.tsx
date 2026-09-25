@@ -64,6 +64,13 @@ describe('OrderLinesEditor', () => {
     expect(onChange).toHaveBeenCalledWith([{ productId: 'prod-2', presentationId: 'pres-2', quantity: 3 }])
   })
 
+  it('uses semantic design tokens for the presentation select, dark-mode-safe', () => {
+    render(<OrderLinesEditor presentations={presentations} lines={[]} onChange={vi.fn()} />)
+
+    const select = screen.getByRole('combobox', { name: /presentation/i })
+    expect(select.className).not.toMatch(/border-neutral-300|bg-white/)
+  })
+
   it('lists already-added lines by presentation name and supports removal', async () => {
     const onChange = vi.fn()
     const user = userEvent.setup()
