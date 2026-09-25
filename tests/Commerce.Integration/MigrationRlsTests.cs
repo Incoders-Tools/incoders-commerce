@@ -3340,4 +3340,365 @@ public sealed class MigrationRlsTests
 
         Assert.Throws<PostgresException>(() => insertCustomerCmd.ExecuteNonQuery());
     }
+
+    // --- commerce-price-composition: 0013_rate_components.sql --------------
+
+    private static string ResolveRateComponentsMigrationPath()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Commerce.sln")))
+        {
+            dir = dir.Parent;
+        }
+
+        if (dir is null)
+        {
+            throw new InvalidOperationException("Could not locate repo root (Commerce.sln) from " + AppContext.BaseDirectory);
+        }
+
+        return Path.Combine(dir.FullName, "deploy", "db", "migrations", "0013_rate_components.sql");
+    }
+
+    private static void ApplyRateComponentsMigration(NpgsqlConnection connection)
+    {
+        var sql = File.ReadAllText(ResolveRateComponentsMigrationPath());
+        using var cmd = new NpgsqlCommand(sql, connection);
+        cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>
+    /// 0012 is deliberately NOT in this chain: it only merges
+    /// `platform_admins` into `users` and is independent of the pricing
+    /// tables, and applying it here would destroy the `platform_admins`
+    /// fixture the 0007 tests in this same collection rebuild. 0013 depends
+    /// only on 0003's `organizations` and 0009's `price_lists`.
+    /// </summary>
+    private static void ApplyAllMigrationsThrough0013(NpgsqlConnection connection)
+    {
+        ApplyAllMigrationsThrough0011(connection);
+        ApplyRateComponentsMigration(connection);
+    }
+
+    private static void ResetRateComponents()
+    {
+        using var connection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        connection.Open();
+        using var cmd = new NpgsqlCommand("TRUNCATE TABLE rate_components, rate_component_sets CASCADE", connection);
+        cmd.ExecuteNonQuery();
+    }
+
+    [Fact]
+    public void RateComponentsMigration_IsIdempotent_AppliedTwiceWithoutError()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        using var connection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        connection.Open();
+        ApplyAllMigrationsThrough0011(connection);
+
+        ApplyRateComponentsMigration(connection);
+        ApplyRateComponentsMigration(connection);
+
+        using var cmd = new NpgsqlCommand(
+            """
+            SELECT
+                EXISTS (SELECT 1 FROM pg_class WHERE relname = 'rate_component_sets' AND relrowsecurity AND relforcerowsecurity),
+                EXISTS (SELECT 1 FROM pg_class WHERE relname = 'rate_components' AND relrowsecurity AND relforcerowsecurity)
+            """, connection);
+        using var reader = cmd.ExecuteReader();
+        Assert.True(reader.Read());
+        Assert.True(reader.GetBoolean(0));
+        Assert.True(reader.GetBoolean(1));
+    }
+
+    /// <summary>
+    /// Spec "Append-Only Effective-Dated Rate Component History": a persisted
+    /// set's components, percentages, calculation bases, orders and effective
+    /// date MUST NOT be mutated or deleted. Enforced by the GRANT — the
+    /// `price_list_entries` precedent — not by application convention.
+    /// </summary>
+    [Fact]
+    public void RateComponentsMigration_AppRuntime_HasOnlySelectAndInsert_OnBothTables()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        using (var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            ownerConnection.Open();
+            ApplyAllMigrationsThrough0013(ownerConnection);
+        }
+
+        using var connection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        connection.Open();
+
+        foreach (var table in new[] { "rate_component_sets", "rate_components" })
+        {
+            using var cmd = new NpgsqlCommand(
+                $"""
+                SELECT
+                    has_table_privilege('app_runtime', '{table}', 'SELECT'),
+                    has_table_privilege('app_runtime', '{table}', 'INSERT'),
+                    has_table_privilege('app_runtime', '{table}', 'UPDATE'),
+                    has_table_privilege('app_runtime', '{table}', 'DELETE')
+                """, connection);
+            using var reader = cmd.ExecuteReader();
+            Assert.True(reader.Read());
+            Assert.True(reader.GetBoolean(0), $"{table} must grant SELECT");
+            Assert.True(reader.GetBoolean(1), $"{table} must grant INSERT");
+            Assert.False(reader.GetBoolean(2), $"{table} must NOT grant UPDATE");
+            Assert.False(reader.GetBoolean(3), $"{table} must NOT grant DELETE");
+        }
+    }
+
+    /// <summary>
+    /// Spec "Organization-Scoped Component Persistence With RLS": a request
+    /// scoped to Organization B MUST NOT see Organization A's sets.
+    ///
+    /// MUTATION-CHECKED: with
+    /// `rate_component_sets_tenant_isolation`/`rate_components_tenant_isolation`
+    /// relaxed to `USING (true)`, this test fails (2 and 1 rows instead of 0),
+    /// so the two zeroes below are a real isolation assertion and not a query
+    /// that happens to find nothing.
+    /// </summary>
+    [Fact]
+    public void RateComponents_CrossOrganizationRead_ReturnsZeroRows()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        var orgAId = Guid.NewGuid();
+        var priceListId = Guid.NewGuid();
+        var listSetId = Guid.NewGuid();
+        var defaultSetId = Guid.NewGuid();
+        var actorId = Guid.NewGuid();
+
+        using (var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            ownerConnection.Open();
+            ApplyAllMigrationsThrough0013(ownerConnection);
+            ResetRateComponents();
+            ResetCatalogAndPricing();
+            ResetOrganizations();
+
+            void Exec(string sql, Action<NpgsqlCommand> bind)
+            {
+                using var cmd = new NpgsqlCommand(sql, ownerConnection);
+                bind(cmd);
+                cmd.ExecuteNonQuery();
+            }
+
+            Exec("INSERT INTO organizations (id, name) VALUES ($1, 'Org A')", c => c.Parameters.AddWithValue(orgAId));
+            Exec(
+                "INSERT INTO price_lists (id, organization_id, name, is_default, created_by_user_id) VALUES ($1, $2, 'Reparto', true, $3)",
+                c =>
+                {
+                    c.Parameters.AddWithValue(priceListId);
+                    c.Parameters.AddWithValue(orgAId);
+                    c.Parameters.AddWithValue(actorId);
+                });
+            Exec(
+                """
+                INSERT INTO rate_component_sets (id, organization_id, price_list_id, effective_from, created_by_user_id)
+                VALUES ($1, $2, $3, DATE '2026-01-01', $4)
+                """, c =>
+                {
+                    c.Parameters.AddWithValue(listSetId);
+                    c.Parameters.AddWithValue(orgAId);
+                    c.Parameters.AddWithValue(priceListId);
+                    c.Parameters.AddWithValue(actorId);
+                });
+            // A second, organization-default set: isolation must cover the
+            // inheritable default too, not only list-owned sets.
+            Exec(
+                """
+                INSERT INTO rate_component_sets (id, organization_id, price_list_id, effective_from, created_by_user_id)
+                VALUES ($1, $2, NULL, DATE '2026-01-01', $3)
+                """, c =>
+                {
+                    c.Parameters.AddWithValue(defaultSetId);
+                    c.Parameters.AddWithValue(orgAId);
+                    c.Parameters.AddWithValue(actorId);
+                });
+            Exec(
+                """
+                INSERT INTO rate_components (id, organization_id, set_id, code, label, percentage, calculation_base, component_order)
+                VALUES ($1, $2, $3, 'IVA', 'IVA (10,5%)', 10.5, 'Base', 1)
+                """, c =>
+                {
+                    c.Parameters.AddWithValue(Guid.NewGuid());
+                    c.Parameters.AddWithValue(orgAId);
+                    c.Parameters.AddWithValue(listSetId);
+                });
+        }
+
+        using var scopedConnection = new NpgsqlConnection(PostgresTestFixture.DirectConnectionString);
+        scopedConnection.Open();
+        using var tx = scopedConnection.BeginTransaction();
+        using (var scopeCmd = new NpgsqlCommand("SELECT set_config('app.current_org_id', $1, true)", scopedConnection, tx))
+        {
+            scopeCmd.Parameters.AddWithValue(Guid.NewGuid().ToString());
+            scopeCmd.ExecuteNonQuery();
+        }
+
+        using var setCountCmd = new NpgsqlCommand("SELECT count(*) FROM rate_component_sets", scopedConnection, tx);
+        var setCount = (long)setCountCmd.ExecuteScalar()!;
+        using var componentCountCmd = new NpgsqlCommand("SELECT count(*) FROM rate_components", scopedConnection, tx);
+        var componentCount = (long)componentCountCmd.ExecuteScalar()!;
+        tx.Commit();
+
+        Assert.Equal(0, setCount);
+        Assert.Equal(0, componentCount);
+    }
+
+    /// <summary>
+    /// The seeding above is what makes the zeroes meaningful: scoped to Org A,
+    /// the very same query returns the rows. Without this, a broken INSERT
+    /// would make the isolation test pass vacuously.
+    /// </summary>
+    [Fact]
+    public void RateComponents_SameOrganizationRead_ReturnsTheSeededRows()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        var orgAId = Guid.NewGuid();
+        var priceListId = Guid.NewGuid();
+        var listSetId = Guid.NewGuid();
+        var actorId = Guid.NewGuid();
+
+        using (var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            ownerConnection.Open();
+            ApplyAllMigrationsThrough0013(ownerConnection);
+            ResetRateComponents();
+            ResetCatalogAndPricing();
+            ResetOrganizations();
+
+            void Exec(string sql, Action<NpgsqlCommand> bind)
+            {
+                using var cmd = new NpgsqlCommand(sql, ownerConnection);
+                bind(cmd);
+                cmd.ExecuteNonQuery();
+            }
+
+            Exec("INSERT INTO organizations (id, name) VALUES ($1, 'Org A')", c => c.Parameters.AddWithValue(orgAId));
+            Exec(
+                "INSERT INTO price_lists (id, organization_id, name, is_default, created_by_user_id) VALUES ($1, $2, 'Reparto', true, $3)",
+                c =>
+                {
+                    c.Parameters.AddWithValue(priceListId);
+                    c.Parameters.AddWithValue(orgAId);
+                    c.Parameters.AddWithValue(actorId);
+                });
+            Exec(
+                """
+                INSERT INTO rate_component_sets (id, organization_id, price_list_id, effective_from, created_by_user_id)
+                VALUES ($1, $2, $3, DATE '2026-01-01', $4)
+                """, c =>
+                {
+                    c.Parameters.AddWithValue(listSetId);
+                    c.Parameters.AddWithValue(orgAId);
+                    c.Parameters.AddWithValue(priceListId);
+                    c.Parameters.AddWithValue(actorId);
+                });
+            Exec(
+                """
+                INSERT INTO rate_components (id, organization_id, set_id, code, label, percentage, calculation_base, component_order)
+                VALUES ($1, $2, $3, 'IVA', 'IVA (10,5%)', 10.5, 'Base', 1)
+                """, c =>
+                {
+                    c.Parameters.AddWithValue(Guid.NewGuid());
+                    c.Parameters.AddWithValue(orgAId);
+                    c.Parameters.AddWithValue(listSetId);
+                });
+        }
+
+        using var scopedConnection = new NpgsqlConnection(PostgresTestFixture.DirectConnectionString);
+        scopedConnection.Open();
+        using var tx = scopedConnection.BeginTransaction();
+        using (var scopeCmd = new NpgsqlCommand("SELECT set_config('app.current_org_id', $1, true)", scopedConnection, tx))
+        {
+            scopeCmd.Parameters.AddWithValue(orgAId.ToString());
+            scopeCmd.ExecuteNonQuery();
+        }
+
+        using var setCountCmd = new NpgsqlCommand("SELECT count(*) FROM rate_component_sets", scopedConnection, tx);
+        var setCount = (long)setCountCmd.ExecuteScalar()!;
+        using var componentCountCmd = new NpgsqlCommand("SELECT count(*) FROM rate_components", scopedConnection, tx);
+        var componentCount = (long)componentCountCmd.ExecuteScalar()!;
+        tx.Commit();
+
+        Assert.Equal(1, setCount);
+        Assert.Equal(1, componentCount);
+    }
+
+    /// <summary>
+    /// The database refuses the `Unspecified` sentinel too: spec "Explicit
+    /// Calculation Base Per Component" is a CHECK constraint, not only a
+    /// domain guard, so no write path can persist an undeclared base.
+    /// </summary>
+    [Fact]
+    public void RateComponents_UndeclaredCalculationBase_IsRejectedByCheckConstraint()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        var orgAId = Guid.NewGuid();
+        var setId = Guid.NewGuid();
+        var actorId = Guid.NewGuid();
+
+        using var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        ownerConnection.Open();
+        ApplyAllMigrationsThrough0013(ownerConnection);
+        ResetRateComponents();
+        ResetCatalogAndPricing();
+        ResetOrganizations();
+
+        using (var insertOrgCmd = new NpgsqlCommand("INSERT INTO organizations (id, name) VALUES ($1, 'Org A')", ownerConnection))
+        {
+            insertOrgCmd.Parameters.AddWithValue(orgAId);
+            insertOrgCmd.ExecuteNonQuery();
+        }
+
+        using (var insertSetCmd = new NpgsqlCommand(
+            """
+            INSERT INTO rate_component_sets (id, organization_id, price_list_id, effective_from, created_by_user_id)
+            VALUES ($1, $2, NULL, DATE '2026-01-01', $3)
+            """, ownerConnection))
+        {
+            insertSetCmd.Parameters.AddWithValue(setId);
+            insertSetCmd.Parameters.AddWithValue(orgAId);
+            insertSetCmd.Parameters.AddWithValue(actorId);
+            insertSetCmd.ExecuteNonQuery();
+        }
+
+        using var insertComponentCmd = new NpgsqlCommand(
+            """
+            INSERT INTO rate_components (id, organization_id, set_id, code, label, percentage, calculation_base, component_order)
+            VALUES ($1, $2, $3, 'IVA', 'IVA (10,5%)', 10.5, 'Unspecified', 1)
+            """, ownerConnection);
+        insertComponentCmd.Parameters.AddWithValue(Guid.NewGuid());
+        insertComponentCmd.Parameters.AddWithValue(orgAId);
+        insertComponentCmd.Parameters.AddWithValue(setId);
+
+        var ex = Assert.Throws<PostgresException>(() => insertComponentCmd.ExecuteNonQuery());
+        Assert.Equal("23514", ex.SqlState);
+    }
 }

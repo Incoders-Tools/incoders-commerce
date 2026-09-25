@@ -663,3 +663,60 @@ CREATE POLICY payment_entries_tenant_isolation ON payment_entries
 -- commerce-admin-console: dev initialization represents the final 0012 shape.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS is_system_admin boolean NOT NULL DEFAULT false;
 DROP TABLE IF EXISTS platform_admins;
+
+-- commerce-price-composition: 0013_rate_components.sql, appended verbatim per
+-- the hand-kept parity convention. Rates are ROWS, never columns; the SET is
+-- the effective-dated unit; append-only is a GRANT, not a comment.
+
+CREATE TABLE IF NOT EXISTS rate_component_sets (
+    id                 uuid PRIMARY KEY,
+    organization_id    uuid NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+    price_list_id      uuid NULL REFERENCES price_lists (id) ON DELETE CASCADE,
+    effective_from     date NOT NULL,
+    created_at_utc     timestamptz NOT NULL DEFAULT now(),
+    created_by_user_id uuid NOT NULL
+);
+
+-- Two partial indexes, not one: in SQL two NULLs never compare equal, so a
+-- single index would let an organization publish unlimited same-day default
+-- sets and make "the effective default for this date" a coin flip.
+CREATE UNIQUE INDEX IF NOT EXISTS rate_component_sets_list_day_uk
+    ON rate_component_sets (price_list_id, effective_from)
+    WHERE price_list_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS rate_component_sets_org_default_day_uk
+    ON rate_component_sets (organization_id, effective_from)
+    WHERE price_list_id IS NULL;
+CREATE INDEX IF NOT EXISTS rate_component_sets_resolution_idx
+    ON rate_component_sets (organization_id, price_list_id, effective_from DESC);
+
+CREATE TABLE IF NOT EXISTS rate_components (
+    id               uuid PRIMARY KEY,
+    organization_id  uuid NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+    set_id           uuid NOT NULL REFERENCES rate_component_sets (id) ON DELETE CASCADE,
+    code             text NOT NULL,
+    label            text NOT NULL,
+    percentage       numeric(9,4) NOT NULL CHECK (percentage >= 0),
+    calculation_base text NOT NULL CHECK (calculation_base IN ('Base','Subtotal')),
+    component_order  integer NOT NULL CHECK (component_order >= 0),
+    CONSTRAINT rate_components_one_code_per_set  UNIQUE (set_id, code),
+    CONSTRAINT rate_components_one_order_per_set UNIQUE (set_id, component_order)
+);
+CREATE INDEX IF NOT EXISTS rate_components_set_idx ON rate_components (set_id, component_order);
+
+ALTER TABLE rate_component_sets ENABLE ROW LEVEL SECURITY;
+ALTER TABLE rate_component_sets FORCE  ROW LEVEL SECURITY;
+ALTER TABLE rate_components     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE rate_components     FORCE  ROW LEVEL SECURITY;
+REVOKE ALL ON rate_component_sets, rate_components FROM PUBLIC;
+GRANT SELECT, INSERT ON rate_component_sets TO app_runtime;
+GRANT SELECT, INSERT ON rate_components     TO app_runtime;
+
+DROP POLICY IF EXISTS rate_component_sets_tenant_isolation ON rate_component_sets;
+CREATE POLICY rate_component_sets_tenant_isolation ON rate_component_sets
+    USING      (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid)
+    WITH CHECK (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid);
+
+DROP POLICY IF EXISTS rate_components_tenant_isolation ON rate_components;
+CREATE POLICY rate_components_tenant_isolation ON rate_components
+    USING      (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid)
+    WITH CHECK (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid);
