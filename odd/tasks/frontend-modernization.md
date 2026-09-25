@@ -103,6 +103,35 @@ admin panel.
 - [ ] T6. Wire the authenticated user's resolved organization to the
       "custom" theme option (fetch org theme on session load, feed
       `ThemeProvider`). Depends on T2 + T5.
+- [x] T7. Navigation icons: add `lucide-react` (the shadcn/ui icon
+      standard) and give every primary nav item and account-menu entry an
+      identifying icon next to its text. Replace the hand-drawn
+      `MenuIcon`/`ChevronDownIcon`. Accessible names MUST stay exactly the
+      current text (`Catalog`, `Orders`, `Customers`, `Users`, `Branches`,
+      `Price lists`, `Organizations`, `Change password`, `Sign out`) —
+      icons are `aria-hidden`. Route: delegated direct (writer).
+- [x] T8. Organizations screen layout fix (UI half of T5, no backend):
+      reformat the minified `OrganizationsScreen.tsx`, list on the
+      `components/data/*` layer (`view:organizations`), create form behind
+      a "New organization" action rendered full-width with visible
+      `<Label>`s and proper field spacing. Labels MUST keep the E2E names
+      `Organization name`, `Administrator email`, `Administrator password`,
+      button `Create organization` (`e2e/system-admin.spec.ts`) — if the
+      form moves behind a toggle, update that spec to open it first.
+      Settings fields (logo/theme/date/geo/plan) stay in T5: exploration on
+      2026-09-25 found NO spec and NO entity/API field for any of them
+      (`Organization` has only `Id`, `Name`), so they need a spec change
+      first. Route: delegated direct (writer).
+- [ ] T9. Full-screen forms instead of inline expansions: add a shared
+      `components/layout/FormPage` shell (page header with back action,
+      full-width body, footer actions) and move the boxed inline editors
+      onto it — Catalog "Edit code" (`DataView.renderExpanded`) and the
+      Price lists entries/history panels. Follows the established
+      `CustomersScreen`→`CustomerForm` state-swap pattern (no per-item
+      routes yet); migrate `CustomerForm` onto the same shell. Preserve the
+      `Edit code` button name and form field labels used by
+      `e2e/catalog.spec.ts`; update E2E where the flow changes and
+      typecheck `e2e/` explicitly. Route: delegated direct (writer).
 
 ## Progress
 
@@ -733,8 +762,41 @@ admin panel.
   includes only `src`), so `npm run build` never typechecks it and Playwright
   only strips types. This fix was typechecked with an explicit `tsc` run.
 
+- 2026-09-25: Resumed after a power cut (tree clean, nothing lost). User
+  reported remaining aesthetic gaps: no nav icons, Organizations fields
+  overlapping, item editors looking like embedded modals instead of using
+  the full screen. Mapping fork findings recorded in T7-T9. T5 backend
+  settings blocked on a missing spec (no field exists anywhere). Order:
+  T7 -> T8 -> T9, committed directly on `dev` (user workflow preference).
+
+- 2026-09-25: T7 done (delegated direct, commit `cccfc08`). `lucide-react`
+  added; icons on every nav item, the hamburger, account menu (ChevronDown,
+  KeyRound, LogOut) and ThemeSwitcher (Sun/Moon/Palette replace hand-drawn
+  SVGs). All `aria-hidden`, accessible names unchanged. TDD strict: 2 RED
+  (no svg inside links / menu entries), then GREEN; 180/180.
+- 2026-09-25: T8 done (delegated direct, commit `6f8eeba`). New
+  `OrganizationForm.tsx`; screen on the data layer (`view:organizations`,
+  Name + Created columns), form full-width behind "New organization",
+  2-column grid with visible labels. Branch name is now user-controlled
+  (was hardcoded `'Main'`); blank is sent as null and the backend defaults
+  it to "Main" (`Account.cs:317`, verified by the parent). E2E
+  `system-admin.spec.ts` now opens the form first. TDD strict: 11/13 RED
+  first. Checks: `npm run test` 193/193 (37 files), `npm run lint` exit 0
+  with the baseline 13 warnings, `npm run build` clean, e2e typecheck clean
+  with `npx tsc --noEmit --strict --module esnext --moduleResolution
+  bundler --target es2022 --skipLibCheck --ignoreConfig --types node
+  e2e/*.ts`. Parent spot check: OrganizationsScreen + AppLayout tests
+  21/21. Playwright not run locally (CI only).
+  RDD: assess over `a5ddb77..6f8eeba` = medium, `slice_budget_reached`
+  (672 lines); user granted consent; lineage `review-a396c07a3d0aba3a`,
+  one reliability lens, APPROVED and acknowledged (authority burned).
+  Reviewed boundary advances to `6f8eeba`. Non-blocking follow-ups:
+  `R3-chevron-test-not-discriminating` (AccountMenu.test.tsx:89-96) and
+  `R3-hamburger-test-not-discriminating` (AppLayout.test.tsx:74-81) —
+  those icon tests passed before the change too; `R3-refresh-out-of-order`
+  (OrganizationsScreen.tsx:38-57) — a slow list refresh could overwrite a
+  newer one. Folded into T9 as cleanup.
+
 ## Next step
 
-T5 (organization settings: backend fields + endpoints + the rebuilt
-`OrganizationsScreen`, which absorbs the last screen not on the
-`components/data/*` layer).
+T9 (full-screen forms). T5 backend settings need a spec decision first.
