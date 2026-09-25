@@ -36,54 +36,12 @@ public sealed class RateComponentStoreTests : IDisposable
             return;
         }
 
-        ApplyMigrationsAndReset();
+        PostgresTestFixture.ApplyPricingMigrationsAndReset();
         _dataSource = NpgsqlDataSource.Create(PostgresTestFixture.DirectConnectionString);
     }
 
     public void Dispose() => _dataSource?.Dispose();
 
-    private static string RepoRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Commerce.sln")))
-        {
-            dir = dir.Parent;
-        }
-        return dir?.FullName ?? throw new InvalidOperationException("Could not locate repo root.");
-    }
-
-    private static void ApplyMigrationsAndReset()
-    {
-        using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
-        owner.Open();
-
-        var repoRoot = RepoRoot();
-
-        void Apply(string file, string? placeholder = null, string? replacement = null)
-        {
-            var sql = File.ReadAllText(Path.Combine(repoRoot, "deploy", "db", "migrations", file));
-            if (placeholder is not null)
-            {
-                sql = sql.Replace(placeholder, replacement);
-            }
-            using var cmd = new NpgsqlCommand(sql, owner);
-            cmd.ExecuteNonQuery();
-        }
-
-        Apply("0001_init_rls.sql", "__APP_RUNTIME_PASSWORD__", "dev-only-password");
-        Apply("0002_users.sql");
-        Apply("0003_organizations_branches.sql");
-        Apply("0009_catalog_and_pricing.sql");
-        Apply("0013_rate_components.sql");
-        Apply("0014_rate_component_tenancy.sql");
-
-        using var resetCmd = new NpgsqlCommand(
-            """
-            TRUNCATE TABLE rate_components, rate_component_sets, price_list_entries, price_lists,
-                           presentations, products, branches, organizations CASCADE
-            """, owner);
-        resetCmd.ExecuteNonQuery();
-    }
 
     private static void SeedOrganization(Guid organizationId, string name = "Test Org")
     {

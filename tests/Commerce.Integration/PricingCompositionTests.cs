@@ -383,54 +383,12 @@ public sealed class PricingCompositionTests : IDisposable
             return;
         }
 
-        ApplyMigrationsAndReset();
+        PostgresTestFixture.ApplyPricingMigrationsAndReset();
         _dataSource = NpgsqlDataSource.Create(PostgresTestFixture.DirectConnectionString);
     }
 
     public void Dispose() => _dataSource?.Dispose();
 
-    private static string RepoRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Commerce.sln")))
-        {
-            dir = dir.Parent;
-        }
-        return dir?.FullName ?? throw new InvalidOperationException("Could not locate repo root.");
-    }
-
-    private static void ApplyMigrationsAndReset()
-    {
-        using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
-        owner.Open();
-
-        var repoRoot = RepoRoot();
-
-        void Apply(string file, string? placeholder = null, string? replacement = null)
-        {
-            var sql = File.ReadAllText(Path.Combine(repoRoot, "deploy", "db", "migrations", file));
-            if (placeholder is not null)
-            {
-                sql = sql.Replace(placeholder, replacement);
-            }
-            using var cmd = new NpgsqlCommand(sql, owner);
-            cmd.ExecuteNonQuery();
-        }
-
-        Apply("0001_init_rls.sql", "__APP_RUNTIME_PASSWORD__", "dev-only-password");
-        Apply("0002_users.sql");
-        Apply("0003_organizations_branches.sql");
-        Apply("0009_catalog_and_pricing.sql");
-        Apply("0013_rate_components.sql");
-        Apply("0014_rate_component_tenancy.sql");
-
-        using var resetCmd = new NpgsqlCommand(
-            """
-            TRUNCATE TABLE rate_components, rate_component_sets, price_list_entries, price_lists,
-                           presentations, products, branches, organizations CASCADE
-            """, owner);
-        resetCmd.ExecuteNonQuery();
-    }
 
     private static void SeedOrganization(Guid organizationId)
     {
@@ -545,5 +503,101 @@ public sealed class PricingCompositionTests : IDisposable
         var resolved = Assert.IsType<PriceResolutionOutcome.Resolved>(outcome);
         Assert.Equal(15370m, resolved.UnitListPrice);
         Assert.Equal(15370m, resolved.UnitNetPrice);
+    }
+
+    /// <summary>
+    /// R4-per-line-set-fetch. `PostgresRateComponentSource` now memoizes the
+    /// effective set per instance, keyed by DATE, so an N-line submission makes
+    /// one lookup per distinct resolution date instead of N connection
+    /// acquisitions, transactions and header queries for the same row.
+    ///
+    /// The risk a cache introduces is staleness, and the only staleness that
+    /// could matter here is across dates — so that is what this pins: the same
+    /// instance, asked for two different dates, must return the two different
+    /// sets, and asking again for the first date must still return the first
+    /// set rather than the newer one. A single-slot cache, the obvious wrong
+    /// implementation, fails both halves.
+    /// </summary>
+    [Fact]
+    public async Task PostgresRateComponentSource_CachesPerDate_AndStillHonoursEffectiveDating()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var organizationId = Guid.NewGuid();
+        SeedOrganization(organizationId);
+        var scope = new CloudTenantScope(organizationId);
+        var actorId = Guid.NewGuid();
+
+        var priceStore = new PostgresPriceListStore(_dataSource!);
+        var priceList = await priceStore.CreatePriceListAsync(
+            scope, new NewPriceList(Guid.NewGuid(), "Reparto", true, actorId), "org-user", actorId, CancellationToken.None);
+
+        var componentStore = new PostgresRateComponentStore(_dataSource!);
+        await componentStore.PublishSetAsync(
+            scope,
+            new NewRateComponentSet(
+                Guid.NewGuid(), priceList.Id, new DateOnly(2026, 1, 1),
+                [Component("REMARCACION", 25m, RateCalculationBase.Base, 1)], actorId),
+            "org-user", actorId, CancellationToken.None);
+        await componentStore.PublishSetAsync(
+            scope,
+            new NewRateComponentSet(
+                Guid.NewGuid(), priceList.Id, new DateOnly(2026, 6, 1),
+                [Component("REMARCACION", 45m, RateCalculationBase.Base, 1)], actorId),
+            "org-user", actorId, CancellationToken.None);
+
+        var source = new PostgresRateComponentSource(componentStore, scope, priceList.Id);
+
+        var january = await source.GetEffectiveSetAsync(new DateOnly(2026, 3, 1), CancellationToken.None);
+        var july = await source.GetEffectiveSetAsync(new DateOnly(2026, 7, 1), CancellationToken.None);
+        // The repeat: served from the cache, and it must still be January's.
+        var januaryAgain = await source.GetEffectiveSetAsync(new DateOnly(2026, 3, 1), CancellationToken.None);
+
+        Assert.Equal(12_500m, january!.Compose(10_000m));
+        Assert.Equal(14_500m, july!.Compose(10_000m));
+        Assert.Equal(12_500m, januaryAgain!.Compose(10_000m));
+        Assert.Same(january, januaryAgain);
+    }
+
+    /// <summary>
+    /// The `null` answer — "no set effective for this date" — is cached too.
+    /// It is a real answer, composed as the identity, and it is the case an
+    /// unpublished list hits on EVERY line of EVERY order, so a cache that
+    /// only remembered non-null sets would leave the most common path
+    /// re-querying per line.
+    /// </summary>
+    [Fact]
+    public async Task PostgresRateComponentSource_CachesTheAbsenceOfASetToo()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var organizationId = Guid.NewGuid();
+        SeedOrganization(organizationId);
+        var scope = new CloudTenantScope(organizationId);
+        var actorId = Guid.NewGuid();
+
+        var priceStore = new PostgresPriceListStore(_dataSource!);
+        var priceList = await priceStore.CreatePriceListAsync(
+            scope, new NewPriceList(Guid.NewGuid(), "Sin recargos", true, actorId), "org-user", actorId, CancellationToken.None);
+
+        var componentStore = new PostgresRateComponentStore(_dataSource!);
+        var source = new PostgresRateComponentSource(componentStore, scope, priceList.Id);
+
+        Assert.Null(await source.GetEffectiveSetAsync(new DateOnly(2026, 3, 1), CancellationToken.None));
+
+        // Published AFTER the first lookup. A request-scoped source is
+        // deliberately allowed to keep its answer for its own lifetime; what
+        // must never happen is a NEW source seeing the stale one.
+        await componentStore.PublishSetAsync(
+            scope,
+            new NewRateComponentSet(
+                Guid.NewGuid(), priceList.Id, new DateOnly(2026, 1, 1),
+                [Component("REMARCACION", 45m, RateCalculationBase.Base, 1)], actorId),
+            "org-user", actorId, CancellationToken.None);
+
+        Assert.Null(await source.GetEffectiveSetAsync(new DateOnly(2026, 3, 1), CancellationToken.None));
+
+        var fresh = new PostgresRateComponentSource(componentStore, scope, priceList.Id);
+        Assert.NotNull(await fresh.GetEffectiveSetAsync(new DateOnly(2026, 3, 1), CancellationToken.None));
     }
 }

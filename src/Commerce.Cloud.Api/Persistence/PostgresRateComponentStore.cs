@@ -153,29 +153,35 @@ public sealed class PostgresRateComponentStore
 
         await SetTenantScopeAsync(connection, tx, scope, ct);
 
-        // `organization_id = $3` is redundant with RLS and kept deliberately:
+        // `organization_id = $1` is redundant with RLS and kept deliberately:
         // the inheritance arm reads a row that is NOT keyed by the price list,
         // so it is the one query whose tenant scoping would otherwise rest on
         // the policy alone.
+        //
+        // Each arm binds its OWN parameters, in its own order. The two used to
+        // share a fixed `(priceListId, effectiveOn, organizationId)` signature,
+        // which forced the organization-default arm to bind a `priceListId` its
+        // SQL never mentioned — a dead binding, and a positional coupling that
+        // would silently mis-bind the day either query gained a placeholder.
         var header = await ReadSetHeaderAsync(
             connection, tx,
             $"""
             SELECT {SetColumns} FROM rate_component_sets
-            WHERE organization_id = $3 AND price_list_id = $1 AND effective_from <= $2
+            WHERE organization_id = $1 AND price_list_id = $2 AND effective_from <= $3
             ORDER BY effective_from DESC
             LIMIT 1
             """,
-            priceListId, effectiveOn, scope.OrganizationId, ct);
+            ct, scope.OrganizationId, priceListId, effectiveOn.ToDateTime(TimeOnly.MinValue));
 
         header ??= await ReadSetHeaderAsync(
             connection, tx,
             $"""
             SELECT {SetColumns} FROM rate_component_sets
-            WHERE organization_id = $3 AND price_list_id IS NULL AND effective_from <= $2
+            WHERE organization_id = $1 AND price_list_id IS NULL AND effective_from <= $2
             ORDER BY effective_from DESC
             LIMIT 1
             """,
-            priceListId, effectiveOn, scope.OrganizationId, ct);
+            ct, scope.OrganizationId, effectiveOn.ToDateTime(TimeOnly.MinValue));
 
         RateComponentSet? result = null;
         if (header is not null)
@@ -237,14 +243,21 @@ public sealed class PostgresRateComponentStore
         return results;
     }
 
+    /// <summary>
+    /// Runs one header query and binds exactly the parameters it was given,
+    /// positionally. The caller owns the placeholder order, so neither arm of
+    /// <see cref="GetEffectiveSetAsync"/> has to carry a value the other one
+    /// needs.
+    /// </summary>
     private static async Task<(Guid Id, Guid OrganizationId, Guid? PriceListId, DateOnly EffectiveFrom)?> ReadSetHeaderAsync(
         NpgsqlConnection connection, NpgsqlTransaction tx, string sql,
-        Guid priceListId, DateOnly effectiveOn, Guid organizationId, CancellationToken ct)
+        CancellationToken ct, params object[] parameters)
     {
         await using var cmd = new NpgsqlCommand(sql, connection, tx);
-        cmd.Parameters.AddWithValue(priceListId);
-        cmd.Parameters.AddWithValue(effectiveOn.ToDateTime(TimeOnly.MinValue));
-        cmd.Parameters.AddWithValue(organizationId);
+        foreach (var parameter in parameters)
+        {
+            cmd.Parameters.AddWithValue(parameter);
+        }
 
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         return await reader.ReadAsync(ct) ? ReadHeader(reader) : null;

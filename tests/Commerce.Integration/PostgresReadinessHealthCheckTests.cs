@@ -132,6 +132,13 @@ public sealed class PostgresReadinessHealthCheckTests : IClassFixture<WebApplica
 
         var paymentsSql = File.ReadAllText(Path.Combine(RepoRoot(), "deploy", "db", "migrations", "0011_payments.sql"));
         using (var cmd = new NpgsqlCommand(paymentsSql, owner)) cmd.ExecuteNonQuery();
+
+        foreach (var file in new[] { "0013_rate_components.sql", "0014_rate_component_tenancy.sql" })
+        {
+            var sql = File.ReadAllText(Path.Combine(RepoRoot(), "deploy", "db", "migrations", file));
+            using var cmd = new NpgsqlCommand(sql, owner);
+            cmd.ExecuteNonQuery();
+        }
     }
 
     /// <summary>
@@ -497,5 +504,47 @@ public sealed class PostgresReadinessHealthCheckTests : IClassFixture<WebApplica
         var response = await client.GetAsync("/health/ready");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    /// <summary>
+    /// R4-deploy-order-hard-dependency. Since commerce-price-composition slice
+    /// 2, order pricing reads `rate_component_sets` on EVERY priced line. An
+    /// API deployed ahead of migration `0013` therefore fails every line of
+    /// every order with "relation does not exist", surfacing to the customer
+    /// as an unexplained `no-effective-price` denial — a total ordering outage
+    /// with no signal naming its cause.
+    ///
+    /// Readiness is where that becomes visible: the instance never takes
+    /// traffic, and the unhealthy message names the migration to apply. The
+    /// runbook half of this fix is in design.md; this is the half that does not
+    /// depend on anyone having read it.
+    /// </summary>
+    [Fact]
+    public async Task HealthReady_IsUnhealthy_BeforeRateComponentsMigrationApplied()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            owner.Open();
+            ApplyAllMigrations(owner);
+            using var dropCmd = new NpgsqlCommand(
+                "DROP TABLE IF EXISTS rate_components, rate_component_sets CASCADE", owner);
+            dropCmd.ExecuteNonQuery();
+        }
+
+        try
+        {
+            var client = _factory.CreateClient();
+            var response = await client.GetAsync("/health/ready");
+
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        }
+        finally
+        {
+            using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+            owner.Open();
+            ApplyAllMigrations(owner);
+        }
     }
 }

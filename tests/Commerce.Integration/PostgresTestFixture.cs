@@ -57,6 +57,77 @@ public static class PostgresTestFixture
     }
 
     /// <summary>
+    /// The repository root, found by walking up from the test binary until
+    /// `Commerce.sln` appears. Lived as a private copy in every live-Postgres
+    /// fixture; there is exactly one reason it could ever change, so there is
+    /// one copy of it.
+    /// </summary>
+    public static string RepoRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Commerce.sln")))
+        {
+            dir = dir.Parent;
+        }
+        return dir?.FullName ?? throw new InvalidOperationException(
+            "Could not locate repo root (Commerce.sln) from " + AppContext.BaseDirectory);
+    }
+
+    /// <summary>
+    /// Applies one repo migration on an open OWNER connection, substituting the
+    /// dev password placeholders the shipped files carry.
+    /// </summary>
+    public static void ApplyMigration(NpgsqlConnection owner, string file)
+    {
+        var sql = File.ReadAllText(Path.Combine(RepoRoot(), "deploy", "db", "migrations", file))
+            .Replace("__APP_RUNTIME_PASSWORD__", "dev-only-password")
+            .Replace("__PLATFORM_READONLY_PASSWORD__", "dev-only-platform-readonly-password");
+        using var cmd = new NpgsqlCommand(sql, owner);
+        cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>
+    /// The exact migration chain and reset the three rate-component fixtures
+    /// (`RateComponentStoreTests`, `PricingCompositionTests`,
+    /// `PricingChannelParityTests`) each carried a byte-identical copy of —
+    /// which is why adding `0013` meant editing all three, and `0014` would
+    /// have meant editing them again.
+    ///
+    /// Deliberately NOT a general migration framework, and deliberately not
+    /// shared with `MigrationRlsTests`, whose whole purpose is applying
+    /// migrations in hand-picked partial chains. This is one named chain, used
+    /// by the fixtures that genuinely need that one chain.
+    ///
+    /// `0012` is absent on purpose, exactly as in `MigrationRlsTests`: it only
+    /// merges `platform_admins` into `users` and is orthogonal to pricing.
+    /// </summary>
+    public static void ApplyPricingMigrationsAndReset()
+    {
+        using var owner = new NpgsqlConnection(OwnerConnectionString);
+        owner.Open();
+
+        foreach (var file in new[]
+                 {
+                     "0001_init_rls.sql",
+                     "0002_users.sql",
+                     "0003_organizations_branches.sql",
+                     "0009_catalog_and_pricing.sql",
+                     "0013_rate_components.sql",
+                     "0014_rate_component_tenancy.sql",
+                 })
+        {
+            ApplyMigration(owner, file);
+        }
+
+        using var resetCmd = new NpgsqlCommand(
+            """
+            TRUNCATE TABLE rate_components, rate_component_sets, price_list_entries, price_lists,
+                           presentations, products, branches, organizations CASCADE
+            """, owner);
+        resetCmd.ExecuteNonQuery();
+    }
+
+    /// <summary>
     /// Truncates the shared `sync_inbox` table between tests. Uses the owner
     /// connection since app_runtime only has SELECT/INSERT/UPDATE, not
     /// TRUNCATE/DELETE, matching the RLS policy's intentionally narrow grant.

@@ -3343,28 +3343,12 @@ public sealed class MigrationRlsTests
 
     // --- commerce-price-composition: 0013_rate_components.sql --------------
 
-    private static string ResolveRateComponentsMigrationPath()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Commerce.sln")))
-        {
-            dir = dir.Parent;
-        }
-
-        if (dir is null)
-        {
-            throw new InvalidOperationException("Could not locate repo root (Commerce.sln) from " + AppContext.BaseDirectory);
-        }
-
-        return Path.Combine(dir.FullName, "deploy", "db", "migrations", "0013_rate_components.sql");
-    }
-
-    private static void ApplyRateComponentsMigration(NpgsqlConnection connection)
-    {
-        var sql = File.ReadAllText(ResolveRateComponentsMigrationPath());
-        using var cmd = new NpgsqlCommand(sql, connection);
-        cmd.ExecuteNonQuery();
-    }
+    // The 0013/0014 pair uses the shared `PostgresTestFixture` helpers rather
+    // than adding two more copies of the repo-root walk that the resolvers
+    // above each carry. Those older resolvers are left alone: rewriting twenty
+    // of them is a separate change from this one.
+    private static void ApplyRateComponentsMigration(NpgsqlConnection connection) =>
+        PostgresTestFixture.ApplyMigration(connection, "0013_rate_components.sql");
 
     /// <summary>
     /// 0012 is deliberately NOT in this chain: it only merges
@@ -3379,13 +3363,8 @@ public sealed class MigrationRlsTests
         ApplyRateComponentsMigration(connection);
     }
 
-    private static void ApplyRateComponentTenancyMigration(NpgsqlConnection connection)
-    {
-        var path = Path.Combine(
-            Path.GetDirectoryName(ResolveRateComponentsMigrationPath())!, "0014_rate_component_tenancy.sql");
-        using var cmd = new NpgsqlCommand(File.ReadAllText(path), connection);
-        cmd.ExecuteNonQuery();
-    }
+    private static void ApplyRateComponentTenancyMigration(NpgsqlConnection connection) =>
+        PostgresTestFixture.ApplyMigration(connection, "0014_rate_component_tenancy.sql");
 
     private static void ApplyAllMigrationsThrough0014(NpgsqlConnection connection)
     {

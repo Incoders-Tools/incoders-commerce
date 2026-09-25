@@ -129,6 +129,37 @@ The migration is a **semantic reinterpretation with zero data rewrite**.
   `EffectiveFrom`, as one dated cutover — is an operational requirement of
   this model and must be stated in any future runbook.
 
+## Deploy Order: 0013/0014 Go Before The API (review round 1)
+
+Finding R4-deploy-order-hard-dependency. Slice 2 made order pricing read
+`rate_component_sets` on **every priced line**. That is an unconditional
+hard dependency, not a feature flag: an API deployed against a database
+where `0013` has not run fails every line of every order with
+`relation "rate_component_sets" does not exist`, which
+`ResolveLinesAsync` turns into `no-effective-price`. The customer sees an
+unexplained denial and nothing names the cause.
+
+**Decision: both halves, because they fail differently.**
+
+1. *Enforced in code.* `PostgresReadinessHealthCheck` now verifies
+   `rate_component_sets` and `rate_components` — table, forced RLS and
+   tenant-isolation policy — exactly as it already verifies
+   `price_list_entries`. A mis-ordered deploy is a red `/health/ready`:
+   the instance never takes traffic, and the unhealthy message names the
+   migration. Guarded by
+   `PostgresReadinessHealthCheckTests.HealthReady_IsUnhealthy_BeforeRateComponentsMigrationApplied`.
+2. *Written down here.* The gate stops the outage; it does not tell an
+   operator staring at a red readiness probe at 3am what to do. **Apply
+   `deploy/db/migrations/0013_rate_components.sql` and
+   `0014_rate_component_tenancy.sql` BEFORE rolling the API.** Both are
+   idempotent and forward-only, and both are additive — no existing
+   column, row, policy or grant changes — so they are safe to apply
+   against a running older API, which reads neither table.
+
+The code half alone would have been a probe with no instructions; the
+document half alone would have been an instruction nobody is holding
+during the deploy that skips it.
+
 ## Cutover Runbook (slice 2)
 
 Slice 2 put composition on the resolution path. Turning it on changed no
