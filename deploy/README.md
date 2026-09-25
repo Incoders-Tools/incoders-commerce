@@ -1,5 +1,58 @@
 # Deploy notes
 
+## Test database isolation (`commerce_test`)
+
+The integration suite and the app you are signed in to do **not** share a
+database.
+
+`deploy/dev/compose.yaml` creates two: `commerce_dev`, which
+`deploy/dev/run-all.ps1` and the `full` profile point Cloud.Api at, and
+`commerce_test`, which is the only database `tests/Commerce.Integration`
+touches (`PostgresTestFixture.Database`). They were one database until roughly
+three dozen fixtures resetting themselves with
+`TRUNCATE TABLE ... users, branches, organizations CASCADE` had destroyed the
+local sign-in accounts once too often: `dotnet test` now leaves `commerce_dev`
+completely alone.
+
+Three things make that hold:
+
+- `deploy/dev/db/init-test-db.sql` creates `commerce_test` and applies the same
+  `deploy/dev/db/init-rls.sql` to it. Postgres **roles** (`app_runtime`,
+  `platform_readonly`) are cluster-wide and already exist, but **GRANTs** and
+  RLS **policies** are per-database, so that file genuinely has to run twice.
+  The migrations themselves are applied by the tests
+  (`PostgresTestFixture.ApplyMigration`); `init-rls.sql` is not, which is why
+  this step is not optional.
+- PgBouncer no longer pins `DATABASES_DBNAME`. Its wildcard `[databases]` entry
+  now forwards whichever database the client asks for, so port 6543 serves
+  `commerce_dev` for the app and `commerce_test` for `PoolerScopingTests` at
+  the same time. Pinning it to one name silently rewrote every pooled
+  connection's target, which would have kept the suite truncating
+  `commerce_dev` through the pooler.
+- `TestDatabaseIsolationTests` fails the build if any file under
+  `tests/Commerce.Integration` hardcodes a `commerce_dev` connection string
+  again.
+
+On a **fresh** container this is automatic — the file is mounted into
+`/docker-entrypoint-initdb.d`. On a container that already exists (there is no
+named volume, so `docker compose down` would destroy your data — don't), create
+it once by hand:
+
+```bash
+docker cp deploy/dev/db/init-rls.sql     incoders-commerce-postgres-1:/tmp/init-rls.sql
+docker cp deploy/dev/db/init-test-db.sql incoders-commerce-postgres-1:/tmp/init-test-db.sql
+docker compose -f deploy/dev/compose.yaml exec -T postgres \
+  psql -v ON_ERROR_STOP=1 -U commerce_owner -d commerce_dev -f /tmp/init-test-db.sql
+docker compose -f deploy/dev/compose.yaml up -d --force-recreate --no-deps pgbouncer
+```
+
+The script is idempotent, so re-running it only re-applies the RLS policies.
+
+In CI the databases are ephemeral, so the separation protects nothing there;
+`.github/workflows/release.yml` simply adds `commerce_test` in its `build` job
+— the only job that runs `dotnet test` — and leaves every other `commerce_dev`
+reference untouched.
+
 ## Local development administrator
 
 Use one local identity for Web and Desktop administration:
@@ -83,6 +136,10 @@ endpoint (Supabase port `6543`) in each environment's Railway variables.
 docker compose -f deploy/dev/compose.yaml up -d
 dotnet test tests/Commerce.Integration/Commerce.Integration.csproj --filter "PoolerScopingTests|PostgresCloudInboxStoreTests"
 ```
+
+These run against `commerce_test` through the same PgBouncer port 6543 the app
+uses for `commerce_dev` — see "Test database isolation" at the top of this file
+for why the pooler can serve both.
 
 If `deploy/dev/compose.yaml` is not running, these tests print a `SKIPPED`
 line naming the unreachable target and return without asserting pass/fail —

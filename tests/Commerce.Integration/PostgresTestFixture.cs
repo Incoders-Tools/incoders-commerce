@@ -30,14 +30,45 @@ public sealed class PostgresCollection;
 /// </summary>
 public static class PostgresTestFixture
 {
+    /// <summary>
+    /// The ONE database every live-Postgres test in this assembly talks to.
+    ///
+    /// Deliberately NOT `commerce_dev`. Roughly three dozen fixtures in this
+    /// project reset themselves with `TRUNCATE TABLE ... users, branches,
+    /// organizations CASCADE`, which is correct for a throwaway test database
+    /// and catastrophic for the database a developer is running the app
+    /// against: every `dotnet test` wiped the local sign-in accounts and they
+    /// had to be re-provisioned by hand.
+    ///
+    /// `commerce_test` is created and given the same `deploy/dev/db/init-rls.sql`
+    /// policy set by `deploy/dev/db/init-test-db.sql` — mounted into the
+    /// Postgres container's init directory by `deploy/dev/compose.yaml`, and
+    /// applied explicitly by the `build` job in `.github/workflows/release.yml`.
+    /// Postgres ROLES (`app_runtime`, `platform_readonly`) are cluster-wide, so
+    /// they already exist; the GRANTs and RLS policies are per-database, which
+    /// is exactly why that file has to run against `commerce_test` too.
+    ///
+    /// Every connection string in the test suite is derived from this one
+    /// constant, and `TestDatabaseIsolationTests` fails the build if any test
+    /// file hardcodes `commerce_dev` again.
+    /// </summary>
+    public const string Database = "commerce_test";
+
     public const string DirectConnectionString =
-        "Host=localhost;Port=5432;Database=commerce_dev;Username=app_runtime;Password=dev-only-password;Timeout=3";
+        "Host=localhost;Port=5432;Database=" + Database + ";Username=app_runtime;Password=dev-only-password;Timeout=3";
 
     public const string OwnerConnectionString =
-        "Host=localhost;Port=5432;Database=commerce_dev;Username=commerce_owner;Password=dev-only-password;Timeout=3";
+        "Host=localhost;Port=5432;Database=" + Database + ";Username=commerce_owner;Password=dev-only-password;Timeout=3";
 
+    /// <summary>
+    /// Transaction-mode PgBouncer on 6543. `deploy/dev/compose.yaml` no longer
+    /// pins `DATABASES_DBNAME`, so its wildcard `[databases]` entry forwards
+    /// whichever database the client asks for — which is what lets the pooler
+    /// tests follow the suite onto <see cref="Database"/> while the dev app
+    /// keeps reaching `commerce_dev` through the same port.
+    /// </summary>
     public const string PooledConnectionString =
-        "Host=localhost;Port=6543;Database=commerce_dev;Username=app_runtime;Password=dev-only-password;Timeout=3;" +
+        "Host=localhost;Port=6543;Database=" + Database + ";Username=app_runtime;Password=dev-only-password;Timeout=3;" +
         "Pooling=false;No Reset On Close=true";
 
     public static bool TryPing(string connectionString)

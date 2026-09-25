@@ -25,6 +25,14 @@ services:
       - "5432:5432"
     volumes:
       - ./db/init-rls.sql:/docker-entrypoint-initdb.d/init-rls.sql:ro
+      # Creates `commerce_test` and applies the SAME init-rls.sql to it. The
+      # integration suite truncates `users`/`branches`/`organizations` in
+      # dozens of fixtures, so it must never share a database with the app a
+      # developer is actually signed in to (PostgresTestFixture.Database).
+      # Ordering matters and is alphabetical: init-rls.sql initializes
+      # commerce_dev (and the cluster-wide roles) first, then init-test-db.sql
+      # reuses them for commerce_test.
+      - ./db/init-test-db.sql:/docker-entrypoint-initdb.d/init-test-db.sql:ro
     # The integration test suite spins up a short-lived WebApplicationFactory
     # (and its own Npgsql connection pool) per test method rather than
     # sharing one pool across the run. Pool teardown isn't instantaneous at
@@ -54,7 +62,19 @@ services:
     environment:
       DATABASES_HOST: postgres
       DATABASES_PORT: "5432"
-      DATABASES_DBNAME: commerce_dev
+      # NO DATABASES_DBNAME here, and that is deliberate too. The image's
+      # entrypoint emits one wildcard `[databases]` entry; setting
+      # DATABASES_DBNAME appends `dbname=...` to it, which REWRITES every
+      # client's requested database to that one name. Pinned to `commerce_dev`,
+      # a pooled test connection asking for `commerce_test` was silently
+      # answered by `commerce_dev` — the integration suite would have kept
+      # truncating the developer's accounts through port 6543 even after the
+      # direct connections moved off it. Omitting it leaves the wildcard as
+      # `* = host=postgres port=5432`, which passes the client-requested
+      # database straight through, so 6543 now serves BOTH `commerce_dev` (the
+      # app) and `commerce_test` (PoolerScopingTests) from one pooler. This
+      # also matches Supavisor, which routes by the requested database rather
+      # than forcing one.
       # NO fixed DATABASES_USER/PASSWORD here: this is deliberate. With no
       # `user=` clause, PgBouncer passes each client's OWN authenticated
       # username through to the Postgres backend, matching Supabase's real

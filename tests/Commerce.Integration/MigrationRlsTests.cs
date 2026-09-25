@@ -1254,8 +1254,8 @@ public sealed class MigrationRlsTests
     public const string PlatformReadonlyPassword = "dev-only-platform-readonly-password";
 
     public const string PlatformReadonlyConnectionString =
-        "Host=localhost;Port=5432;Database=commerce_dev;Username=platform_readonly;Password=" +
-        PlatformReadonlyPassword + ";Timeout=3";
+        "Host=localhost;Port=5432;Database=" + PostgresTestFixture.Database +
+        ";Username=platform_readonly;Password=" + PlatformReadonlyPassword + ";Timeout=3";
 
     private static string ResolvePlatformAdministrationMigrationPath()
     {

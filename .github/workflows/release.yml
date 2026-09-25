@@ -394,6 +394,23 @@ jobs:
           & "$pgBin\psql.exe" -h localhost -U commerce_owner -d commerce_dev -f deploy/dev/db/init-rls.sql
           if ($LASTEXITCODE -ne 0) { throw "init-rls.sql failed with exit code $LASTEXITCODE" }
 
+          # `dotnet test` below is the ONLY place in this workflow that runs
+          # Commerce.Integration, and PostgresTestFixture now targets
+          # `commerce_test` rather than `commerce_dev` — the suite truncates
+          # users/branches/organizations in dozens of fixtures, which locally
+          # was wiping the developer's own accounts. CI databases are ephemeral
+          # so the separation protects nothing here; this step exists purely so
+          # the database the fixture asks for exists. Deliberately ADDITIVE:
+          # every existing `commerce_dev` reference in this workflow (this
+          # provisioning block, the web-e2e service container and its
+          # health-cmd, the web-e2e init-rls step, and both jobs' connection
+          # strings) is left byte-for-byte alone, because web-e2e drives the
+          # real app over HTTP and never loads PostgresTestFixture. Renaming
+          # those too would have touched four more places for no CI benefit and
+          # every chance of breaking a green pipeline.
+          & "$pgBin\psql.exe" -h localhost -U commerce_owner -d commerce_dev -v ON_ERROR_STOP=1 -f deploy/dev/db/init-test-db.sql
+          if ($LASTEXITCODE -ne 0) { throw "init-test-db.sql failed with exit code $LASTEXITCODE" }
+
       - name: Restore and build
         shell: pwsh
         run: |
