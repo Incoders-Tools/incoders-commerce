@@ -82,17 +82,18 @@ export async function openAccountMenu(page: Page): Promise<void> {
 /**
  * Asserts the authenticated shell is rendered, then leaves the menu closed
  * so it cannot cover the controls a test clicks next. "Sign out" lives
- * inside the account menu, so its visibility is not observable until the
- * menu is open.
+ * inside the account menu as a `menuitem` (the explicit role overrides the
+ * element's implicit button role), so it is not observable until the menu
+ * is open.
  */
 export async function expectSignedIn(page: Page): Promise<void> {
   await openAccountMenu(page)
-  await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: 'Sign out' })).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(page.getByRole('menu', { name: 'Account' })).toBeHidden()
 }
 
 export async function signOut(page: Page): Promise<void> {
   await openAccountMenu(page)
-  await page.getByRole('button', { name: 'Sign out' }).click()
+  await page.getByRole('menuitem', { name: 'Sign out' }).click()
 }
