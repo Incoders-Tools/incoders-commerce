@@ -108,4 +108,23 @@ describe('CustomerForm', () => {
     await user.click(screen.getByRole('button', { name: /back to customers/i }))
     expect(onCancel).toHaveBeenCalledTimes(1)
   })
+
+  it('uses the full width the shell gives it, with no centered narrow column', () => {
+    const { container } = render(<CustomerForm onSaved={vi.fn()} onCancel={vi.fn()} />)
+
+    expect(container.querySelector('[class*="max-w-lg"]')).toBeNull()
+  })
+
+  it('renders every select with semantic design tokens, dark-mode-safe', () => {
+    render(<CustomerForm onSaved={vi.fn()} onCancel={vi.fn()} />)
+
+    const selects = [
+      screen.getByLabelText('Customer kind'),
+      screen.getByLabelText('Tax ID type'),
+      screen.getByLabelText('Tax condition'),
+    ]
+    for (const select of selects) {
+      expect(select.className).not.toMatch(/border-neutral-300|bg-white/)
+    }
+  })
 })
