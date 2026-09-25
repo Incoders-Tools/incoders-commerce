@@ -1,8 +1,8 @@
 import { useState, type FormEvent } from 'react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { FormPage } from '@/components/layout/FormPage'
 import { createCustomer, updateCustomer } from '@/api/customers'
 import { ApiError } from '@/api/client'
 import { CustomerKind, TaxCondition, TaxIdType, type CustomerRecord } from '@/api/types'
@@ -22,6 +22,10 @@ interface CustomerFormProps {
  * customer with only DisplayName and Phone" scenario forbids requiring
  * fiscal or address data). `IsEnabled` is a toggle on edit only; a created
  * customer is always enabled.
+ *
+ * T9: rendered on the shared `FormPage` shell instead of a centered `Card`.
+ * `onCancel` also backs the header's back action, alongside the existing
+ * Cancel button in the footer.
  */
 export function CustomerForm({ customer, onSaved, onCancel }: CustomerFormProps) {
   const isEdit = customer !== undefined
@@ -92,11 +96,12 @@ export function CustomerForm({ customer, onSaved, onCancel }: CustomerFormProps)
   }
 
   return (
-    <Card className="mx-auto mt-8 w-full max-w-lg">
-      <CardHeader>
-        <CardTitle>{isEdit ? 'Edit customer' : 'New customer'}</CardTitle>
-      </CardHeader>
-      <CardContent>
+    <FormPage
+      title={isEdit ? 'Edit customer' : 'New customer'}
+      onBack={onCancel}
+      backLabel="Back to customers"
+    >
+      <div className="w-full max-w-lg">
         <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="customerKind">Customer kind</Label>
@@ -180,7 +185,7 @@ export function CustomerForm({ customer, onSaved, onCancel }: CustomerFormProps)
           )}
 
           {error && (
-            <p role="alert" className="text-sm text-red-600">
+            <p role="alert" className="text-sm text-destructive">
               {error}
             </p>
           )}
@@ -194,8 +199,8 @@ export function CustomerForm({ customer, onSaved, onCancel }: CustomerFormProps)
             </Button>
           </div>
         </form>
-      </CardContent>
-    </Card>
+      </div>
+    </FormPage>
   )
 }
 

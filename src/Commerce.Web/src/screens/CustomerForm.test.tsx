@@ -97,4 +97,15 @@ describe('CustomerForm', () => {
 
     await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1))
   })
+
+  it('renders on the full-screen FormPage shell, with a back action that also cancels', async () => {
+    const onCancel = vi.fn()
+    const user = userEvent.setup()
+    render(<CustomerForm onSaved={vi.fn()} onCancel={onCancel} />)
+
+    expect(screen.getByRole('heading', { name: 'New customer' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /back to customers/i }))
+    expect(onCancel).toHaveBeenCalledTimes(1)
+  })
 })

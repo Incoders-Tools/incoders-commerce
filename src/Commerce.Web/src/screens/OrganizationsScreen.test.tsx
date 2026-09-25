@@ -225,6 +225,22 @@ describe('OrganizationsScreen', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
+  it('returns to the list via the full-screen back action too', async () => {
+    listOnce([acme])
+
+    const user = userEvent.setup()
+    render(<OrganizationsScreen />)
+
+    await screen.findByText('Acme Co')
+    await user.click(screen.getByRole('button', { name: 'New organization' }))
+    expect(screen.getByLabelText('Organization name')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /back to organizations/i }))
+
+    expect(screen.getByText('Acme Co')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
   it('surfaces a create failure as an alert without leaving the form', async () => {
     listOnce([]).mockResolvedValueOnce(
       new Response(JSON.stringify({ title: 'An organization with that name already exists.' }), {

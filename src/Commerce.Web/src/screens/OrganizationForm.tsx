@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { PageHeader } from '@/components/data/PageHeader'
+import { FormPage } from '@/components/layout/FormPage'
 import { createOrganization } from '@/api/account'
 import { ApiError } from '@/api/client'
 
@@ -20,6 +20,13 @@ interface OrganizationFormProps {
  * `'Main'` without exposing a field. Settings fields (logo, theme colors,
  * date format, geolocation, usage plan) stay out of scope here — T5 owns
  * them once a spec exists.
+ *
+ * T9: rendered on the shared `FormPage` shell instead of building its own
+ * header — `PageHeader` (list screens) and `FormPage` (form/detail screens)
+ * now cover the two page shapes. `onCancel` also backs the header's back
+ * action, alongside the existing Cancel button
+ * (`e2e/system-admin.spec.ts` never asserts it, but
+ * `OrganizationsScreen.test.tsx` "cancels back to the list..." does).
  */
 export function OrganizationForm({ onCreated, onCancel }: OrganizationFormProps) {
   const [organizationName, setOrganizationName] = useState('')
@@ -49,12 +56,12 @@ export function OrganizationForm({ onCreated, onCancel }: OrganizationFormProps)
   }
 
   return (
-    <section className="flex w-full flex-col gap-6">
-      <PageHeader
-        title="New organization"
-        description="Onboard a new tenant with its first branch and administrator."
-      />
-
+    <FormPage
+      title="New organization"
+      description="Onboard a new tenant with its first branch and administrator."
+      onBack={onCancel}
+      backLabel="Back to organizations"
+    >
       <form onSubmit={handleSubmit} className="flex flex-col gap-6">
         <div className="grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-2">
           <Field
@@ -98,7 +105,7 @@ export function OrganizationForm({ onCreated, onCancel }: OrganizationFormProps)
           </Button>
         </div>
       </form>
-    </section>
+    </FormPage>
   )
 }
 
