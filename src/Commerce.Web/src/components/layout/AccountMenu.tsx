@@ -1,16 +1,9 @@
-import { useEffect, useRef, useState, type SVGProps } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
+import { ChevronDown, KeyRound, LogOut } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/auth/AuthContext'
 import { ThemeSwitcher } from '@/components/theme/ThemeSwitcher'
-
-function ChevronDownIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
-      <path d="m6 9 6 6 6-6" />
-    </svg>
-  )
-}
 
 /**
  * Account-scoped dropdown (T3): trigger shows the signed-in user's display
@@ -57,7 +50,10 @@ export function AccountMenu() {
         className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
       >
         <span>{user!.displayName}</span>
-        <ChevronDownIcon className={cn('transition-transform', open && 'rotate-180')} />
+        <ChevronDown
+          aria-hidden="true"
+          className={cn('size-3.5 shrink-0 transition-transform', open && 'rotate-180')}
+        />
       </button>
 
       {open && (
@@ -74,8 +70,9 @@ export function AccountMenu() {
               role="menuitem"
               to="/app/password"
               onClick={() => setOpen(false)}
-              className="flex items-center rounded-sm px-2 py-1.5 text-sm text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+              className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
             >
+              <KeyRound aria-hidden="true" className="size-4 shrink-0" />
               Change password
             </Link>
           </div>
@@ -90,8 +87,9 @@ export function AccountMenu() {
                 setOpen(false)
                 void signOut()
               }}
-              className="flex w-full items-center rounded-sm px-2 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
             >
+              <LogOut aria-hidden="true" className="size-4 shrink-0" />
               Sign out
             </button>
           </div>

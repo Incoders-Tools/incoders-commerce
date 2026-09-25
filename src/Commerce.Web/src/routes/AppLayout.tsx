@@ -1,17 +1,20 @@
-import { useState, type ReactNode, type SVGProps } from 'react'
+import { useState, type ComponentType, type ReactNode } from 'react'
 import { NavLink, Outlet } from 'react-router'
+import {
+  Building2,
+  ClipboardList,
+  Menu,
+  Package,
+  Store,
+  Tags,
+  UserCog,
+  Users2,
+  type LucideProps,
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { hasPermission, useAuth } from '@/auth/AuthContext'
 import { Permission } from '@/api/types'
 import { AccountMenu } from '@/components/layout/AccountMenu'
-
-function MenuIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
-      <path d="M4 6h16M4 12h16M4 18h16" />
-    </svg>
-  )
-}
 
 /**
  * Enterprise app shell (T3): fixed sidebar nav on desktop, hamburger-toggled
@@ -48,24 +51,24 @@ export function AppLayout() {
           <h1 className="text-lg font-semibold">Commerce</h1>
         </div>
         <nav aria-label="Primary" className="flex flex-1 flex-col gap-1 overflow-y-auto p-3">
-          <NavItem to="/app/catalog" onNavigate={closeMobileNav}>Catalog</NavItem>
-          <NavItem to="/app/orders" onNavigate={closeMobileNav}>Orders</NavItem>
+          <NavItem to="/app/catalog" icon={Package} onNavigate={closeMobileNav}>Catalog</NavItem>
+          <NavItem to="/app/orders" icon={ClipboardList} onNavigate={closeMobileNav}>Orders</NavItem>
           {/* commerce-customer-identity "Web admin gating": hidden, not just
               unreachable — a UX affordance, not the security boundary. The
               server's ManageUsers check on every /customers call is that. */}
           {hasPermission(user, Permission.ManageUsers) && (
             <>
-              <NavItem to="/app/customers" onNavigate={closeMobileNav}>Customers</NavItem>
-              <NavItem to="/app/users" onNavigate={closeMobileNav}>Users</NavItem>
-              <NavItem to="/app/branches" onNavigate={closeMobileNav}>Branches</NavItem>
+              <NavItem to="/app/customers" icon={Users2} onNavigate={closeMobileNav}>Customers</NavItem>
+              <NavItem to="/app/users" icon={UserCog} onNavigate={closeMobileNav}>Users</NavItem>
+              <NavItem to="/app/branches" icon={Store} onNavigate={closeMobileNav}>Branches</NavItem>
               {/* Same UI-only gate as its siblings: `App.tsx`'s
                   `RequireAdmin` is the routing boundary, and Pricing.cs's
                   own permission check is the real one. */}
-              <NavItem to="/app/price-lists" onNavigate={closeMobileNav}>Price lists</NavItem>
+              <NavItem to="/app/price-lists" icon={Tags} onNavigate={closeMobileNav}>Price lists</NavItem>
             </>
           )}
           {user?.isSystemAdmin && (
-            <NavItem to="/app/organizations" onNavigate={closeMobileNav}>Organizations</NavItem>
+            <NavItem to="/app/organizations" icon={Building2} onNavigate={closeMobileNav}>Organizations</NavItem>
           )}
         </nav>
       </aside>
@@ -78,7 +81,7 @@ export function AppLayout() {
             onClick={() => setMobileOpen((prev) => !prev)}
             className="rounded-md p-1.5 text-foreground transition-colors hover:bg-accent hover:text-accent-foreground md:hidden"
           >
-            <MenuIcon />
+            <Menu aria-hidden="true" className="size-5 shrink-0" />
           </button>
           <div className="flex flex-1 items-center justify-end">
             <AccountMenu />
@@ -92,20 +95,31 @@ export function AppLayout() {
   )
 }
 
-function NavItem({ to, children, onNavigate }: { to: string; children: ReactNode; onNavigate?: () => void }) {
+function NavItem({
+  to,
+  children,
+  icon: Icon,
+  onNavigate,
+}: {
+  to: string
+  children: ReactNode
+  icon: ComponentType<LucideProps>
+  onNavigate?: () => void
+}) {
   return (
     <NavLink
       to={to}
       onClick={onNavigate}
       className={({ isActive }) =>
         cn(
-          'flex items-center rounded-md px-3 py-2 text-sm font-medium transition-colors',
+          'flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors',
           isActive
             ? 'bg-accent text-accent-foreground'
             : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
         )
       }
     >
+      <Icon aria-hidden="true" className="size-4 shrink-0" />
       {children}
     </NavLink>
   )

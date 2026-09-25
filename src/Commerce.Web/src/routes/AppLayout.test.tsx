@@ -59,6 +59,27 @@ describe('AppLayout', () => {
     expect(nav.queryByRole('link', { name: /change password/i })).not.toBeInTheDocument()
   })
 
+  it('renders an identifying icon next to every visible nav link, without changing its accessible name', () => {
+    renderLayout(buildUser({ permissions: Permission.ManageUsers, isSystemAdmin: true }))
+
+    const nav = within(screen.getByRole('navigation'))
+    for (const name of ['Catalog', 'Orders', 'Customers', 'Users', 'Branches', 'Price lists', 'Organizations']) {
+      const link = nav.getByRole('link', { name })
+      const icon = link.querySelector('svg')
+      expect(icon).not.toBeNull()
+      expect(icon).toHaveAttribute('aria-hidden', 'true')
+    }
+  })
+
+  it('replaces the hand-drawn hamburger icon with a lucide Menu icon', () => {
+    renderLayout(buildUser())
+
+    const toggle = screen.getByRole('button', { name: /toggle navigation/i })
+    const icon = toggle.querySelector('svg')
+    expect(icon).not.toBeNull()
+    expect(icon).toHaveAttribute('aria-hidden', 'true')
+  })
+
   it('additionally shows Customers, Users, and Branches to a user with ManageUsers, but not Organizations', () => {
     renderLayout(buildUser({ permissions: Permission.ManageUsers }))
 

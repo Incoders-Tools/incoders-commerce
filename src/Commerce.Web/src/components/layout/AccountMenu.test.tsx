@@ -68,6 +68,33 @@ describe('AccountMenu', () => {
     expect(within(menu).queryByRole('button', { name: 'Sign out' })).not.toBeInTheDocument()
   })
 
+  it('shows an identifying icon on Change password and Sign out without changing their accessible names', async () => {
+    const user = userEvent.setup()
+    renderMenu()
+
+    await user.click(screen.getByRole('button', { name: /ada lovelace/i }))
+    const menu = screen.getByRole('menu')
+
+    const changePasswordLink = within(menu).getByRole('menuitem', { name: 'Change password' })
+    const changePasswordIcon = changePasswordLink.querySelector('svg')
+    expect(changePasswordIcon).not.toBeNull()
+    expect(changePasswordIcon).toHaveAttribute('aria-hidden', 'true')
+
+    const signOutItem = within(menu).getByRole('menuitem', { name: 'Sign out' })
+    const signOutIcon = signOutItem.querySelector('svg')
+    expect(signOutIcon).not.toBeNull()
+    expect(signOutIcon).toHaveAttribute('aria-hidden', 'true')
+  })
+
+  it('replaces the hand-drawn chevron with a lucide ChevronDown icon on the trigger', () => {
+    renderMenu()
+
+    const trigger = screen.getByRole('button', { name: /ada lovelace/i })
+    const icon = trigger.querySelector('svg')
+    expect(icon).not.toBeNull()
+    expect(icon).toHaveAttribute('aria-hidden', 'true')
+  })
+
   it('closes the menu when Escape is pressed', async () => {
     const user = userEvent.setup()
     renderMenu()
