@@ -122,7 +122,7 @@ admin panel.
       2026-09-25 found NO spec and NO entity/API field for any of them
       (`Organization` has only `Id`, `Name`), so they need a spec change
       first. Route: delegated direct (writer).
-- [ ] T9. Full-screen forms instead of inline expansions: add a shared
+- [x] T9. Full-screen forms instead of inline expansions: add a shared
       `components/layout/FormPage` shell (page header with back action,
       full-width body, footer actions) and move the boxed inline editors
       onto it — Catalog "Edit code" (`DataView.renderExpanded`) and the
@@ -132,6 +132,15 @@ admin panel.
       `Edit code` button name and form field labels used by
       `e2e/catalog.spec.ts`; update E2E where the flow changes and
       typecheck `e2e/` explicitly. Route: delegated direct (writer).
+- [ ] T10. Forms actually use the width + dark-mode-safe selects: found by
+      the parent while verifying T9. `CustomerForm` keeps ~20 fields in a
+      single `max-w-lg` column inside the full-screen shell, and its three
+      native `<select>`s (plus `OrderLinesEditor`'s) hardcode `bg-white
+      border-neutral-300`, so they stay white in dark mode. Add a token-based
+      `components/ui/select.tsx` (native select styled like `Input`), use it
+      everywhere, and lay `CustomerForm` out as grouped sections on a
+      responsive multi-column grid. Route: delegated direct (writer; 3+
+      non-trivial files).
 
 ## Progress
 
@@ -797,6 +806,19 @@ admin panel.
   (OrganizationsScreen.tsx:38-57) — a slow list refresh could overwrite a
   newer one. Folded into T9 as cleanup.
 
+- 2026-09-25: T9 done (delegated direct). Commits: `d4d2ae1` FormPage
+  shell (+ CustomerForm/OrganizationForm on it), `34f49a5` Catalog "Edit
+  code" as a full-screen form (DataView `renderExpanded` removed, no other
+  caller), `6994991` price lists open via "Manage prices" as a full-screen
+  detail page, history stays an expandable section inside it (UX change:
+  the default list's prices no longer show without a click), `e12effc`
+  stale organization refresh guard (sequence number), `9eecf3b` icon tests
+  now assert the lucide class. TDD strict, RED observed per commit.
+  `npm run test` 204/204 (38 files), lint exit 0 / 13 baseline warnings,
+  build clean, e2e typecheck clean; `e2e/catalog.spec.ts` needed no change
+  (role/label selectors unchanged). Parent spot check: full suite 204/204.
+
 ## Next step
 
-T9 (full-screen forms). T5 backend settings need a spec decision first.
+T10, then RDD review over `6f8eeba..HEAD`. T5 backend settings need a spec
+decision first.
