@@ -53,16 +53,44 @@ In CI the databases are ephemeral, so the separation protects nothing there;
 — the only job that runs `dotnet test` — and leaves every other `commerce_dev`
 reference untouched.
 
-## Local development administrator
+## Local development identities
 
-Use one local identity for Web and Desktop administration:
+`deploy/dev/provision-admin.ps1` restores both local identities in one command:
+the platform **system administrator**, and the first **organization** with its
+`business-admin`.
 
-1. Copy `deploy/dev/.env.example` to the ignored `deploy/dev/.env` and set unique values for both variables.
+1. Copy `deploy/dev/.env.example` to the ignored `deploy/dev/.env` and set unique values:
+
+   | Variable | Required | Meaning |
+   | --- | --- | --- |
+   | `COMMERCE_DEV_ADMIN_EMAIL` | yes | System administrator. Signs in to Web, pairs Desktop, and is the identity the script authenticates as to create the organization. |
+   | `COMMERCE_DEV_ADMIN_PASSWORD` | yes | Its password. |
+   | `COMMERCE_DEV_ORGANIZATION_NAME` | yes | Name of the organization to create. |
+   | `COMMERCE_DEV_ORGANIZATION_ADMIN_EMAIL` | yes | The organization's first `business-admin`. Must differ from `COMMERCE_DEV_ADMIN_EMAIL`. |
+   | `COMMERCE_DEV_ORGANIZATION_ADMIN_PASSWORD` | yes | Its password. |
+   | `COMMERCE_DEV_ORGANIZATION_BRANCH_NAME` | no | First branch; the API defaults to `Main`. |
+
 2. Start the complete local stack: `docker compose -f deploy/dev/compose.yaml --profile full up -d`.
 3. Run `pwsh -File deploy/dev/provision-admin.ps1`.
-4. Sign in to Web and Desktop with the **same** email and password from `deploy/dev/.env`.
+4. Sign in to Web and Desktop with the system administrator credentials, or to the organization with the business-admin ones.
 
-Desktop pairing happens before its admin window opens. The provisioning script verifies that the same identity can pair a Desktop terminal; keep credentials only in the ignored `.env` file, never in compose or init SQL.
+The system administrator is seeded through the Development-only
+`/internal/test-seed/user` seam and promoted with `is_system_admin = true`. The
+organization then goes through the real `POST /account/organizations`, which
+writes organization, branch, user and audit entry in one transaction.
+
+The script is **idempotent**: each identity is ensured, not created. When an
+account already exists it proves — by signing in as it — that the account is
+the one `.env` describes, and re-applies the system administrator promotion.
+It never rewrites an existing password; a stored password that differs from
+`.env` fails loudly and names the account and the variable, because recovery is
+rarely all-or-nothing and refusing to run unless the database is empty forces
+back exactly the manual work the script removes.
+
+Desktop pairing happens before its admin window opens; the script verifies the
+system administrator can pair a Desktop terminal. It refuses any non-loopback
+API. Keep credentials only in the ignored `.env` file, never in compose, init
+SQL, or `.env.example`.
 
 ## Unit 2 — Transaction-pooler proof-of-concept outcome
 
