@@ -7,8 +7,8 @@ namespace Commerce.Integration;
 
 /// <summary>
 /// Live-Postgres coverage for commerce-price-composition slice 1's
-/// persistence half: `PostgresRateComponentStore` against the real `0013`
-/// schema (`specs/price-list-management/spec.md` requirements "Price List
+/// persistence half: `PostgresRateComponentStore` against the real `0013` +
+/// `0014` schema (`specs/price-list-management/spec.md` requirements "Price List
 /// Rate Components", "Rate Components Are Scoped To The List, Not The
 /// Organization", "Organization Default Rate Components", "Append-Only
 /// Effective-Dated Rate Component History", "Organization-Scoped Component
@@ -75,6 +75,7 @@ public sealed class RateComponentStoreTests : IDisposable
         Apply("0003_organizations_branches.sql");
         Apply("0009_catalog_and_pricing.sql");
         Apply("0013_rate_components.sql");
+        Apply("0014_rate_component_tenancy.sql");
 
         using var resetCmd = new NpgsqlCommand(
             """
@@ -555,6 +556,166 @@ public sealed class RateComponentStoreTests : IDisposable
         Assert.Equal(priceListId, effective!.PriceListId);
         Assert.Empty(effective.Components);
         Assert.Equal(15_370m, effective.Compose(15_370m));
+    }
+
+    // --- Cross-tenant references (0014) -------------------------------------
+
+    /// <summary>
+    /// R1-latent-cross-tenant-price-list-id. RLS hides another organization's
+    /// `price_lists` row from a SELECT, but a foreign-key CHECK is not a
+    /// SELECT: it runs as the referential-integrity trigger, outside the
+    /// policy. Before `0014`, Organization A could therefore publish a rate
+    /// component set naming Organization B's `price_list_id` — a tenant
+    /// boundary crossed by a plain INSERT — and, because
+    /// `rate_component_sets_list_day_uk` keyed only `(price_list_id,
+    /// effective_from)`, that row also PRE-EMPTED B's own publication for the
+    /// same day, denying B a write it is entitled to.
+    ///
+    /// `0014` makes the reference composite —
+    /// `(organization_id, price_list_id) -> price_lists (organization_id, id)`
+    /// — so the database itself refuses the cross-tenant row. MATCH SIMPLE
+    /// leaves the organization-default case (`price_list_id IS NULL`)
+    /// unchecked, which is exactly right: it references no list.
+    ///
+    /// MUTATION-CHECKED: with the composite constraint dropped this publish
+    /// succeeds and the assertion fails.
+    /// </summary>
+    [Fact]
+    public async Task PublishSetAsync_NamingAnotherOrganizationsPriceList_IsRefusedByTheDatabase()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var orgAId = Guid.NewGuid();
+        var orgBId = Guid.NewGuid();
+        SeedOrganization(orgAId, "Org A");
+        SeedOrganization(orgBId, "Org B");
+        var scopeA = new CloudTenantScope(orgAId);
+        var scopeB = new CloudTenantScope(orgBId);
+        var actorId = Guid.NewGuid();
+
+        var listInB = await SeedPriceListAsync(scopeB, "Reparto de B", actorId, isDefault: true);
+
+        var store = new PostgresRateComponentStore(_dataSource!);
+
+        var error = await Assert.ThrowsAsync<PostgresException>(() => store.PublishSetAsync(
+            scopeA,
+            new NewRateComponentSet(Guid.NewGuid(), listInB, new DateOnly(2026, 1, 1), VacaVerdeComponents(), actorId),
+            "org-user", actorId, CancellationToken.None));
+
+        // 23503 = foreign_key_violation. Not 23505: the point is that the row
+        // is refused as a reference, not merely as a duplicate.
+        Assert.Equal("23503", error.SqlState);
+
+        // And B keeps the day it was nearly pre-empted out of.
+        await store.PublishSetAsync(
+            scopeB,
+            new NewRateComponentSet(Guid.NewGuid(), listInB, new DateOnly(2026, 1, 1), VacaVerdeComponents(), actorId),
+            "org-user", actorId, CancellationToken.None);
+        Assert.NotNull(await store.GetEffectiveSetAsync(scopeB, listInB, new DateOnly(2026, 1, 1), CancellationToken.None));
+    }
+
+    /// <summary>
+    /// The same class of gap one level down: `rate_components.set_id`
+    /// referenced `rate_component_sets (id)` alone, so a component row scoped
+    /// to Organization A could be attached to Organization B's set. `0014`
+    /// makes that reference composite too.
+    /// </summary>
+    [Fact]
+    public async Task RateComponentRow_AttachedToAnotherOrganizationsSet_IsRefusedByTheDatabase()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var orgAId = Guid.NewGuid();
+        var orgBId = Guid.NewGuid();
+        SeedOrganization(orgAId, "Org A");
+        SeedOrganization(orgBId, "Org B");
+        var actorId = Guid.NewGuid();
+
+        var setInB = Guid.NewGuid();
+        var listInB = await SeedPriceListAsync(new CloudTenantScope(orgBId), "Reparto de B", actorId, isDefault: true);
+        await new PostgresRateComponentStore(_dataSource!).PublishSetAsync(
+            new CloudTenantScope(orgBId),
+            new NewRateComponentSet(setInB, listInB, new DateOnly(2026, 1, 1), VacaVerdeComponents(), actorId),
+            "org-user", actorId, CancellationToken.None);
+
+        // Written as the OWNER, deliberately: RLS is not the control under
+        // test here, the referential constraint is. `app_runtime` would be
+        // stopped by the policy first and prove nothing about the FK.
+        using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        owner.Open();
+        using var cmd = new NpgsqlCommand(
+            """
+            INSERT INTO rate_components
+                (id, organization_id, set_id, code, label, percentage, calculation_base, component_order)
+            VALUES ($1, $2, $3, 'SMUGGLED', 'Smuggled', 99, 'Base', 99)
+            """, owner);
+        cmd.Parameters.AddWithValue(Guid.NewGuid());
+        cmd.Parameters.AddWithValue(orgAId);
+        cmd.Parameters.AddWithValue(setInB);
+
+        var error = Assert.Throws<PostgresException>(() => cmd.ExecuteNonQuery());
+        Assert.Equal("23503", error.SqlState);
+    }
+
+    // --- Code identity (0014) -----------------------------------------------
+
+    /// <summary>
+    /// R3-case-insensitive-dup-read-failure. `RateComponentSet` rejects
+    /// duplicate codes with `OrdinalIgnoreCase`, but `0013`'s
+    /// `UNIQUE (set_id, code)` is case-SENSITIVE. The two disagreeing is worse
+    /// than either rule alone: a `IVA`/`iva` pair written by any path that is
+    /// not the domain constructor persists happily, and from then on EVERY
+    /// read of that set throws while rebuilding it — the components become
+    /// permanently unreadable, and the set cannot be deleted either, because
+    /// the tables are append-only by grant.
+    ///
+    /// `0014` aligns the database with the domain: unique on
+    /// `(set_id, lower(code))`.
+    /// </summary>
+    [Fact]
+    public void RateComponents_TwoCodesDifferingOnlyInCase_AreRefusedByTheDatabase()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var organizationId = Guid.NewGuid();
+        SeedOrganization(organizationId);
+        var setId = Guid.NewGuid();
+
+        using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        owner.Open();
+
+        using (var setCmd = new NpgsqlCommand(
+            """
+            INSERT INTO rate_component_sets (id, organization_id, price_list_id, effective_from, created_by_user_id)
+            VALUES ($1, $2, NULL, DATE '2026-01-01', $3)
+            """, owner))
+        {
+            setCmd.Parameters.AddWithValue(setId);
+            setCmd.Parameters.AddWithValue(organizationId);
+            setCmd.Parameters.AddWithValue(Guid.NewGuid());
+            setCmd.ExecuteNonQuery();
+        }
+
+        void InsertComponent(string code, int order)
+        {
+            using var cmd = new NpgsqlCommand(
+                """
+                INSERT INTO rate_components
+                    (id, organization_id, set_id, code, label, percentage, calculation_base, component_order)
+                VALUES ($1, $2, $3, $4, $4, 10.5, 'Base', $5)
+                """, owner);
+            cmd.Parameters.AddWithValue(Guid.NewGuid());
+            cmd.Parameters.AddWithValue(organizationId);
+            cmd.Parameters.AddWithValue(setId);
+            cmd.Parameters.AddWithValue(code);
+            cmd.Parameters.AddWithValue(order);
+            cmd.ExecuteNonQuery();
+        }
+
+        InsertComponent("IVA", 1);
+
+        var error = Assert.Throws<PostgresException>(() => InsertComponent("iva", 2));
+        Assert.Equal("23505", error.SqlState);
     }
 
     // --- RLS through the store ---------------------------------------------

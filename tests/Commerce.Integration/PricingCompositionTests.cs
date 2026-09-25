@@ -422,6 +422,7 @@ public sealed class PricingCompositionTests : IDisposable
         Apply("0003_organizations_branches.sql");
         Apply("0009_catalog_and_pricing.sql");
         Apply("0013_rate_components.sql");
+        Apply("0014_rate_component_tenancy.sql");
 
         using var resetCmd = new NpgsqlCommand(
             """

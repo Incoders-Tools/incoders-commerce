@@ -3379,6 +3379,20 @@ public sealed class MigrationRlsTests
         ApplyRateComponentsMigration(connection);
     }
 
+    private static void ApplyRateComponentTenancyMigration(NpgsqlConnection connection)
+    {
+        var path = Path.Combine(
+            Path.GetDirectoryName(ResolveRateComponentsMigrationPath())!, "0014_rate_component_tenancy.sql");
+        using var cmd = new NpgsqlCommand(File.ReadAllText(path), connection);
+        cmd.ExecuteNonQuery();
+    }
+
+    private static void ApplyAllMigrationsThrough0014(NpgsqlConnection connection)
+    {
+        ApplyAllMigrationsThrough0013(connection);
+        ApplyRateComponentTenancyMigration(connection);
+    }
+
     private static void ResetRateComponents()
     {
         using var connection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
@@ -3700,5 +3714,101 @@ public sealed class MigrationRlsTests
 
         var ex = Assert.Throws<PostgresException>(() => insertComponentCmd.ExecuteNonQuery());
         Assert.Equal("23514", ex.SqlState);
+    }
+
+    // --- commerce-price-composition review round 1: 0014 -------------------
+
+    [Fact]
+    public void RateComponentTenancyMigration_IsIdempotent_AppliedTwiceWithoutError()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        using var connection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        connection.Open();
+        ApplyAllMigrationsThrough0013(connection);
+
+        ApplyRateComponentTenancyMigration(connection);
+        ApplyRateComponentTenancyMigration(connection);
+
+        using var cmd = new NpgsqlCommand(
+            """
+            SELECT
+                EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'rate_component_sets_price_list_org_fk'),
+                EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'rate_components_set_org_fk'),
+                EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'rate_components_one_code_per_set_ci')
+            """, connection);
+        using var reader = cmd.ExecuteReader();
+        Assert.True(reader.Read());
+        Assert.True(reader.GetBoolean(0));
+        Assert.True(reader.GetBoolean(1));
+        Assert.True(reader.GetBoolean(2));
+    }
+
+    /// <summary>
+    /// R1-latent-cross-tenant-price-list-id, asserted on the constraint itself
+    /// rather than only on the behaviour it produces: the reference from
+    /// `rate_component_sets` to `price_lists` must carry BOTH columns. A
+    /// single-column reference is checked outside RLS and would let one
+    /// organization name another's list.
+    /// </summary>
+    [Fact]
+    public void RateComponentTenancyMigration_PriceListReference_IsTenantComposite()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        using var connection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        connection.Open();
+        ApplyAllMigrationsThrough0014(connection);
+
+        using var cmd = new NpgsqlCommand(
+            """
+            SELECT string_agg(a.attname, ',' ORDER BY a.attname)
+            FROM pg_constraint c
+            JOIN unnest(c.conkey) AS k(attnum) ON true
+            JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum
+            WHERE c.conname = 'rate_component_sets_price_list_org_fk'
+            """, connection);
+
+        Assert.Equal("organization_id,price_list_id", cmd.ExecuteScalar() as string);
+    }
+
+    /// <summary>
+    /// The lone remaining single-column path onto these tables must be gone:
+    /// `0013`'s tenant-blind references are dropped, not merely shadowed by
+    /// the composite ones.
+    /// </summary>
+    [Fact]
+    public void RateComponentTenancyMigration_DropsTheTenantBlindReferences()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        using var connection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        connection.Open();
+        ApplyAllMigrationsThrough0014(connection);
+
+        using var cmd = new NpgsqlCommand(
+            """
+            SELECT
+                EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'rate_component_sets_price_list_id_fkey'),
+                EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'rate_components_set_id_fkey'),
+                EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'rate_components_one_code_per_set')
+            """, connection);
+        using var reader = cmd.ExecuteReader();
+        Assert.True(reader.Read());
+        Assert.False(reader.GetBoolean(0));
+        Assert.False(reader.GetBoolean(1));
+        Assert.False(reader.GetBoolean(2));
     }
 }

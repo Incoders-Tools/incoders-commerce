@@ -57,6 +57,13 @@ public sealed class RateComponentSet
             .FirstOrDefault(g => g.Count() > 1);
         if (duplicateCode is not null)
         {
+            // `OrdinalIgnoreCase`, and migration `0014` makes the database
+            // agree: `UNIQUE (set_id, lower(code))`. The two MUST stay aligned.
+            // While `0013`'s case-sensitive key stood, an `IVA`/`iva` pair
+            // written by any path other than this constructor persisted
+            // cleanly and then made every later read of that set throw here
+            // while rebuilding it — unreadable and, the tables being
+            // append-only by grant, unrepairable.
             throw new ArgumentException(
                 $"components must not repeat a code within one set; '{duplicateCode.Key}' appears {duplicateCode.Count()} times.",
                 nameof(components));
