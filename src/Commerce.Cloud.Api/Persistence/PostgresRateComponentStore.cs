@@ -60,6 +60,18 @@ public sealed class PostgresRateComponentStore
     /// the same owner throws (`rate_component_sets_list_day_uk` or
     /// `rate_component_sets_org_default_day_uk`, SqlState `23505`) rather
     /// than leaving two candidates for "the effective set on that date".
+    ///
+    /// The returned set is rebuilt from the CALLER'S components, not re-read
+    /// from the rows just written, and that is safe only because
+    /// <see cref="RateComponent"/> refuses any percentage the
+    /// `numeric(9,4)` column would round (see
+    /// <see cref="RateComponent.MaxDecimalPlaces"/>). Rejecting at the edge was
+    /// chosen over re-reading: a re-read would have kept the silent rounding
+    /// and merely reported it, so a publisher asking for 10.50005% would be
+    /// handed 10.5001% with nothing marking the change. The alternative to
+    /// widening that edge is widening the column, never loosening this.
+    /// `RateComponentStoreTests.PublishSetAsync_ReturnedSet_ComposesExactlyWhatEveryLaterReadComposes`
+    /// pins the two together against the live schema.
     /// </summary>
     public async Task<RateComponentSet> PublishSetAsync(
         CloudTenantScope scope, NewRateComponentSet set, string actorKind, Guid actorId, CancellationToken ct)

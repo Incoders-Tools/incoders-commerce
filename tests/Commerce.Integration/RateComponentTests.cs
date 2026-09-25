@@ -96,6 +96,60 @@ public sealed class RateComponentTests
             new RateComponent("IVA", "IVA", -1m, RateCalculationBase.Base, 1));
     }
 
+    /// <summary>
+    /// R3-publish-returns-unpersisted-precision. `rate_components.percentage`
+    /// is `numeric(9,4)`; Postgres ROUNDS a finer percentage on INSERT without
+    /// a word. Accepting one here would mean `PublishSetAsync` hands its caller
+    /// a set that composes a different price than every later read of the same
+    /// set composes. Four decimal places is a ten-thousandth of a percent — far
+    /// below any real rate — so the edge REJECTS instead of silently rounding.
+    /// </summary>
+    [Fact]
+    public void Component_WithAPercentageFinerThanFourDecimalPlaces_IsRejected()
+    {
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new RateComponent("IVA", "IVA", 10.50005m, RateCalculationBase.Base, 1));
+
+        Assert.Contains("four decimal places", error.Message);
+    }
+
+    /// <summary>
+    /// The boundary, both ways: exactly four decimal places is the finest rate
+    /// the column stores exactly, so it MUST be accepted — without this, a
+    /// validator that rejected everything below 1% would also pass the test
+    /// above.
+    /// </summary>
+    [Fact]
+    public void Component_WithExactlyFourDecimalPlaces_IsAccepted()
+    {
+        Assert.Equal(10.5005m, new RateComponent("IVA", "IVA", 10.5005m, RateCalculationBase.Base, 1).Percentage);
+    }
+
+    /// <summary>
+    /// Trailing zeros are SCALE, not information: `10.50000m` carries five
+    /// decimal digits in its representation but the same value as `10.5m`, and
+    /// the column stores it exactly. A naive scale check on the decimal's bits
+    /// would reject it.
+    /// </summary>
+    [Fact]
+    public void Component_WithTrailingZerosBeyondFourPlaces_IsAccepted()
+    {
+        Assert.Equal(10.5m, new RateComponent("IVA", "IVA", 10.50000m, RateCalculationBase.Base, 1).Percentage);
+    }
+
+    /// <summary>
+    /// The other half of `numeric(9,4)`: 9 total digits with 4 after the point
+    /// leaves 5 before it. A larger percentage is a `22003` numeric overflow
+    /// deep inside the publish transaction; rejecting it at the edge makes the
+    /// domain type's range exactly the column's range.
+    /// </summary>
+    [Fact]
+    public void Component_WithAPercentageWiderThanTheColumn_IsRejected()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new RateComponent("IVA", "IVA", 100_000m, RateCalculationBase.Base, 1));
+    }
+
     [Fact]
     public void Component_PreservesCodeLabelPercentageBaseAndOrder()
     {

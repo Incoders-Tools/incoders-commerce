@@ -186,6 +186,46 @@ public sealed class RateComponentStoreTests : IDisposable
     }
 
     /// <summary>
+    /// R3-publish-returns-unpersisted-precision. `PublishSetAsync` returns a
+    /// set rebuilt from the caller's IN-MEMORY components, never from the rows
+    /// Postgres actually wrote. That is only honest while the two are the same
+    /// number, and `numeric(9,4)` silently rounds anything finer.
+    ///
+    /// This is the durable guard for the domain-edge rejection in
+    /// <see cref="RateComponent"/>: it pins the FINEST percentage the column
+    /// stores exactly and asserts the returned set and every later read compose
+    /// bit-for-bit the same price. If the column's scale is ever narrowed
+    /// without narrowing the edge, this fails instead of quietly diverging.
+    /// </summary>
+    [Fact]
+    public async Task PublishSetAsync_ReturnedSet_ComposesExactlyWhatEveryLaterReadComposes()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var organizationId = Guid.NewGuid();
+        SeedOrganization(organizationId);
+        var scope = new CloudTenantScope(organizationId);
+        var actorId = Guid.NewGuid();
+        var priceListId = await SeedPriceListAsync(scope, "Reparto", actorId, isDefault: true);
+
+        // 10.5005 % — four decimal places, the exact edge of numeric(9,4).
+        var finest = new List<RateComponent> { Component("IVA", 10.5005m, RateCalculationBase.Base, 1) };
+
+        var store = new PostgresRateComponentStore(_dataSource!);
+        var returned = await store.PublishSetAsync(
+            scope,
+            new NewRateComponentSet(Guid.NewGuid(), priceListId, new DateOnly(2026, 1, 1), finest, actorId),
+            "org-user", actorId, CancellationToken.None);
+
+        var reread = await store.GetEffectiveSetAsync(scope, priceListId, new DateOnly(2026, 1, 1), CancellationToken.None);
+
+        Assert.NotNull(reread);
+        Assert.Equal(10.5005m, Assert.Single(reread!.Components).Percentage);
+        Assert.Equal(returned.Compose(10_600m), reread.Compose(10_600m));
+        Assert.Equal(11_713.053m, reread.Compose(10_600m));
+    }
+
+    /// <summary>
     /// A `Subtotal` component round-trips as `Subtotal` and chains: 100 -> 110
     /// -> 121, not 120. Without this, `PublishSetAsync` could write a constant
     /// 'Base' and every other test here would still pass.
