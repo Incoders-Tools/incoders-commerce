@@ -190,4 +190,46 @@ describe('CatalogScreen', () => {
 
     await screen.findByText('7791234567890')
   })
+
+  it('replaces the list with a full-screen edit page instead of expanding the row inline', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify([unlabelled, labelled]), { status: 200 }))
+
+    const user = userEvent.setup()
+    render(<CatalogScreen />)
+
+    await screen.findByText('1.5L bottle')
+    await user.click(screen.getAllByRole('button', { name: /edit code/i })[0])
+
+    // The list (and the other presentation's row) is gone, not just a form
+    // appended under this row.
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    expect(screen.queryByText('330ml can')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Edit code' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /back to catalog/i }))
+
+    expect(screen.getByText('1.5L bottle')).toBeInTheDocument()
+    expect(screen.getByText('330ml can')).toBeInTheDocument()
+  })
+
+  it('keeps the search text and view preference after returning from the edit page', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify([unlabelled, labelled]), { status: 200 }))
+
+    const user = userEvent.setup()
+    render(<CatalogScreen />)
+
+    await screen.findByText('1.5L bottle')
+    await user.click(screen.getByRole('radio', { name: /card view/i }))
+    await user.type(screen.getByLabelText(/search presentations/i), '330')
+    expect(screen.getByText('330ml can')).toBeInTheDocument()
+    expect(screen.queryByText('1.5L bottle')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /edit code/i }))
+    await user.click(screen.getByRole('button', { name: /back to catalog/i }))
+
+    expect(screen.getByLabelText(/search presentations/i)).toHaveValue('330')
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    expect(screen.getByText('330ml can')).toBeInTheDocument()
+    expect(screen.queryByText('1.5L bottle')).not.toBeInTheDocument()
+  })
 })

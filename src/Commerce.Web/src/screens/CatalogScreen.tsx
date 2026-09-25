@@ -6,6 +6,7 @@ import { DataToolbar } from '@/components/data/DataToolbar'
 import { DataView, type DataViewColumn } from '@/components/data/DataView'
 import { PageHeader } from '@/components/data/PageHeader'
 import { useViewPreference } from '@/components/data/useViewPreference'
+import { FormPage } from '@/components/layout/FormPage'
 import { listPresentations, updatePresentation } from '@/api/catalog'
 import { ApiError } from '@/api/client'
 import { QuantityBehavior, type PresentationRecord } from '@/api/types'
@@ -33,6 +34,15 @@ function formatUpdatedAt(value: string): string {
  * no centered `max-w-*` card — the T3 shell already owns the page frame.
  * Search is a client-side filter over what `GET /catalog/presentations`
  * already returned; there is no server-side search endpoint.
+ *
+ * T9: "Edit code" used to open `IdentificationCodeForm` inline via
+ * `DataView.renderExpanded` (a boxed row under the item) — the user's
+ * complaint was that this read like an embedded modal. It now follows the
+ * same full-screen state-swap `CustomersScreen`/`CustomerForm` established:
+ * `editingId` swaps this component's own return value for `FormPage`
+ * instead of expanding a row, and `search`/`view` stay intact across the
+ * swap because they live in this same component, not a child that
+ * unmounts.
  */
 export function CatalogScreen() {
   const [presentations, setPresentations] = useState<PresentationRecord[]>([])
@@ -81,6 +91,21 @@ export function CatalogScreen() {
         (presentation.identificationCode ?? '').toLowerCase().includes(trimmedSearch),
     )
   }, [presentations, trimmedSearch])
+
+  // Every hook above must run on every render, including while editing, so
+  // this state-swap return sits after them (rules of hooks) — the same
+  // ordering `CustomersScreen.tsx` uses for its own create/edit swap.
+  const editingPresentation = presentations.find((presentation) => presentation.id === editingId) ?? null
+
+  if (editingPresentation) {
+    return (
+      <IdentificationCodeForm
+        presentation={editingPresentation}
+        onCancel={() => setEditingId(null)}
+        onUpdated={handleUpdated}
+      />
+    )
+  }
 
   const columns: DataViewColumn<PresentationRecord>[] = [
     { key: 'name', header: 'Name', cell: (presentation) => presentation.name },
@@ -136,22 +161,11 @@ export function CatalogScreen() {
               ? 'No presentations yet.'
               : 'No presentations match this search.'
         }
-        renderActions={(presentation) =>
-          editingId === presentation.id ? null : (
-            <Button type="button" variant="outline" size="sm" onClick={() => setEditingId(presentation.id)}>
-              Edit code
-            </Button>
-          )
-        }
-        renderExpanded={(presentation) =>
-          editingId === presentation.id ? (
-            <IdentificationCodeForm
-              presentation={presentation}
-              onCancel={() => setEditingId(null)}
-              onUpdated={handleUpdated}
-            />
-          ) : null
-        }
+        renderActions={(presentation) => (
+          <Button type="button" variant="outline" size="sm" onClick={() => setEditingId(presentation.id)}>
+            Edit code
+          </Button>
+        )}
       />
     </section>
   )
@@ -190,26 +204,35 @@ function IdentificationCodeForm({
   }
 
   return (
-    <form className="flex flex-wrap items-end gap-2" onSubmit={handleSubmit}>
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor={`identificationCode-${presentation.id}`}>Identification code</Label>
-        <Input
-          id={`identificationCode-${presentation.id}`}
-          value={identificationCode}
-          onChange={(e) => setIdentificationCode(e.target.value)}
-        />
-      </div>
-      {error && (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
-      )}
-      <Button type="submit" size="sm" disabled={submitting}>
-        {submitting ? 'Saving…' : 'Save'}
-      </Button>
-      <Button type="button" variant="outline" size="sm" onClick={onCancel} disabled={submitting}>
-        Cancel
-      </Button>
-    </form>
+    <FormPage
+      title="Edit code"
+      description={`Identification code for "${presentation.name}".`}
+      onBack={onCancel}
+      backLabel="Back to catalog"
+    >
+      <form className="flex max-w-md flex-col gap-4" onSubmit={handleSubmit}>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="identificationCode">Identification code</Label>
+          <Input
+            id="identificationCode"
+            value={identificationCode}
+            onChange={(e) => setIdentificationCode(e.target.value)}
+          />
+        </div>
+        {error && (
+          <p role="alert" className="text-sm text-destructive">
+            {error}
+          </p>
+        )}
+        <div className="flex gap-2">
+          <Button type="submit" disabled={submitting}>
+            {submitting ? 'Saving…' : 'Save'}
+          </Button>
+          <Button type="button" variant="outline" onClick={onCancel} disabled={submitting}>
+            Cancel
+          </Button>
+        </div>
+      </form>
+    </FormPage>
   )
 }

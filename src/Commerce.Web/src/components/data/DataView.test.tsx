@@ -90,13 +90,6 @@ describe('DataView', () => {
     expect(screen.getByRole('button', { name: 'Edit Beta' })).toBeInTheDocument()
   })
 
-  it('renders expanded content for every item that returns it', () => {
-    renderView({ renderExpanded: (row) => <p>expanded {row.name}</p> })
-
-    expect(screen.getByText('expanded Alpha')).toBeInTheDocument()
-    expect(screen.getByText('expanded Beta')).toBeInTheDocument()
-  })
-
   it('says the load failed instead of claiming the collection is empty', () => {
     renderView({ items: [], loadErrorMessage: 'Rows could not be loaded.' })
 
@@ -117,13 +110,5 @@ describe('DataView', () => {
 
     expect(screen.getByRole('status')).toHaveTextContent(/loading/i)
     expect(screen.queryByTestId('data-view-load-error')).not.toBeInTheDocument()
-  })
-
-  it('renders expanded content under the matching item only', () => {
-    renderView({ renderExpanded: (row) => (row.id === 'a' ? <p>expanded alpha</p> : null) })
-
-    // Counting matches rather than probing for text the callback never
-    // returns: a scoping bug would repeat this same node under every row.
-    expect(screen.getAllByText(/^expanded /)).toHaveLength(1)
   })
 })

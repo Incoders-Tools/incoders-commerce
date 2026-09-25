@@ -1,4 +1,4 @@
-import { Fragment, type ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 import type { DataViewMode } from './ViewSwitch'
 
@@ -32,8 +32,6 @@ export interface DataViewProps<T> {
   loadingMessage?: string
   /** Per-item action buttons (right-aligned in the table, footer in cards). */
   renderActions?: (item: T) => ReactNode
-  /** Extra content under an item (e.g. an inline edit form). Return null to skip. */
-  renderExpanded?: (item: T) => ReactNode
   className?: string
 }
 
@@ -42,6 +40,12 @@ export interface DataViewProps<T> {
  * framework — no sorting/pagination/column-resizing abstraction — just the
  * three states every screen needs (loading, empty, populated) rendered
  * either as a table or as a responsive card grid.
+ *
+ * T9: dropped `renderExpanded` (a boxed inline row/card editor) — its one
+ * caller, `CatalogScreen`'s "Edit code", now swaps to a full-screen
+ * `FormPage` instead, and no other screen ever adopted the prop. A future
+ * inline expansion can be reintroduced deliberately; it should not come
+ * back as a side effect of copying this one.
  */
 export function DataView<T>({
   items,
@@ -53,7 +57,6 @@ export function DataView<T>({
   loadErrorMessage = null,
   loadingMessage = 'Loading…',
   renderActions,
-  renderExpanded,
   className,
 }: DataViewProps<T>) {
   if (loading) {
@@ -90,7 +93,6 @@ export function DataView<T>({
     return (
       <div className={cn('grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4', className)}>
         {items.map((item) => {
-          const expanded = renderExpanded?.(item)
           const [title, ...rest] = columns
           return (
             <article
@@ -110,7 +112,6 @@ export function DataView<T>({
                   ))}
               </dl>
               {renderActions && <div className="flex flex-wrap items-center gap-2">{renderActions(item)}</div>}
-              {expanded}
             </article>
           )
         })}
@@ -141,33 +142,22 @@ export function DataView<T>({
         </thead>
         <tbody>
           {items.map((item) => {
-            const expanded = renderExpanded?.(item)
-            const columnCount = columns.length + (renderActions ? 1 : 0)
             return (
-              <Fragment key={getRowKey(item)}>
-                <tr className="border-b border-border last:border-0 hover:bg-muted/50">
-                  {columns.map((column) => (
-                    <td
-                      key={column.key}
-                      className={cn('px-4 py-3 align-middle', column.hideOnMobile && 'hidden md:table-cell')}
-                    >
-                      {column.cell(item)}
-                    </td>
-                  ))}
-                  {renderActions && (
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex flex-wrap items-center justify-end gap-2">{renderActions(item)}</div>
-                    </td>
-                  )}
-                </tr>
-                {expanded && (
-                  <tr className="border-b border-border last:border-0 bg-muted/30">
-                    <td colSpan={columnCount} className="px-4 py-3">
-                      {expanded}
-                    </td>
-                  </tr>
+              <tr key={getRowKey(item)} className="border-b border-border last:border-0 hover:bg-muted/50">
+                {columns.map((column) => (
+                  <td
+                    key={column.key}
+                    className={cn('px-4 py-3 align-middle', column.hideOnMobile && 'hidden md:table-cell')}
+                  >
+                    {column.cell(item)}
+                  </td>
+                ))}
+                {renderActions && (
+                  <td className="px-4 py-3 text-right">
+                    <div className="flex flex-wrap items-center justify-end gap-2">{renderActions(item)}</div>
+                  </td>
                 )}
-              </Fragment>
+              </tr>
             )
           })}
         </tbody>
