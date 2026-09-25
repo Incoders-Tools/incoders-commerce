@@ -106,7 +106,9 @@ admin panel.
       Route: delegated direct (writer).
 - [ ] T6. Wire the authenticated user's resolved organization to the
       "custom" theme option (fetch org theme on session load, feed
-      `ThemeProvider`). Depends on T2 + T5.
+      `ThemeProvider`). Depends on T2 + T5. Also fixes review WARNING
+      `R3-branding-load-failure-save-clears`: when loading branding fails
+      the form must not let Save wipe the stored values.
 - [x] T7. Navigation icons: add `lucide-react` (the shadcn/ui icon
       standard) and give every primary nav item and account-menu entry an
       identifying icon next to its text. Replace the hand-drawn
@@ -857,6 +859,15 @@ admin panel.
   category); build clean; e2e untouched. Parent spot check: branding
   integration tests 16/16. Writer started Docker Desktop and only the
   `postgres` service (`up -d`, never `down`).
+
+- 2026-09-25: RDD over `662aed2..HEAD` (T5): medium, `slice_budget_reached`
+  (905 lines, 15 files, migration 0015); user granted; lineage
+  `review-01cd6bf7324810db`, reliability lens, APPROVED and acknowledged.
+  Reviewed boundary -> T5 doc commit. Follow-ups: WARNING
+  `R3-branding-load-failure-save-clears` (OrganizationBrandingForm.tsx:48-53
+  — a failed load leaves empty fields, Save then clears real branding;
+  folded into T6), SUGGESTION `R3-branding-error-contract-unproved`
+  (OrganizationBrandingForm.test.tsx:115-117).
 
 ## Next step
 
