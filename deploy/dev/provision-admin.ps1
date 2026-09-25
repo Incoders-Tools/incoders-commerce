@@ -169,8 +169,28 @@ if ($apiUri.Host.ToLowerInvariant() -notin $loopbackHosts) {
 $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $envFile = Join-Path $PSScriptRoot '.env'
 $envValues = Read-LocalEnvFile -Path $envFile
-$email = Assert-SafeEmail -Value (Get-RequiredEnvValue -Values $envValues -Name 'COMMERCE_DEV_ADMIN_EMAIL') -Name 'COMMERCE_DEV_ADMIN_EMAIL'
-$password = Get-RequiredEnvValue -Values $envValues -Name 'COMMERCE_DEV_ADMIN_PASSWORD'
+
+# The platform system administrator used to be configured as
+# COMMERCE_DEV_ADMIN_*, which reads like the administrator OF an
+# organization and is not. A stale value under that name silently promoted
+# the wrong account to is_system_admin. Refuse to run rather than guess.
+foreach ($retired in @(
+    @{ Old = 'COMMERCE_DEV_ADMIN_EMAIL';    New = 'COMMERCE_DEV_SYSADMIN_EMAIL' },
+    @{ Old = 'COMMERCE_DEV_ADMIN_PASSWORD'; New = 'COMMERCE_DEV_SYSADMIN_PASSWORD' })) {
+    if ($envValues.ContainsKey($retired.Old)) {
+        throw "deploy/dev/.env still sets $($retired.Old). Rename it to $($retired.New): it configures the PLATFORM system administrator, not an organization's admin. Remove the old key so it cannot be applied by mistake."
+    }
+}
+
+# Keys the script does not read are almost always a misunderstanding about
+# which identity is which, so name them instead of ignoring them.
+$unknownOrgSysadminKeys = @($envValues.Keys | Where-Object { $_ -like 'COMMERCE_DEV_ORGANIZATION_SYSADMIN*' })
+if ($unknownOrgSysadminKeys.Count -gt 0) {
+    throw "deploy/dev/.env sets $($unknownOrgSysadminKeys -join ', '), which this script does not read. There is no per-organization system administrator: COMMERCE_DEV_SYSADMIN_* is the platform-wide one, and COMMERCE_DEV_ORGANIZATION_ADMIN_* is that organization's business-admin. Remove these keys."
+}
+
+$email = Assert-SafeEmail -Value (Get-RequiredEnvValue -Values $envValues -Name 'COMMERCE_DEV_SYSADMIN_EMAIL') -Name 'COMMERCE_DEV_SYSADMIN_EMAIL'
+$password = Get-RequiredEnvValue -Values $envValues -Name 'COMMERCE_DEV_SYSADMIN_PASSWORD'
 $organizationName = Get-RequiredEnvValue -Values $envValues -Name 'COMMERCE_DEV_ORGANIZATION_NAME'
 $organizationAdminEmail = Assert-SafeEmail -Value (Get-RequiredEnvValue -Values $envValues -Name 'COMMERCE_DEV_ORGANIZATION_ADMIN_EMAIL') -Name 'COMMERCE_DEV_ORGANIZATION_ADMIN_EMAIL'
 $organizationAdminPassword = Get-RequiredEnvValue -Values $envValues -Name 'COMMERCE_DEV_ORGANIZATION_ADMIN_PASSWORD'
@@ -182,7 +202,7 @@ if ($envValues.ContainsKey('COMMERCE_DEV_ORGANIZATION_BRANCH_NAME') -and -not [s
 }
 
 if ($organizationAdminEmail -eq $email) {
-    throw 'COMMERCE_DEV_ORGANIZATION_ADMIN_EMAIL must differ from COMMERCE_DEV_ADMIN_EMAIL. The system administrator and the organization business-admin are two separate identities.'
+    throw 'COMMERCE_DEV_ORGANIZATION_ADMIN_EMAIL must differ from COMMERCE_DEV_SYSADMIN_EMAIL. The system administrator and the organization business-admin are two separate identities.'
 }
 
 $client = [System.Net.Http.HttpClient]::new()
@@ -238,7 +258,7 @@ try {
     $signInResponse = Send-LocalJsonRequest -Client $client -Path 'account/sign-in' -Body @{ email = $email; password = $password }
     if ($signInResponse.StatusCode -ne 200) {
         if ($systemAdminExisted) {
-            throw "'$email' already exists locally but COMMERCE_DEV_ADMIN_PASSWORD does not sign it in (HTTP $($signInResponse.StatusCode)). Set the password that account actually has in deploy/dev/.env, or choose a different COMMERCE_DEV_ADMIN_EMAIL. This script never overwrites an existing password."
+            throw "'$email' already exists locally but COMMERCE_DEV_SYSADMIN_PASSWORD does not sign it in (HTTP $($signInResponse.StatusCode)). Set the password that account actually has in deploy/dev/.env, or choose a different COMMERCE_DEV_SYSADMIN_EMAIL. This script never overwrites an existing password."
         }
         throw "Sign-in verification failed with HTTP $($signInResponse.StatusCode)."
     }
