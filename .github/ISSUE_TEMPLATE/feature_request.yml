@@ -1,0 +1,81 @@
+name: Feature request
+description: Propose a new capability or a change to an existing one
+title: "feat: "
+labels: ["type:feature"]
+body:
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Where the capability lands.
+      multiple: true
+      options:
+        - Commerce.Web (browser SPA)
+        - Commerce.Cloud.Api (server)
+        - Commerce.Pos.Windows (desktop POS)
+        - Commerce.BranchNode
+        - Commerce.Updater
+        - Local dev tooling (deploy/dev)
+        - CI / release
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What capability this delivers.
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: >
+        What is broken, manual, or impossible today. Describe the situation,
+        not the solution you have in mind.
+    validations:
+      required: true
+
+  - type: input
+    id: spec
+    attributes:
+      label: Related specification
+      description: >
+        Path under `openspec/specs/` or an in-flight `openspec/changes/`
+        folder, if one already covers this. Leave blank if none exists.
+      placeholder: openspec/specs/pricing-resolution/spec.md
+    validations:
+      required: false
+
+  - type: textarea
+    id: existing
+    attributes:
+      label: What already exists
+      description: >
+        Anything already specified or implemented that this must build on
+        rather than duplicate. Say "checked, nothing found" if you looked
+        and found none.
+    validations:
+      required: false
+
+  - type: textarea
+    id: done
+    attributes:
+      label: Definition of done
+      value: |
+        - [ ] Behavior is covered by tests that fail before the change
+        - [ ] The affected spec under `openspec/specs/` is added or updated
+        - [ ] Layering respected: no infrastructure imports in `Commerce.Domain`
+        - [ ] Docs updated if a public contract or the architecture changed
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: This issue contains no real customer data, credentials, or production connection strings.
+          required: true
