@@ -1,8 +1,11 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { DataToolbar } from '@/components/data/DataToolbar'
+import { DataView, type DataViewColumn } from '@/components/data/DataView'
+import { PageHeader } from '@/components/data/PageHeader'
+import { useViewPreference } from '@/components/data/useViewPreference'
 import { PriceHistory } from './PriceHistory'
 import { ImportReviewTable, type ImportReviewRow } from './ImportReviewTable'
 import { listPresentations } from '@/api/catalog'
@@ -22,36 +25,53 @@ import type { PresentationRecord, PriceListRecord, SupplierPriceMappingRecord } 
 
 type Tab = 'prices' | 'suppliers' | 'import'
 
+function formatCreatedAt(value: string): string {
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? '—' : parsed.toLocaleDateString()
+}
+
 /**
  * design.md "Web: `PriceListsScreen` under the existing `RequireAdmin`":
  * three sections on one screen. Reachable only through the existing
- * `RequireAdmin` (App.tsx) — no new guard component. The server's
- * `ManageCatalog` check on every `/pricing` call remains the real gate (see
- * `Endpoints/Pricing.cs`'s remarks on the `ManageUsers`/`ManageCatalog`
- * correction).
+ * `RequireAdmin` (App.tsx `/app/price-lists`) — no new guard component. The
+ * server's `ManageCatalog` check on every `/pricing` call remains the real
+ * gate (see `Endpoints/Pricing.cs`'s remarks on the
+ * `ManageUsers`/`ManageCatalog` correction).
  *
- * Suppliers and Import are structural placeholders here: `supplier_price_mappings`
- * and the `price_import_*` tables/endpoints belong to Work Unit 9 and do not
- * exist yet.
+ * T4c: migrated onto the shared `components/data/*` layer, following
+ * `CatalogScreen.tsx`. The screen carries TWO collections, so only the
+ * primary one — the organization's price lists — goes through `DataView`
+ * (columns from `PriceListRecord`, `view:price-lists` preference, client-side
+ * search over what `GET /pricing/price-lists` already returned). The prices
+ * held BY the selected list are a detail panel below it, not a second
+ * table/card grid: one view switch cannot sensibly own two grids, and the
+ * nested surface is per-presentation history plus a publish form rather than
+ * a flat record list.
  */
 export function PriceListsScreen() {
   const [tab, setTab] = useState<Tab>('prices')
   const [priceLists, setPriceLists] = useState<PriceListRecord[]>([])
   const [presentations, setPresentations] = useState<PresentationRecord[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [creatingDefault, setCreatingDefault] = useState(false)
+  // Split exactly as T4b's screens do: only a failed LOAD may tell the
+  // operator the collection could not be read. A failed action says nothing
+  // about whether price lists exist.
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [selectedListId, setSelectedListId] = useState<string | null>(null)
   const [publishingFor, setPublishingFor] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
+  const [view, setView] = useViewPreference('price-lists')
 
   const refresh = async () => {
     setLoading(true)
-    setError(null)
+    setLoadError(null)
     try {
       const [lists, items] = await Promise.all([listPriceLists(), listPresentations()])
       setPriceLists(lists)
       setPresentations(items)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Unexpected error loading price lists.')
+      setLoadError(err instanceof ApiError ? err.message : 'Unexpected error loading price lists.')
     } finally {
       setLoading(false)
     }
@@ -62,132 +82,204 @@ export function PriceListsScreen() {
   }, [])
 
   const defaultPriceList = priceLists.find((list) => list.isDefault) ?? null
+  // Derived, not stored: the operator's pick wins, otherwise the default list
+  // opens by itself (an organization normally has exactly one).
+  const selectedList =
+    priceLists.find((list) => list.id === selectedListId) ?? defaultPriceList ?? priceLists[0] ?? null
 
   const handleCreateDefault = async () => {
-    setError(null)
+    setActionError(null)
     try {
       const created = await createPriceList({ name: 'Default', isDefault: true })
       setPriceLists((current) => [...current, created])
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Unexpected error creating the default price list.')
+      setActionError(err instanceof ApiError ? err.message : 'Unexpected error creating the default price list.')
     }
   }
 
+  const trimmedSearch = search.trim().toLowerCase()
+  const visiblePriceLists = useMemo(() => {
+    if (trimmedSearch === '') return priceLists
+    return priceLists.filter((list) => list.name.toLowerCase().includes(trimmedSearch))
+  }, [priceLists, trimmedSearch])
+
+  const columns: DataViewColumn<PriceListRecord>[] = [
+    { key: 'name', header: 'Name', cell: (list) => list.name },
+    // "Is default", not "Default": a list is also commonly NAMED "Default",
+    // and a header identical to a cell value elsewhere in the same table
+    // makes both the screen and its tests ambiguous.
+    { key: 'isDefault', header: 'Is default', cell: (list) => (list.isDefault ? 'Yes' : 'No') },
+    {
+      key: 'createdAtUtc',
+      header: 'Created',
+      cell: (list) => formatCreatedAt(list.createdAtUtc),
+      hideOnMobile: true,
+    },
+  ]
+
   return (
-    <Card className="mx-auto mt-8 w-full max-w-3xl">
-      <CardHeader>
-        <CardTitle>Price lists</CardTitle>
-        <nav className="flex gap-2">
-          <Button variant={tab === 'prices' ? 'default' : 'outline'} size="sm" onClick={() => setTab('prices')}>
-            Prices
-          </Button>
-          <Button variant={tab === 'suppliers' ? 'default' : 'outline'} size="sm" onClick={() => setTab('suppliers')}>
-            Suppliers
-          </Button>
-          <Button variant={tab === 'import' ? 'default' : 'outline'} size="sm" onClick={() => setTab('import')}>
-            Import
-          </Button>
-        </nav>
-      </CardHeader>
-      <CardContent>
-        {error && (
-          <p role="alert" className="text-sm text-red-600">
-            {error}
-          </p>
-        )}
+    <section className="flex w-full flex-col gap-6">
+      <PageHeader
+        title="Price lists"
+        description="Published prices per presentation, and the supplier import that feeds them."
+        actions={
+          !loading && loadError === null && defaultPriceList === null ? (
+            <Button onClick={() => void handleCreateDefault()}>Create default price list</Button>
+          ) : null
+        }
+      />
 
-        {tab === 'prices' && (
-          <PricesTab
-            loading={loading}
-            defaultPriceList={defaultPriceList}
-            presentations={presentations}
-            creatingDefault={creatingDefault}
-            setCreatingDefault={setCreatingDefault}
-            onCreateDefault={handleCreateDefault}
-            publishingFor={publishingFor}
-            setPublishingFor={setPublishingFor}
+      {loadError && (
+        <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {loadError}
+        </p>
+      )}
+      {actionError && (
+        <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {actionError}
+        </p>
+      )}
+
+      <nav aria-label="Price list sections" className="flex gap-2">
+        <Button variant={tab === 'prices' ? 'default' : 'outline'} size="sm" onClick={() => setTab('prices')}>
+          Prices
+        </Button>
+        <Button variant={tab === 'suppliers' ? 'default' : 'outline'} size="sm" onClick={() => setTab('suppliers')}>
+          Suppliers
+        </Button>
+        <Button variant={tab === 'import' ? 'default' : 'outline'} size="sm" onClick={() => setTab('import')}>
+          Import
+        </Button>
+      </nav>
+
+      {tab === 'prices' && (
+        <>
+          <DataToolbar
+            searchValue={search}
+            onSearchChange={setSearch}
+            searchLabel="Search price lists"
+            searchPlaceholder="Search by name…"
+            view={view}
+            onViewChange={setView}
           />
-        )}
 
-        {tab === 'suppliers' && (
-          <p className="text-sm text-neutral-600">
-            Supplier mappings (column mapping for Excel imports) land here in a future release — the
-            `supplier_price_mappings` table does not exist yet.
-          </p>
-        )}
+          <DataView
+            items={visiblePriceLists}
+            columns={columns}
+            getRowKey={(list) => list.id}
+            view={view}
+            loading={loading}
+            loadErrorMessage={loadError ? 'The price lists could not be loaded.' : null}
+            emptyMessage={
+              priceLists.length === 0 ? 'No price lists yet.' : 'No price lists match this search.'
+            }
+            renderActions={(list) =>
+              selectedList?.id === list.id ? (
+                <span className="text-xs text-muted-foreground">Prices shown below</span>
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setSelectedListId(list.id)
+                    setPublishingFor(null)
+                  }}
+                >
+                  Manage prices
+                </Button>
+              )
+            }
+          />
 
-        {tab === 'import' && <ImportTab />}
-      </CardContent>
-    </Card>
+          {selectedList && (
+            <PriceListEntries
+              priceList={selectedList}
+              presentations={presentations}
+              publishingFor={publishingFor}
+              setPublishingFor={setPublishingFor}
+            />
+          )}
+        </>
+      )}
+
+      {tab === 'suppliers' && (
+        <p className="text-sm text-muted-foreground">
+          Supplier mappings (column mapping for Excel imports) land here in a future release — the
+          `supplier_price_mappings` table does not exist yet.
+        </p>
+      )}
+
+      {tab === 'import' && <ImportTab />}
+    </section>
   )
 }
 
-function PricesTab({
-  loading,
-  defaultPriceList,
+/**
+ * The nested surface: the price entries (`PriceListEntryRecord`) the selected
+ * list holds, reached per presentation through `PriceHistory`, plus the
+ * publish form. Deliberately NOT a second `DataView` — see the screen's own
+ * remark above.
+ */
+function PriceListEntries({
+  priceList,
   presentations,
-  onCreateDefault,
   publishingFor,
   setPublishingFor,
 }: {
-  loading: boolean
-  defaultPriceList: PriceListRecord | null
+  priceList: PriceListRecord
   presentations: PresentationRecord[]
-  creatingDefault: boolean
-  setCreatingDefault: (value: boolean) => void
-  onCreateDefault: () => void | Promise<void>
   publishingFor: string | null
   setPublishingFor: (presentationId: string | null) => void
 }) {
-  if (loading) {
-    return <p>Loading…</p>
-  }
-
-  if (defaultPriceList === null) {
-    return (
-      <div className="flex flex-col gap-3">
-        <p>No default price list exists yet for this organization.</p>
-        <Button onClick={() => void onCreateDefault()}>Create default price list</Button>
-      </div>
-    )
-  }
-
-  if (presentations.length === 0) {
-    return <p>No presentations yet.</p>
-  }
-
   return (
-    <ul className="flex flex-col gap-3">
-      {presentations.map((presentation) => (
-        <li key={presentation.id} className="border-b border-neutral-200 pb-3">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="font-medium">{presentation.name}</p>
-              <p className="text-xs text-neutral-500">{presentation.identificationCode ?? 'No code'}</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <PriceHistory priceListId={defaultPriceList.id} presentationId={presentation.id} />
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setPublishingFor(publishingFor === presentation.id ? null : presentation.id)}
-              >
-                New price
-              </Button>
-            </div>
-          </div>
-          {publishingFor === presentation.id && (
-            <NewPriceForm
-              priceListId={defaultPriceList.id}
-              presentationId={presentation.id}
-              onCancel={() => setPublishingFor(null)}
-              onPublished={() => setPublishingFor(null)}
-            />
-          )}
-        </li>
-      ))}
-    </ul>
+    <section
+      data-testid="price-list-entries"
+      className="flex w-full flex-col gap-3 rounded-lg border border-border bg-card p-4"
+    >
+      <div>
+        <h2 className="text-lg font-semibold">Prices in {priceList.name}</h2>
+        <p className="text-sm text-muted-foreground">
+          Each presentation&apos;s published entries, newest effective date first.
+        </p>
+      </div>
+
+      {presentations.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No presentations yet.</p>
+      ) : (
+        <ul className="flex flex-col gap-3">
+          {presentations.map((presentation) => (
+            <li key={presentation.id} className="border-b border-border pb-3 last:border-0 last:pb-0">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="font-medium break-words">{presentation.name}</p>
+                  <p className="text-xs text-muted-foreground">{presentation.identificationCode ?? 'No code'}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <PriceHistory priceListId={priceList.id} presentationId={presentation.id} />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPublishingFor(publishingFor === presentation.id ? null : presentation.id)}
+                  >
+                    New price
+                  </Button>
+                </div>
+              </div>
+              {publishingFor === presentation.id && (
+                <NewPriceForm
+                  priceListId={priceList.id}
+                  presentationId={presentation.id}
+                  onCancel={() => setPublishingFor(null)}
+                  onPublished={() => setPublishingFor(null)}
+                />
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   )
 }
 
@@ -228,6 +320,13 @@ function NewPriceForm({
   return (
     <form className="mt-2 flex flex-wrap items-end gap-2" onSubmit={handleSubmit}>
       <div className="flex flex-col gap-1.5">
+        {/* Neutral label on purpose. `openspec/changes/commerce-price-composition`
+            (proposed, NOT implemented) turns `PriceListEntry.unitPrice` into a
+            BASE price, with the sellable price derived from the list's rate
+            components (IVA, IB, freight, markup). When that lands, this label —
+            and `PriceHistory`'s rendering of the same field — is what has to
+            change. Until then the screen shows the stored figure only, with no
+            derived column, tax breakdown or total. */}
         <Label htmlFor={`unitPrice-${presentationId}`}>Unit price</Label>
         <Input
           id={`unitPrice-${presentationId}`}
@@ -249,7 +348,7 @@ function NewPriceForm({
         />
       </div>
       {error && (
-        <p role="alert" className="text-sm text-red-600">
+        <p role="alert" className="text-sm text-destructive">
           {error}
         </p>
       )}
@@ -365,7 +464,7 @@ function ImportTab() {
   return (
     <div className="flex flex-col gap-4">
       {error && (
-        <p role="alert" className="text-sm text-red-600">
+        <p role="alert" className="text-sm text-destructive">
           {error}
         </p>
       )}
@@ -381,7 +480,7 @@ function ImportTab() {
             <Label htmlFor="import-supplier">Supplier</Label>
             <select
               id="import-supplier"
-              className="h-9 rounded-md border border-neutral-300 px-2 text-sm"
+              className="h-9 rounded-md border border-input px-2 text-sm"
               value={selectedMappingId}
               onChange={(e) => setSelectedMappingId(e.target.value)}
             >
@@ -450,7 +549,7 @@ function CreateSupplierMappingInline({ onCreated }: { onCreated: (created: Suppl
 
   return (
     <form className="flex flex-col gap-3" onSubmit={handleSubmit}>
-      <p className="text-sm text-neutral-600">No supplier mapping exists yet — configure one before importing.</p>
+      <p className="text-sm text-muted-foreground">No supplier mapping exists yet — configure one before importing.</p>
       <div className="flex flex-wrap gap-2">
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="supplier-name">Supplier name</Label>
@@ -474,7 +573,7 @@ function CreateSupplierMappingInline({ onCreated }: { onCreated: (created: Suppl
         </div>
       </div>
       {error && (
-        <p role="alert" className="text-sm text-red-600">
+        <p role="alert" className="text-sm text-destructive">
           {error}
         </p>
       )}

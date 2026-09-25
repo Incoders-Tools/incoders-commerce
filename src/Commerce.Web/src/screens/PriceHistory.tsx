@@ -50,7 +50,7 @@ export function PriceHistory({ priceListId, presentationId }: PriceHistoryProps)
         <div className="mt-2 text-sm">
           {loading && <p>Loading history…</p>}
           {error && (
-            <p role="alert" className="text-red-600">
+            <p role="alert" className="text-destructive">
               {error}
             </p>
           )}

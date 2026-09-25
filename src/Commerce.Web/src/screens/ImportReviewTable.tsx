@@ -52,7 +52,7 @@ export function ImportReviewTable({ rows, onCommit, onReject, committing = false
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr key={row.rowNumber} className="border-b border-neutral-200">
+              <tr key={row.rowNumber} className="border-b border-border">
                 <td>{row.rowNumber}</td>
                 <td>{row.rawCode}</td>
                 <td>{row.matchedItemName ?? '—'}</td>

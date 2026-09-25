@@ -58,6 +58,10 @@ export function AppLayout() {
               <NavItem to="/app/customers" onNavigate={closeMobileNav}>Customers</NavItem>
               <NavItem to="/app/users" onNavigate={closeMobileNav}>Users</NavItem>
               <NavItem to="/app/branches" onNavigate={closeMobileNav}>Branches</NavItem>
+              {/* Same UI-only gate as its siblings: `App.tsx`'s
+                  `RequireAdmin` is the routing boundary, and Pricing.cs's
+                  own permission check is the real one. */}
+              <NavItem to="/app/price-lists" onNavigate={closeMobileNav}>Price lists</NavItem>
             </>
           )}
           {user?.isSystemAdmin && (

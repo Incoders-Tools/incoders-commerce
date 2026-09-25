@@ -81,7 +81,7 @@ admin panel.
       `ResetPasswordScreen`, `RenewPasswordScreen`) are explicitly OUT of
       scope — the narrow centered card is the correct pattern there.
       Route: delegated direct (3 non-trivial screens + tests).
-- [ ] T4c. Finish the rollout: `PriceListsScreen` onto the same
+- [x] T4c. Finish the rollout: `PriceListsScreen` onto the same
       `components/data/*` layer, with a `view:price-lists` preference key and
       real columns from `PriceListRecord` / `PriceListEntryRecord`. Split out
       of T4b as its own slice because the screen carries a second nested list
@@ -633,8 +633,83 @@ admin panel.
   `no-unused-vars`, 6 `only-export-components`, 6 `set-state-in-effect`) —
   no new warning. `npm run build`: `tsc -b && vite build` clean.
 
+- 2026-09-25: **T4c done** (delegated-direct route, 3 source files + 1 new
+  test file + 1 extended test file). Two halves.
+  1. **The screen was unreachable.** `PriceListsScreen.tsx` (488 lines),
+     `PriceHistory.tsx` (71) and `ImportReviewTable.tsx` (79) were ~638 lines
+     of working UI that `App.tsx` never imported, which left two specs with no
+     surface at all: `price-list-management` ("Admin Create, Edit, and History
+     Access") and `supplier-price-import` ("Staged Batch Requires Admin Review
+     Before Commit"). Mounted at `/app/price-lists` inside the existing
+     `RequireAdmin` block, next to customers/users/branches, and added a
+     "Price lists" `NavItem` to `AppLayout`'s sidebar inside the same
+     `hasPermission(user, Permission.ManageUsers)` block (presentation only —
+     `App.tsx`'s guard is the routing boundary, `Endpoints/Pricing.cs` the real
+     one).
+     The screen's own spec file could not have caught this: it hand-builds its
+     own `<Routes>`, so it passes whether or not `App.tsx` mounts the path.
+     New `src/App.test.tsx` fixes that class of blind spot — it renders the
+     REAL `App` tree with only `AuthProvider` stubbed, so the guards and every
+     screen stay real, and asserts the mount, the sidebar link, the non-admin
+     redirect to the catalog and the signed-out redirect to `/login`.
+  2. **Migration onto `components/data/*`.** Dropped the
+     `mx-auto mt-8 w-full max-w-3xl` Card for a full-width `<section>`;
+     `PageHeader` ("Price lists", with "Create default price list" in the
+     actions slot only while no default exists), `DataToolbar` (client-side
+     search by name, no new endpoint) and `DataView` over the price lists with
+     real `PriceListRecord` columns — Name, Is default (`Yes`/`No`), Created
+     (`createdAtUtc`, `hideOnMobile`). Preference key `view:price-lists`.
+     The header is "Is default", not "Default", because a list is also
+     routinely NAMED "Default" and the duplicate string made both the screen
+     and its queries ambiguous.
+     **Nested list decision**: only the price lists go through `DataView`. The
+     prices held BY the selected list render in a separate
+     `data-testid="price-list-entries"` panel below it, not a second
+     table/card grid — one view switch cannot sensibly own two grids, and the
+     nested surface is a per-presentation `PriceHistory` expander plus the
+     publish form, not a flat record list. The selected list is derived, not
+     stored: the operator's pick wins, otherwise the default list opens by
+     itself, so the previous "default list only" behavior is the unchanged
+     starting state while a second list is now reachable.
+     `loadError` / `actionError` split exactly as T4b's three screens: only
+     `loadError` feeds `loadErrorMessage`, so a failed create can no longer
+     make the list claim it could not be read. Raw `text-red-600`/`neutral-*`
+     replaced with the semantic tokens.
+     Functionality preserved verbatim: create default list, publish an entry,
+     price history, and the whole supplier import cycle (upload, review,
+     commit, reject).
+  **Price-composition hold**: `openspec/changes/commerce-price-composition`
+  (proposed, NOT implemented) will turn `PriceListEntry.unitPrice` into a BASE
+  price with the sellable price derived from rate components (IVA, IB,
+  freight, markup). So no derived column, tax breakdown or total was built
+  here; the "Unit price" label stays neutral and carries an inline comment
+  naming that proposal as the thing that will have to change it.
+  TDD strict: 16 of the 17 new cases were RED first (4 `App.test.tsx` — all
+  four failed with the route absent, since `*` sends `/app/price-lists` to the
+  home screen; 12 T4c screen cases). The 17th ("rejects a staged batch
+  through the endpoint") passed on arrival and was kept as a regression guard
+  for the import half, which had commit coverage but no reject coverage.
+  **Mutation checks (2)**: (a) deleting the `<Route path="price-lists">` line
+  fails all 4 route tests, then restored — so the most important assertion,
+  that the screen is actually reachable, can genuinely fail; (b) collapsing
+  `selectedList` to the default list only fails "publishes against the price
+  list the operator picked, not the default one", then restored.
+  **No existing test was deleted or weakened.** Two consciously updated, both
+  because the markup change made the old expectation wrong rather than
+  because it became inconvenient: the load-failure alert now asserts
+  `/unreachable/i` (a rejected `fetch` reaches the screen as `ApiError`
+  "Commerce.Cloud.Api is unreachable.", so the old wording was never the
+  rendered text), and the action-failure case sends a 409 with a real body so
+  its message is distinguishable from the load failure's. Suite:
+  **176/176 across 36 files** (159/35 before). `npm run lint`: exit 0, 13
+  warnings — identical count and categories to the baseline.
+  `npm run build`: `tsc -b && vite build` clean (355.29 kB / 105.79 kB gzip
+  JS, 20.98 kB / 4.90 kB gzip CSS). `.NET` builds/tests deliberately NOT run:
+  the user has `Commerce.Pos.Windows` and `Commerce.Cloud.Api` running
+  locally and holding the DLLs.
+
 ## Next step
 
-T4c (roll the same layer onto `PriceListsScreen`), or jump to T5
-(organization settings, which absorbs the `OrganizationsScreen` rebuild) if
-the user prefers backend progress first.
+T5 (organization settings: backend fields + endpoints + the rebuilt
+`OrganizationsScreen`, which absorbs the last screen not on the
+`components/data/*` layer).

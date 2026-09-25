@@ -16,6 +16,7 @@ import { RenewPasswordScreen } from '@/screens/RenewPasswordScreen'
 import { CustomersScreen } from '@/screens/CustomersScreen'
 import { UsersScreen } from '@/screens/UsersScreen'
 import { BranchesScreen } from '@/screens/BranchesScreen'
+import { PriceListsScreen } from '@/screens/PriceListsScreen'
 import { OrganizationsScreen } from '@/screens/OrganizationsScreen'
 
 /**
@@ -55,6 +56,14 @@ function App() {
                 <Route path="customers" element={<CustomersScreen />} />
                 <Route path="users" element={<UsersScreen />} />
                 <Route path="branches" element={<BranchesScreen />} />
+                {/* commerce-pricing-engine design.md "Web: `PriceListsScreen`
+                    under the existing `RequireAdmin`". The screen existed
+                    since Work Unit 9 but was never mounted here, which left
+                    `price-list-management` ("Admin Create, Edit, and History
+                    Access") and `supplier-price-import` ("Staged Batch
+                    Requires Admin Review Before Commit") without any reachable
+                    surface. `src/App.test.tsx` guards the mount itself. */}
+                <Route path="price-lists" element={<PriceListsScreen />} />
               </Route>
               <Route element={<RequireSystemAdmin />}>
                 <Route path="organizations" element={<OrganizationsScreen />} />
