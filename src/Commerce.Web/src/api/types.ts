@@ -470,3 +470,6 @@ export interface CreateBranchResponse { branchId: string }
 export interface OrganizationSummary { id: string; name: string; createdAt: string }
 export interface CreateOrganizationRequest { organizationName: string; branchName?: string | null; adminEmail: string; adminPassword: string }
 export interface CreateOrganizationResponse { organizationId: string; branchId: string; userId: string }
+// T5b: minimal organization branding — logoUrl + primaryColor only (no upload, no other fields).
+export interface OrganizationBranding { logoUrl: string | null; primaryColor: string | null }
+export interface UpdateOrganizationBrandingRequest { logoUrl: string | null; primaryColor: string | null }

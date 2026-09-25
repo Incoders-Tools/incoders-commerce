@@ -306,4 +306,56 @@ describe('OrganizationsScreen', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/already exists/i)
     expect(screen.getByLabelText('Organization name')).toHaveValue('Acme Co')
   })
+
+  // ---- Edit branding (T5b) ----
+
+  it('offers an "Edit branding" action for each listed organization', async () => {
+    listOnce([acme, vacaVerde])
+
+    render(<OrganizationsScreen />)
+
+    await screen.findByText('Acme Co')
+    expect(screen.getAllByRole('button', { name: 'Edit branding' })).toHaveLength(2)
+  })
+
+  it('opens the branding form for the clicked organization and returns to the list on save', async () => {
+    listOnce([acme])
+      .mockResolvedValueOnce(new Response(JSON.stringify({ logoUrl: null, primaryColor: null }), { status: 200 })) // branding GET
+      .mockResolvedValueOnce(new Response(null, { status: 204 })) // branding PUT
+
+    const user = userEvent.setup()
+    render(<OrganizationsScreen />)
+
+    await screen.findByText('Acme Co')
+    await user.click(screen.getByRole('button', { name: 'Edit branding' }))
+
+    expect(await screen.findByLabelText('Logo URL')).toBeInTheDocument()
+    expect(screen.getByLabelText('Primary color')).toBeInTheDocument()
+    expect(fetchMock.mock.calls[1][0]).toBe(`/account/organizations/${acme.id}/branding`)
+
+    await user.type(screen.getByLabelText('Logo URL'), 'https://cdn.example.com/logo.png')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    // Back on the list, not the form.
+    await screen.findByRole('button', { name: 'Edit branding' })
+    expect(screen.queryByLabelText('Logo URL')).not.toBeInTheDocument()
+  })
+
+  it('cancels the branding form back to the list without saving', async () => {
+    listOnce([acme]).mockResolvedValueOnce(
+      new Response(JSON.stringify({ logoUrl: null, primaryColor: null }), { status: 200 }),
+    )
+
+    const user = userEvent.setup()
+    render(<OrganizationsScreen />)
+
+    await screen.findByText('Acme Co')
+    await user.click(screen.getByRole('button', { name: 'Edit branding' }))
+
+    await screen.findByLabelText('Logo URL')
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(screen.getByRole('button', { name: 'Edit branding' })).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
 })

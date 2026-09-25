@@ -50,7 +50,7 @@ export function adminResetPassword(userId: string, request: AdminResetPasswordRe
     body: JSON.stringify(request),
   })
 }
-import type { BranchSummary, CreateBranchRequest, CreateBranchResponse, CreateOrganizationRequest, CreateOrganizationResponse, CreateUserRequest, CreateUserResponse, OrganizationSummary, UserSummary } from './types'
+import type { BranchSummary, CreateBranchRequest, CreateBranchResponse, CreateOrganizationRequest, CreateOrganizationResponse, CreateUserRequest, CreateUserResponse, OrganizationBranding, OrganizationSummary, UpdateOrganizationBrandingRequest, UserSummary } from './types'
 export const listUsers = () => apiFetch<UserSummary[]>('/account/users')
 export const createUser = (request: CreateUserRequest) => apiFetch<CreateUserResponse>('/account/users', { method: 'POST', body: JSON.stringify(request) })
 export const updateUserRoles = (userId: string, roleNames: string[]) => apiFetch<void>(`/account/users/${userId}/roles`, { method: 'PUT', body: JSON.stringify({ roleNames }) })
@@ -58,3 +58,8 @@ export const listBranches = () => apiFetch<BranchSummary[]>('/account/branches')
 export const createBranch = (request: CreateBranchRequest) => apiFetch<CreateBranchResponse>('/account/branches', { method: 'POST', body: JSON.stringify(request) })
 export const listOrganizations = () => apiFetch<OrganizationSummary[]>('/account/organizations')
 export const createOrganization = (request: CreateOrganizationRequest) => apiFetch<CreateOrganizationResponse>('/account/organizations', { method: 'POST', body: JSON.stringify(request) })
+// T5b: sysadmin-only, targets an arbitrary organization by id (OrganizationsScreen's "Edit branding").
+export const getOrganizationBranding = (organizationId: string) => apiFetch<OrganizationBranding>(`/account/organizations/${organizationId}/branding`)
+export const updateOrganizationBranding = (organizationId: string, request: UpdateOrganizationBrandingRequest) => apiFetch<void>(`/account/organizations/${organizationId}/branding`, { method: 'PUT', body: JSON.stringify(request) })
+// T6: any authenticated user's OWN organization's branding, for theming — never takes an id.
+export const getOwnOrganizationBranding = () => apiFetch<OrganizationBranding>('/account/organization/branding')

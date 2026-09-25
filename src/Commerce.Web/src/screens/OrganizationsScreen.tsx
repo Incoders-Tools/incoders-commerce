@@ -8,6 +8,7 @@ import { DataView, type DataViewColumn } from '@/components/data/DataView'
 import { PageHeader } from '@/components/data/PageHeader'
 import { useViewPreference } from '@/components/data/useViewPreference'
 import { OrganizationForm } from './OrganizationForm'
+import { OrganizationBrandingForm } from './OrganizationBrandingForm'
 
 function formatCreatedAt(value: string): string {
   const parsed = new Date(value)
@@ -20,10 +21,13 @@ function formatCreatedAt(value: string): string {
  * following `BranchesScreen.tsx` / `CustomersScreen.tsx`. The create form
  * moved behind a "New organization" action and now renders full-width in
  * place of the list, mirroring the `CustomersScreen` → `CustomerForm`
- * state-swap. Settings fields (logo, theme colors, date format, geolocation,
- * usage plan) are NOT here — T5 rebuilds this screen again once a spec
- * exists for them (see the task file: no such field exists on `Organization`
- * today). Reachable only through `RequireSystemAdmin` (App.tsx).
+ * state-swap. Reachable only through `RequireSystemAdmin` (App.tsx).
+ *
+ * T5b: added an "Edit branding" row action opening `OrganizationBrandingForm`
+ * (logoUrl + primaryColor only — date format, geolocation and usage plan
+ * stay deferred per the user's minimal-scope decision). The list itself is
+ * unchanged: branding isn't a column here, it's fetched by the form when it
+ * opens (`GET /account/organizations/{id}/branding`).
  */
 export function OrganizationsScreen() {
   const [organizations, setOrganizations] = useState<OrganizationSummary[]>([])
@@ -32,6 +36,7 @@ export function OrganizationsScreen() {
    * failed create says nothing about whether the collection could be read. */
   const [loadError, setLoadError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
+  const [editingBranding, setEditingBranding] = useState<OrganizationSummary | null>(null)
   const [search, setSearch] = useState('')
   const [view, setView] = useViewPreference('organizations')
   // Guards against a slow refresh resolving after a newer one: `refresh` can
@@ -81,6 +86,16 @@ export function OrganizationsScreen() {
     return <OrganizationForm onCreated={handleCreated} onCancel={() => setCreating(false)} />
   }
 
+  if (editingBranding !== null) {
+    return (
+      <OrganizationBrandingForm
+        organization={editingBranding}
+        onSaved={() => setEditingBranding(null)}
+        onCancel={() => setEditingBranding(null)}
+      />
+    )
+  }
+
   const columns: DataViewColumn<OrganizationSummary>[] = [
     { key: 'name', header: 'Name', cell: (organization) => organization.name },
     {
@@ -122,6 +137,11 @@ export function OrganizationsScreen() {
         loading={loading}
         emptyMessage={organizations.length === 0 ? 'No organizations yet.' : 'No organizations match this search.'}
         loadErrorMessage={loadError === null ? null : 'Organizations could not be loaded.'}
+        renderActions={(organization) => (
+          <Button variant="outline" size="sm" onClick={() => setEditingBranding(organization)}>
+            Edit branding
+          </Button>
+        )}
       />
     </section>
   )
