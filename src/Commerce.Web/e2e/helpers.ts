@@ -1,3 +1,5 @@
+import { expect, type Page } from '@playwright/test'
+
 // Shared helpers for the real-browser E2E suite (src/Commerce.Web/README.md
 // "E2E tests" documents how to bring up the backend these hit).
 //
@@ -63,4 +65,34 @@ export async function seedUser(
 
 export function uniqueEmail(prefix: string): string {
   return `${prefix}-${crypto.randomUUID()}@example.com`
+}
+
+/**
+ * Opens the account menu in the authenticated shell.
+ *
+ * The trigger is addressed by its ARIA popup contract rather than by name,
+ * because its accessible name is the signed-in user's display name, which
+ * differs in every test.
+ */
+export async function openAccountMenu(page: Page): Promise<void> {
+  await page.locator('button[aria-haspopup="menu"]').click()
+  await expect(page.getByRole('menu', { name: 'Account' })).toBeVisible()
+}
+
+/**
+ * Asserts the authenticated shell is rendered, then leaves the menu closed
+ * so it cannot cover the controls a test clicks next. "Sign out" lives
+ * inside the account menu, so its visibility is not observable until the
+ * menu is open.
+ */
+export async function expectSignedIn(page: Page): Promise<void> {
+  await openAccountMenu(page)
+  await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('menu', { name: 'Account' })).toBeHidden()
+}
+
+export async function signOut(page: Page): Promise<void> {
+  await openAccountMenu(page)
+  await page.getByRole('button', { name: 'Sign out' }).click()
 }

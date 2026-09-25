@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { seedUser, uniqueEmail } from './helpers'
+import { expectSignedIn, seedUser, signOut, uniqueEmail } from './helpers'
 
 /**
  * proposal.md success criterion: "A `seller` (non-admin) cannot reach the
@@ -16,7 +16,7 @@ test.describe('customer registry admin gating', () => {
     await page.getByLabel('Email').fill(admin.email)
     await page.getByLabel('Password').fill(password)
     await page.getByRole('button', { name: /sign in/i }).click()
-    await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible()
+    await expectSignedIn(page)
 
     await expect(page.getByRole('link', { name: 'Customers' })).toBeVisible()
     await page.getByRole('link', { name: 'Customers' }).click()
@@ -33,7 +33,7 @@ test.describe('customer registry admin gating', () => {
     await page.getByLabel('Email').fill(admin.email)
     await page.getByLabel('Password').fill(password)
     await page.getByRole('button', { name: /sign in/i }).click()
-    await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible()
+    await expectSignedIn(page)
 
     // Real, cookie-authorized ManageUsers call — the admin's own session,
     // exactly what a real admin does to provision a seller.
@@ -47,13 +47,13 @@ test.describe('customer registry admin gating', () => {
     })
     expect(createUserResponse.ok()).toBeTruthy()
 
-    await page.getByRole('button', { name: 'Sign out' }).click();
+    await signOut(page)
     await expect(page).toHaveURL(/\/login$/)
 
     await page.getByLabel('Email').fill(sellerEmail)
     await page.getByLabel('Password').fill(sellerPassword)
     await page.getByRole('button', { name: /sign in/i }).click()
-    await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible()
+    await expectSignedIn(page)
 
     // The Customers tab is hidden for a seller — there is no clickable path
     // into the screen from the UI (design.md "Web admin gating": a UX

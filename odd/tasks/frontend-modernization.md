@@ -708,6 +708,31 @@ admin panel.
   the user has `Commerce.Pos.Windows` and `Commerce.Cloud.Api` running
   locally and holding the DLLs.
 
+- 2026-09-25: Playwright E2E regression caught by CI, not by us. Promotion
+  PR #75 sat unmerged with `web-e2e` failing 7 of 18 tests and `ci-gate`
+  failing behind it, while `web-tests` (Vitest) passed. Single root cause,
+  ours: T3 moved "Sign out" into the account dropdown, and ten assertions
+  across `catalog`, `customers`, `ordering` and `sign-in` specs used
+  `getByRole('button', { name: 'Sign out' })` as the signed-in signal, so it
+  is no longer visible until the menu is opened. Fixed by adding
+  `openAccountMenu`, `expectSignedIn` and `signOut` to `e2e/helpers.ts` and
+  routing all ten call sites through them; `expectSignedIn` closes the menu
+  with Escape afterwards so it cannot cover controls a test clicks next. The
+  trigger is addressed by `button[aria-haspopup="menu"]` because its
+  accessible name is the signed-in user's display name, which varies per
+  test. No production code changed.
+  **Process gap worth keeping:** the whole T1-T4b frontend overhaul was
+  verified with Vitest only. The E2E harness needs the SPA built into
+  `Commerce.Cloud.Api/wwwroot`, which this session deliberately forbade to
+  avoid disturbing the user's running stack and to keep
+  `PublicRateLimitTests` green — so Playwright never exercised the reshaped
+  DOM until CI did. Unit tests cover components in isolation; only E2E
+  covers the navigation contract. A DOM-structural change should be assumed
+  to break E2E selectors until proven otherwise.
+  Second gap: `e2e/` is outside the TypeScript project (`tsconfig.app.json`
+  includes only `src`), so `npm run build` never typechecks it and Playwright
+  only strips types. This fix was typechecked with an explicit `tsc` run.
+
 ## Next step
 
 T5 (organization settings: backend fields + endpoints + the rebuilt

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { seedUser, uniqueEmail } from './helpers'
+import { expectSignedIn, seedUser, uniqueEmail } from './helpers'
 
 /**
  * commerce-customer-identity Unit 3 (security fix): `SubmitOrderRequest` no
@@ -35,7 +35,7 @@ test.describe('order submission', () => {
     await page.getByLabel('Email').fill(user.email)
     await page.getByLabel('Password').fill(password)
     await page.getByRole('button', { name: /sign in/i }).click()
-    await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible()
+    await expectSignedIn(page)
 
     // Seed a real Retail customer + issued ordering-access credential via the
     // real, cookie-authorized endpoints (the bootstrap admin already holds
@@ -100,7 +100,7 @@ test.describe('order submission', () => {
     await page.getByLabel('Email').fill(user.email)
     await page.getByLabel('Password').fill(password)
     await page.getByRole('button', { name: /sign in/i }).click()
-    await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible()
+    await expectSignedIn(page)
 
     await page.getByRole('link', { name: 'Orders' }).click()
 
