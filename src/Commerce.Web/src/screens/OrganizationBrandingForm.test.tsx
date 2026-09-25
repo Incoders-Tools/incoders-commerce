@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { OrganizationBrandingForm } from './OrganizationBrandingForm'
@@ -123,6 +123,38 @@ describe('OrganizationBrandingForm', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/logoUrl must be an absolute http or https URL/i)
     expect(onSaved).not.toHaveBeenCalled()
+  })
+
+  it('disables Save and shows a Retry action when the branding load fails, without clearing the stored branding', async () => {
+    fetchMock.mockRejectedValueOnce(new Error('Commerce.Cloud.Api is unreachable.'))
+
+    render(<OrganizationBrandingForm organization={acme} onSaved={onSaved} onCancel={onCancel} />)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/commerce\.cloud\.api is unreachable/i)
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument()
+
+    const user = userEvent.setup()
+    // R3-branding-load-failure-save-clears: Save must never fire while the
+    // load is known to have failed — clicking a disabled button is a no-op,
+    // but assert the update call never happens either.
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('re-enables Save after a successful Retry', async () => {
+    fetchMock.mockRejectedValueOnce(new Error('network down'))
+    getOnce({ logoUrl: 'https://cdn.example.com/logo.png', primaryColor: '#336699' })
+
+    const user = userEvent.setup()
+    render(<OrganizationBrandingForm organization={acme} onSaved={onSaved} onCancel={onCancel} />)
+
+    await screen.findByRole('button', { name: 'Retry' })
+    await user.click(screen.getByRole('button', { name: 'Retry' }))
+
+    await waitFor(() => expect(screen.getByLabelText('Logo URL')).toHaveValue('https://cdn.example.com/logo.png'))
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save' })).not.toBeDisabled()
   })
 
   it('cancels without saving', async () => {

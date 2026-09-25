@@ -33,12 +33,21 @@ export function OrganizationBrandingForm({ organization, onSaved, onCancel }: Or
   const [logoUrl, setLogoUrl] = useState('')
   const [primaryColor, setPrimaryColor] = useState('')
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  // R3-branding-load-failure-save-clears: a failed load left the fields
+  // empty, and Save would then happily PUT those empty values, clearing
+  // the organization's real stored branding. `loadError` is tracked
+  // separately from `submitError` so Save can be disabled specifically
+  // while the last load attempt is known to have failed, with a Retry
+  // action instead of leaving the form silently broken.
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [submitError, setSubmitError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [reloadToken, setReloadToken] = useState(0)
 
   useEffect(() => {
     let cancelled = false
     setLoading(true)
+    setLoadError(null)
     getOrganizationBranding(organization.id)
       .then((branding) => {
         if (cancelled) return
@@ -47,7 +56,7 @@ export function OrganizationBrandingForm({ organization, onSaved, onCancel }: Or
       })
       .catch((err) => {
         if (cancelled) return
-        setError(err instanceof ApiError ? err.message : 'Unable to load organization branding.')
+        setLoadError(err instanceof ApiError ? err.message : 'Unable to load organization branding.')
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -55,11 +64,14 @@ export function OrganizationBrandingForm({ organization, onSaved, onCancel }: Or
     return () => {
       cancelled = true
     }
-  }, [organization.id])
+  }, [organization.id, reloadToken])
+
+  const handleRetry = () => setReloadToken((token) => token + 1)
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault()
-    setError(null)
+    if (loadError) return
+    setSubmitError(null)
     setSubmitting(true)
     try {
       await updateOrganizationBranding(organization.id, {
@@ -68,7 +80,7 @@ export function OrganizationBrandingForm({ organization, onSaved, onCancel }: Or
       })
       onSaved()
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Unable to save organization branding.')
+      setSubmitError(err instanceof ApiError ? err.message : 'Unable to save organization branding.')
     } finally {
       setSubmitting(false)
     }
@@ -138,14 +150,26 @@ export function OrganizationBrandingForm({ organization, onSaved, onCancel }: Or
           </div>
         </div>
 
-        {error && (
+        {loadError && (
+          <div
+            role="alert"
+            className="flex flex-col items-start gap-2 rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive"
+          >
+            <p>{loadError}</p>
+            <Button type="button" variant="outline" size="sm" onClick={handleRetry}>
+              Retry
+            </Button>
+          </div>
+        )}
+
+        {submitError && (
           <p role="alert" className="text-sm text-destructive">
-            {error}
+            {submitError}
           </p>
         )}
 
         <div className="flex gap-2">
-          <Button type="submit" disabled={loading || submitting}>
+          <Button type="submit" disabled={loading || submitting || Boolean(loadError)}>
             {submitting ? 'Saving…' : 'Save'}
           </Button>
           <Button type="button" variant="outline" onClick={onCancel} disabled={submitting}>
