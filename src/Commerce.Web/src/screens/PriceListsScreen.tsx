@@ -6,6 +6,7 @@ import { DataToolbar } from '@/components/data/DataToolbar'
 import { DataView, type DataViewColumn } from '@/components/data/DataView'
 import { PageHeader } from '@/components/data/PageHeader'
 import { useViewPreference } from '@/components/data/useViewPreference'
+import { FormPage } from '@/components/layout/FormPage'
 import { PriceHistory } from './PriceHistory'
 import { ImportReviewTable, type ImportReviewRow } from './ImportReviewTable'
 import { listPresentations } from '@/api/catalog'
@@ -43,10 +44,23 @@ function formatCreatedAt(value: string): string {
  * primary one — the organization's price lists — goes through `DataView`
  * (columns from `PriceListRecord`, `view:price-lists` preference, client-side
  * search over what `GET /pricing/price-lists` already returned). The prices
- * held BY the selected list are a detail panel below it, not a second
- * table/card grid: one view switch cannot sensibly own two grids, and the
- * nested surface is per-presentation history plus a publish form rather than
- * a flat record list.
+ * held BY the selected list are a nested surface, not a second table/card
+ * grid: one view switch cannot sensibly own two grids, and the nested
+ * surface is per-presentation history plus a publish form rather than a
+ * flat record list.
+ *
+ * T9: "Manage prices" used to reveal that nested surface as a bordered
+ * `<section>` boxed under the list — another instance of the "embedded
+ * modal" look the user complained about. Clicking it now swaps the whole
+ * screen to a full-screen `FormPage` detail page (`managingListId`),
+ * following the same state-swap `CatalogScreen`'s "Edit code" and
+ * `CustomersScreen`'s create/edit use, instead of always auto-opening the
+ * default list's entries under the table. Price history stays a full-width
+ * expandable section WITHIN that detail page rather than its own page: it
+ * is a small per-presentation lookup (a handful of rows), not a task that
+ * deserves its own navigation hop, and giving it a separate screen would
+ * add a back-and-forth for something meant to be glanced at while managing
+ * prices.
  */
 export function PriceListsScreen() {
   const [tab, setTab] = useState<Tab>('prices')
@@ -58,7 +72,9 @@ export function PriceListsScreen() {
   // about whether price lists exist.
   const [loadError, setLoadError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
-  const [selectedListId, setSelectedListId] = useState<string | null>(null)
+  // Set only by an explicit "Manage prices" click — the detail page is
+  // opened, never auto-shown for the default list (see the T9 remark above).
+  const [managingListId, setManagingListId] = useState<string | null>(null)
   const [publishingFor, setPublishingFor] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [view, setView] = useViewPreference('price-lists')
@@ -82,10 +98,7 @@ export function PriceListsScreen() {
   }, [])
 
   const defaultPriceList = priceLists.find((list) => list.isDefault) ?? null
-  // Derived, not stored: the operator's pick wins, otherwise the default list
-  // opens by itself (an organization normally has exactly one).
-  const selectedList =
-    priceLists.find((list) => list.id === selectedListId) ?? defaultPriceList ?? priceLists[0] ?? null
+  const managingList = priceLists.find((list) => list.id === managingListId) ?? null
 
   const handleCreateDefault = async () => {
     setActionError(null)
@@ -116,6 +129,21 @@ export function PriceListsScreen() {
       hideOnMobile: true,
     },
   ]
+
+  if (managingList) {
+    return (
+      <PriceListDetail
+        priceList={managingList}
+        presentations={presentations}
+        publishingFor={publishingFor}
+        setPublishingFor={setPublishingFor}
+        onBack={() => {
+          setManagingListId(null)
+          setPublishingFor(null)
+        }}
+      />
+    )
+  }
 
   return (
     <section className="flex w-full flex-col gap-6">
@@ -173,33 +201,20 @@ export function PriceListsScreen() {
             emptyMessage={
               priceLists.length === 0 ? 'No price lists yet.' : 'No price lists match this search.'
             }
-            renderActions={(list) =>
-              selectedList?.id === list.id ? (
-                <span className="text-xs text-muted-foreground">Prices shown below</span>
-              ) : (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setSelectedListId(list.id)
-                    setPublishingFor(null)
-                  }}
-                >
-                  Manage prices
-                </Button>
-              )
-            }
+            renderActions={(list) => (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setManagingListId(list.id)
+                  setPublishingFor(null)
+                }}
+              >
+                Manage prices
+              </Button>
+            )}
           />
-
-          {selectedList && (
-            <PriceListEntries
-              priceList={selectedList}
-              presentations={presentations}
-              publishingFor={publishingFor}
-              setPublishingFor={setPublishingFor}
-            />
-          )}
         </>
       )}
 
@@ -216,70 +231,73 @@ export function PriceListsScreen() {
 }
 
 /**
- * The nested surface: the price entries (`PriceListEntryRecord`) the selected
- * list holds, reached per presentation through `PriceHistory`, plus the
- * publish form. Deliberately NOT a second `DataView` — see the screen's own
- * remark above.
+ * T9: the nested surface — the price entries (`PriceListEntryRecord`) the
+ * managed list holds, reached per presentation through `PriceHistory`, plus
+ * the publish form — as its own full-screen `FormPage`, reached only by
+ * clicking "Manage prices" (`PriceListsScreen`'s `managingListId`).
+ * Deliberately NOT a second `DataView`: one view switch cannot sensibly own
+ * two grids, and this nested surface is per-presentation history plus a
+ * publish form rather than a flat record list (see the screen's own remark
+ * above).
  */
-function PriceListEntries({
+function PriceListDetail({
   priceList,
   presentations,
   publishingFor,
   setPublishingFor,
+  onBack,
 }: {
   priceList: PriceListRecord
   presentations: PresentationRecord[]
   publishingFor: string | null
   setPublishingFor: (presentationId: string | null) => void
+  onBack: () => void
 }) {
   return (
-    <section
-      data-testid="price-list-entries"
-      className="flex w-full flex-col gap-3 rounded-lg border border-border bg-card p-4"
+    <FormPage
+      title={`Prices in ${priceList.name}`}
+      description="Each presentation's published entries, newest effective date first."
+      onBack={onBack}
+      backLabel="Back to price lists"
     >
-      <div>
-        <h2 className="text-lg font-semibold">Prices in {priceList.name}</h2>
-        <p className="text-sm text-muted-foreground">
-          Each presentation&apos;s published entries, newest effective date first.
-        </p>
+      <div data-testid="price-list-entries" className="flex w-full flex-col gap-3">
+        {presentations.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No presentations yet.</p>
+        ) : (
+          <ul className="flex flex-col gap-3">
+            {presentations.map((presentation) => (
+              <li key={presentation.id} className="border-b border-border pb-3 last:border-0 last:pb-0">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="font-medium break-words">{presentation.name}</p>
+                    <p className="text-xs text-muted-foreground">{presentation.identificationCode ?? 'No code'}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <PriceHistory priceListId={priceList.id} presentationId={presentation.id} />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setPublishingFor(publishingFor === presentation.id ? null : presentation.id)}
+                    >
+                      New price
+                    </Button>
+                  </div>
+                </div>
+                {publishingFor === presentation.id && (
+                  <NewPriceForm
+                    priceListId={priceList.id}
+                    presentationId={presentation.id}
+                    onCancel={() => setPublishingFor(null)}
+                    onPublished={() => setPublishingFor(null)}
+                  />
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
-
-      {presentations.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No presentations yet.</p>
-      ) : (
-        <ul className="flex flex-col gap-3">
-          {presentations.map((presentation) => (
-            <li key={presentation.id} className="border-b border-border pb-3 last:border-0 last:pb-0">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="font-medium break-words">{presentation.name}</p>
-                  <p className="text-xs text-muted-foreground">{presentation.identificationCode ?? 'No code'}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <PriceHistory priceListId={priceList.id} presentationId={presentation.id} />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setPublishingFor(publishingFor === presentation.id ? null : presentation.id)}
-                  >
-                    New price
-                  </Button>
-                </div>
-              </div>
-              {publishingFor === presentation.id && (
-                <NewPriceForm
-                  priceListId={priceList.id}
-                  presentationId={presentation.id}
-                  onCancel={() => setPublishingFor(null)}
-                  onPublished={() => setPublishingFor(null)}
-                />
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
+    </FormPage>
   )
 }
 

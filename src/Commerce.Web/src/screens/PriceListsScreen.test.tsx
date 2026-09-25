@@ -89,15 +89,14 @@ describe('PriceListsScreen', () => {
       .mockResolvedValueOnce(new Response(JSON.stringify(lists), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify(items), { status: 200 }))
 
-  it('loads the default price list and presentations, and lists them under Prices', async () => {
+  it('loads the price lists under Prices', async () => {
     fetchMock
       .mockResolvedValueOnce(new Response(JSON.stringify([defaultPriceList]), { status: 200 })) // GET /pricing/price-lists
       .mockResolvedValueOnce(new Response(JSON.stringify([presentation]), { status: 200 })) // GET /catalog/presentations
 
     render(<PriceListsScreen />)
 
-    await screen.findByText('1.5L bottle')
-    expect(screen.getByText('7791234567890')).toBeInTheDocument()
+    await screen.findByText('Default')
     expect(fetchMock.mock.calls[0][0]).toBe('/pricing/price-lists')
     expect(fetchMock.mock.calls[1][0]).toBe('/catalog/presentations')
   })
@@ -145,6 +144,8 @@ describe('PriceListsScreen', () => {
     const user = userEvent.setup()
     render(<PriceListsScreen />)
 
+    await screen.findByText('Default')
+    await user.click(screen.getByRole('button', { name: /manage prices/i }))
     await screen.findByText('1.5L bottle')
     await user.click(screen.getByRole('button', { name: /new price/i }))
     await user.type(screen.getByLabelText('Unit price'), '600')
@@ -169,7 +170,7 @@ describe('PriceListsScreen', () => {
     const user = userEvent.setup()
     render(<PriceListsScreen />)
 
-    await screen.findByText('1.5L bottle')
+    await screen.findByText('Default')
     await user.click(screen.getByRole('button', { name: /^suppliers$/i }))
     expect(screen.getByText(/supplier mappings/i)).toBeInTheDocument()
   })
@@ -224,7 +225,7 @@ describe('PriceListsScreen', () => {
 
     const user = userEvent.setup()
     render(<PriceListsScreen />)
-    await screen.findByText('1.5L bottle')
+    await screen.findByText('Default')
 
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify([mapping]), { status: 200 })) // GET /pricing/supplier-mappings
     await user.click(screen.getByRole('button', { name: /^import$/i }))
@@ -256,7 +257,7 @@ describe('PriceListsScreen', () => {
 
     const user = userEvent.setup()
     render(<PriceListsScreen />)
-    await screen.findByText('1.5L bottle')
+    await screen.findByText('Default')
 
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify([mapping]), { status: 200 }))
     await user.click(screen.getByRole('button', { name: /^import$/i }))
@@ -287,7 +288,7 @@ describe('PriceListsScreen', () => {
 
     const { container } = render(<PriceListsScreen />)
 
-    await screen.findByText('1.5L bottle')
+    await screen.findByText('Default')
     expect(container.querySelector('.mx-auto')).toBeNull()
     expect(container.querySelector('[class*="max-w-2xl"], [class*="max-w-3xl"]')).toBeNull()
   })
@@ -411,15 +412,37 @@ describe('PriceListsScreen', () => {
     await waitFor(() => expect(window.localStorage.getItem('view:price-lists')).toBeNull())
   })
 
-  it('opens the prices of the default list without being asked to', async () => {
+  it('does not open any price list until "Manage prices" is clicked', async () => {
     loadOnce([defaultPriceList, seasonalPriceList])
 
     render(<PriceListsScreen />)
 
-    const prices = await screen.findByTestId('price-list-entries')
+    await screen.findByText('Default')
+    expect(screen.queryByTestId('price-list-entries')).not.toBeInTheDocument()
+    expect(screen.getByRole('table')).toBeInTheDocument()
+  })
+
+  it('opens the default list\'s prices as a full-screen page, replacing the list', async () => {
+    loadOnce([defaultPriceList, seasonalPriceList])
+
+    const user = userEvent.setup()
+    render(<PriceListsScreen />)
+
+    const row = within(await screen.findByRole('table'))
+      .getAllByRole('row')
+      .find((candidate) => within(candidate).queryByText('Default') !== null)
+    expect(row).toBeDefined()
+    await user.click(within(row!).getByRole('button', { name: /manage prices/i }))
+
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /prices in default/i })).toBeInTheDocument()
+    const prices = screen.getByTestId('price-list-entries')
     expect(within(prices).getByText('1.5L bottle')).toBeInTheDocument()
-    expect(prices).toHaveTextContent('Default')
-    expect(prices).not.toHaveTextContent('Seasonal')
+
+    await user.click(screen.getByRole('button', { name: /back to price lists/i }))
+
+    expect(screen.getByText('Default')).toBeInTheDocument()
+    expect(screen.getByText('Seasonal')).toBeInTheDocument()
   })
 
   it('publishes against the price list the operator picked, not the default one', async () => {
@@ -451,8 +474,8 @@ describe('PriceListsScreen', () => {
     expect(row).toBeDefined()
     await user.click(within(row!).getByRole('button', { name: /manage prices/i }))
 
+    expect(screen.getByRole('heading', { name: /prices in seasonal/i })).toBeInTheDocument()
     const prices = screen.getByTestId('price-list-entries')
-    expect(prices).toHaveTextContent('Seasonal')
     await user.click(within(prices).getByRole('button', { name: /new price/i }))
     await user.type(screen.getByLabelText('Unit price'), '720')
     await user.type(screen.getByLabelText('Effective from'), '2024-08-01')
@@ -462,12 +485,17 @@ describe('PriceListsScreen', () => {
     expect(fetchMock.mock.calls[2][0]).toBe(`/pricing/price-lists/${seasonalPriceList.id}/entries`)
   })
 
-  it('reads the history of the selected price list', async () => {
+  it('reads the history of the managed price list', async () => {
     loadOnce([defaultPriceList, seasonalPriceList])
 
     const user = userEvent.setup()
     render(<PriceListsScreen />)
 
+    const row = within(await screen.findByRole('table'))
+      .getAllByRole('row')
+      .find((candidate) => within(candidate).queryByText('Default') !== null)
+    expect(row).toBeDefined()
+    await user.click(within(row!).getByRole('button', { name: /manage prices/i }))
     const prices = await screen.findByTestId('price-list-entries')
 
     fetchMock.mockResolvedValueOnce(
