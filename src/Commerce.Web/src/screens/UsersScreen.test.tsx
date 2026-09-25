@@ -86,6 +86,7 @@ describe('UsersScreen', () => {
 
   it('saves the selected roles for a listed user', async () => {
     listOnce([seller]).mockResolvedValueOnce(new Response(null, { status: 204 }))
+    listOnce([seller])
 
     const user = userEvent.setup()
     render(<UsersScreen />)
@@ -93,9 +94,123 @@ describe('UsersScreen', () => {
     await screen.findByText('staff@example.com')
     await user.click(screen.getByRole('button', { name: 'Save roles' }))
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    // Three calls now, not two: a successful save re-reads the list so the
+    // row cannot keep showing a selection the server may have adjusted.
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
     expect(fetchMock.mock.calls[1][0]).toBe('/account/users/user-1/roles')
     expect(fetchMock.mock.calls[1][1].method).toBe('PUT')
+    expect(fetchMock.mock.calls[2][0]).toBe('/account/users')
+  })
+
+  // ---- Per-row role editor ----
+
+  const tableRows = async () => within(await screen.findByRole('table')).getAllByRole('row')
+
+  it('offers exactly the organization-assignable roles per row, never platform-admin', async () => {
+    listOnce([seller])
+
+    render(<UsersScreen />)
+
+    const row = (await tableRows())[1]
+    // Counting the real checkboxes rather than probing for one label: the
+    // server's RoleCatalog deliberately excludes platform-admin from what an
+    // organization can grant, so the row must offer that exact set.
+    expect(within(row).getAllByRole('checkbox').map((box) => box.getAttribute('aria-label'))).toEqual([
+      'business-admin for staff@example.com',
+      'seller for staff@example.com',
+      'provider for staff@example.com',
+    ])
+  })
+
+  it("saves a row's own roles, not whatever the create form has checked", async () => {
+    listOnce([seller, revokedProvider]).mockResolvedValueOnce(new Response(null, { status: 204 }))
+    listOnce([seller, revokedProvider])
+
+    const user = userEvent.setup()
+    render(<UsersScreen />)
+
+    await screen.findByText('staff@example.com')
+    // Make the create form's selection differ from every row's own roles.
+    await user.click(screen.getByLabelText('provider for new user'))
+
+    const sellerRow = (await tableRows())[1]
+    await user.click(within(sellerRow).getByRole('button', { name: 'Save roles' }))
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
+    expect(fetchMock.mock.calls[1][0]).toBe('/account/users/user-1/roles')
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toEqual({ roleNames: ['seller'] })
+    // …and the list is re-read, so the row shows what the server really kept.
+    expect(fetchMock.mock.calls[2][0]).toBe('/account/users')
+  })
+
+  it('edits one row without touching another row, and sends the edited set', async () => {
+    listOnce([seller, revokedProvider]).mockResolvedValueOnce(new Response(null, { status: 204 }))
+    listOnce([{ ...seller, roleNames: ['business-admin'] }, revokedProvider])
+
+    const user = userEvent.setup()
+    render(<UsersScreen />)
+
+    await screen.findByText('staff@example.com')
+    await user.click(screen.getByLabelText('business-admin for staff@example.com'))
+    await user.click(screen.getByLabelText('seller for staff@example.com'))
+
+    // The other row keeps its own, independent selection.
+    expect(screen.getByLabelText('provider for supplier@vendor.test')).toBeChecked()
+    expect(screen.getByLabelText('business-admin for supplier@vendor.test')).not.toBeChecked()
+    expect(screen.getByLabelText('seller for supplier@vendor.test')).not.toBeChecked()
+
+    const sellerRow = (await tableRows())[1]
+    await user.click(within(sellerRow).getByRole('button', { name: 'Save roles' }))
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toEqual({ roleNames: ['business-admin'] })
+    const refreshedCells = within((await tableRows())[1]).getAllByRole('cell')
+    expect(within(refreshedCells[1]).getByText('business-admin')).toBeInTheDocument()
+  })
+
+  it('surfaces a rejected role change and leaves the row showing the stored roles', async () => {
+    listOnce([seller]).mockResolvedValueOnce(
+      new Response(JSON.stringify({ title: 'You cannot grant business-admin.' }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+
+    const user = userEvent.setup()
+    render(<UsersScreen />)
+
+    await screen.findByText('staff@example.com')
+    await user.click(screen.getByLabelText('business-admin for staff@example.com'))
+    await user.click(screen.getByRole('button', { name: 'Save roles' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/you cannot grant business-admin/i)
+    // The grant cap rejected it, so the row must fall back to the stored roles.
+    expect(screen.getByLabelText('business-admin for staff@example.com')).not.toBeChecked()
+    expect(screen.getByLabelText('seller for staff@example.com')).toBeChecked()
+    // No refresh was issued: the PUT is the only call after the initial list.
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('edits and saves the roles of a row from the card view too', async () => {
+    window.localStorage.setItem('view:users', 'cards')
+    listOnce([seller]).mockResolvedValueOnce(new Response(null, { status: 204 }))
+    listOnce([{ ...seller, roleNames: ['seller', 'business-admin'] }])
+
+    const user = userEvent.setup()
+    render(<UsersScreen />)
+
+    await screen.findByText('staff@example.com')
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    expect(screen.getAllByTestId('data-view-card')).toHaveLength(1)
+
+    await user.click(screen.getByLabelText('business-admin for staff@example.com'))
+    await user.click(screen.getByRole('button', { name: 'Save roles' }))
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
+    expect(fetchMock.mock.calls[1][0]).toBe('/account/users/user-1/roles')
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toEqual({
+      roleNames: ['seller', 'business-admin'],
+    })
   })
 
   it('surfaces a load failure as an alert', async () => {
@@ -123,10 +238,13 @@ describe('UsersScreen', () => {
 
     render(<UsersScreen />)
 
-    const row = within(await screen.findByRole('table')).getAllByRole('row')[1]
-    expect(within(row).getByText('supplier@vendor.test')).toBeInTheDocument()
-    expect(within(row).getByText('provider')).toBeInTheDocument()
-    expect(within(row).getByText('Revoked')).toBeInTheDocument()
+    // Scoped to the data cells: the actions cell now also carries a
+    // per-row role editor whose checkbox labels repeat the role names, so an
+    // unscoped `getByText('provider')` would be ambiguous rather than wrong.
+    const cells = within(within(await screen.findByRole('table')).getAllByRole('row')[1]).getAllByRole('cell')
+    expect(within(cells[0]).getByText('supplier@vendor.test')).toBeInTheDocument()
+    expect(within(cells[1]).getByText('provider')).toBeInTheDocument()
+    expect(within(cells[2]).getByText('Revoked')).toBeInTheDocument()
   })
 
   it('shows an empty state when there are no users', async () => {

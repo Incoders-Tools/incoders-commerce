@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { adminResetPassword, createUser, listUsers, updateUserRoles } from '@/api/account'
+import { ApiError } from '@/api/client'
 import type { UserSummary } from '@/api/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -8,6 +9,12 @@ import { DataView, type DataViewColumn } from '@/components/data/DataView'
 import { PageHeader } from '@/components/data/PageHeader'
 import { useViewPreference } from '@/components/data/useViewPreference'
 
+/**
+ * What an organization-scoped caller may grant. Deliberately excludes
+ * `platform-admin`: `Commerce.Domain/Identity/RoleCatalog.cs` keeps it out of
+ * the organization-assignable set, and the server enforces that regardless of
+ * what this screen offers.
+ */
 const assignableRoles = ['business-admin', 'seller', 'provider']
 
 /**
@@ -28,6 +35,8 @@ export function UsersScreen() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [roles, setRoles] = useState<string[]>(['seller'])
+  /** Per-row role selection, keyed by user id and re-seeded from the server on every load. */
+  const [rowRoles, setRowRoles] = useState<Record<string, string[]>>({})
   const [resetPasswords, setResetPasswords] = useState<Record<string, string>>({})
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -36,7 +45,9 @@ export function UsersScreen() {
 
   const refresh = async () => {
     try {
-      setUsers(await listUsers())
+      const loaded = await listUsers()
+      setUsers(loaded)
+      setRowRoles(Object.fromEntries(loaded.map((user) => [user.userId, user.roleNames])))
     } catch {
       setError('Unable to load users.')
     } finally {
@@ -62,6 +73,36 @@ export function UsersScreen() {
 
   const toggle = (role: string) =>
     setRoles((current) => (current.includes(role) ? current.filter((x) => x !== role) : [...current, role]))
+
+  const selectedRolesFor = (user: UserSummary) => rowRoles[user.userId] ?? user.roleNames
+
+  const toggleRowRole = (user: UserSummary, role: string) =>
+    setRowRoles((current) => {
+      const selected = current[user.userId] ?? user.roleNames
+      return {
+        ...current,
+        [user.userId]: selected.includes(role) ? selected.filter((x) => x !== role) : [...selected, role],
+      }
+    })
+
+  const saveRoles = async (user: UserSummary) => {
+    try {
+      await updateUserRoles(user.userId, selectedRolesFor(user))
+      // Re-read the list so the row shows what the server actually stored.
+      await refresh()
+    } catch (err) {
+      // The server applies a grant cap (a caller cannot hand out permissions
+      // it does not itself hold). Discarding this promise would make the
+      // rejection invisible and leave the row advertising roles that were
+      // never persisted, so surface it and fall back to the stored roles.
+      setRowRoles((current) => ({ ...current, [user.userId]: user.roleNames }))
+      setError(
+        err instanceof ApiError
+          ? `Unable to save roles for ${user.email}: ${err.message}`
+          : `Unable to save roles for ${user.email}.`,
+      )
+    }
+  }
 
   const forceReset = async (userId: string) => {
     const newPassword = resetPasswords[userId]?.trim()
@@ -141,7 +182,12 @@ export function UsersScreen() {
         <div className="flex flex-wrap items-center gap-3">
           {assignableRoles.map((role) => (
             <label key={role} className="flex items-center gap-1.5 text-sm text-foreground">
-              <input type="checkbox" checked={roles.includes(role)} onChange={() => toggle(role)} />
+              <input
+                type="checkbox"
+                aria-label={`${role} for new user`}
+                checked={roles.includes(role)}
+                onChange={() => toggle(role)}
+              />
               {role}
             </label>
           ))}
@@ -167,13 +213,18 @@ export function UsersScreen() {
         emptyMessage={users.length === 0 ? 'No users yet.' : 'No users match this search.'}
         renderActions={(user) => (
           <>
-            {/*
-              Pre-existing behavior, preserved verbatim by T4b: "Save roles"
-              sends the CREATE form's currently-checked `roles`, not this row's
-              own `user.roleNames`. Changing that would be a functional change,
-              which this presentation migration deliberately is not.
-            */}
-            <Button size="sm" onClick={() => void updateUserRoles(user.userId, roles)}>
+            {assignableRoles.map((role) => (
+              <label key={role} className="flex items-center gap-1.5 text-sm text-foreground">
+                <input
+                  type="checkbox"
+                  aria-label={`${role} for ${user.email}`}
+                  checked={selectedRolesFor(user).includes(role)}
+                  onChange={() => toggleRowRole(user, role)}
+                />
+                {role}
+              </label>
+            ))}
+            <Button size="sm" onClick={() => void saveRoles(user)}>
               Save roles
             </Button>
             <Input
