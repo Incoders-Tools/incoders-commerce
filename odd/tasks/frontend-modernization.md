@@ -1083,9 +1083,27 @@ implementation gap before implementing.
   Users screen still org-wide (U8); a sysadmin's first branch after an org
   switch needs one `/account/me` round trip.
 
+- 2026-09-26: B7 U4 done (delegated direct; writer stalled once and was
+  resumed). `6a74496` migration 0016 (`branch_id NOT NULL` on products and
+  presentations, composite FK, identification code unique per branch,
+  branch fail-closed RLS, mirrored into init-rls.sql), every `/catalog/*`
+  route requires the selected branch, rename stamps the branch from scope
+  (body `TargetBranchId` removed), `POST /pricing/imports` requires a
+  branch, `GuestOrderTarget.Scope` now carries its configured branch (was
+  silently dropped). `fdcfd46`..`a697e67` fixture fixes; `4262263` web
+  record types + e2e `X-Branch-Id` on direct API calls. Checks: integration
+  729/729 (worktree), build ok, web 271/271, lint/build clean, e2e typecheck
+  clean. Parent spot check: 80/80 (catalog, guest ordering, branch
+  selection). Dev DB: 0016 applied by psql (no migration runner exists);
+  no catalog rows existed, RLS verified by insert/switch/rollback.
+  RDD `b4e6877..4262263`: high (1241 lines), user DECLINED, exact decline
+  run. Latent gap for U7: staff order submission does not require a
+  branch yet, so without `X-Branch-Id` its catalog reads now come back
+  empty (fail-closed).
+
 ## Next step
 
-B7 U4 catalog branch ownership, U5 pricing branch ownership + date
+B7 U5 pricing branch ownership + date
 filter, U5b catalog copy (products + latest price list), U6..U8, B2
 semantics, B3, B4 confirmation, B1b/B6b/T6b cleanups, localized server
 errors.
