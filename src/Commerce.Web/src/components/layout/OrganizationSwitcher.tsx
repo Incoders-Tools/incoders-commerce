@@ -1,9 +1,11 @@
 import { useEffect, useState, type ChangeEvent } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Building2 } from 'lucide-react'
 import { listOrganizations } from '@/api/account'
 import { ApiError } from '@/api/client'
 import type { OrganizationSummary } from '@/api/types'
 import { useAuth } from '@/auth/AuthContext'
+import { Select } from '@/components/ui/select'
 import { useOptionalOrganizationContext } from '@/organization/OrganizationContext'
 
 const NO_ORGANIZATION_VALUE = ''
@@ -60,16 +62,17 @@ export function OrganizationSwitcher() {
 
   return (
     <div className="flex items-center gap-2">
-      <label htmlFor="organization-switcher" className="text-sm font-medium text-muted-foreground">
+      <Building2 aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+      <label htmlFor="organization-switcher" className="sr-only">
         {t('organizationSwitcher.label')}
       </label>
-      <select
+      <Select
         id="organization-switcher"
         aria-label={t('organizationSwitcher.label')}
         value={selectedOrganization?.id ?? NO_ORGANIZATION_VALUE}
         onChange={handleChange}
         title={loadError ?? undefined}
-        className="h-8 rounded-md border border-border bg-card px-2 text-sm text-foreground"
+        className="h-8 w-auto"
       >
         <option value={NO_ORGANIZATION_VALUE}>{t('organizationSwitcher.noOrganization')}</option>
         {organizations.map((organization) => (
@@ -77,7 +80,7 @@ export function OrganizationSwitcher() {
             {organization.name}
           </option>
         ))}
-      </select>
+      </Select>
     </div>
   )
 }

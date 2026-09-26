@@ -16,26 +16,38 @@ import { cn } from '@/lib/utils'
 import { hasPermission, useAuth } from '@/auth/AuthContext'
 import { Permission } from '@/api/types'
 import { AccountMenu } from '@/components/layout/AccountMenu'
+import { BranchSwitcher } from '@/components/layout/BranchSwitcher'
 import { OrganizationSwitcher } from '@/components/layout/OrganizationSwitcher'
+import { useOptionalBranchContext } from '@/branch/BranchContext'
 import { useOrganizationBranding } from '@/theme/OrganizationBrandingProvider'
 import { useOptionalOrganizationContext } from '@/organization/OrganizationContext'
 
 /**
- * Enterprise app shell (T3): fixed sidebar nav on desktop, hamburger-toggled
- * off-canvas sidebar on mobile, and a full-width content area (no more
- * `max-w-3xl` centered column — user feedback was the app "doesn't use the
- * full screen"). Replaces the former header/`NavTab` bar/`Outlet` layout
- * from T1/T2. "Change password" moved out of the flat nav bar into
- * `AccountMenu`; the theme switcher moved there too (was mounted directly
- * in the header as a T2 placeholder).
+ * Enterprise app shell (T3, restructured for B7 U3): a full-width top bar
+ * (brand, then — for a sysadmin — the organization switcher, then the
+ * branch switcher, then the account menu) above a fixed sidebar nav on
+ * desktop / hamburger-toggled off-canvas sidebar on mobile, and a full-width
+ * content area (no more `max-w-3xl` centered column — user feedback was the
+ * app "doesn't use the full screen"). "Change password" moved out of the
+ * flat nav bar into `AccountMenu`; the theme switcher moved there too (was
+ * mounted directly in the header as a T2 placeholder).
  */
 export function AppLayout() {
   const { t } = useTranslation('nav')
   const { user } = useAuth()
   const organizationContext = useOptionalOrganizationContext()
+  const branchContext = useOptionalBranchContext()
   const [mobileOpen, setMobileOpen] = useState(false)
 
   const closeMobileNav = () => setMobileOpen(false)
+
+  // "On branch switch, screens must refetch" (tasks.md B7 U3): keying the
+  // routed Outlet by organization+branch remounts every screen under it on
+  // either change, instead of relying on each screen's own fetch effect to
+  // notice the header changed. `'own'`/`'none'` are the same sentinels
+  // `BranchContext`'s storage key uses, so "no selection" is still a stable,
+  // distinct key rather than colliding with a real id.
+  const outletKey = `${organizationContext?.selectedOrganization?.id ?? 'own'}:${branchContext?.selectedBranch?.id ?? 'none'}`
 
   // platform-administration spec, "Sysadmin Acts On A Selected
   // Organization": a system administrator holds zero `Permission` bits on
@@ -55,70 +67,90 @@ export function AppLayout() {
   const showCatalogAndOrdersNav = !sysadminWithNoRealPermissions || actingAsSysadminOnSelectedOrganization
 
   return (
-    <div className="flex min-h-screen bg-background text-foreground">
-      {mobileOpen && (
-        <div
-          className="fixed inset-0 z-30 bg-black/50 md:hidden"
-          onClick={closeMobileNav}
-          aria-hidden="true"
-        />
-      )}
-
-      <aside
-        className={cn(
-          'fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-border bg-card transition-transform duration-200 ease-in-out md:static md:w-64 md:shrink-0 md:translate-x-0',
-          mobileOpen ? 'translate-x-0' : '-translate-x-full',
-        )}
-      >
-        <div className="flex h-14 items-center border-b border-border px-4">
+    <div className="flex min-h-screen flex-col bg-background text-foreground">
+      <header className="flex h-14 items-center gap-3 border-b border-border bg-card px-4 md:px-6">
+        <button
+          type="button"
+          aria-label={t('toggleNavigation')}
+          onClick={() => setMobileOpen((prev) => !prev)}
+          className="rounded-md p-1.5 text-foreground transition-colors hover:bg-accent hover:text-accent-foreground md:hidden"
+        >
+          <Menu aria-hidden="true" className="size-5 shrink-0" />
+        </button>
+        <div className="flex shrink-0 items-center">
           <BrandMark />
         </div>
-        <nav aria-label={t('primary')} className="flex flex-1 flex-col gap-1 overflow-y-auto p-3">
-          {showCatalogAndOrdersNav && (
-            <>
-              <NavItem to="/app/catalog" icon={Package} onNavigate={closeMobileNav}>{t('items.catalog')}</NavItem>
-              <NavItem to="/app/orders" icon={ClipboardList} onNavigate={closeMobileNav}>{t('items.orders')}</NavItem>
-            </>
-          )}
-          {/* commerce-customer-identity "Web admin gating": hidden, not just
-              unreachable — a UX affordance, not the security boundary. The
-              server's ManageUsers check on every /customers call is that. */}
-          {showTenantNav && (
-            <>
-              <NavItem to="/app/customers" icon={Users2} onNavigate={closeMobileNav}>{t('items.customers')}</NavItem>
-              <NavItem to="/app/users" icon={UserCog} onNavigate={closeMobileNav}>{t('items.users')}</NavItem>
-              <NavItem to="/app/branches" icon={Store} onNavigate={closeMobileNav}>{t('items.branches')}</NavItem>
-              {/* Same UI-only gate as its siblings: `App.tsx`'s
-                  `RequireAdmin` is the routing boundary, and Pricing.cs's
-                  own permission check is the real one. */}
-              <NavItem to="/app/price-lists" icon={Tags} onNavigate={closeMobileNav}>{t('items.priceLists')}</NavItem>
-            </>
-          )}
-          {user?.isSystemAdmin && (
-            <NavItem to="/app/organizations" icon={Building2} onNavigate={closeMobileNav}>{t('items.organizations')}</NavItem>
-          )}
-        </nav>
-      </aside>
+        <div className="flex flex-1 items-center gap-3 overflow-x-auto">
+          <OrganizationSwitcher />
+          <BranchSwitcher />
+        </div>
+        <AccountMenu />
+      </header>
 
-      <div className="flex min-h-screen w-full min-w-0 flex-1 flex-col">
-        <header className="flex h-14 items-center justify-between border-b border-border bg-card px-4 md:px-6">
-          <button
-            type="button"
-            aria-label={t('toggleNavigation')}
-            onClick={() => setMobileOpen((prev) => !prev)}
-            className="rounded-md p-1.5 text-foreground transition-colors hover:bg-accent hover:text-accent-foreground md:hidden"
-          >
-            <Menu aria-hidden="true" className="size-5 shrink-0" />
-          </button>
-          <div className="flex flex-1 items-center justify-end gap-3">
-            <OrganizationSwitcher />
-            <AccountMenu />
-          </div>
-        </header>
-        <main className="w-full flex-1 p-4 md:p-6">
-          <Outlet />
+      <div className="flex flex-1">
+        {mobileOpen && (
+          <div
+            className="fixed inset-0 z-30 bg-black/50 md:hidden"
+            onClick={closeMobileNav}
+            aria-hidden="true"
+          />
+        )}
+
+        <aside
+          className={cn(
+            'fixed inset-y-14 left-0 z-40 flex w-64 flex-col border-r border-border bg-card transition-transform duration-200 ease-in-out md:static md:w-64 md:shrink-0 md:translate-x-0',
+            mobileOpen ? 'translate-x-0' : '-translate-x-full',
+          )}
+        >
+          <nav aria-label={t('primary')} className="flex flex-1 flex-col gap-1 overflow-y-auto p-3">
+            {showCatalogAndOrdersNav && (
+              <NavSection title={t('sections.operations')}>
+                <NavItem to="/app/catalog" icon={Package} onNavigate={closeMobileNav}>{t('items.catalog')}</NavItem>
+                <NavItem to="/app/orders" icon={ClipboardList} onNavigate={closeMobileNav}>{t('items.orders')}</NavItem>
+              </NavSection>
+            )}
+            {/* commerce-customer-identity "Web admin gating": hidden, not just
+                unreachable — a UX affordance, not the security boundary. The
+                server's ManageUsers check on every /customers call is that. */}
+            {showTenantNav && (
+              <NavSection title={t('sections.administration')}>
+                <NavItem to="/app/customers" icon={Users2} onNavigate={closeMobileNav}>{t('items.customers')}</NavItem>
+                <NavItem to="/app/users" icon={UserCog} onNavigate={closeMobileNav}>{t('items.users')}</NavItem>
+                <NavItem to="/app/branches" icon={Store} onNavigate={closeMobileNav}>{t('items.branches')}</NavItem>
+                {/* Same UI-only gate as its siblings: `App.tsx`'s
+                    `RequireAdmin` is the routing boundary, and Pricing.cs's
+                    own permission check is the real one. */}
+                <NavItem to="/app/price-lists" icon={Tags} onNavigate={closeMobileNav}>{t('items.priceLists')}</NavItem>
+              </NavSection>
+            )}
+            {user?.isSystemAdmin && (
+              <NavSection title={t('sections.platform')}>
+                <NavItem to="/app/organizations" icon={Building2} onNavigate={closeMobileNav}>{t('items.organizations')}</NavItem>
+              </NavSection>
+            )}
+          </nav>
+        </aside>
+
+        <main className="w-full min-w-0 flex-1 p-4 md:p-6">
+          <Outlet key={outletKey} />
         </main>
       </div>
+    </div>
+  )
+}
+
+/**
+ * Small section heading grouping the sidebar's nav items (B7 U3, "more
+ * attractive menu"): purely visual — every existing link keeps its exact
+ * accessible name and stays a direct descendant of the single `<nav>`
+ * landmark, so `AppLayout.test.tsx`'s `within(getByRole('navigation'))`
+ * queries are unaffected.
+ */
+function NavSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1 pt-4 first:pt-0">
+      <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</p>
+      {children}
     </div>
   )
 }

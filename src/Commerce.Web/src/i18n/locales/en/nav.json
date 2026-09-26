@@ -10,6 +10,11 @@
     "priceLists": "Price lists",
     "organizations": "Organizations"
   },
+  "sections": {
+    "operations": "Operations",
+    "administration": "Administration",
+    "platform": "Platform"
+  },
   "account": {
     "label": "Account",
     "changePassword": "Change password",
@@ -19,5 +24,8 @@
     "label": "Organization",
     "noOrganization": "No organization",
     "loadError": "Unexpected error loading organizations."
+  },
+  "branchSwitcher": {
+    "label": "Branch"
   }
 }

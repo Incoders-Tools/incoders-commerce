@@ -30,7 +30,14 @@ interface BranchContextValue {
   selectBranch: (branch: SelectedBranch) => void
 }
 
-const BranchContext = createContext<BranchContextValue | undefined>(undefined)
+/**
+ * Exported (unlike `OrganizationContext`'s private context) so a component
+ * test can supply a value directly — the same direct-`Context.Provider`
+ * pattern `OrganizationBrandingContext` already uses for `AppLayout.test.tsx`
+ * — instead of driving the real provider through a network mock for every
+ * `BranchSwitcher` case.
+ */
+export const BranchContext = createContext<BranchContextValue | undefined>(undefined)
 
 function storageKeyFor(userId: string | undefined, organizationScopeId: string | null): string {
   return `branch:${userId ?? 'anonymous'}:${organizationScopeId ?? 'own'}`

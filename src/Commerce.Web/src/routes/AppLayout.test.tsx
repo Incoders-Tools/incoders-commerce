@@ -1,8 +1,10 @@
+import { useEffect } from 'react'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { AuthContext } from '@/auth/AuthContext'
+import { BranchProvider } from '@/branch/BranchContext'
 import { OrganizationProvider } from '@/organization/OrganizationContext'
 import { OrganizationBrandingContext } from '@/theme/OrganizationBrandingProvider'
 import { ThemeProvider } from '@/theme/ThemeProvider'
@@ -29,15 +31,17 @@ function renderLayout(
   return render(
     <MemoryRouter initialEntries={['/app/catalog']}>
       <AuthContext.Provider value={{ user, error: null, signIn: async () => {}, signOut: async () => {} }}>
-        <OrganizationBrandingContext.Provider value={{ branding, loading: false }}>
-          <ThemeProvider>
-            <Routes>
-              <Route path="/app" element={<AppLayout />}>
-                <Route path="catalog" element={<div>Catalog content</div>} />
-              </Route>
-            </Routes>
-          </ThemeProvider>
-        </OrganizationBrandingContext.Provider>
+        <BranchProvider>
+          <OrganizationBrandingContext.Provider value={{ branding, loading: false }}>
+            <ThemeProvider>
+              <Routes>
+                <Route path="/app" element={<AppLayout />}>
+                  <Route path="catalog" element={<div>Catalog content</div>} />
+                </Route>
+              </Routes>
+            </ThemeProvider>
+          </OrganizationBrandingContext.Provider>
+        </BranchProvider>
       </AuthContext.Provider>
     </MemoryRouter>,
   )
@@ -147,13 +151,15 @@ describe('AppLayout', () => {
         <AuthContext.Provider value={{ user: buildUser({ isSystemAdmin: true }), error: null, signIn: async () => {}, signOut: async () => {} }}>
           <OrganizationBrandingContext.Provider value={{ branding: { logoUrl: null, primaryColor: null }, loading: false }}>
             <OrganizationProvider>
-              <ThemeProvider>
-                <Routes>
-                  <Route path="/app" element={<AppLayout />}>
-                    <Route path="catalog" element={<div>Catalog content</div>} />
-                  </Route>
-                </Routes>
-              </ThemeProvider>
+              <BranchProvider>
+                <ThemeProvider>
+                  <Routes>
+                    <Route path="/app" element={<AppLayout />}>
+                      <Route path="catalog" element={<div>Catalog content</div>} />
+                    </Route>
+                  </Routes>
+                </ThemeProvider>
+              </BranchProvider>
             </OrganizationProvider>
           </OrganizationBrandingContext.Provider>
         </AuthContext.Provider>
@@ -214,5 +220,95 @@ describe('AppLayout', () => {
 
     expect(screen.getByRole('heading', { name: 'Commerce' })).toBeInTheDocument()
     expect(screen.queryByRole('img')).not.toBeInTheDocument()
+  })
+
+  // admin-console spec, "Top Navbar Branch Switcher".
+  it('shows a real branch switcher when several branches are selectable', () => {
+    renderLayout(
+      buildUser({
+        selectableBranches: [
+          { id: 'b1', name: 'Ruta 51' },
+          { id: 'b2', name: 'Centro' },
+        ],
+      }),
+    )
+
+    const select = screen.getByRole('combobox', { name: 'Sucursal' })
+    expect(select).toHaveValue('b1')
+    expect(screen.getByRole('option', { name: 'Centro' })).toBeInTheDocument()
+  })
+
+  it('shows a static branch label instead of a dropdown for a single selectable branch', () => {
+    renderLayout(buildUser({ selectableBranches: [{ id: 'b1', name: 'Ruta 51' }] }))
+
+    expect(screen.getByText('Ruta 51')).toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: 'Sucursal' })).not.toBeInTheDocument()
+  })
+
+  it('shows nothing branch-related for a staff member with no selectable branch', () => {
+    renderLayout(buildUser({ selectableBranches: [] }))
+
+    expect(screen.queryByRole('combobox', { name: 'Sucursal' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Sucursal')).not.toBeInTheDocument()
+  })
+
+  it('groups sidebar navigation under section headings', () => {
+    renderLayout(buildUser({ permissions: Permission.ManageUsers, isSystemAdmin: true }))
+
+    const nav = within(screen.getByRole('navigation'))
+    expect(nav.getByText('Operación')).toBeInTheDocument()
+    expect(nav.getByText('Administración')).toBeInTheDocument()
+    expect(nav.getByText('Plataforma')).toBeInTheDocument()
+  })
+
+  // "On branch switch, screens must refetch" (tasks.md B7 U3): the routed
+  // Outlet is keyed by organization+branch so switching remounts it, rather
+  // than relying on every screen to re-run its own fetch effect correctly.
+  it('remounts the routed content when the branch changes', async () => {
+    const user = userEvent.setup()
+    const mounts: number[] = []
+
+    function TrackMount() {
+      useEffect(() => {
+        mounts.push(mounts.length + 1)
+      }, [])
+      return <div>Catalog content</div>
+    }
+
+    render(
+      <MemoryRouter initialEntries={['/app/catalog']}>
+        <AuthContext.Provider
+          value={{
+            user: buildUser({
+              selectableBranches: [
+                { id: 'b1', name: 'Ruta 51' },
+                { id: 'b2', name: 'Centro' },
+              ],
+            }),
+            error: null,
+            signIn: async () => {},
+            signOut: async () => {},
+          }}
+        >
+          <BranchProvider>
+            <OrganizationBrandingContext.Provider value={{ branding: { logoUrl: null, primaryColor: null }, loading: false }}>
+              <ThemeProvider>
+                <Routes>
+                  <Route path="/app" element={<AppLayout />}>
+                    <Route path="catalog" element={<TrackMount />} />
+                  </Route>
+                </Routes>
+              </ThemeProvider>
+            </OrganizationBrandingContext.Provider>
+          </BranchProvider>
+        </AuthContext.Provider>
+      </MemoryRouter>,
+    )
+
+    expect(mounts).toHaveLength(1)
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Sucursal' }), 'b2')
+
+    expect(mounts).toHaveLength(2)
   })
 })
