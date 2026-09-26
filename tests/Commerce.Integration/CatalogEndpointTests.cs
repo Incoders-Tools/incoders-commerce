@@ -76,6 +76,20 @@ public sealed class CatalogEndpointTests : IClassFixture<WebApplicationFactory<P
         var organizationsSql = File.ReadAllText(Path.Combine(repoRoot.FullName, "deploy", "db", "migrations", "0003_organizations_branches.sql"));
         using (var cmd = new NpgsqlCommand(organizationsSql, owner)) cmd.ExecuteNonQuery();
 
+        // B7 U4: 0009's presentations_org_code_uk is ORG-scoped, but a
+        // prior test method in this SAME class (and physical database —
+        // commerce_test is shared/accumulating) may have left presentations
+        // with the SAME identification_code in TWO DIFFERENT branches of
+        // one org, which 0016 legitimately allows. Truncating before 0009
+        // re-runs means that leftover data never has to satisfy 0009's
+        // (temporarily reinstated, since 0016 already dropped it here)
+        // stricter org-only index while it is being recreated.
+        using (var truncateCatalogCmd = new NpgsqlCommand(
+            "TRUNCATE TABLE presentations, products CASCADE", owner))
+        {
+            try { truncateCatalogCmd.ExecuteNonQuery(); } catch (PostgresException) { /* first run: tables don't exist yet */ }
+        }
+
         // commerce-pricing-engine Work Unit 1: products/presentations now
         // back the rename endpoint for real, so this test's organization/
         // product rows must exist against real FKs.

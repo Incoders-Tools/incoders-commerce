@@ -64,6 +64,19 @@ public sealed class PostgresCatalogStoreTests : IDisposable
         Apply("0001_init_rls.sql", "__APP_RUNTIME_PASSWORD__", "dev-only-password");
         Apply("0002_users.sql");
         Apply("0003_organizations_branches.sql");
+
+        // B7 U4: 0009's presentations_org_code_uk is ORG-scoped; a prior
+        // test method may have left presentations with the SAME
+        // identification_code in two different branches of one org (which
+        // 0016 legitimately allows), which would break 0009's own index
+        // recreation below on the shared/accumulating commerce_test
+        // database. Truncate first so 0009 recreates it against empty
+        // tables.
+        using (var truncateCatalogCmd = new NpgsqlCommand("TRUNCATE TABLE presentations, products CASCADE", owner))
+        {
+            try { truncateCatalogCmd.ExecuteNonQuery(); } catch (Npgsql.PostgresException) { /* first run: tables don't exist yet */ }
+        }
+
         Apply("0009_catalog_and_pricing.sql");
         Apply("0016_catalog_branch_ownership.sql");
 
