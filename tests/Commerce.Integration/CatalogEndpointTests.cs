@@ -102,6 +102,11 @@ public sealed class CatalogEndpointTests : IClassFixture<WebApplicationFactory<P
         var branchOwnershipSql = File.ReadAllText(Path.Combine(repoRoot.FullName, "deploy", "db", "migrations", "0016_catalog_branch_ownership.sql"));
         using (var cmd = new NpgsqlCommand(branchOwnershipSql, owner)) cmd.ExecuteNonQuery();
 
+        // B7 U5: keep this class's schema at the same point as every other
+        // fixture in the shared `commerce_test` database.
+        var pricingBranchOwnershipSql = File.ReadAllText(Path.Combine(repoRoot.FullName, "deploy", "db", "migrations", "0017_pricing_branch_ownership.sql"));
+        using (var cmd = new NpgsqlCommand(pricingBranchOwnershipSql, owner)) cmd.ExecuteNonQuery();
+
         using var resetCmd = new NpgsqlCommand(
             "TRUNCATE TABLE presentations, products, user_directory, users, branches, organizations CASCADE", owner);
         resetCmd.ExecuteNonQuery();

@@ -79,6 +79,14 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
         var branchOwnershipSql = File.ReadAllText(Path.Combine(repoRoot.FullName, "deploy", "db", "migrations", "0016_catalog_branch_ownership.sql"));
         using (var cmd = new NpgsqlCommand(branchOwnershipSql, owner)) cmd.ExecuteNonQuery();
 
+        // B7 U5: price_lists/etc. are branch-owned now too — keep this
+        // class's schema at the same point as every other fixture in the
+        // shared `commerce_test` database (see PostgresTestFixture's own
+        // doc comment on why a stale re-application of 0009 alone is unsafe
+        // once any later fixture has moved the shared schema past it).
+        var pricingBranchOwnershipSql = File.ReadAllText(Path.Combine(repoRoot.FullName, "deploy", "db", "migrations", "0017_pricing_branch_ownership.sql"));
+        using (var cmd = new NpgsqlCommand(pricingBranchOwnershipSql, owner)) cmd.ExecuteNonQuery();
+
         var adminConsoleSql = File.ReadAllText(Path.Combine(repoRoot.FullName, "deploy", "db", "migrations", "0012_admin_console.sql"));
         using (var cmd = new NpgsqlCommand(adminConsoleSql, owner)) cmd.ExecuteNonQuery();
 

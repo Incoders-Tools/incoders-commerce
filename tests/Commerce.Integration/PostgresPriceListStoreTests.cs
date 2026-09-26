@@ -294,32 +294,55 @@ public sealed class PostgresPriceListStoreTests : IDisposable
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
 
         var organizationId = Guid.NewGuid();
-        SeedOrganization(organizationId);
-        var (rutaScope, rutaPresentationId, actorId) = await SeedPresentationAsync(organizationId);
-        var centroBranchId = SeedBranch(organizationId, "Centro");
-        var centroScope = new CloudTenantScope(organizationId, BranchId: centroBranchId);
+        try
+        {
+            SeedOrganization(organizationId);
+            var (rutaScope, rutaPresentationId, actorId) = await SeedPresentationAsync(organizationId);
+            var centroBranchId = SeedBranch(organizationId, "Centro");
+            var centroScope = new CloudTenantScope(organizationId, BranchId: centroBranchId);
 
-        var priceStore = new PostgresPriceListStore(_dataSource!);
-        var rutaList = await priceStore.CreatePriceListAsync(
-            rutaScope, new NewPriceList(Guid.NewGuid(), "Ruta 51 Default", true, actorId), "org-user", actorId, CancellationToken.None);
-        var centroList = await priceStore.CreatePriceListAsync(
-            centroScope, new NewPriceList(Guid.NewGuid(), "Centro Default", true, actorId), "org-user", actorId, CancellationToken.None);
+            var priceStore = new PostgresPriceListStore(_dataSource!);
+            var rutaList = await priceStore.CreatePriceListAsync(
+                rutaScope, new NewPriceList(Guid.NewGuid(), "Ruta 51 Default", true, actorId), "org-user", actorId, CancellationToken.None);
+            var centroList = await priceStore.CreatePriceListAsync(
+                centroScope, new NewPriceList(Guid.NewGuid(), "Centro Default", true, actorId), "org-user", actorId, CancellationToken.None);
 
-        await priceStore.AppendEntryAsync(
-            rutaScope, new NewPriceListEntry(Guid.NewGuid(), rutaList.Id, rutaPresentationId, 100m, new DateOnly(2026, 1, 1), "Manual", null, actorId),
-            "org-user", actorId, CancellationToken.None);
+            await priceStore.AppendEntryAsync(
+                rutaScope, new NewPriceListEntry(Guid.NewGuid(), rutaList.Id, rutaPresentationId, 100m, new DateOnly(2026, 1, 1), "Manual", null, actorId),
+                "org-user", actorId, CancellationToken.None);
 
-        var rutaFound = await priceStore.FindDefaultPriceListAsync(rutaScope, CancellationToken.None);
-        var centroFound = await priceStore.FindDefaultPriceListAsync(centroScope, CancellationToken.None);
+            var rutaFound = await priceStore.FindDefaultPriceListAsync(rutaScope, CancellationToken.None);
+            var centroFound = await priceStore.FindDefaultPriceListAsync(centroScope, CancellationToken.None);
 
-        Assert.Equal(rutaList.Id, rutaFound!.Id);
-        Assert.Equal(centroList.Id, centroFound!.Id);
+            Assert.Equal(rutaList.Id, rutaFound!.Id);
+            Assert.Equal(centroList.Id, centroFound!.Id);
 
-        // Ruta 51's new entry changed Ruta 51's resolution and left Centro
-        // with zero entries at all for that presentation — Centro's price
-        // list cannot even see Ruta 51's presentation under RLS/FK scoping.
-        var rutaResolved = await priceStore.GetEffectiveAsync(rutaScope, rutaList.Id, rutaPresentationId, new DateOnly(2026, 6, 1), CancellationToken.None);
-        Assert.Equal(100m, rutaResolved!.UnitPrice);
+            // Ruta 51's new entry changed Ruta 51's resolution and left Centro
+            // with zero entries at all for that presentation — Centro's price
+            // list cannot even see Ruta 51's presentation under RLS/FK scoping.
+            var rutaResolved = await priceStore.GetEffectiveAsync(rutaScope, rutaList.Id, rutaPresentationId, new DateOnly(2026, 6, 1), CancellationToken.None);
+            Assert.Equal(100m, rutaResolved!.UnitPrice);
+        }
+        finally
+        {
+            // This test is the one case in the whole suite that deliberately
+            // leaves TWO `is_default = true` price_lists rows in the SAME
+            // organization (one per branch) — exactly the shape 0009's own
+            // (immutable, never-edited) `price_lists_one_default` index
+            // would refuse. `commerce_test` is one shared, accumulating
+            // database across the whole run (`PostgresTestFixture`'s own
+            // doc comment): any OTHER test class whose fixture reapplies
+            // raw `0009_catalog_and_pricing.sql` without also chaining
+            // through `0016`/`0017` would hit that stale index the moment
+            // its constructor re-runs 0009 before this row is gone. Clean
+            // up explicitly rather than relying on the NEXT class's own
+            // truncate to run before that happens.
+            using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+            owner.Open();
+            using var cmd = new NpgsqlCommand("DELETE FROM organizations WHERE id = $1", owner);
+            cmd.Parameters.AddWithValue(organizationId);
+            cmd.ExecuteNonQuery();
+        }
     }
 
     /// <summary>

@@ -30,6 +30,17 @@ public sealed class PostgresPaymentStoreTests
 
     private void ApplyMigrationsAndReset(NpgsqlConnection owner)
     {
+        // B7 U5: guards against the shared/accumulating commerce_test
+        // database hazard described in PaymentEndpointTests — 0009's
+        // `price_lists_one_default` is ORG-scoped and would refuse to
+        // recreate if a sibling class left two branches of one org each
+        // with their own default price list.
+        using (var truncatePricingCmd = new NpgsqlCommand(
+            "TRUNCATE TABLE price_list_entries, price_lists CASCADE", owner))
+        {
+            try { truncatePricingCmd.ExecuteNonQuery(); } catch (PostgresException) { /* first run: tables don't exist yet */ }
+        }
+
         var migrationsDir = ResolvePaymentsMigrationPath();
         foreach (var file in new[]
         {

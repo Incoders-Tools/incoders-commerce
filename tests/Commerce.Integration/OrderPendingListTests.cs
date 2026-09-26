@@ -75,6 +75,15 @@ public sealed class OrderPendingListTests : IDisposable
             cmd.ExecuteNonQuery();
         }
 
+        // B7 U5: guards against the shared/accumulating commerce_test
+        // database hazard (see PaymentEndpointTests) — 0009 own
+        // price_lists_one_default is ORG-scoped.
+        using (var truncatePricingCmd = new NpgsqlCommand(
+            "TRUNCATE TABLE price_list_entries, price_lists CASCADE", owner))
+        {
+            try { truncatePricingCmd.ExecuteNonQuery(); } catch (PostgresException) { /* first run: tables do not exist yet */ }
+        }
+
         Apply("0001_init_rls.sql", "__APP_RUNTIME_PASSWORD__", "dev-only-password");
         Apply("0002_users.sql");
         Apply("0003_organizations_branches.sql");

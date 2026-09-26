@@ -72,16 +72,25 @@ public sealed class PostgresCatalogStoreTests : IDisposable
         // recreation below on the shared/accumulating commerce_test
         // database. Truncate first so 0009 recreates it against empty
         // tables.
-        using (var truncateCatalogCmd = new NpgsqlCommand("TRUNCATE TABLE presentations, products CASCADE", owner))
+        //
+        // B7 U5: same hazard, one migration later — 0009's
+        // price_lists_one_default is ORG-scoped too; 0017 replaces it with
+        // a BRANCH-scoped index, so a prior test elsewhere in the run may
+        // have left two branches of one org each with their own default
+        // price list (price-list-management "Branch-Owned Price Lists"),
+        // which 0009's own recreation below would refuse.
+        using (var truncateCatalogCmd = new NpgsqlCommand(
+            "TRUNCATE TABLE price_list_entries, price_lists, presentations, products CASCADE", owner))
         {
             try { truncateCatalogCmd.ExecuteNonQuery(); } catch (Npgsql.PostgresException) { /* first run: tables don't exist yet */ }
         }
 
         Apply("0009_catalog_and_pricing.sql");
         Apply("0016_catalog_branch_ownership.sql");
+        Apply("0017_pricing_branch_ownership.sql");
 
         using var resetCmd = new NpgsqlCommand(
-            "TRUNCATE TABLE presentations, products, branches, organizations CASCADE", owner);
+            "TRUNCATE TABLE price_list_entries, price_lists, presentations, products, branches, organizations CASCADE", owner);
         resetCmd.ExecuteNonQuery();
     }
 

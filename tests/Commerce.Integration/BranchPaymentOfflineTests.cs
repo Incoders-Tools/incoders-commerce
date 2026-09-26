@@ -183,6 +183,19 @@ public sealed class BranchPaymentOfflineTests : IDisposable
 
         private void ApplyMigrationsAndReset(NpgsqlConnection owner, Guid organizationId)
         {
+            // B7 U5: this class applies 0009 fresh, never 0016/0017, purely
+            // as a dependency of 0010/0011. 0009's own `price_lists_one_default`
+            // is ORG-scoped; a sibling test class elsewhere in the shared/
+            // accumulating `commerce_test` database run may have legitimately
+            // left two branches of one org each with their own default price
+            // list (0017's branch-scoped replacement index), which 0009's own
+            // recreation below would refuse. Truncate first.
+            using (var truncatePricingCmd = new NpgsqlCommand(
+                "TRUNCATE TABLE price_list_entries, price_lists CASCADE", owner))
+            {
+                try { truncatePricingCmd.ExecuteNonQuery(); } catch (PostgresException) { /* first run: tables don't exist yet */ }
+            }
+
             var migrationsDir = Path.Combine(RepoRoot(), "deploy", "db", "migrations");
             foreach (var file in new[]
             {
