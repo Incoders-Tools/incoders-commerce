@@ -286,28 +286,36 @@ try {
     }
 
     # --- 3. Verify Desktop pairing ----------------------------------------
+    # B1: the sysadmin now holds ZERO branch scope by design (it is the
+    # platform owner, not staff assigned to a branch), so /device/pair
+    # correctly answers 403 "no-branches-assigned" for it — that is the
+    # EXPECTED outcome here, not a failure. Desktop pairing is meaningless
+    # for an account with no branch; this step only proves sign-in-shaped
+    # credentials work through that endpoint too, not that pairing succeeds.
     $pairResponse = Send-LocalJsonRequest -Client $client -Path 'device/pair' -Body @{
         email = $email
         password = $password
         installationId = [guid]::NewGuid()
         branchId = $null
     }
-    if ($pairResponse.StatusCode -ne 200) {
-        throw "Desktop pairing verification failed with HTTP $($pairResponse.StatusCode)."
-    }
     try {
         $pairing = $pairResponse.Body | ConvertFrom-Json
+    }
+    catch {
+        throw 'Desktop pairing verification returned an invalid response.'
+    }
+    if ($pairResponse.StatusCode -eq 403 -and $pairing.status -eq 'no-branches-assigned') {
+        $pairingNote = 'web sign-in verified; Desktop pairing correctly refused (no branch scope)'
+    }
+    elseif ($pairResponse.StatusCode -ne 200) {
+        throw "Desktop pairing verification failed with HTTP $($pairResponse.StatusCode)."
+    }
+    else {
         switch ($pairing.status) {
             'paired' { $pairingNote = 'web sign-in and Desktop pairing verified' }
             'branch-selection-required' { $pairingNote = 'web sign-in verified; Desktop requires branch selection' }
             default { throw "Desktop pairing returned unexpected status '$($pairing.status)'." }
         }
-    }
-    catch {
-        if ($_.Exception.Message -like 'Desktop pairing returned unexpected status*') {
-            throw
-        }
-        throw 'Desktop pairing verification returned an invalid response.'
     }
 
     $systemAdminState = if ($systemAdminExisted) { 'already present' } else { 'created' }
