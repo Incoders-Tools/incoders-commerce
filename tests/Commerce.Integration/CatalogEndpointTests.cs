@@ -7,6 +7,7 @@ using Commerce.Cloud.Api.Auditing;
 using Commerce.Cloud.Api.Endpoints;
 using Commerce.Cloud.Api.Persistence;
 using Commerce.Cloud.Api.Tenancy;
+using Commerce.Domain.Catalog;
 using Commerce.Domain.Identity;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -426,7 +427,7 @@ public sealed class CatalogEndpointTests : IClassFixture<WebApplicationFactory<P
         {
             productId,
             name = "1kg bag",
-            quantityBehavior = "FixedQuantity",
+            quantityBehavior = QuantityBehavior.FixedQuantity,
             unitId = Guid.NewGuid(),
             identificationCode = "7791234567890",
         });
@@ -437,7 +438,7 @@ public sealed class CatalogEndpointTests : IClassFixture<WebApplicationFactory<P
         {
             productId,
             name = "1kg bag (dup)",
-            quantityBehavior = "FixedQuantity",
+            quantityBehavior = QuantityBehavior.FixedQuantity,
             unitId = Guid.NewGuid(),
             identificationCode = "7791234567890",
         });
@@ -453,7 +454,7 @@ public sealed class CatalogEndpointTests : IClassFixture<WebApplicationFactory<P
         {
             productId = centroProductId,
             name = "1kg bag",
-            quantityBehavior = "FixedQuantity",
+            quantityBehavior = QuantityBehavior.FixedQuantity,
             unitId = Guid.NewGuid(),
             identificationCode = "7791234567890",
         });
