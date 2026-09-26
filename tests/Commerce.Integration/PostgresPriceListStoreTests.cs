@@ -63,6 +63,7 @@ public sealed class PostgresPriceListStoreTests : IDisposable
         Apply("0002_users.sql");
         Apply("0003_organizations_branches.sql");
         Apply("0009_catalog_and_pricing.sql");
+        Apply("0016_catalog_branch_ownership.sql");
 
         using var resetCmd = new NpgsqlCommand(
             "TRUNCATE TABLE price_list_entries, price_lists, presentations, products, branches, organizations CASCADE", owner);
@@ -78,9 +79,23 @@ public sealed class PostgresPriceListStoreTests : IDisposable
         cmd.ExecuteNonQuery();
     }
 
+    /// <summary>B7 U4: catalog scopes now need a real branch row.</summary>
+    private static Guid SeedBranch(Guid organizationId)
+    {
+        var branchId = Guid.NewGuid();
+        using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        owner.Open();
+        using var cmd = new NpgsqlCommand("INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, 'Main')", owner);
+        cmd.Parameters.AddWithValue(branchId);
+        cmd.Parameters.AddWithValue(organizationId);
+        cmd.ExecuteNonQuery();
+        return branchId;
+    }
+
     private async Task<(CloudTenantScope Scope, Guid PresentationId, Guid ActorId)> SeedPresentationAsync(Guid organizationId)
     {
-        var scope = new CloudTenantScope(organizationId);
+        var branchId = SeedBranch(organizationId);
+        var scope = new CloudTenantScope(organizationId, BranchId: branchId);
         var catalogStore = new PostgresCatalogStore(_dataSource!);
         var actorId = Guid.NewGuid();
 

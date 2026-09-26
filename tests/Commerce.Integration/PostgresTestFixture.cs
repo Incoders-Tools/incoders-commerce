@@ -145,6 +145,7 @@ public static class PostgresTestFixture
                      "0009_catalog_and_pricing.sql",
                      "0013_rate_components.sql",
                      "0014_rate_component_tenancy.sql",
+                     "0016_catalog_branch_ownership.sql",
                  })
         {
             ApplyMigration(owner, file);

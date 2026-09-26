@@ -2153,6 +2153,26 @@ public sealed class MigrationRlsTests
         cmd.ExecuteNonQuery();
     }
 
+    /// <summary>
+    /// B7 U4: `commerce_test` is one shared, accumulating database
+    /// (`PostgresTestFixture.Database`) — once ANY test class in the suite
+    /// applies `0016_catalog_branch_ownership.sql`, `products`/
+    /// `presentations` carry `branch_id NOT NULL` for the rest of the run,
+    /// regardless of which migration file THIS class's fixture nominally
+    /// applied through. Every catalog-touching raw-SQL test below applies
+    /// this explicitly and supplies a real `branch_id`, so its INSERTs stay
+    /// correct whether or not a sibling class already advanced the shared
+    /// schema.
+    /// </summary>
+    private static void ApplyBranchOwnershipMigration(NpgsqlConnection connection)
+    {
+        var repoRoot = ResolveOrganizationsMigrationPath();
+        var dir = Path.GetDirectoryName(repoRoot)!;
+        var sql = File.ReadAllText(Path.Combine(dir, "0016_catalog_branch_ownership.sql"));
+        using var cmd = new NpgsqlCommand(sql, connection);
+        cmd.ExecuteNonQuery();
+    }
+
     private static void ApplyAllMigrationsThrough0009(NpgsqlConnection connection)
     {
         ApplyAllMigrationsThrough0008(connection);
@@ -2357,6 +2377,7 @@ public sealed class MigrationRlsTests
         }
 
         var orgAId = Guid.NewGuid();
+        var branchAId = Guid.NewGuid();
         var productId = Guid.NewGuid();
         var actorId = Guid.NewGuid();
 
@@ -2364,6 +2385,7 @@ public sealed class MigrationRlsTests
         {
             ownerConnection.Open();
             ApplyAllMigrationsThrough0009(ownerConnection);
+            ApplyBranchOwnershipMigration(ownerConnection);
             ResetCatalogAndPricing();
             ResetOrganizations();
 
@@ -2372,13 +2394,20 @@ public sealed class MigrationRlsTests
             insertOrgCmd.Parameters.AddWithValue(orgAId);
             insertOrgCmd.ExecuteNonQuery();
 
+            using var insertBranchCmd = new NpgsqlCommand(
+                "INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, 'Ruta 51')", ownerConnection);
+            insertBranchCmd.Parameters.AddWithValue(branchAId);
+            insertBranchCmd.Parameters.AddWithValue(orgAId);
+            insertBranchCmd.ExecuteNonQuery();
+
             using var insertProductCmd = new NpgsqlCommand(
                 """
-                INSERT INTO products (id, organization_id, name, category_id, default_unit_id, created_by_user_id)
-                VALUES ($1, $2, 'Product A', $3, $3, $3)
+                INSERT INTO products (id, organization_id, branch_id, name, category_id, default_unit_id, created_by_user_id)
+                VALUES ($1, $2, $3, 'Product A', $4, $4, $4)
                 """, ownerConnection);
             insertProductCmd.Parameters.AddWithValue(productId);
             insertProductCmd.Parameters.AddWithValue(orgAId);
+            insertProductCmd.Parameters.AddWithValue(branchAId);
             insertProductCmd.Parameters.AddWithValue(actorId);
             insertProductCmd.ExecuteNonQuery();
         }
@@ -2409,11 +2438,13 @@ public sealed class MigrationRlsTests
         }
 
         var orgAId = Guid.NewGuid();
+        var branchAId = Guid.NewGuid();
 
         using (var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
         {
             ownerConnection.Open();
             ApplyAllMigrationsThrough0009(ownerConnection);
+            ApplyBranchOwnershipMigration(ownerConnection);
             ResetCatalogAndPricing();
             ResetOrganizations();
 
@@ -2421,6 +2452,12 @@ public sealed class MigrationRlsTests
                 "INSERT INTO organizations (id, name) VALUES ($1, 'Org A')", ownerConnection);
             insertOrgCmd.Parameters.AddWithValue(orgAId);
             insertOrgCmd.ExecuteNonQuery();
+
+            using var insertBranchCmd = new NpgsqlCommand(
+                "INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, 'Ruta 51')", ownerConnection);
+            insertBranchCmd.Parameters.AddWithValue(branchAId);
+            insertBranchCmd.Parameters.AddWithValue(orgAId);
+            insertBranchCmd.ExecuteNonQuery();
         }
 
         using var writeConnection = new NpgsqlConnection(PostgresTestFixture.DirectConnectionString);
@@ -2435,11 +2472,12 @@ public sealed class MigrationRlsTests
 
         using var insertCmd = new NpgsqlCommand(
             """
-            INSERT INTO products (id, organization_id, name, category_id, default_unit_id, created_by_user_id)
-            VALUES ($1, $2, 'Rogue Product', $3, $3, $3)
+            INSERT INTO products (id, organization_id, branch_id, name, category_id, default_unit_id, created_by_user_id)
+            VALUES ($1, $2, $3, 'Rogue Product', $4, $4, $4)
             """, writeConnection, tx);
         insertCmd.Parameters.AddWithValue(Guid.NewGuid());
         insertCmd.Parameters.AddWithValue(orgAId);
+        insertCmd.Parameters.AddWithValue(branchAId);
         insertCmd.Parameters.AddWithValue(Guid.NewGuid());
 
         Assert.Throws<PostgresException>(() => insertCmd.ExecuteNonQuery());
@@ -2447,12 +2485,14 @@ public sealed class MigrationRlsTests
     }
 
     /// <summary>
-    /// `presentations_org_code_uk`: a duplicate `identification_code` WITHIN
-    /// the same organization is rejected — enforced by the index, not by UI
-    /// code (design.md "Identification code placement and uniqueness").
+    /// `presentations_org_branch_code_uk` (B7 U4 — was
+    /// `presentations_org_code_uk`): a duplicate `identification_code`
+    /// WITHIN the same BRANCH is rejected — enforced by the index, not by UI
+    /// code (design.md "Identification code placement and uniqueness";
+    /// catalog-item-identification "Branch-Owned Catalog").
     /// </summary>
     [Fact]
-    public void PresentationsMigration_DuplicateIdentificationCodeWithinSameOrg_Throws()
+    public void PresentationsMigration_DuplicateIdentificationCodeWithinSameBranch_Throws()
     {
         if (!_postgresAvailable)
         {
@@ -2461,12 +2501,14 @@ public sealed class MigrationRlsTests
         }
 
         var orgAId = Guid.NewGuid();
+        var branchAId = Guid.NewGuid();
         var productId = Guid.NewGuid();
         var actorId = Guid.NewGuid();
 
         using var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
         ownerConnection.Open();
         ApplyAllMigrationsThrough0009(ownerConnection);
+        ApplyBranchOwnershipMigration(ownerConnection);
         ResetCatalogAndPricing();
         ResetOrganizations();
 
@@ -2477,26 +2519,36 @@ public sealed class MigrationRlsTests
             insertOrgCmd.ExecuteNonQuery();
         }
 
+        using (var insertBranchCmd = new NpgsqlCommand(
+            "INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, 'Ruta 51')", ownerConnection))
+        {
+            insertBranchCmd.Parameters.AddWithValue(branchAId);
+            insertBranchCmd.Parameters.AddWithValue(orgAId);
+            insertBranchCmd.ExecuteNonQuery();
+        }
+
         using (var insertProductCmd = new NpgsqlCommand(
             """
-            INSERT INTO products (id, organization_id, name, category_id, default_unit_id, created_by_user_id)
-            VALUES ($1, $2, 'Product A', $3, $3, $3)
+            INSERT INTO products (id, organization_id, branch_id, name, category_id, default_unit_id, created_by_user_id)
+            VALUES ($1, $2, $3, 'Product A', $4, $4, $4)
             """, ownerConnection))
         {
             insertProductCmd.Parameters.AddWithValue(productId);
             insertProductCmd.Parameters.AddWithValue(orgAId);
+            insertProductCmd.Parameters.AddWithValue(branchAId);
             insertProductCmd.Parameters.AddWithValue(actorId);
             insertProductCmd.ExecuteNonQuery();
         }
 
         using (var insertPresentation1Cmd = new NpgsqlCommand(
             """
-            INSERT INTO presentations (id, organization_id, product_id, name, quantity_behavior, unit_id, identification_code, created_by_user_id)
-            VALUES ($1, $2, $3, 'Presentation 1', 'FixedQuantity', $4, 'DUPLICATE-CODE', $4)
+            INSERT INTO presentations (id, organization_id, branch_id, product_id, name, quantity_behavior, unit_id, identification_code, created_by_user_id)
+            VALUES ($1, $2, $3, $4, 'Presentation 1', 'FixedQuantity', $5, 'DUPLICATE-CODE', $5)
             """, ownerConnection))
         {
             insertPresentation1Cmd.Parameters.AddWithValue(Guid.NewGuid());
             insertPresentation1Cmd.Parameters.AddWithValue(orgAId);
+            insertPresentation1Cmd.Parameters.AddWithValue(branchAId);
             insertPresentation1Cmd.Parameters.AddWithValue(productId);
             insertPresentation1Cmd.Parameters.AddWithValue(actorId);
             insertPresentation1Cmd.ExecuteNonQuery();
@@ -2504,11 +2556,12 @@ public sealed class MigrationRlsTests
 
         using var insertPresentation2Cmd = new NpgsqlCommand(
             """
-            INSERT INTO presentations (id, organization_id, product_id, name, quantity_behavior, unit_id, identification_code, created_by_user_id)
-            VALUES ($1, $2, $3, 'Presentation 2', 'FixedQuantity', $4, 'DUPLICATE-CODE', $4)
+            INSERT INTO presentations (id, organization_id, branch_id, product_id, name, quantity_behavior, unit_id, identification_code, created_by_user_id)
+            VALUES ($1, $2, $3, $4, 'Presentation 2', 'FixedQuantity', $5, 'DUPLICATE-CODE', $5)
             """, ownerConnection);
         insertPresentation2Cmd.Parameters.AddWithValue(Guid.NewGuid());
         insertPresentation2Cmd.Parameters.AddWithValue(orgAId);
+        insertPresentation2Cmd.Parameters.AddWithValue(branchAId);
         insertPresentation2Cmd.Parameters.AddWithValue(productId);
         insertPresentation2Cmd.Parameters.AddWithValue(actorId);
 
@@ -2533,6 +2586,7 @@ public sealed class MigrationRlsTests
         }
 
         var orgAId = Guid.NewGuid();
+        var branchAId = Guid.NewGuid();
         var productId = Guid.NewGuid();
         var presentationId = Guid.NewGuid();
         var priceListId = Guid.NewGuid();
@@ -2541,6 +2595,7 @@ public sealed class MigrationRlsTests
         using var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
         ownerConnection.Open();
         ApplyAllMigrationsThrough0009(ownerConnection);
+        ApplyBranchOwnershipMigration(ownerConnection);
         ResetCatalogAndPricing();
         ResetOrganizations();
 
@@ -2553,23 +2608,32 @@ public sealed class MigrationRlsTests
 
         Exec("INSERT INTO organizations (id, name) VALUES ($1, 'Org A')", c => c.Parameters.AddWithValue(orgAId));
         Exec(
+            "INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, 'Ruta 51')",
+            c =>
+            {
+                c.Parameters.AddWithValue(branchAId);
+                c.Parameters.AddWithValue(orgAId);
+            });
+        Exec(
             """
-            INSERT INTO products (id, organization_id, name, category_id, default_unit_id, created_by_user_id)
-            VALUES ($1, $2, 'Product A', $3, $3, $3)
+            INSERT INTO products (id, organization_id, branch_id, name, category_id, default_unit_id, created_by_user_id)
+            VALUES ($1, $2, $3, 'Product A', $4, $4, $4)
             """, c =>
             {
                 c.Parameters.AddWithValue(productId);
                 c.Parameters.AddWithValue(orgAId);
+                c.Parameters.AddWithValue(branchAId);
                 c.Parameters.AddWithValue(actorId);
             });
         Exec(
             """
-            INSERT INTO presentations (id, organization_id, product_id, name, quantity_behavior, unit_id, created_by_user_id)
-            VALUES ($1, $2, $3, 'Presentation A', 'FixedQuantity', $4, $4)
+            INSERT INTO presentations (id, organization_id, branch_id, product_id, name, quantity_behavior, unit_id, created_by_user_id)
+            VALUES ($1, $2, $3, $4, 'Presentation A', 'FixedQuantity', $5, $5)
             """, c =>
             {
                 c.Parameters.AddWithValue(presentationId);
                 c.Parameters.AddWithValue(orgAId);
+                c.Parameters.AddWithValue(branchAId);
                 c.Parameters.AddWithValue(productId);
                 c.Parameters.AddWithValue(actorId);
             });
@@ -2637,6 +2701,7 @@ public sealed class MigrationRlsTests
         }
 
         var orgAId = Guid.NewGuid();
+        var branchAId = Guid.NewGuid();
         var productId = Guid.NewGuid();
         var presentationId = Guid.NewGuid();
         var priceListId = Guid.NewGuid();
@@ -2645,6 +2710,7 @@ public sealed class MigrationRlsTests
         using var ownerConnection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
         ownerConnection.Open();
         ApplyAllMigrationsThrough0009(ownerConnection);
+        ApplyBranchOwnershipMigration(ownerConnection);
         ResetCatalogAndPricing();
         ResetOrganizations();
 
@@ -2657,23 +2723,32 @@ public sealed class MigrationRlsTests
 
         Exec("INSERT INTO organizations (id, name) VALUES ($1, 'Org A')", c => c.Parameters.AddWithValue(orgAId));
         Exec(
+            "INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, 'Ruta 51')",
+            c =>
+            {
+                c.Parameters.AddWithValue(branchAId);
+                c.Parameters.AddWithValue(orgAId);
+            });
+        Exec(
             """
-            INSERT INTO products (id, organization_id, name, category_id, default_unit_id, created_by_user_id)
-            VALUES ($1, $2, 'Product A', $3, $3, $3)
+            INSERT INTO products (id, organization_id, branch_id, name, category_id, default_unit_id, created_by_user_id)
+            VALUES ($1, $2, $3, 'Product A', $4, $4, $4)
             """, c =>
             {
                 c.Parameters.AddWithValue(productId);
                 c.Parameters.AddWithValue(orgAId);
+                c.Parameters.AddWithValue(branchAId);
                 c.Parameters.AddWithValue(actorId);
             });
         Exec(
             """
-            INSERT INTO presentations (id, organization_id, product_id, name, quantity_behavior, unit_id, created_by_user_id)
-            VALUES ($1, $2, $3, 'Presentation A', 'FixedQuantity', $4, $4)
+            INSERT INTO presentations (id, organization_id, branch_id, product_id, name, quantity_behavior, unit_id, created_by_user_id)
+            VALUES ($1, $2, $3, $4, 'Presentation A', 'FixedQuantity', $5, $5)
             """, c =>
             {
                 c.Parameters.AddWithValue(presentationId);
                 c.Parameters.AddWithValue(orgAId);
+                c.Parameters.AddWithValue(branchAId);
                 c.Parameters.AddWithValue(productId);
                 c.Parameters.AddWithValue(actorId);
             });
@@ -2772,6 +2847,7 @@ public sealed class MigrationRlsTests
         }
 
         var orgAId = Guid.NewGuid();
+        var branchAId = Guid.NewGuid();
         var productId = Guid.NewGuid();
         var presentationId = Guid.NewGuid();
         var priceListId = Guid.NewGuid();
@@ -2781,6 +2857,7 @@ public sealed class MigrationRlsTests
         {
             ownerConnection.Open();
             ApplyAllMigrationsThrough0009(ownerConnection);
+            ApplyBranchOwnershipMigration(ownerConnection);
             ResetCatalogAndPricing();
             ResetOrganizations();
 
@@ -2793,23 +2870,32 @@ public sealed class MigrationRlsTests
 
             Exec("INSERT INTO organizations (id, name) VALUES ($1, 'Org A')", c => c.Parameters.AddWithValue(orgAId));
             Exec(
+                "INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, 'Ruta 51')",
+                c =>
+                {
+                    c.Parameters.AddWithValue(branchAId);
+                    c.Parameters.AddWithValue(orgAId);
+                });
+            Exec(
                 """
-                INSERT INTO products (id, organization_id, name, category_id, default_unit_id, created_by_user_id)
-                VALUES ($1, $2, 'Product A', $3, $3, $3)
+                INSERT INTO products (id, organization_id, branch_id, name, category_id, default_unit_id, created_by_user_id)
+                VALUES ($1, $2, $3, 'Product A', $4, $4, $4)
                 """, c =>
                 {
                     c.Parameters.AddWithValue(productId);
                     c.Parameters.AddWithValue(orgAId);
+                    c.Parameters.AddWithValue(branchAId);
                     c.Parameters.AddWithValue(actorId);
                 });
             Exec(
                 """
-                INSERT INTO presentations (id, organization_id, product_id, name, quantity_behavior, unit_id, created_by_user_id)
-                VALUES ($1, $2, $3, 'Presentation A', 'FixedQuantity', $4, $4)
+                INSERT INTO presentations (id, organization_id, branch_id, product_id, name, quantity_behavior, unit_id, created_by_user_id)
+                VALUES ($1, $2, $3, $4, 'Presentation A', 'FixedQuantity', $5, $5)
                 """, c =>
                 {
                     c.Parameters.AddWithValue(presentationId);
                     c.Parameters.AddWithValue(orgAId);
+                    c.Parameters.AddWithValue(branchAId);
                     c.Parameters.AddWithValue(productId);
                     c.Parameters.AddWithValue(actorId);
                 });

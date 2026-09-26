@@ -81,6 +81,7 @@ public sealed class CatalogPriceSyncTests : IClassFixture<WebApplicationFactory<
         Apply("0003_organizations_branches.sql");
         Apply("0004_device_credentials.sql");
         Apply("0009_catalog_and_pricing.sql");
+        Apply("0016_catalog_branch_ownership.sql");
 
         using var resetCmd = new NpgsqlCommand(
             "TRUNCATE TABLE price_list_entries, price_lists, presentations, products, " +
@@ -118,11 +119,11 @@ public sealed class CatalogPriceSyncTests : IClassFixture<WebApplicationFactory<
         return issued.PlaintextToken;
     }
 
-    private async Task<Guid> SeedPresentationAsync(Guid organizationId, string? identificationCode = "7791234500000")
+    private async Task<Guid> SeedPresentationAsync(Guid organizationId, Guid branchId, string? identificationCode = "7791234500000")
     {
         using var scope = _factory.Services.CreateScope();
         var catalogStore = scope.ServiceProvider.GetRequiredService<PostgresCatalogStore>();
-        var tenantScope = new CloudTenantScope(organizationId);
+        var tenantScope = new CloudTenantScope(organizationId, BranchId: branchId);
         var actorId = Guid.NewGuid();
 
         var product = await catalogStore.CreateProductAsync(
@@ -200,7 +201,7 @@ public sealed class CatalogPriceSyncTests : IClassFixture<WebApplicationFactory<
         var deviceToken = await IssueDeviceTokenAsync(orgId, branchId);
 
         var since = DateTimeOffset.UtcNow.AddMinutes(-1);
-        var presentationId = await SeedPresentationAsync(orgId);
+        var presentationId = await SeedPresentationAsync(orgId, branchId);
         var priceListId = await SeedDefaultPriceListAsync(orgId);
         await PublishPriceAsync(orgId, priceListId, presentationId, 42.50m);
 
@@ -226,7 +227,7 @@ public sealed class CatalogPriceSyncTests : IClassFixture<WebApplicationFactory<
         await SeedBranchAsync(orgId, branchId);
         var deviceToken = await IssueDeviceTokenAsync(orgId, branchId);
 
-        var presentationId = await SeedPresentationAsync(orgId);
+        var presentationId = await SeedPresentationAsync(orgId, branchId);
         var priceListId = await SeedDefaultPriceListAsync(orgId);
         await PublishPriceAsync(orgId, priceListId, presentationId, 10m);
         await Task.Delay(50);
@@ -252,7 +253,7 @@ public sealed class CatalogPriceSyncTests : IClassFixture<WebApplicationFactory<
         await SeedBranchAsync(orgId, branchId);
         var deviceToken = await IssueDeviceTokenAsync(orgId, branchId);
 
-        var presentationId = await SeedPresentationAsync(orgId);
+        var presentationId = await SeedPresentationAsync(orgId, branchId);
         var priceListId = await SeedDefaultPriceListAsync(orgId);
         await Task.Delay(50);
         var cursor = DateTimeOffset.UtcNow;
@@ -283,7 +284,7 @@ public sealed class CatalogPriceSyncTests : IClassFixture<WebApplicationFactory<
         var deviceToken = await IssueDeviceTokenAsync(orgId, branchId);
 
         var since = DateTimeOffset.UtcNow.AddMinutes(-1);
-        var presentationId = await SeedPresentationAsync(orgId);
+        var presentationId = await SeedPresentationAsync(orgId, branchId);
         // No price list, no published price at all.
 
         var client = _factory.CreateClient();
@@ -305,13 +306,15 @@ public sealed class CatalogPriceSyncTests : IClassFixture<WebApplicationFactory<
         var orgAId = Guid.NewGuid();
         var orgBId = Guid.NewGuid();
         var branchAId = Guid.NewGuid();
+        var branchBId = Guid.NewGuid();
         await SeedOrganizationAsync(orgAId);
         await SeedOrganizationAsync(orgBId);
         await SeedBranchAsync(orgAId, branchAId);
+        await SeedBranchAsync(orgBId, branchBId);
         var deviceTokenA = await IssueDeviceTokenAsync(orgAId, branchAId);
 
         var since = DateTimeOffset.UtcNow.AddMinutes(-1);
-        await SeedPresentationAsync(orgBId, identificationCode: "ORG-B-ONLY");
+        await SeedPresentationAsync(orgBId, branchBId, identificationCode: "ORG-B-ONLY");
 
         var client = _factory.CreateClient();
         var response = await client.SendAsync(

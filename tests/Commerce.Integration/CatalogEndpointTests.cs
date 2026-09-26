@@ -82,6 +82,11 @@ public sealed class CatalogEndpointTests : IClassFixture<WebApplicationFactory<P
         var catalogAndPricingSql = File.ReadAllText(Path.Combine(repoRoot.FullName, "deploy", "db", "migrations", "0009_catalog_and_pricing.sql"));
         using (var cmd = new NpgsqlCommand(catalogAndPricingSql, owner)) cmd.ExecuteNonQuery();
 
+        // B7 U4: products/presentations are branch-owned — every `/catalog/*`
+        // route now requires a selected branch.
+        var branchOwnershipSql = File.ReadAllText(Path.Combine(repoRoot.FullName, "deploy", "db", "migrations", "0016_catalog_branch_ownership.sql"));
+        using (var cmd = new NpgsqlCommand(branchOwnershipSql, owner)) cmd.ExecuteNonQuery();
+
         using var resetCmd = new NpgsqlCommand(
             "TRUNCATE TABLE presentations, products, user_directory, users, branches, organizations CASCADE", owner);
         resetCmd.ExecuteNonQuery();
@@ -97,6 +102,21 @@ public sealed class CatalogEndpointTests : IClassFixture<WebApplicationFactory<P
         using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
         await owner.OpenAsync();
         using var cmd = new NpgsqlCommand("INSERT INTO organizations (id, name) VALUES ($1, 'Test Org')", owner);
+        cmd.Parameters.AddWithValue(organizationId);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    /// <summary>
+    /// B7 U4: `/catalog/*` requires a REAL branch row (composite FK,
+    /// `BranchSelectionRequirement`/`TenantScopeEndpointFilter` validation),
+    /// not merely an entry in a user's `BranchScope` array.
+    /// </summary>
+    private async Task SeedBranchAsync(Guid organizationId, Guid branchId)
+    {
+        using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        await owner.OpenAsync();
+        using var cmd = new NpgsqlCommand("INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, 'Main')", owner);
+        cmd.Parameters.AddWithValue(branchId);
         cmd.Parameters.AddWithValue(organizationId);
         await cmd.ExecuteNonQueryAsync();
     }
@@ -160,7 +180,15 @@ public sealed class CatalogEndpointTests : IClassFixture<WebApplicationFactory<P
             }
         }
 
-        return (await SignInViaTestEndpointAsync(organizationId.Value, userId), organizationId.Value, branchId);
+        await SeedBranchAsync(organizationId.Value, branchId);
+
+        var client = await SignInViaTestEndpointAsync(organizationId.Value, userId);
+        // Every call this client makes selects `branchId` — matches this
+        // caller's own BranchScope (or the default single-element scope
+        // above), so `TenantScopeEndpointFilter` honors it for every
+        // `/catalog/*` request without each test having to add it by hand.
+        client.DefaultRequestHeaders.Add(TenantScopeEndpointFilter.BranchSelectorHeader, branchId.ToString());
+        return (client, organizationId.Value, branchId);
     }
 
     private async Task<HttpClient> SignInViaTestEndpointAsync(Guid organizationId, Guid userId)
@@ -264,5 +292,153 @@ public sealed class CatalogEndpointTests : IClassFixture<WebApplicationFactory<P
             new StringContent(forgedBody, Encoding.UTF8, "application/json"));
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    // --- B7 U4: branch-owned catalog -----------------------------------------
+
+    [Fact]
+    public async Task ListProducts_WithNoBranchHeader_Returns400_BranchSelectionRequired()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var (client, _, _) = await SignedInClientAsync(Permission.ManageCatalog);
+        client.DefaultRequestHeaders.Remove(TenantScopeEndpointFilter.BranchSelectorHeader);
+
+        var response = await client.GetAsync("/catalog/products");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("branch-selection-required", body.GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public async Task CreateProduct_WithOutOfScopeBranchHeader_Returns403()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var (client, organizationId, _) = await SignedInClientAsync(Permission.ManageCatalog);
+        var otherBranchId = Guid.NewGuid();
+        await SeedBranchAsync(organizationId, otherBranchId);
+
+        client.DefaultRequestHeaders.Remove(TenantScopeEndpointFilter.BranchSelectorHeader);
+        client.DefaultRequestHeaders.Add(TenantScopeEndpointFilter.BranchSelectorHeader, otherBranchId.ToString());
+
+        var response = await client.PostAsJsonAsync("/catalog/products", new
+        {
+            name = "Should Not Be Created",
+            categoryId = Guid.NewGuid(),
+            defaultUnitId = Guid.NewGuid(),
+        });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    /// <summary>
+    /// catalog-item-identification "Branch-Owned Catalog": products/
+    /// presentations created with one branch selected are invisible to a
+    /// caller who selects a DIFFERENT branch of the SAME organization, even
+    /// for a caller who could act on both (mirrors "Ruta 51"/"Centro" of one
+    /// Vaca Verde-shaped organization).
+    /// </summary>
+    [Fact]
+    public async Task Products_CreatedUnderOneBranch_AreInvisible_WhenADifferentBranchOfTheSameOrgIsSelected()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var (client, organizationId, rutaCincuentaYUnoId) = await SignedInClientAsync(
+            Permission.ManageCatalog, branchScope: null, organizationId: null);
+        var centroId = Guid.NewGuid();
+        await SeedBranchAsync(organizationId, centroId);
+        // This user may act on BOTH branches — isolation must still hold.
+        using (var scope = _factory.Services.CreateScope())
+        {
+            using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+            owner.Open();
+            using var widen = new NpgsqlCommand(
+                "UPDATE users SET branch_scope = branch_scope || $1::uuid WHERE organization_id = $2", owner);
+            widen.Parameters.AddWithValue(centroId);
+            widen.Parameters.AddWithValue(organizationId);
+            widen.ExecuteNonQuery();
+        }
+
+        var productId = await CreateProductAsync(client); // selected branch: Ruta 51
+
+        client.DefaultRequestHeaders.Remove(TenantScopeEndpointFilter.BranchSelectorHeader);
+        client.DefaultRequestHeaders.Add(TenantScopeEndpointFilter.BranchSelectorHeader, centroId.ToString());
+
+        var fromCentro = await client.GetAsync($"/catalog/products/{productId}");
+        Assert.Equal(HttpStatusCode.NotFound, fromCentro.StatusCode);
+
+        var listFromCentro = await client.GetAsync("/catalog/products");
+        var products = await listFromCentro.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.DoesNotContain(products.EnumerateArray(), p => p.GetProperty("id").GetGuid() == productId);
+
+        client.DefaultRequestHeaders.Remove(TenantScopeEndpointFilter.BranchSelectorHeader);
+        client.DefaultRequestHeaders.Add(TenantScopeEndpointFilter.BranchSelectorHeader, rutaCincuentaYUnoId.ToString());
+        var fromRuta51 = await client.GetAsync($"/catalog/products/{productId}");
+        Assert.Equal(HttpStatusCode.OK, fromRuta51.StatusCode);
+    }
+
+    /// <summary>
+    /// catalog-item-identification "Branch-Owned Catalog" scenario "Same
+    /// barcode in two Vaca Verde branches": the same identification code is
+    /// accepted in two different branches of one organization.
+    /// </summary>
+    [Fact]
+    public async Task CreatePresentation_SameIdentificationCode_AcceptedInTwoBranchesOfSameOrganization()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var (client, organizationId, rutaCincuentaYUnoId) = await SignedInClientAsync(Permission.ManageCatalog);
+        var centroId = Guid.NewGuid();
+        await SeedBranchAsync(organizationId, centroId);
+        using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            owner.Open();
+            using var widen = new NpgsqlCommand(
+                "UPDATE users SET branch_scope = branch_scope || $1::uuid WHERE organization_id = $2", owner);
+            widen.Parameters.AddWithValue(centroId);
+            widen.Parameters.AddWithValue(organizationId);
+            widen.ExecuteNonQuery();
+        }
+
+        var productId = await CreateProductAsync(client); // Ruta 51
+        var firstResponse = await client.PostAsJsonAsync("/catalog/presentations", new
+        {
+            productId,
+            name = "1kg bag",
+            quantityBehavior = "FixedQuantity",
+            unitId = Guid.NewGuid(),
+            identificationCode = "7791234567890",
+        });
+        Assert.Equal(HttpStatusCode.Created, firstResponse.StatusCode);
+
+        // Same code again, in Ruta 51: rejected.
+        var duplicateResponse = await client.PostAsJsonAsync("/catalog/presentations", new
+        {
+            productId,
+            name = "1kg bag (dup)",
+            quantityBehavior = "FixedQuantity",
+            unitId = Guid.NewGuid(),
+            identificationCode = "7791234567890",
+        });
+        Assert.Equal(HttpStatusCode.Conflict, duplicateResponse.StatusCode);
+
+        // Switch to Centro: a product must exist there first (products are
+        // branch-owned too), then the SAME code is accepted.
+        client.DefaultRequestHeaders.Remove(TenantScopeEndpointFilter.BranchSelectorHeader);
+        client.DefaultRequestHeaders.Add(TenantScopeEndpointFilter.BranchSelectorHeader, centroId.ToString());
+        var centroProductId = await CreateProductAsync(client);
+
+        var centroResponse = await client.PostAsJsonAsync("/catalog/presentations", new
+        {
+            productId = centroProductId,
+            name = "1kg bag",
+            quantityBehavior = "FixedQuantity",
+            unitId = Guid.NewGuid(),
+            identificationCode = "7791234567890",
+        });
+        Assert.Equal(HttpStatusCode.Created, centroResponse.StatusCode);
+        _ = rutaCincuentaYUnoId;
     }
 }

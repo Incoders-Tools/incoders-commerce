@@ -103,6 +103,19 @@ public sealed class PricingChannelParityTests : IDisposable
         cmd.ExecuteNonQuery();
     }
 
+    /// <summary>B7 U4: catalog scopes now need a real branch row.</summary>
+    private static Guid SeedBranch(Guid organizationId)
+    {
+        var branchId = Guid.NewGuid();
+        using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        owner.Open();
+        using var cmd = new NpgsqlCommand("INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, 'Main')", owner);
+        cmd.Parameters.AddWithValue(branchId);
+        cmd.Parameters.AddWithValue(organizationId);
+        cmd.ExecuteNonQuery();
+        return branchId;
+    }
+
     /// <summary>
     /// Spec scenario "Same tuple resolves identically across channels": the
     /// SAME `(presentation, quantity, discount, date)` tuple resolved
@@ -117,7 +130,8 @@ public sealed class PricingChannelParityTests : IDisposable
 
         var organizationId = Guid.NewGuid();
         SeedOrganization(organizationId);
-        var scope = new CloudTenantScope(organizationId);
+        var branchId = SeedBranch(organizationId);
+        var scope = new CloudTenantScope(organizationId, BranchId: branchId);
         var actorId = Guid.NewGuid();
 
         var catalogStore = new PostgresCatalogStore(_dataSource!);
@@ -173,7 +187,8 @@ public sealed class PricingChannelParityTests : IDisposable
 
         var organizationId = Guid.NewGuid();
         SeedOrganization(organizationId);
-        var scope = new CloudTenantScope(organizationId);
+        var branchId = SeedBranch(organizationId);
+        var scope = new CloudTenantScope(organizationId, BranchId: branchId);
         var actorId = Guid.NewGuid();
 
         var catalogStore = new PostgresCatalogStore(_dataSource!);

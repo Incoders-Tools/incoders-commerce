@@ -86,6 +86,7 @@ public sealed class PricingEndpointTests : IClassFixture<WebApplicationFactory<P
         Apply("0003_organizations_branches.sql");
         Apply("0004_device_credentials.sql");
         Apply("0009_catalog_and_pricing.sql");
+        Apply("0016_catalog_branch_ownership.sql");
 
         using var resetCmd = new NpgsqlCommand(
             "TRUNCATE TABLE price_list_entries, price_lists, presentations, products, " +
@@ -103,11 +104,25 @@ public sealed class PricingEndpointTests : IClassFixture<WebApplicationFactory<P
         await cmd.ExecuteNonQueryAsync();
     }
 
+    /// <summary>B7 U4: catalog scopes now need a real branch row.</summary>
+    private async Task<Guid> SeedBranchAsync(Guid organizationId)
+    {
+        var branchId = Guid.NewGuid();
+        using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        await owner.OpenAsync();
+        using var cmd = new NpgsqlCommand("INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, 'Main')", owner);
+        cmd.Parameters.AddWithValue(branchId);
+        cmd.Parameters.AddWithValue(organizationId);
+        await cmd.ExecuteNonQueryAsync();
+        return branchId;
+    }
+
     private async Task<Guid> SeedPresentationAsync(Guid organizationId)
     {
         using var scope = _factory.Services.CreateScope();
         var catalogStore = scope.ServiceProvider.GetRequiredService<PostgresCatalogStore>();
-        var tenantScope = new CloudTenantScope(organizationId);
+        var branchId = await SeedBranchAsync(organizationId);
+        var tenantScope = new CloudTenantScope(organizationId, BranchId: branchId);
         var actorId = Guid.NewGuid();
 
         var product = await catalogStore.CreateProductAsync(

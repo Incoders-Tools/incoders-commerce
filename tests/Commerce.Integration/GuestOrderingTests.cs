@@ -78,6 +78,7 @@ public sealed class GuestOrderingTests : IDisposable
         Apply("0008_customer_registry.sql");
         Apply("0009_catalog_and_pricing.sql");
         Apply("0010_guest_ordering.sql");
+        Apply("0016_catalog_branch_ownership.sql");
 
         using var resetCmd = new NpgsqlCommand(
             """
@@ -96,6 +97,22 @@ public sealed class GuestOrderingTests : IDisposable
         await using var cmd = new NpgsqlCommand("INSERT INTO organizations (id, name) VALUES ($1, 'Org')", connection);
         cmd.Parameters.AddWithValue(orgId);
         await cmd.ExecuteNonQueryAsync();
+    }
+
+    /// <summary>
+    /// B7 U4: products/presentations are branch-owned now, so every scope
+    /// this file builds for catalog/order use needs a real branch row.
+    /// </summary>
+    private async Task<Guid> SeedBranchAsync(Guid orgId)
+    {
+        var branchId = Guid.NewGuid();
+        await using var connection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        await connection.OpenAsync();
+        await using var cmd = new NpgsqlCommand("INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, 'Main')", connection);
+        cmd.Parameters.AddWithValue(branchId);
+        cmd.Parameters.AddWithValue(orgId);
+        await cmd.ExecuteNonQueryAsync();
+        return branchId;
     }
 
     private async Task<Guid> SeedCustomerAsync(CloudTenantScope scope, Guid actorId, decimal? discountPercentage = null)
@@ -205,8 +222,9 @@ public sealed class GuestOrderingTests : IDisposable
 
         var orgId = Guid.NewGuid();
         var actorId = Guid.NewGuid();
-        var scope = new CloudTenantScope(orgId);
         await SeedOrganizationAsync(orgId);
+        var branchId = await SeedBranchAsync(orgId);
+        var scope = new CloudTenantScope(orgId, BranchId: branchId);
         var presentationId = await SeedPresentationAsync(scope, actorId);
         var priceListId = await SeedDefaultPriceListAsync(scope, actorId);
         await PublishPriceAsync(scope, priceListId, presentationId, 100.00m, actorId);
@@ -246,8 +264,9 @@ public sealed class GuestOrderingTests : IDisposable
 
         var orgId = Guid.NewGuid();
         var actorId = Guid.NewGuid();
-        var scope = new CloudTenantScope(orgId);
         await SeedOrganizationAsync(orgId);
+        var branchId = await SeedBranchAsync(orgId);
+        var scope = new CloudTenantScope(orgId, BranchId: branchId);
         var presentationId = await SeedPresentationAsync(scope, actorId);
         var priceListId = await SeedDefaultPriceListAsync(scope, actorId);
         await PublishPriceAsync(scope, priceListId, presentationId, 50.00m, actorId);
@@ -276,8 +295,9 @@ public sealed class GuestOrderingTests : IDisposable
 
         var orgId = Guid.NewGuid();
         var actorId = Guid.NewGuid();
-        var scope = new CloudTenantScope(orgId);
         await SeedOrganizationAsync(orgId);
+        var branchId = await SeedBranchAsync(orgId);
+        var scope = new CloudTenantScope(orgId, BranchId: branchId);
         var presentationId = await SeedPresentationAsync(scope, actorId);
         var priceListId = await SeedDefaultPriceListAsync(scope, actorId);
         await PublishPriceAsync(scope, priceListId, presentationId, 30.00m, actorId);
@@ -303,8 +323,9 @@ public sealed class GuestOrderingTests : IDisposable
 
         var orgId = Guid.NewGuid();
         var actorId = Guid.NewGuid();
-        var scope = new CloudTenantScope(orgId);
         await SeedOrganizationAsync(orgId);
+        var branchId = await SeedBranchAsync(orgId);
+        var scope = new CloudTenantScope(orgId, BranchId: branchId);
         var presentationId = await SeedPresentationAsync(scope, actorId);
         var priceListId = await SeedDefaultPriceListAsync(scope, actorId);
         await PublishPriceAsync(scope, priceListId, presentationId, 30.00m, actorId);
@@ -334,8 +355,9 @@ public sealed class GuestOrderingTests : IDisposable
 
         var orgId = Guid.NewGuid();
         var actorId = Guid.NewGuid();
-        var scope = new CloudTenantScope(orgId);
         await SeedOrganizationAsync(orgId);
+        var branchId = await SeedBranchAsync(orgId);
+        var scope = new CloudTenantScope(orgId, BranchId: branchId);
         var presentationId = await SeedPresentationAsync(scope, actorId);
         var priceListId = await SeedDefaultPriceListAsync(scope, actorId);
         await PublishPriceAsync(scope, priceListId, presentationId, 30.00m, actorId);
@@ -380,8 +402,9 @@ public sealed class GuestOrderingTests : IDisposable
 
         var orgId = Guid.NewGuid();
         var actorId = Guid.NewGuid();
-        var scope = new CloudTenantScope(orgId);
         await SeedOrganizationAsync(orgId);
+        var branchId = await SeedBranchAsync(orgId);
+        var scope = new CloudTenantScope(orgId, BranchId: branchId);
         var presentationId = await SeedPresentationAsync(scope, actorId);
         // No default price list, no price entry: zero effective rows.
 
