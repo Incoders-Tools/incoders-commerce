@@ -269,6 +269,20 @@ public static class PricingEndpoints
             PostgresCatalogStore catalogStore,
             CancellationToken ct) =>
         {
+            // B7 U4: this route looks presentations up by identification
+            // code, which is now branch-owned
+            // (catalog-item-identification "Branch-Owned Catalog") — a
+            // scope with no selected branch would silently match nothing
+            // under RLS rather than the org-wide match this route used to
+            // get, so a branch selection is required here too even though
+            // price lists themselves are not yet branch-owned (that is
+            // B7 U5).
+            var branchFailure = BranchSelectionRequirement.Enforce(httpContext);
+            if (branchFailure is not null)
+            {
+                return branchFailure;
+            }
+
             var auth = await AuthorizeCallerAsync(httpContext, userStore, ct);
             if (auth is null)
             {

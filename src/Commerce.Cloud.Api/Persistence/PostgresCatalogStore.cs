@@ -30,21 +30,32 @@ public sealed class PostgresCatalogStore
     // --- Products -----------------------------------------------------
 
     private const string ProductColumns =
-        "id, organization_id, name, category_id, default_unit_id, created_at_utc, created_by_user_id, updated_at_utc";
+        "id, organization_id, branch_id, name, category_id, default_unit_id, created_at_utc, created_by_user_id, updated_at_utc";
 
     private static ProductRecord ReadProduct(NpgsqlDataReader reader) => new(
         Id: reader.GetGuid(0),
         OrganizationId: reader.GetGuid(1),
-        Name: reader.GetString(2),
-        CategoryId: reader.GetGuid(3),
-        DefaultUnitId: reader.GetGuid(4),
-        CreatedAtUtc: reader.GetFieldValue<DateTimeOffset>(5),
-        CreatedByUserId: reader.GetGuid(6),
-        UpdatedAtUtc: reader.GetFieldValue<DateTimeOffset>(7));
+        BranchId: reader.GetGuid(2),
+        Name: reader.GetString(3),
+        CategoryId: reader.GetGuid(4),
+        DefaultUnitId: reader.GetGuid(5),
+        CreatedAtUtc: reader.GetFieldValue<DateTimeOffset>(6),
+        CreatedByUserId: reader.GetGuid(7),
+        UpdatedAtUtc: reader.GetFieldValue<DateTimeOffset>(8));
 
+    /// <summary>
+    /// Requires <paramref name="scope"/> to already carry a selected
+    /// branch — every caller MUST have run
+    /// <see cref="Tenancy.BranchSelectionRequirement.Enforce"/> first
+    /// (B7 U4). The branch is stamped from the scope, never from any
+    /// caller-submitted field.
+    /// </summary>
     public async Task<ProductRecord> CreateProductAsync(
         CloudTenantScope scope, NewProduct product, string actorKind, Guid actorId, CancellationToken ct)
     {
+        var branchId = scope.BranchId
+            ?? throw new InvalidOperationException("CreateProductAsync requires a selected branch.");
+
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
 
@@ -53,13 +64,14 @@ public sealed class PostgresCatalogStore
         ProductRecord record;
         await using (var cmd = new NpgsqlCommand(
             $"""
-            INSERT INTO products (id, organization_id, name, category_id, default_unit_id, created_by_user_id)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            INSERT INTO products (id, organization_id, branch_id, name, category_id, default_unit_id, created_by_user_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             RETURNING {ProductColumns}
             """, connection, tx))
         {
             cmd.Parameters.AddWithValue(product.Id);
             cmd.Parameters.AddWithValue(scope.OrganizationId);
+            cmd.Parameters.AddWithValue(branchId);
             cmd.Parameters.AddWithValue(product.Name);
             cmd.Parameters.AddWithValue(product.CategoryId);
             cmd.Parameters.AddWithValue(product.DefaultUnitId);
@@ -190,30 +202,37 @@ public sealed class PostgresCatalogStore
     // --- Presentations --------------------------------------------------
 
     private const string PresentationColumns =
-        "id, organization_id, product_id, name, quantity_behavior, unit_id, identification_code, " +
+        "id, organization_id, branch_id, product_id, name, quantity_behavior, unit_id, identification_code, " +
         "created_at_utc, created_by_user_id, updated_at_utc";
 
     private static PresentationRecord ReadPresentation(NpgsqlDataReader reader) => new(
         Id: reader.GetGuid(0),
         OrganizationId: reader.GetGuid(1),
-        ProductId: reader.GetGuid(2),
-        Name: reader.GetString(3),
-        QuantityBehavior: Enum.Parse<QuantityBehavior>(reader.GetString(4)),
-        UnitId: reader.GetGuid(5),
-        IdentificationCode: reader.IsDBNull(6) ? null : reader.GetString(6),
-        CreatedAtUtc: reader.GetFieldValue<DateTimeOffset>(7),
-        CreatedByUserId: reader.GetGuid(8),
-        UpdatedAtUtc: reader.GetFieldValue<DateTimeOffset>(9));
+        BranchId: reader.GetGuid(2),
+        ProductId: reader.GetGuid(3),
+        Name: reader.GetString(4),
+        QuantityBehavior: Enum.Parse<QuantityBehavior>(reader.GetString(5)),
+        UnitId: reader.GetGuid(6),
+        IdentificationCode: reader.IsDBNull(7) ? null : reader.GetString(7),
+        CreatedAtUtc: reader.GetFieldValue<DateTimeOffset>(8),
+        CreatedByUserId: reader.GetGuid(9),
+        UpdatedAtUtc: reader.GetFieldValue<DateTimeOffset>(10));
 
     /// <summary>
-    /// A duplicate `identification_code` within the same organization is
-    /// rejected by `presentations_org_code_uk` — surfaced here as a
+    /// A duplicate `identification_code` within the same BRANCH (B7 U4;
+    /// was within the same organization) is rejected by
+    /// `presentations_org_branch_code_uk` — surfaced here as a
     /// <see cref="PostgresException"/> with SqlState `23505` for the caller
-    /// (endpoint) to translate into a 409, never swallowed.
+    /// (endpoint) to translate into a 409, never swallowed. Requires
+    /// <paramref name="scope"/> to already carry a selected branch — see
+    /// <see cref="CreateProductAsync"/>.
     /// </summary>
     public async Task<PresentationRecord> CreatePresentationAsync(
         CloudTenantScope scope, NewPresentation presentation, string actorKind, Guid actorId, CancellationToken ct)
     {
+        var branchId = scope.BranchId
+            ?? throw new InvalidOperationException("CreatePresentationAsync requires a selected branch.");
+
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
 
@@ -223,13 +242,14 @@ public sealed class PostgresCatalogStore
         await using (var cmd = new NpgsqlCommand(
             $"""
             INSERT INTO presentations
-                (id, organization_id, product_id, name, quantity_behavior, unit_id, identification_code, created_by_user_id)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                (id, organization_id, branch_id, product_id, name, quantity_behavior, unit_id, identification_code, created_by_user_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             RETURNING {PresentationColumns}
             """, connection, tx))
         {
             cmd.Parameters.AddWithValue(presentation.Id);
             cmd.Parameters.AddWithValue(scope.OrganizationId);
+            cmd.Parameters.AddWithValue(branchId);
             cmd.Parameters.AddWithValue(presentation.ProductId);
             cmd.Parameters.AddWithValue(presentation.Name);
             cmd.Parameters.AddWithValue(presentation.QuantityBehavior.ToString());

@@ -43,6 +43,12 @@ public static class CatalogEndpoints
             PostgresCatalogStore catalogStore,
             CancellationToken ct) =>
         {
+            var branchFailure = BranchSelectionRequirement.Enforce(httpContext);
+            if (branchFailure is not null)
+            {
+                return branchFailure;
+            }
+
             var auth = await AuthorizeCallerAsync(httpContext, userStore, ct);
             if (auth is null)
             {
@@ -60,6 +66,12 @@ public static class CatalogEndpoints
             PostgresCatalogStore catalogStore,
             CancellationToken ct) =>
         {
+            var branchFailure = BranchSelectionRequirement.Enforce(httpContext);
+            if (branchFailure is not null)
+            {
+                return branchFailure;
+            }
+
             var auth = await AuthorizeCallerAsync(httpContext, userStore, ct);
             if (auth is null)
             {
@@ -77,6 +89,12 @@ public static class CatalogEndpoints
             PostgresCatalogStore catalogStore,
             CancellationToken ct) =>
         {
+            var branchFailure = BranchSelectionRequirement.Enforce(httpContext);
+            if (branchFailure is not null)
+            {
+                return branchFailure;
+            }
+
             var auth = await AuthorizeCallerAsync(httpContext, userStore, ct);
             if (auth is null)
             {
@@ -109,6 +127,12 @@ public static class CatalogEndpoints
             PostgresCatalogStore catalogStore,
             CancellationToken ct) =>
         {
+            var branchFailure = BranchSelectionRequirement.Enforce(httpContext);
+            if (branchFailure is not null)
+            {
+                return branchFailure;
+            }
+
             var auth = await AuthorizeCallerAsync(httpContext, userStore, ct);
             if (auth is null)
             {
@@ -122,11 +146,19 @@ public static class CatalogEndpoints
                 return Results.NotFound();
             }
 
+            // The branch this rename authorizes and applies against is
+            // ALWAYS the request's own resolved scope (validated by
+            // BranchSelectionRequirement/TenantScopeEndpointFilter above),
+            // never a caller-submitted field — the old `TargetBranchId`
+            // body field is gone; a cross-branch write is already
+            // impossible because `existing`/the later UPDATE are both
+            // scoped by this same branch under RLS, but the authorization
+            // decision itself must agree, not merely the storage layer.
             var outcome = adapter.RenameProduct(
                 scope,
                 actor,
                 existing.ToDomain(),
-                request.TargetBranchId,
+                scope.BranchId!.Value,
                 request.NewName,
                 request.IsOffline,
                 request.CorrelationId);
@@ -150,6 +182,12 @@ public static class CatalogEndpoints
             PostgresCatalogStore catalogStore,
             CancellationToken ct) =>
         {
+            var branchFailure = BranchSelectionRequirement.Enforce(httpContext);
+            if (branchFailure is not null)
+            {
+                return branchFailure;
+            }
+
             var auth = await AuthorizeCallerAsync(httpContext, userStore, ct);
             if (auth is null)
             {
@@ -167,6 +205,12 @@ public static class CatalogEndpoints
             PostgresCatalogStore catalogStore,
             CancellationToken ct) =>
         {
+            var branchFailure = BranchSelectionRequirement.Enforce(httpContext);
+            if (branchFailure is not null)
+            {
+                return branchFailure;
+            }
+
             var auth = await AuthorizeCallerAsync(httpContext, userStore, ct);
             if (auth is null)
             {
@@ -202,9 +246,10 @@ public static class CatalogEndpoints
             }
             catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UniqueViolation)
             {
-                // presentations_org_code_uk: same identification_code already
-                // used by another presentation in this org (design.md
-                // "Identification code placement and uniqueness").
+                // presentations_org_branch_code_uk (B7 U4 — was
+                // presentations_org_code_uk): same identification_code
+                // already used by another presentation in this BRANCH
+                // (catalog-item-identification spec "Branch-Owned Catalog").
                 return Results.Conflict(new { error = "identification-code-in-use" });
             }
 
@@ -219,6 +264,12 @@ public static class CatalogEndpoints
             PostgresCatalogStore catalogStore,
             CancellationToken ct) =>
         {
+            var branchFailure = BranchSelectionRequirement.Enforce(httpContext);
+            if (branchFailure is not null)
+            {
+                return branchFailure;
+            }
+
             var auth = await AuthorizeCallerAsync(httpContext, userStore, ct);
             if (auth is null)
             {
@@ -283,9 +334,11 @@ public sealed record CreateProductRequest(string Name, Guid CategoryId, Guid Def
 /// (the `AccessEnabled`-removal idiom): the only source of truth for those
 /// fields is now the persisted `products` row, never the caller — there is
 /// nowhere left to put a value that would have been ignored anyway.
+/// `TargetBranchId` was removed the same way (B7 U4): the only branch a
+/// rename can ever apply to is the request's own resolved
+/// <see cref="CloudTenantScope.BranchId"/>, never a caller-submitted field.
 /// </summary>
 public sealed record RenameProductRequest(
-    Guid TargetBranchId,
     string NewName,
     bool IsOffline,
     Guid CorrelationId);

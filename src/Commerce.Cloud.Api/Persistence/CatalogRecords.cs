@@ -22,10 +22,18 @@ public sealed record UpdateProduct(
     Guid CategoryId,
     Guid DefaultUnitId);
 
-/// <summary>Full persisted shape of one `products` row.</summary>
+/// <summary>
+/// Full persisted shape of one `products` row. `BranchId` (B7 U4,
+/// organization-persistence spec "Branch-Owned Business Data") is always
+/// the scope's own `BranchId` at write time, never a caller-submitted
+/// value — <see cref="Domain.Catalog.Product"/> itself does not carry it,
+/// matching the existing asymmetry where the domain type omits fields that
+/// are purely a persistence/RLS concern.
+/// </summary>
 public sealed record ProductRecord(
     Guid Id,
     Guid OrganizationId,
+    Guid BranchId,
     string Name,
     Guid CategoryId,
     Guid DefaultUnitId,
@@ -57,10 +65,15 @@ public sealed record UpdatePresentation(
     Guid UnitId,
     string? IdentificationCode);
 
-/// <summary>Full persisted shape of one `presentations` row.</summary>
+/// <summary>
+/// Full persisted shape of one `presentations` row. `BranchId` (B7 U4) is
+/// always the scope's own `BranchId` at write time — see
+/// <see cref="ProductRecord.BranchId"/>.
+/// </summary>
 public sealed record PresentationRecord(
     Guid Id,
     Guid OrganizationId,
+    Guid BranchId,
     Guid ProductId,
     string Name,
     QuantityBehavior QuantityBehavior,
