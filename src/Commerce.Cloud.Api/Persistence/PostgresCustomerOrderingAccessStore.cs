@@ -76,11 +76,7 @@ public sealed class PostgresCustomerOrderingAccessStore : ICustomerOrderingAcces
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
 
-        await using (var scopeCmd = new NpgsqlCommand("SELECT set_config('app.current_org_id', $1, true)", connection, tx))
-        {
-            scopeCmd.Parameters.AddWithValue(scope.OrganizationId.ToString());
-            await scopeCmd.ExecuteNonQueryAsync(ct);
-        }
+        await TenantScopeSql.ApplyAsync(connection, tx, scope, ct);
 
         await using (var insertCmd = new NpgsqlCommand(
             """

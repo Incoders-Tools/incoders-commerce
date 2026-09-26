@@ -55,12 +55,7 @@ public sealed class PostgresOrganizationStore
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
 
-        await using (var scopeCmd = new NpgsqlCommand(
-            "SELECT set_config('app.current_org_id', $1, true)", connection, tx))
-        {
-            scopeCmd.Parameters.AddWithValue(scope.OrganizationId.ToString());
-            await scopeCmd.ExecuteNonQueryAsync(ct);
-        }
+        await TenantScopeSql.ApplyAsync(connection, tx, scope, ct);
 
         // Reject-if-org-exists (design.md): checked INSIDE the write
         // transaction, immediately after set_config, before any insert.
@@ -146,12 +141,7 @@ public sealed class PostgresOrganizationStore
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
 
-        await using (var scopeCmd = new NpgsqlCommand(
-            "SELECT set_config('app.current_org_id', $1, true)", connection, tx))
-        {
-            scopeCmd.Parameters.AddWithValue(scope.OrganizationId.ToString());
-            await scopeCmd.ExecuteNonQueryAsync(ct);
-        }
+        await TenantScopeSql.ApplyAsync(connection, tx, scope, ct);
 
         var results = new List<BranchOption>();
         await using (var cmd = new NpgsqlCommand(
@@ -185,11 +175,7 @@ public sealed class PostgresOrganizationStore
     {
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
-        await using (var scopeCmd = new NpgsqlCommand("SELECT set_config('app.current_org_id', $1, true)", connection, tx))
-        {
-            scopeCmd.Parameters.AddWithValue(scope.OrganizationId.ToString());
-            await scopeCmd.ExecuteNonQueryAsync(ct);
-        }
+        await TenantScopeSql.ApplyAsync(connection, tx, scope, ct);
         await using (var cmd = new NpgsqlCommand("INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, $3)", connection, tx))
         {
             cmd.Parameters.AddWithValue(branch.Id); cmd.Parameters.AddWithValue(scope.OrganizationId); cmd.Parameters.AddWithValue(branch.Name);
@@ -206,11 +192,7 @@ public sealed class PostgresOrganizationStore
     {
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
-        await using (var scopeCmd = new NpgsqlCommand("SELECT set_config('app.current_org_id', $1, true)", connection, tx))
-        {
-            scopeCmd.Parameters.AddWithValue(scope.OrganizationId.ToString());
-            await scopeCmd.ExecuteNonQueryAsync(ct);
-        }
+        await TenantScopeSql.ApplyAsync(connection, tx, scope, ct);
         var branches = new List<BranchOption>();
         await using var cmd = new NpgsqlCommand("SELECT id, name FROM branches ORDER BY name", connection, tx);
         await using var reader = await cmd.ExecuteReaderAsync(ct);
@@ -246,11 +228,7 @@ public sealed class PostgresOrganizationStore
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
 
-        await using (var scopeCmd = new NpgsqlCommand("SELECT set_config('app.current_org_id', $1, true)", connection, tx))
-        {
-            scopeCmd.Parameters.AddWithValue(organizationId.ToString());
-            await scopeCmd.ExecuteNonQueryAsync(ct);
-        }
+        await TenantScopeSql.ApplyAsync(connection, tx, organizationId, branchId: null, ct);
 
         await using var cmd = new NpgsqlCommand("SELECT EXISTS (SELECT 1 FROM organizations WHERE id = $1)", connection, tx);
         cmd.Parameters.AddWithValue(organizationId);
@@ -277,11 +255,7 @@ public sealed class PostgresOrganizationStore
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
 
-        await using (var scopeCmd = new NpgsqlCommand("SELECT set_config('app.current_org_id', $1, true)", connection, tx))
-        {
-            scopeCmd.Parameters.AddWithValue(organizationId.ToString());
-            await scopeCmd.ExecuteNonQueryAsync(ct);
-        }
+        await TenantScopeSql.ApplyAsync(connection, tx, organizationId, branchId: null, ct);
 
         OrganizationBranding? branding = null;
         await using (var cmd = new NpgsqlCommand("SELECT logo_url, primary_color FROM organizations WHERE id = $1", connection, tx))
@@ -316,11 +290,7 @@ public sealed class PostgresOrganizationStore
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
 
-        await using (var scopeCmd = new NpgsqlCommand("SELECT set_config('app.current_org_id', $1, true)", connection, tx))
-        {
-            scopeCmd.Parameters.AddWithValue(organizationId.ToString());
-            await scopeCmd.ExecuteNonQueryAsync(ct);
-        }
+        await TenantScopeSql.ApplyAsync(connection, tx, organizationId, branchId: null, ct);
 
         int rowsAffected;
         await using (var cmd = new NpgsqlCommand(

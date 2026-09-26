@@ -54,6 +54,7 @@ public static class AccountEndpoints
             SignInRequest request,
             HttpContext httpContext,
             PostgresUserAccountStore store,
+            PostgresOrganizationStore organizationStore,
             PasswordHasher<UserAccount> hasher,
             CancellationToken ct) =>
         {
@@ -104,6 +105,12 @@ public static class AccountEndpoints
             var signedInActor = await store.LoadActorAsync(scope, credential.Id, ct);
             var permissions = signedInActor is null ? 0 : (int)signedInActor.EffectivePermissions;
 
+            // No selected-organization concept exists yet at sign-in
+            // (no header, no filter) — always the caller's own BranchScope.
+            IReadOnlyList<BranchOption> selectableBranches = signedInActor is null
+                ? Array.Empty<BranchOption>()
+                : await organizationStore.ListBranchesAsync(scope, signedInActor.BranchScope.ToArray(), ct);
+
             var claims = new[]
             {
                 new Claim(TenantScopeResolver.OrganizationClaimType, credential.OrganizationId.ToString()),
@@ -116,7 +123,13 @@ public static class AccountEndpoints
 
             await httpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal);
 
-            return Results.Ok(new SignedInResponse(credential.OrganizationId, credential.Id, credential.Email, permissions, signedInActor?.IsSystemAdmin ?? false));
+            return Results.Ok(new SignedInResponse(
+                credential.OrganizationId,
+                credential.Id,
+                credential.Email,
+                permissions,
+                signedInActor?.IsSystemAdmin ?? false,
+                selectableBranches.Select(b => new SelectableBranch(b.Id, b.Name)).ToList()));
         });
 
         // --- Renew: authenticated, self-service, known-current-password
@@ -703,12 +716,15 @@ public static class AccountEndpoints
             return Results.Ok();
         });
 
-        group.MapGet("/me", async (HttpContext httpContext, PostgresUserAccountStore userStore, CancellationToken ct) =>
+        group.MapGet("/me", async (
+            HttpContext httpContext, PostgresUserAccountStore userStore, PostgresOrganizationStore organizationStore, CancellationToken ct) =>
         {
-            if (!TenantScopeResolver.TryResolve(httpContext.User, out var scope, out _))
-            {
-                return Results.Unauthorized();
-            }
+            // Routed through TenantScopeEndpointFilter (added below) so a
+            // system administrator's `X-Organization-Id` selector is in
+            // effect here too — organization-persistence spec "Selectable
+            // Branches In The Session" needs `IsActingOnSelectedOrganization`
+            // to decide which branches the caller may select.
+            var scope = TenantScopeEndpointFilter.GetScope(httpContext);
 
             var userIdClaim = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             var displayName = httpContext.User.FindFirst(ClaimTypes.Name)?.Value;
@@ -721,11 +737,28 @@ public static class AccountEndpoints
             // store call so `permissions` is derived fresh, not baked into
             // the cookie (design.md "Session impact": none for existing
             // cookies — no claim change).
-            var actor = await userStore.LoadActorAsync(scope!, userId, ct);
+            var actor = await userStore.LoadActorAsync(scope.IdentityScope, userId, ct);
             var permissions = actor is null ? 0 : (int)actor.EffectivePermissions;
 
-            return Results.Ok(new SignedInResponse(scope!.OrganizationId, userId, displayName ?? string.Empty, permissions, actor?.IsSystemAdmin ?? false));
-        });
+            // organization-persistence "Selectable Branches In The Session":
+            // a sysadmin acting on a selected organization may pick any
+            // branch of it; everyone else (including a sysadmin with no
+            // selection, whose own BranchScope is always empty per B1) is
+            // limited to their own persisted BranchScope.
+            IReadOnlyList<BranchOption> selectableBranches = actor is null
+                ? Array.Empty<BranchOption>()
+                : scope.IsActingOnSelectedOrganization && actor.IsSystemAdmin
+                    ? await organizationStore.ListBranchesAsync(scope, ct)
+                    : await organizationStore.ListBranchesAsync(scope, actor.BranchScope.ToArray(), ct);
+
+            return Results.Ok(new SignedInResponse(
+                scope.OrganizationId,
+                userId,
+                displayName ?? string.Empty,
+                permissions,
+                actor?.IsSystemAdmin ?? false,
+                selectableBranches.Select(b => new SelectableBranch(b.Id, b.Name)).ToList()));
+        }).AddEndpointFilter<TenantScopeEndpointFilter>();
 
         // --- Bootstrap: one-time first-admin creation gated by a log-only
         // token (design.md "Bootstrap token delivery") ------------------------
@@ -827,9 +860,18 @@ public sealed record AdminResetPasswordRequest(string NewPassword);
 /// <summary>
 /// `Permissions` is server-derived (`actor.EffectivePermissions`), never a
 /// caller-supplied value — commerce-customer-identity design.md "Web admin
-/// gating".
+/// gating". `SelectableBranches` is the B7 U1 addition
+/// (organization-persistence spec "Selectable Branches In The Session").
 /// </summary>
-public sealed record SignedInResponse(Guid OrganizationId, Guid UserId, string DisplayName, int Permissions, bool IsSystemAdmin);
+public sealed record SignedInResponse(
+    Guid OrganizationId,
+    Guid UserId,
+    string DisplayName,
+    int Permissions,
+    bool IsSystemAdmin,
+    IReadOnlyList<SelectableBranch> SelectableBranches);
+
+public sealed record SelectableBranch(Guid Id, string Name);
 
 public sealed record BootstrapTokenRequest(Guid OrganizationId);
 

@@ -27,6 +27,26 @@ namespace Commerce.Cloud.Api.Tenancy;
 /// every caller who is not a verified sysadmin, and never adds a new
 /// rejection path to the overwhelming majority of requests, which never
 /// carry the header at all.
+///
+/// Selected-branch resolution (B7 U1, tenant-access-foundation spec
+/// "Selected Branch Scopes Every Branch-Owned Staff Request"): resolved
+/// AFTER the organization above, so a sysadmin's organization selector is
+/// already in effect when a branch is validated against it.
+///
+/// - A device-authenticated request (<see cref="DeviceIdentity"/>) always
+///   takes its branch from the device credential's own branch claim; any
+///   <see cref="BranchSelectorHeader"/> on such a request is IGNORED.
+/// - Otherwise, a missing header leaves <see cref="CloudTenantScope.BranchId"/>
+///   null — no endpoint requires a selection yet (U4+ modules add that).
+/// - A malformed header (not a GUID) is rejected with 400.
+/// - A present, well-formed header is honored only when it names a branch
+///   that exists in the request's scoped organization AND the caller may
+///   act on it: contained in the caller's freshly loaded
+///   <c>BranchScope</c>, or the caller is a verified system administrator
+///   acting on a selected organization
+///   (<see cref="CloudTenantScope.IsActingOnSelectedOrganization"/>).
+///   Unknown, other-organization, and out-of-scope branches all produce the
+///   SAME 403 denial — never revealing whether the named branch exists.
 /// </summary>
 public sealed class TenantScopeEndpointFilter : IEndpointFilter
 {
@@ -40,6 +60,15 @@ public sealed class TenantScopeEndpointFilter : IEndpointFilter
     /// store.
     /// </summary>
     public const string OrganizationSelectorHeader = "X-Organization-Id";
+
+    /// <summary>
+    /// Header a staff caller uses to select the branch a request operates
+    /// on. Ignored entirely for a device-authenticated request (its branch
+    /// always comes from the device credential). Never trusted before the
+    /// named branch is confirmed to exist in the request's scoped
+    /// organization and the caller is confirmed able to act on it.
+    /// </summary>
+    public const string BranchSelectorHeader = "X-Branch-Id";
 
     public async ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
     {
@@ -80,6 +109,60 @@ public sealed class TenantScopeEndpointFilter : IEndpointFilter
                 // Not a verified sysadmin (or revoked): selector ignored,
                 // `scope` stays the caller's own claim-derived scope.
             }
+        }
+
+        if (DeviceIdentity.TryResolve(context.HttpContext.User, out var deviceIdentity))
+        {
+            // Device path: the branch is whatever the paired credential
+            // says, never a header — no lookup needed, the credential store
+            // already bound this installation to this branch at pairing
+            // time.
+            scope = scope with { BranchId = deviceIdentity!.BranchId };
+        }
+        else if (context.HttpContext.Request.Headers.TryGetValue(BranchSelectorHeader, out var branchHeaderValues))
+        {
+            var rawBranchHeader = branchHeaderValues.ToString();
+            if (!Guid.TryParse(rawBranchHeader, out var selectedBranchId) || selectedBranchId == Guid.Empty)
+            {
+                return Results.BadRequest(new { error = "invalid-branch-id" });
+            }
+
+            var callerIdClaim = context.HttpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (callerIdClaim is null || !Guid.TryParse(callerIdClaim, out var callerId))
+            {
+                // `Results.StatusCode` (not `Results.Forbid()`): the staff
+                // cookie scheme has no `OnRedirectToAccessDenied` override,
+                // so `Forbid()` would 302 to the (nonexistent) AccessDenied
+                // page instead of returning a literal 403 — the same
+                // convention `/account/branches`'s handlers already use.
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+
+            var userStore = context.HttpContext.RequestServices.GetRequiredService<PostgresUserAccountStore>();
+            var caller = await userStore.LoadActorAsync(scope.IdentityScope, callerId, context.HttpContext.RequestAborted);
+            if (caller is null || caller.IsRevoked)
+            {
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+
+            var branchStore = context.HttpContext.RequestServices.GetRequiredService<PostgresOrganizationStore>();
+            var matches = await branchStore.ListBranchesAsync(scope, [selectedBranchId], context.HttpContext.RequestAborted);
+
+            var branchExistsInOrganization = matches.Count > 0;
+            var callerMayActOnBranch = scope.IsActingOnSelectedOrganization && caller.IsSystemAdmin
+                ? branchExistsInOrganization
+                : caller.BranchScope.Contains(selectedBranchId);
+
+            // Unknown, other-organization, and out-of-scope branches all
+            // deny identically (tenant-access-foundation spec: "without
+            // revealing whether that branch exists") — never a distinct
+            // status for "exists but not yours" vs. "does not exist".
+            if (!branchExistsInOrganization || !callerMayActOnBranch)
+            {
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+
+            scope = scope with { BranchId = selectedBranchId };
         }
 
         context.HttpContext.Items[ScopeItemKey] = scope;

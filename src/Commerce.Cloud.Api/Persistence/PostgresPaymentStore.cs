@@ -27,9 +27,7 @@ public sealed class PostgresPaymentStore : IPaymentLedgerStore
 
     private static async Task SetTenantScopeAsync(NpgsqlConnection connection, NpgsqlTransaction tx, Guid organizationId, CancellationToken ct)
     {
-        await using var scopeCmd = new NpgsqlCommand("SELECT set_config('app.current_org_id', $1, true)", connection, tx);
-        scopeCmd.Parameters.AddWithValue(organizationId.ToString());
-        await scopeCmd.ExecuteNonQueryAsync(ct);
+        await TenantScopeSql.ApplyAsync(connection, tx, organizationId, branchId: null, ct);
     }
 
     /// <summary>

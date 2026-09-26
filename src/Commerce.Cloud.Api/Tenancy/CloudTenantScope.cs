@@ -17,8 +17,17 @@ namespace Commerce.Cloud.Api.Tenancy;
 /// target) while every business-data query keeps using
 /// <see cref="OrganizationId"/> (the target). It is never set from a
 /// caller-submitted value for anyone else.
+///
+/// <see cref="BranchId"/> is set ONLY by <see cref="TenantScopeEndpointFilter"/>
+/// (B7 U1, tenant-access-foundation spec "Selected Branch Scopes Every
+/// Branch-Owned Staff Request"), AFTER the organization above is resolved,
+/// from the validated <c>X-Branch-Id</c> header (browser/staff callers) or
+/// the device credential's own branch claim (device callers, which ignore
+/// any header). It is <c>null</c> when no branch is selected — no
+/// branch-owned endpoint requires one yet (that starts with each module's
+/// own U4+ migration); handlers never accept a branch id from anywhere else.
 /// </summary>
-public sealed record CloudTenantScope(Guid OrganizationId, Guid? IdentityOrganizationId = null)
+public sealed record CloudTenantScope(Guid OrganizationId, Guid? IdentityOrganizationId = null, Guid? BranchId = null)
 {
     /// <summary>
     /// True when this scope targets an organization other than the caller's
