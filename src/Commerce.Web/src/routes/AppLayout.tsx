@@ -15,7 +15,9 @@ import { cn } from '@/lib/utils'
 import { hasPermission, useAuth } from '@/auth/AuthContext'
 import { Permission } from '@/api/types'
 import { AccountMenu } from '@/components/layout/AccountMenu'
+import { OrganizationSwitcher } from '@/components/layout/OrganizationSwitcher'
 import { useOrganizationBranding } from '@/theme/OrganizationBrandingProvider'
+import { useOptionalOrganizationContext } from '@/organization/OrganizationContext'
 
 /**
  * Enterprise app shell (T3): fixed sidebar nav on desktop, hamburger-toggled
@@ -28,9 +30,27 @@ import { useOrganizationBranding } from '@/theme/OrganizationBrandingProvider'
  */
 export function AppLayout() {
   const { user } = useAuth()
+  const organizationContext = useOptionalOrganizationContext()
   const [mobileOpen, setMobileOpen] = useState(false)
 
   const closeMobileNav = () => setMobileOpen(false)
+
+  // platform-administration spec, "Sysadmin Acts On A Selected
+  // Organization": a system administrator holds zero `Permission` bits on
+  // their own (hidden) organization, so `hasPermission` alone would hide
+  // every tenant module for them even after selecting a target
+  // organization — the server elevates their effective permissions for
+  // that request, and the nav mirrors it here. Without a selection, a
+  // sysadmin sees ONLY Organizations and other platform-level screens.
+  const actingAsSysadminOnSelectedOrganization =
+    Boolean(user?.isSystemAdmin) && organizationContext?.selectedOrganization != null
+  const showTenantNav = hasPermission(user, Permission.ManageUsers) || actingAsSysadminOnSelectedOrganization
+  // A sysadmin with no real org-scoped Permission (the common case) sees
+  // Catalog/Orders only once they have selected an organization; a sysadmin
+  // who was ALSO separately granted real permissions (uncommon, but not
+  // precluded by the model) is treated like any other permission holder.
+  const sysadminWithNoRealPermissions = Boolean(user?.isSystemAdmin) && user?.permissions === 0
+  const showCatalogAndOrdersNav = !sysadminWithNoRealPermissions || actingAsSysadminOnSelectedOrganization
 
   return (
     <div className="flex min-h-screen bg-background text-foreground">
@@ -52,12 +72,16 @@ export function AppLayout() {
           <BrandMark />
         </div>
         <nav aria-label="Primary" className="flex flex-1 flex-col gap-1 overflow-y-auto p-3">
-          <NavItem to="/app/catalog" icon={Package} onNavigate={closeMobileNav}>Catalog</NavItem>
-          <NavItem to="/app/orders" icon={ClipboardList} onNavigate={closeMobileNav}>Orders</NavItem>
+          {showCatalogAndOrdersNav && (
+            <>
+              <NavItem to="/app/catalog" icon={Package} onNavigate={closeMobileNav}>Catalog</NavItem>
+              <NavItem to="/app/orders" icon={ClipboardList} onNavigate={closeMobileNav}>Orders</NavItem>
+            </>
+          )}
           {/* commerce-customer-identity "Web admin gating": hidden, not just
               unreachable — a UX affordance, not the security boundary. The
               server's ManageUsers check on every /customers call is that. */}
-          {hasPermission(user, Permission.ManageUsers) && (
+          {showTenantNav && (
             <>
               <NavItem to="/app/customers" icon={Users2} onNavigate={closeMobileNav}>Customers</NavItem>
               <NavItem to="/app/users" icon={UserCog} onNavigate={closeMobileNav}>Users</NavItem>
@@ -84,7 +108,8 @@ export function AppLayout() {
           >
             <Menu aria-hidden="true" className="size-5 shrink-0" />
           </button>
-          <div className="flex flex-1 items-center justify-end">
+          <div className="flex flex-1 items-center justify-end gap-3">
+            <OrganizationSwitcher />
             <AccountMenu />
           </div>
         </header>

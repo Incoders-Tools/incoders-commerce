@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { AuthContext } from '@/auth/AuthContext'
+import { OrganizationProvider } from '@/organization/OrganizationContext'
 import { OrganizationBrandingContext } from '@/theme/OrganizationBrandingProvider'
 import { ThemeProvider } from '@/theme/ThemeProvider'
 import { Permission, type SignedInResponse } from '@/api/types'
@@ -111,19 +112,57 @@ describe('AppLayout', () => {
   // B1 (odd/tasks/frontend-modernization.md, product review backlog): the
   // sysadmin is the platform owner, never an organization's business-admin
   // — after the seeding fix it holds ZERO permissions (permissions: 0 is
-  // this test's default), so it must see exactly Organizations and NOT the
-  // tenant-scoped screens that gate on ManageUsers.
+  // this test's default). platform-administration spec, "Sysadmin Acts On
+  // A Selected Organization" (the audit-flagged clarification): with no
+  // organization selected, a sysadmin sees ONLY Organizations and other
+  // platform-level screens — Catalog and Orders are tenant modules too, so
+  // they are hidden here just like the ManageUsers-gated screens. (Was:
+  // Catalog/Orders stayed visible unconditionally; that changed once
+  // "no selection = no tenant data" became an explicit spec requirement.)
   it('shows a system admin with no roles Organizations only, not the tenant-scoped screens', () => {
     renderLayout(buildUser({ isSystemAdmin: true }))
 
     const nav = within(screen.getByRole('navigation'))
     expect(nav.getByRole('link', { name: /organizations/i })).toBeInTheDocument()
-    expect(nav.getByRole('link', { name: /catalog/i })).toBeInTheDocument()
-    expect(nav.getByRole('link', { name: /orders/i })).toBeInTheDocument()
+    expect(nav.queryByRole('link', { name: /catalog/i })).not.toBeInTheDocument()
+    expect(nav.queryByRole('link', { name: /orders/i })).not.toBeInTheDocument()
     expect(nav.queryByRole('link', { name: /customers/i })).not.toBeInTheDocument()
     expect(nav.queryByRole('link', { name: /users/i })).not.toBeInTheDocument()
     expect(nav.queryByRole('link', { name: /branches/i })).not.toBeInTheDocument()
     expect(nav.queryByRole('link', { name: /price lists/i })).not.toBeInTheDocument()
+  })
+
+  // Once the sysadmin has selected an organization (OrganizationProvider
+  // state), every tenant module reappears, exactly like a business-admin's
+  // nav.
+  it('shows every tenant module to a system admin who has selected an organization', () => {
+    window.localStorage.setItem(
+      'sysadmin-organization:user-1',
+      JSON.stringify({ id: 'org-target', name: 'Target Org' }),
+    )
+
+    render(
+      <MemoryRouter initialEntries={['/app/catalog']}>
+        <AuthContext.Provider value={{ user: buildUser({ isSystemAdmin: true }), error: null, signIn: async () => {}, signOut: async () => {} }}>
+          <OrganizationBrandingContext.Provider value={{ branding: { logoUrl: null, primaryColor: null }, loading: false }}>
+            <OrganizationProvider>
+              <ThemeProvider>
+                <Routes>
+                  <Route path="/app" element={<AppLayout />}>
+                    <Route path="catalog" element={<div>Catalog content</div>} />
+                  </Route>
+                </Routes>
+              </ThemeProvider>
+            </OrganizationProvider>
+          </OrganizationBrandingContext.Provider>
+        </AuthContext.Provider>
+      </MemoryRouter>,
+    )
+
+    const nav = within(screen.getByRole('navigation'))
+    for (const name of ['Catalog', 'Orders', 'Customers', 'Users', 'Branches', 'Price lists', 'Organizations']) {
+      expect(nav.getByRole('link', { name })).toBeInTheDocument()
+    }
   })
 
   it('renders full-width content (no centered max-width column) alongside the sidebar', () => {

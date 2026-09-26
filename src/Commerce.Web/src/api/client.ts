@@ -1,3 +1,5 @@
+import { getSelectedOrganizationId } from '@/organization/OrganizationContext'
+
 /**
  * Thin same-origin fetch wrapper. `credentials: 'include'` sends the
  * HttpOnly/Secure/SameSite=Lax Identity cookie Cloud.Api sets at sign-in
@@ -14,6 +16,19 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * platform-administration spec, "Sysadmin Acts On A Selected Organization":
+ * attaches `X-Organization-Id` when a system administrator has selected a
+ * target organization (`organization/OrganizationContext.tsx`). The server
+ * honors this ONLY for a verified sysadmin and ignores it for anyone else —
+ * this client never decides that, it only reflects the current UI
+ * selection.
+ */
+function organizationHeaders(): HeadersInit {
+  const organizationId = getSelectedOrganizationId()
+  return organizationId ? { 'X-Organization-Id': organizationId } : {}
+}
+
 export async function apiFetch<TResponse>(
   path: string,
   init?: RequestInit,
@@ -25,6 +40,7 @@ export async function apiFetch<TResponse>(
       credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
+        ...organizationHeaders(),
         ...init?.headers,
       },
     })

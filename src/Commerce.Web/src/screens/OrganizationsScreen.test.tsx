@@ -1,8 +1,27 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { OrganizationsScreen } from './OrganizationsScreen'
+import { OrganizationProvider } from '@/organization/OrganizationContext'
 import type { OrganizationSummary } from '@/api/types'
+
+/**
+ * platform-administration spec, "Sysadmin Acts On A Selected Organization":
+ * `OrganizationsScreen`'s new "Open" row action reads
+ * `useOrganizationContext()` and `useNavigate()`, so every render now needs
+ * an `OrganizationProvider` and a `MemoryRouter` — neither existed on this
+ * screen before this change.
+ */
+function renderScreen() {
+  return render(
+    <MemoryRouter>
+      <OrganizationProvider>
+        <OrganizationsScreen />
+      </OrganizationProvider>
+    </MemoryRouter>,
+  )
+}
 
 const acme: OrganizationSummary = {
   id: '11111111-1111-1111-1111-111111111111',
@@ -37,7 +56,7 @@ describe('OrganizationsScreen', () => {
   it('lists organizations from GET /account/organizations', async () => {
     listOnce([acme])
 
-    render(<OrganizationsScreen />)
+    renderScreen()
 
     await screen.findByText('Acme Co')
     expect(fetchMock.mock.calls[0][0]).toBe('/account/organizations')
@@ -46,7 +65,7 @@ describe('OrganizationsScreen', () => {
   it('uses the full width the shell gives it, with no centered narrow column', async () => {
     listOnce([acme])
 
-    const { container } = render(<OrganizationsScreen />)
+    const { container } = renderScreen()
 
     await screen.findByText('Acme Co')
     expect(container.querySelector('.mx-auto')).toBeNull()
@@ -56,7 +75,7 @@ describe('OrganizationsScreen', () => {
   it('renders the real organization columns for each listed record', async () => {
     listOnce([vacaVerde])
 
-    render(<OrganizationsScreen />)
+    renderScreen()
 
     const row = within(await screen.findByRole('table')).getAllByRole('row')[1]
     expect(within(row).getByText('Vaca Verde')).toBeInTheDocument()
@@ -66,7 +85,7 @@ describe('OrganizationsScreen', () => {
   it('shows an empty state when there are no organizations', async () => {
     listOnce([])
 
-    render(<OrganizationsScreen />)
+    renderScreen()
 
     expect(await screen.findByText('No organizations yet.')).toBeInTheDocument()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
@@ -75,7 +94,7 @@ describe('OrganizationsScreen', () => {
   it('does not claim there are no organizations when the load failed', async () => {
     fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
 
-    render(<OrganizationsScreen />)
+    renderScreen()
 
     await screen.findByRole('alert')
     expect(screen.queryByText('No organizations yet.')).not.toBeInTheDocument()
@@ -86,7 +105,7 @@ describe('OrganizationsScreen', () => {
     listOnce([acme, vacaVerde])
 
     const user = userEvent.setup()
-    render(<OrganizationsScreen />)
+    renderScreen()
 
     await screen.findByText('Acme Co')
     expect(screen.getByText('Vaca Verde')).toBeInTheDocument()
@@ -102,7 +121,7 @@ describe('OrganizationsScreen', () => {
     listOnce([acme, vacaVerde])
 
     const user = userEvent.setup()
-    render(<OrganizationsScreen />)
+    renderScreen()
 
     await screen.findByText('Acme Co')
     expect(screen.getByRole('table')).toBeInTheDocument()
@@ -119,7 +138,7 @@ describe('OrganizationsScreen', () => {
   it('hides the create form behind a "New organization" action', async () => {
     listOnce([])
 
-    render(<OrganizationsScreen />)
+    renderScreen()
 
     await screen.findByText('No organizations yet.')
     expect(screen.queryByLabelText('Organization name')).not.toBeInTheDocument()
@@ -130,7 +149,7 @@ describe('OrganizationsScreen', () => {
     listOnce([])
 
     const user = userEvent.setup()
-    render(<OrganizationsScreen />)
+    renderScreen()
 
     await screen.findByText('No organizations yet.')
     await user.click(screen.getByRole('button', { name: 'New organization' }))
@@ -155,7 +174,7 @@ describe('OrganizationsScreen', () => {
     listOnce([acme]) // refreshed list
 
     const user = userEvent.setup()
-    render(<OrganizationsScreen />)
+    renderScreen()
 
     await screen.findByText('No organizations yet.')
     await user.click(screen.getByRole('button', { name: 'New organization' }))
@@ -190,7 +209,7 @@ describe('OrganizationsScreen', () => {
     listOnce([acme])
 
     const user = userEvent.setup()
-    render(<OrganizationsScreen />)
+    renderScreen()
 
     await screen.findByText('No organizations yet.')
     await user.click(screen.getByRole('button', { name: 'New organization' }))
@@ -213,7 +232,7 @@ describe('OrganizationsScreen', () => {
     listOnce([acme])
 
     const user = userEvent.setup()
-    render(<OrganizationsScreen />)
+    renderScreen()
 
     await screen.findByText('Acme Co')
     await user.click(screen.getByRole('button', { name: 'New organization' }))
@@ -229,7 +248,7 @@ describe('OrganizationsScreen', () => {
     listOnce([acme])
 
     const user = userEvent.setup()
-    render(<OrganizationsScreen />)
+    renderScreen()
 
     await screen.findByText('Acme Co')
     await user.click(screen.getByRole('button', { name: 'New organization' }))
@@ -251,7 +270,7 @@ describe('OrganizationsScreen', () => {
     )
 
     const user = userEvent.setup()
-    render(<OrganizationsScreen />)
+    renderScreen()
 
     // Still loading — the initial GET is deliberately unresolved.
     expect(screen.getByRole('status')).toBeInTheDocument()
@@ -293,7 +312,7 @@ describe('OrganizationsScreen', () => {
     )
 
     const user = userEvent.setup()
-    render(<OrganizationsScreen />)
+    renderScreen()
 
     await screen.findByText('No organizations yet.')
     await user.click(screen.getByRole('button', { name: 'New organization' }))
@@ -312,7 +331,7 @@ describe('OrganizationsScreen', () => {
   it('offers an "Edit branding" action for each listed organization', async () => {
     listOnce([acme, vacaVerde])
 
-    render(<OrganizationsScreen />)
+    renderScreen()
 
     await screen.findByText('Acme Co')
     expect(screen.getAllByRole('button', { name: 'Edit branding' })).toHaveLength(2)
@@ -324,7 +343,7 @@ describe('OrganizationsScreen', () => {
       .mockResolvedValueOnce(new Response(null, { status: 204 })) // branding PUT
 
     const user = userEvent.setup()
-    render(<OrganizationsScreen />)
+    renderScreen()
 
     await screen.findByText('Acme Co')
     await user.click(screen.getByRole('button', { name: 'Edit branding' }))
@@ -347,7 +366,7 @@ describe('OrganizationsScreen', () => {
     )
 
     const user = userEvent.setup()
-    render(<OrganizationsScreen />)
+    renderScreen()
 
     await screen.findByText('Acme Co')
     await user.click(screen.getByRole('button', { name: 'Edit branding' }))

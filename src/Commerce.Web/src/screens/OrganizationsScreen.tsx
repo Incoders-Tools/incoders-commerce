@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router'
 import { listOrganizations } from '@/api/account'
 import { ApiError } from '@/api/client'
 import type { OrganizationSummary } from '@/api/types'
@@ -7,6 +8,7 @@ import { DataToolbar } from '@/components/data/DataToolbar'
 import { DataView, type DataViewColumn } from '@/components/data/DataView'
 import { PageHeader } from '@/components/data/PageHeader'
 import { useViewPreference } from '@/components/data/useViewPreference'
+import { useOrganizationContext } from '@/organization/OrganizationContext'
 import { OrganizationForm } from './OrganizationForm'
 import { OrganizationBrandingForm } from './OrganizationBrandingForm'
 
@@ -30,6 +32,8 @@ function formatCreatedAt(value: string): string {
  * opens (`GET /account/organizations/{id}/branding`).
  */
 export function OrganizationsScreen() {
+  const navigate = useNavigate()
+  const { selectOrganization } = useOrganizationContext()
   const [organizations, setOrganizations] = useState<OrganizationSummary[]>([])
   const [loading, setLoading] = useState(true)
   /** Why the last load failed, if it did. Never set by the create form: a
@@ -74,6 +78,15 @@ export function OrganizationsScreen() {
   const handleCreated = () => {
     setCreating(false)
     void refresh()
+  }
+
+  // platform-administration spec, "Sysadmin Acts On A Selected
+  // Organization": selects this organization and jumps straight to its
+  // Branches screen — the same screen a business-admin of that organization
+  // would use, reused rather than duplicated under Organizations.
+  const handleOpen = (organization: OrganizationSummary) => {
+    selectOrganization({ id: organization.id, name: organization.name })
+    navigate('/app/branches')
   }
 
   const trimmedSearch = search.trim().toLowerCase()
@@ -138,9 +151,14 @@ export function OrganizationsScreen() {
         emptyMessage={organizations.length === 0 ? 'No organizations yet.' : 'No organizations match this search.'}
         loadErrorMessage={loadError === null ? null : 'Organizations could not be loaded.'}
         renderActions={(organization) => (
-          <Button variant="outline" size="sm" onClick={() => setEditingBranding(organization)}>
-            Edit branding
-          </Button>
+          <>
+            <Button variant="outline" size="sm" onClick={() => handleOpen(organization)}>
+              Open
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setEditingBranding(organization)}>
+              Edit branding
+            </Button>
+          </>
         )}
       />
     </section>
