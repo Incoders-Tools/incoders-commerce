@@ -1,1 +1,82 @@
-{}
+{
+  "title": "Customers",
+  "description": "Accounts that can be sold to, and their ordering access.",
+  "newCustomer": "New customer",
+  "errors": {
+    "unexpectedLoad": "Unexpected error loading customers.",
+    "unexpectedIssueAccess": "Unexpected error issuing ordering access.",
+    "unexpectedSave": "Unexpected error saving customer."
+  },
+  "issuedCredential": "Ordering access credential (shown once): {{credential}}",
+  "search": {
+    "label": "Search customers",
+    "placeholder": "Search by name, legal name or tax ID…"
+  },
+  "empty": {
+    "none": "No customers yet.",
+    "noMatch": "No customers match this search.",
+    "loadError": "Customers could not be loaded."
+  },
+  "columns": {
+    "name": "Name",
+    "kind": "Kind",
+    "status": "Status",
+    "taxId": "Tax ID",
+    "noTaxId": "No tax ID",
+    "phone": "Phone",
+    "noPhone": "—"
+  },
+  "kindOptions": {
+    "retail": "Retail",
+    "wholesale": "Wholesale"
+  },
+  "statusOptions": {
+    "enabled": "Enabled",
+    "disabled": "Disabled"
+  },
+  "actions": {
+    "edit": "Edit",
+    "issueAccess": "Issue ordering access"
+  },
+  "form": {
+    "titleNew": "New customer",
+    "titleEdit": "Edit customer",
+    "backLabel": "Back to customers",
+    "sections": {
+      "identity": "Identity",
+      "tax": "Tax",
+      "contact": "Contact",
+      "address": "Address",
+      "commercial": "Commercial"
+    },
+    "fields": {
+      "customerKind": "Customer kind",
+      "displayName": "Display name",
+      "legalName": "Legal name",
+      "taxIdType": "Tax ID type",
+      "taxId": "Tax ID",
+      "taxCondition": "Tax condition",
+      "phone": "Phone",
+      "email": "Email",
+      "addressStreet": "Address street",
+      "addressNumber": "Address number",
+      "neighborhood": "Neighborhood",
+      "locality": "Locality",
+      "province": "Province",
+      "postalCode": "Postal code",
+      "deliveryNotes": "Delivery notes",
+      "discountPercentage": "Discount percentage",
+      "paymentTerms": "Payment terms",
+      "notes": "Notes",
+      "enabled": "Enabled"
+    },
+    "taxIdTypeOptions": {
+      "none": "None",
+      "cuit": "CUIT",
+      "cuil": "CUIL"
+    },
+    "save": "Save",
+    "saving": "Saving…",
+    "cancel": "Cancel"
+  }
+}

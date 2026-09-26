@@ -59,8 +59,8 @@ describe('CustomerForm', () => {
     const user = userEvent.setup()
     render(<CustomerForm onSaved={onSaved} onCancel={vi.fn()} />)
 
-    await user.type(screen.getByLabelText('Display name'), 'Jane Doe')
-    await user.click(screen.getByRole('button', { name: /^save$/i }))
+    await user.type(screen.getByLabelText('Nombre'), 'Jane Doe')
+    await user.click(screen.getByRole('button', { name: /^guardar$/i }))
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
     const [url, init] = fetchMock.mock.calls[0]
@@ -82,9 +82,9 @@ describe('CustomerForm', () => {
     const user = userEvent.setup()
     render(<CustomerForm customer={customer} onSaved={onSaved} onCancel={vi.fn()} />)
 
-    expect(screen.getByLabelText('Customer kind')).toBeDisabled()
+    expect(screen.getByLabelText('Tipo de cliente')).toBeDisabled()
 
-    await user.click(screen.getByRole('button', { name: /^save$/i }))
+    await user.click(screen.getByRole('button', { name: /^guardar$/i }))
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
     const [url, init] = fetchMock.mock.calls[0]
@@ -103,9 +103,9 @@ describe('CustomerForm', () => {
     const user = userEvent.setup()
     render(<CustomerForm onSaved={vi.fn()} onCancel={onCancel} />)
 
-    expect(screen.getByRole('heading', { name: 'New customer' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Nuevo cliente' })).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: /back to customers/i }))
+    await user.click(screen.getByRole('button', { name: /volver a clientes/i }))
     expect(onCancel).toHaveBeenCalledTimes(1)
   })
 
@@ -119,9 +119,9 @@ describe('CustomerForm', () => {
     render(<CustomerForm onSaved={vi.fn()} onCancel={vi.fn()} />)
 
     const selects = [
-      screen.getByLabelText('Customer kind'),
-      screen.getByLabelText('Tax ID type'),
-      screen.getByLabelText('Tax condition'),
+      screen.getByLabelText('Tipo de cliente'),
+      screen.getByLabelText('Tipo de identificación fiscal'),
+      screen.getByLabelText('Condición fiscal'),
     ]
     for (const select of selects) {
       expect(select.className).not.toMatch(/border-neutral-300|bg-white/)

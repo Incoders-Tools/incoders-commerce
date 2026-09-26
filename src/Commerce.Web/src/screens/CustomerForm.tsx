@@ -1,4 +1,5 @@
 import { useState, type FormEvent, type ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
@@ -35,6 +36,7 @@ interface CustomerFormProps {
  * accessible name, which stays the `Label htmlFor` text alone.
  */
 export function CustomerForm({ customer, onSaved, onCancel }: CustomerFormProps) {
+  const { t } = useTranslation('customers')
   const isEdit = customer !== undefined
 
   const [customerKind, setCustomerKind] = useState<CustomerKind>(customer?.customerKind ?? CustomerKind.Retail)
@@ -96,7 +98,7 @@ export function CustomerForm({ customer, onSaved, onCancel }: CustomerFormProps)
 
       onSaved()
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Unexpected error saving customer.')
+      setError(err instanceof ApiError ? err.message : t('errors.unexpectedSave'))
     } finally {
       setSubmitting(false)
     }
@@ -104,49 +106,52 @@ export function CustomerForm({ customer, onSaved, onCancel }: CustomerFormProps)
 
   return (
     <FormPage
-      title={isEdit ? 'Edit customer' : 'New customer'}
+      title={isEdit ? t('form.titleEdit') : t('form.titleNew')}
       onBack={onCancel}
-      backLabel="Back to customers"
+      backLabel={t('form.backLabel')}
     >
       <form className="flex flex-col gap-8" onSubmit={handleSubmit}>
-        <FormSection title="Identity">
+        <FormSection title={t('form.sections.identity')}>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="customerKind">Customer kind</Label>
+            <Label htmlFor="customerKind">{t('form.fields.customerKind')}</Label>
             <Select
               id="customerKind"
               value={customerKind}
               disabled={isEdit}
               onChange={(e) => setCustomerKind(e.target.value as CustomerKind)}
             >
-              <option value={CustomerKind.Retail}>Retail</option>
-              <option value={CustomerKind.Wholesale}>Wholesale</option>
+              <option value={CustomerKind.Retail}>{t('kindOptions.retail')}</option>
+              <option value={CustomerKind.Wholesale}>{t('kindOptions.wholesale')}</option>
             </Select>
           </div>
 
-          <Field id="displayName" label="Display name" value={displayName} onChange={setDisplayName} required />
-          <Field id="legalName" label="Legal name" value={legalName} onChange={setLegalName} />
+          <Field id="displayName" label={t('form.fields.displayName')} value={displayName} onChange={setDisplayName} required />
+          <Field id="legalName" label={t('form.fields.legalName')} value={legalName} onChange={setLegalName} />
         </FormSection>
 
-        <FormSection title="Tax">
+        <FormSection title={t('form.sections.tax')}>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="taxIdType">Tax ID type</Label>
+            <Label htmlFor="taxIdType">{t('form.fields.taxIdType')}</Label>
             <Select id="taxIdType" value={taxIdType} onChange={(e) => setTaxIdType(e.target.value as TaxIdType)}>
-              <option value={TaxIdType.None}>None</option>
-              <option value={TaxIdType.Cuit}>CUIT</option>
-              <option value={TaxIdType.Cuil}>CUIL</option>
+              <option value={TaxIdType.None}>{t('form.taxIdTypeOptions.none')}</option>
+              <option value={TaxIdType.Cuit}>{t('form.taxIdTypeOptions.cuit')}</option>
+              <option value={TaxIdType.Cuil}>{t('form.taxIdTypeOptions.cuil')}</option>
             </Select>
           </div>
           {taxIdType !== TaxIdType.None && (
-            <Field id="taxId" label="Tax ID" value={taxId} onChange={setTaxId} required />
+            <Field id="taxId" label={t('form.fields.taxId')} value={taxId} onChange={setTaxId} required />
           )}
 
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="taxCondition">Tax condition</Label>
+            <Label htmlFor="taxCondition">{t('form.fields.taxCondition')}</Label>
             <Select
               id="taxCondition"
               value={taxCondition}
               onChange={(e) => setTaxCondition(e.target.value as TaxCondition)}
             >
+              {/* Argentine AFIP tax-condition category names — already
+                  Spanish, and are the canonical labels, so they are not
+                  routed through i18n like the rest of this form. */}
               <option value={TaxCondition.ConsumidorFinal}>Consumidor Final</option>
               <option value={TaxCondition.ResponsableInscripto}>Responsable Inscripto</option>
               <option value={TaxCondition.Monotributo}>Monotributo</option>
@@ -156,37 +161,37 @@ export function CustomerForm({ customer, onSaved, onCancel }: CustomerFormProps)
           </div>
         </FormSection>
 
-        <FormSection title="Contact">
-          <Field id="phone" label="Phone" value={phone} onChange={setPhone} />
-          <Field id="email" label="Email" value={email} onChange={setEmail} />
+        <FormSection title={t('form.sections.contact')}>
+          <Field id="phone" label={t('form.fields.phone')} value={phone} onChange={setPhone} />
+          <Field id="email" label={t('form.fields.email')} value={email} onChange={setEmail} />
         </FormSection>
 
-        <FormSection title="Address">
-          <Field id="addressStreet" label="Address street" value={addressStreet} onChange={setAddressStreet} />
-          <Field id="addressNumber" label="Address number" value={addressNumber} onChange={setAddressNumber} />
-          <Field id="neighborhood" label="Neighborhood" value={neighborhood} onChange={setNeighborhood} />
-          <Field id="locality" label="Locality" value={locality} onChange={setLocality} />
-          <Field id="province" label="Province" value={province} onChange={setProvince} />
-          <Field id="postalCode" label="Postal code" value={postalCode} onChange={setPostalCode} />
+        <FormSection title={t('form.sections.address')}>
+          <Field id="addressStreet" label={t('form.fields.addressStreet')} value={addressStreet} onChange={setAddressStreet} />
+          <Field id="addressNumber" label={t('form.fields.addressNumber')} value={addressNumber} onChange={setAddressNumber} />
+          <Field id="neighborhood" label={t('form.fields.neighborhood')} value={neighborhood} onChange={setNeighborhood} />
+          <Field id="locality" label={t('form.fields.locality')} value={locality} onChange={setLocality} />
+          <Field id="province" label={t('form.fields.province')} value={province} onChange={setProvince} />
+          <Field id="postalCode" label={t('form.fields.postalCode')} value={postalCode} onChange={setPostalCode} />
           <Field
             id="deliveryNotes"
-            label="Delivery notes"
+            label={t('form.fields.deliveryNotes')}
             value={deliveryNotes}
             onChange={setDeliveryNotes}
             className="md:col-span-2 xl:col-span-3"
           />
         </FormSection>
 
-        <FormSection title="Commercial">
+        <FormSection title={t('form.sections.commercial')}>
           <Field
             id="discountPercentage"
-            label="Discount percentage"
+            label={t('form.fields.discountPercentage')}
             value={discountPercentage}
             onChange={setDiscountPercentage}
             type="number"
           />
-          <Field id="paymentTerms" label="Payment terms" value={paymentTerms} onChange={setPaymentTerms} />
-          <Field id="notes" label="Notes" value={notes} onChange={setNotes} className="md:col-span-2 xl:col-span-3" />
+          <Field id="paymentTerms" label={t('form.fields.paymentTerms')} value={paymentTerms} onChange={setPaymentTerms} />
+          <Field id="notes" label={t('form.fields.notes')} value={notes} onChange={setNotes} className="md:col-span-2 xl:col-span-3" />
 
           {isEdit && (
             <div className="flex items-center gap-2">
@@ -196,7 +201,7 @@ export function CustomerForm({ customer, onSaved, onCancel }: CustomerFormProps)
                 checked={isEnabled}
                 onChange={(e) => setIsEnabled(e.target.checked)}
               />
-              <Label htmlFor="isEnabled">Enabled</Label>
+              <Label htmlFor="isEnabled">{t('form.fields.enabled')}</Label>
             </div>
           )}
         </FormSection>
@@ -209,10 +214,10 @@ export function CustomerForm({ customer, onSaved, onCancel }: CustomerFormProps)
 
         <div className="flex gap-2">
           <Button type="submit" disabled={submitting}>
-            {submitting ? 'Saving…' : 'Save'}
+            {submitting ? t('form.saving') : t('form.save')}
           </Button>
           <Button type="button" variant="outline" onClick={onCancel} disabled={submitting}>
-            Cancel
+            {t('form.cancel')}
           </Button>
         </div>
       </form>

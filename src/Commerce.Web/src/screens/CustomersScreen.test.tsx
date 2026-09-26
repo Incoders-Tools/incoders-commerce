@@ -77,7 +77,7 @@ describe('CustomersScreen', () => {
 
     render(<CustomersScreen />)
 
-    await screen.findByText('No customers yet.')
+    await screen.findByText('Todavía no hay clientes.')
   })
 
   it('opens the create form, saves, and refreshes the list', async () => {
@@ -91,12 +91,12 @@ describe('CustomersScreen', () => {
     const user = userEvent.setup()
     render(<CustomersScreen />)
 
-    await screen.findByText('No customers yet.')
-    await user.click(screen.getByRole('button', { name: /new customer/i }))
-    await user.type(screen.getByLabelText('Display name'), 'Jane Doe')
-    await user.click(screen.getByRole('button', { name: /^save$/i }))
+    await screen.findByText('Todavía no hay clientes.')
+    await user.click(screen.getByRole('button', { name: /nuevo cliente/i }))
+    await user.type(screen.getByLabelText('Nombre'), 'Jane Doe')
+    await user.click(screen.getByRole('button', { name: /^guardar$/i }))
 
-    await waitFor(() => expect(screen.getByText('Customers')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('Clientes')).toBeInTheDocument())
     await screen.findByText('Jane Doe')
     expect(fetchMock).toHaveBeenCalledTimes(3)
   })
@@ -108,10 +108,10 @@ describe('CustomersScreen', () => {
     render(<CustomersScreen />)
 
     await screen.findByText('Jane Doe')
-    await user.click(screen.getByRole('button', { name: /^edit$/i }))
+    await user.click(screen.getByRole('button', { name: /^editar$/i }))
 
-    expect(screen.getByText('Edit customer')).toBeInTheDocument()
-    expect(screen.getByLabelText('Customer kind')).toBeDisabled()
+    expect(screen.getByText('Editar cliente')).toBeInTheDocument()
+    expect(screen.getByLabelText('Tipo de cliente')).toBeDisabled()
   })
 
   it('still issues ordering access and shows the one-time credential', async () => {
@@ -123,7 +123,7 @@ describe('CustomersScreen', () => {
     render(<CustomersScreen />)
 
     await screen.findByText('Jane Doe')
-    await user.click(screen.getByRole('button', { name: /issue ordering access/i }))
+    await user.click(screen.getByRole('button', { name: /emitir acceso para pedidos/i }))
 
     const credential = await screen.findByTestId('issued-credential')
     expect(credential).toHaveTextContent('one-time-secret')
@@ -138,8 +138,8 @@ describe('CustomersScreen', () => {
     await screen.findByRole('alert')
     // "No customers yet." is a real rendering of this screen (see the empty
     // state case above), so its absence here is a fact about this state.
-    expect(screen.queryByText('No customers yet.')).not.toBeInTheDocument()
-    expect(screen.getByTestId('data-view-load-error')).toHaveTextContent(/customers could not be loaded/i)
+    expect(screen.queryByText('Todavía no hay clientes.')).not.toBeInTheDocument()
+    expect(screen.getByTestId('data-view-load-error')).toHaveTextContent(/no se pudieron cargar los clientes/i)
   })
 
   it('does not blame the load when a failed action left an error on screen', async () => {
@@ -156,12 +156,12 @@ describe('CustomersScreen', () => {
     render(<CustomersScreen />)
 
     await screen.findByText('Jane Doe')
-    await user.click(screen.getByRole('button', { name: /issue ordering access/i }))
+    await user.click(screen.getByRole('button', { name: /emitir acceso para pedidos/i }))
     expect(await screen.findByRole('alert')).toHaveTextContent(/already issued/i)
 
     // The list loaded fine; a search with no matches must say so.
-    await user.type(screen.getByLabelText(/search customers/i), 'zzzz')
-    expect(screen.getByText('No customers match this search.')).toBeInTheDocument()
+    await user.type(screen.getByLabelText(/buscar clientes/i), 'zzzz')
+    expect(screen.getByText('Ningún cliente coincide con esta búsqueda.')).toBeInTheDocument()
     expect(screen.queryByTestId('data-view-load-error')).not.toBeInTheDocument()
   })
 
@@ -184,8 +184,8 @@ describe('CustomersScreen', () => {
 
     const row = within(await screen.findByRole('table')).getAllByRole('row')[1]
     expect(within(row).getByText('Acme Supplies')).toBeInTheDocument()
-    expect(within(row).getByText('Wholesale')).toBeInTheDocument()
-    expect(within(row).getByText('Disabled')).toBeInTheDocument()
+    expect(within(row).getByText('Mayorista')).toBeInTheDocument()
+    expect(within(row).getByText('Deshabilitado')).toBeInTheDocument()
     expect(within(row).getByText('30-12345678-9')).toBeInTheDocument()
   })
 
@@ -200,15 +200,15 @@ describe('CustomersScreen', () => {
     await screen.findByText('Jane Doe')
     expect(screen.getByText('Acme Supplies')).toBeInTheDocument()
 
-    await user.type(screen.getByLabelText(/search customers/i), 'acme')
+    await user.type(screen.getByLabelText(/buscar clientes/i), 'acme')
 
     expect(screen.getByText('Acme Supplies')).toBeInTheDocument()
     expect(screen.queryByText('Jane Doe')).not.toBeInTheDocument()
     // One request only: the filter runs over what was already loaded.
     expect(fetchMock).toHaveBeenCalledTimes(1)
 
-    await user.clear(screen.getByLabelText(/search customers/i))
-    await user.type(screen.getByLabelText(/search customers/i), '30-12345678-9')
+    await user.clear(screen.getByLabelText(/buscar clientes/i))
+    await user.type(screen.getByLabelText(/buscar clientes/i), '30-12345678-9')
 
     expect(screen.getByText('Acme Supplies')).toBeInTheDocument()
     expect(screen.queryByText('Jane Doe')).not.toBeInTheDocument()
@@ -223,9 +223,9 @@ describe('CustomersScreen', () => {
     render(<CustomersScreen />)
 
     await screen.findByText('Jane Doe')
-    await user.type(screen.getByLabelText(/search customers/i), 'zzzz')
+    await user.type(screen.getByLabelText(/buscar clientes/i), 'zzzz')
 
-    expect(screen.getByText(/no customers match/i)).toBeInTheDocument()
+    expect(screen.getByText(/ningún cliente coincide/i)).toBeInTheDocument()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
     expect(screen.queryAllByTestId('data-view-card')).toHaveLength(0)
   })
@@ -268,8 +268,8 @@ describe('CustomersScreen', () => {
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
     expect(screen.getAllByTestId('data-view-card')).toHaveLength(1)
 
-    await user.click(screen.getByRole('button', { name: /^edit$/i }))
+    await user.click(screen.getByRole('button', { name: /^editar$/i }))
 
-    expect(screen.getByText('Edit customer')).toBeInTheDocument()
+    expect(screen.getByText('Editar cliente')).toBeInTheDocument()
   })
 })

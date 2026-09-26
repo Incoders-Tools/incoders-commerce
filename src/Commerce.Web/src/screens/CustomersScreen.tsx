@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { DataToolbar } from '@/components/data/DataToolbar'
 import { DataView, type DataViewColumn } from '@/components/data/DataView'
@@ -7,7 +8,7 @@ import { useViewPreference } from '@/components/data/useViewPreference'
 import { CustomerForm } from './CustomerForm'
 import { issueOrderingAccess, listCustomers } from '@/api/customers'
 import { ApiError } from '@/api/client'
-import type { CustomerRecord } from '@/api/types'
+import { CustomerKind, type CustomerRecord } from '@/api/types'
 
 /**
  * List + create/edit (design.md "Two admin UIs against one endpoint set").
@@ -21,6 +22,7 @@ import type { CustomerRecord } from '@/api/types'
  * `GET /customers` already returned; there is no server-side search endpoint.
  */
 export function CustomersScreen() {
+  const { t } = useTranslation('customers')
   const [customers, setCustomers] = useState<CustomerRecord[]>([])
   const [loading, setLoading] = useState(true)
   /** Why the last load failed, if it did. Never set by an action: an action
@@ -33,21 +35,21 @@ export function CustomersScreen() {
   const [search, setSearch] = useState('')
   const [view, setView] = useViewPreference('customers')
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     setLoading(true)
     setLoadError(null)
     try {
       setCustomers(await listCustomers())
     } catch (err) {
-      setLoadError(err instanceof ApiError ? err.message : 'Unexpected error loading customers.')
+      setLoadError(err instanceof ApiError ? err.message : t('errors.unexpectedLoad'))
     } finally {
       setLoading(false)
     }
-  }
+  }, [t])
 
   useEffect(() => {
     void refresh()
-  }, [])
+  }, [refresh])
 
   const closeForm = () => {
     setCreating(false)
@@ -65,7 +67,7 @@ export function CustomersScreen() {
       const result = await issueOrderingAccess(customerId)
       setIssuedCredential({ customerId, credential: result.credential })
     } catch (err) {
-      setActionError(err instanceof ApiError ? err.message : 'Unexpected error issuing ordering access.')
+      setActionError(err instanceof ApiError ? err.message : t('errors.unexpectedIssueAccess'))
     }
   }
 
@@ -94,24 +96,28 @@ export function CustomersScreen() {
   }
 
   const columns: DataViewColumn<CustomerRecord>[] = [
-    { key: 'displayName', header: 'Name', cell: (customer) => customer.displayName },
-    { key: 'customerKind', header: 'Kind', cell: (customer) => customer.customerKind },
+    { key: 'displayName', header: t('columns.name'), cell: (customer) => customer.displayName },
+    {
+      key: 'customerKind',
+      header: t('columns.kind'),
+      cell: (customer) => t(`kindOptions.${customer.customerKind === CustomerKind.Wholesale ? 'wholesale' : 'retail'}`),
+    },
     {
       key: 'isEnabled',
-      header: 'Status',
-      cell: (customer) => (customer.isEnabled ? 'Enabled' : 'Disabled'),
+      header: t('columns.status'),
+      cell: (customer) => (customer.isEnabled ? t('statusOptions.enabled') : t('statusOptions.disabled')),
     },
     {
       key: 'taxId',
-      header: 'Tax ID',
+      header: t('columns.taxId'),
       cell: (customer) =>
-        customer.taxId ?? <span className="text-muted-foreground">No tax ID</span>,
+        customer.taxId ?? <span className="text-muted-foreground">{t('columns.noTaxId')}</span>,
       hideOnMobile: true,
     },
     {
       key: 'phone',
-      header: 'Phone',
-      cell: (customer) => customer.phone ?? <span className="text-muted-foreground">—</span>,
+      header: t('columns.phone'),
+      cell: (customer) => customer.phone ?? <span className="text-muted-foreground">{t('columns.noPhone')}</span>,
       hideOnMobile: true,
     },
   ]
@@ -119,9 +125,9 @@ export function CustomersScreen() {
   return (
     <section className="flex w-full flex-col gap-6">
       <PageHeader
-        title="Customers"
-        description="Accounts that can be sold to, and their ordering access."
-        actions={<Button onClick={() => setCreating(true)}>New customer</Button>}
+        title={t('title')}
+        description={t('description')}
+        actions={<Button onClick={() => setCreating(true)}>{t('newCustomer')}</Button>}
       />
 
       {loadError && (
@@ -141,15 +147,15 @@ export function CustomersScreen() {
           data-testid="issued-credential"
           className="rounded-md border border-border bg-muted px-4 py-3 text-sm text-foreground"
         >
-          Ordering access credential (shown once): {issuedCredential.credential}
+          {t('issuedCredential', { credential: issuedCredential.credential })}
         </p>
       )}
 
       <DataToolbar
         searchValue={search}
         onSearchChange={setSearch}
-        searchLabel="Search customers"
-        searchPlaceholder="Search by name, legal name or tax ID…"
+        searchLabel={t('search.label')}
+        searchPlaceholder={t('search.placeholder')}
         view={view}
         onViewChange={setView}
       />
@@ -160,15 +166,15 @@ export function CustomersScreen() {
         getRowKey={(customer) => customer.id}
         view={view}
         loading={loading}
-        emptyMessage={customers.length === 0 ? 'No customers yet.' : 'No customers match this search.'}
-        loadErrorMessage={loadError === null ? null : 'Customers could not be loaded.'}
+        emptyMessage={customers.length === 0 ? t('empty.none') : t('empty.noMatch')}
+        loadErrorMessage={loadError === null ? null : t('empty.loadError')}
         renderActions={(customer) => (
           <>
             <Button variant="outline" size="sm" onClick={() => setEditingCustomer(customer)}>
-              Edit
+              {t('actions.edit')}
             </Button>
             <Button variant="outline" size="sm" onClick={() => void handleIssueAccess(customer.id)}>
-              Issue ordering access
+              {t('actions.issueAccess')}
             </Button>
           </>
         )}

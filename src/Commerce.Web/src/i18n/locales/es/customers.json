@@ -1,1 +1,82 @@
-{}
+{
+  "title": "Clientes",
+  "description": "Cuentas a las que se les puede vender, y su acceso para pedir.",
+  "newCustomer": "Nuevo cliente",
+  "errors": {
+    "unexpectedLoad": "Error inesperado al cargar los clientes.",
+    "unexpectedIssueAccess": "Error inesperado al emitir el acceso para pedidos.",
+    "unexpectedSave": "Error inesperado al guardar el cliente."
+  },
+  "issuedCredential": "Credencial de acceso para pedidos (se muestra una sola vez): {{credential}}",
+  "search": {
+    "label": "Buscar clientes",
+    "placeholder": "Buscar por nombre, razón social o CUIT/CUIL…"
+  },
+  "empty": {
+    "none": "Todavía no hay clientes.",
+    "noMatch": "Ningún cliente coincide con esta búsqueda.",
+    "loadError": "No se pudieron cargar los clientes."
+  },
+  "columns": {
+    "name": "Nombre",
+    "kind": "Tipo",
+    "status": "Estado",
+    "taxId": "CUIT/CUIL",
+    "noTaxId": "Sin CUIT/CUIL",
+    "phone": "Teléfono",
+    "noPhone": "—"
+  },
+  "kindOptions": {
+    "retail": "Minorista",
+    "wholesale": "Mayorista"
+  },
+  "statusOptions": {
+    "enabled": "Habilitado",
+    "disabled": "Deshabilitado"
+  },
+  "actions": {
+    "edit": "Editar",
+    "issueAccess": "Emitir acceso para pedidos"
+  },
+  "form": {
+    "titleNew": "Nuevo cliente",
+    "titleEdit": "Editar cliente",
+    "backLabel": "Volver a clientes",
+    "sections": {
+      "identity": "Identidad",
+      "tax": "Impuestos",
+      "contact": "Contacto",
+      "address": "Dirección",
+      "commercial": "Comercial"
+    },
+    "fields": {
+      "customerKind": "Tipo de cliente",
+      "displayName": "Nombre",
+      "legalName": "Razón social",
+      "taxIdType": "Tipo de identificación fiscal",
+      "taxId": "CUIT/CUIL",
+      "taxCondition": "Condición fiscal",
+      "phone": "Teléfono",
+      "email": "Correo electrónico",
+      "addressStreet": "Calle",
+      "addressNumber": "Número",
+      "neighborhood": "Barrio",
+      "locality": "Localidad",
+      "province": "Provincia",
+      "postalCode": "Código postal",
+      "deliveryNotes": "Notas de entrega",
+      "discountPercentage": "Porcentaje de descuento",
+      "paymentTerms": "Condiciones de pago",
+      "notes": "Notas",
+      "enabled": "Habilitado"
+    },
+    "taxIdTypeOptions": {
+      "none": "Ninguno",
+      "cuit": "CUIT",
+      "cuil": "CUIL"
+    },
+    "save": "Guardar",
+    "saving": "Guardando…",
+    "cancel": "Cancelar"
+  }
+}
