@@ -81,14 +81,15 @@ public sealed class PostgresPriceListStoreTests : IDisposable
     }
 
     /// <summary>B7 U4: catalog scopes now need a real branch row.</summary>
-    private static Guid SeedBranch(Guid organizationId)
+    private static Guid SeedBranch(Guid organizationId, string name = "Main")
     {
         var branchId = Guid.NewGuid();
         using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
         owner.Open();
-        using var cmd = new NpgsqlCommand("INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, 'Main')", owner);
+        using var cmd = new NpgsqlCommand("INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, $3)", owner);
         cmd.Parameters.AddWithValue(branchId);
         cmd.Parameters.AddWithValue(organizationId);
+        cmd.Parameters.AddWithValue(name);
         cmd.ExecuteNonQuery();
         return branchId;
     }
@@ -295,7 +296,7 @@ public sealed class PostgresPriceListStoreTests : IDisposable
         var organizationId = Guid.NewGuid();
         SeedOrganization(organizationId);
         var (rutaScope, rutaPresentationId, actorId) = await SeedPresentationAsync(organizationId);
-        var centroBranchId = SeedBranch(organizationId);
+        var centroBranchId = SeedBranch(organizationId, "Centro");
         var centroScope = new CloudTenantScope(organizationId, BranchId: centroBranchId);
 
         var priceStore = new PostgresPriceListStore(_dataSource!);
