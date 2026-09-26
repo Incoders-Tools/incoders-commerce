@@ -921,7 +921,11 @@ implementation gap before implementing.
       2026-09-26: the catalog is per branch, with admin-only copy of the
       whole catalog or of individual products from one branch to another
       (spec `catalog-item-identification`, "Copying Catalog Between
-      Branches"). Whether a copy also carries prices is still open.
+      Branches"). Owner decision 2026-09-26: a copy also carries the
+      source branch's latest uploaded price list (entries of the copied
+      presentations). The price lists screen must be filterable by date to
+      review history (spec `price-list-management`, "Price History
+      Filterable By Date").
 - [x] B9. Spanish UI through i18n (owner, 2026-09-25): clients and
       organizations are Spanish-speaking; ship Spanish now on an i18n layer
       so more languages can be added later. Code/specs/commits stay English.
@@ -1081,6 +1085,7 @@ implementation gap before implementing.
 
 ## Next step
 
-B7 U4 catalog (+ copy; open: does a copy carry prices?), U5..U8, B2
+B7 U4 catalog branch ownership, U5 pricing branch ownership + date
+filter, U5b catalog copy (products + latest price list), U6..U8, B2
 semantics, B3, B4 confirmation, B1b/B6b/T6b cleanups, localized server
 errors.

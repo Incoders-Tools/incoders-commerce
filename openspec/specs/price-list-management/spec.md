@@ -94,3 +94,26 @@ MUST use only the selected branch's lists.
 - GIVEN "Ruta 51" and "Centro" each have their own default price list
 - WHEN "Ruta 51" adds a new entry for one of its presentations
 - THEN Ruta 51's resolved price changes and Centro's does not
+
+### Requirement: Price History Filterable By Date
+
+The price lists screen MUST let an authorized user review historical
+prices of the selected branch by date: choosing a date (or a date range)
+MUST show the price each presentation had in effect on that date, using
+the same effective-date resolution as "Resolution By Effective Date".
+Without a date filter it MUST show the prices in effect now. Filtering
+MUST be read-only and MUST NOT alter history.
+
+#### Scenario: Reviewing Ruta 51 prices as of a past date
+
+- GIVEN a presentation in "Ruta 51" cost 1000 from March 1 and 1200 from
+  June 1
+- WHEN an admin filters the price list by May 15
+- THEN the presentation shows 1000, and filtering by today shows 1200
+
+#### Scenario: A range shows every change inside it
+
+- GIVEN the same presentation
+- WHEN an admin filters from May 1 to June 30
+- THEN both the March 1 entry in effect at the range start and the
+  June 1 change are listed in effective-date order

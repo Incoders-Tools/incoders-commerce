@@ -89,12 +89,21 @@ be refused, and copying across organizations MUST be refused. Each copy
 MUST be audited with the actor, source branch, target branch, and the
 number of items copied and skipped.
 
+A copy MUST also carry prices: the source branch's most recently uploaded
+price list (the latest one created or imported) is copied into the
+target branch as a new price list containing the entries of the copied
+presentations only, keeping their effective dates. The target branch's
+existing price lists and history MUST NOT be modified; if the target
+branch has no default price list, the copied list becomes its default.
+
 #### Scenario: Seeding a new branch from Ruta 51
 
 - GIVEN "Ruta 51" of "Vaca Verde" has 120 products and "Centro" is empty
 - WHEN an administrator copies the whole catalog from "Ruta 51" to "Centro"
 - THEN "Centro" holds 120 new products owned by "Centro", and renaming one
   in "Centro" leaves Ruta 51's product unchanged
+- AND "Centro" holds a copy of Ruta 51's latest price list for those
+  products, so their prices resolve in "Centro" right away
 
 #### Scenario: Copying one product that partly exists
 
