@@ -275,8 +275,8 @@ public static class CustomerEndpoints
             return null;
         }
 
-        var caller = await userStore.LoadActorAsync(scope, callerId, ct);
-        if (caller is null || caller.IsRevoked || !caller.EffectivePermissions.HasFlag(Permission.ManageUsers))
+        var caller = await userStore.LoadActorAsync(scope.IdentityScope, callerId, ct);
+        if (caller is null || caller.IsRevoked || !ActingPermissions.For(caller, scope).HasFlag(Permission.ManageUsers))
         {
             return null;
         }

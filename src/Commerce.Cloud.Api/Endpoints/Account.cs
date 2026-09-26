@@ -409,10 +409,17 @@ public static class AccountEndpoints
             var scope = TenantScopeEndpointFilter.GetScope(httpContext);
             var claim = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             if (claim is null || !Guid.TryParse(claim, out var callerId)) return Results.StatusCode(StatusCodes.Status403Forbidden);
-            var caller = await userStore.LoadActorAsync(scope, callerId, ct);
-            if (caller is null || caller.IsRevoked || !caller.EffectivePermissions.HasFlag(Permission.ManageBranchSettings)) return Results.StatusCode(StatusCodes.Status403Forbidden);
+            var caller = await userStore.LoadActorAsync(scope.IdentityScope, callerId, ct);
+            if (caller is null || caller.IsRevoked || !ActingPermissions.For(caller, scope).HasFlag(Permission.ManageBranchSettings)) return Results.StatusCode(StatusCodes.Status403Forbidden);
             var branchId = Guid.NewGuid();
-            await organizationStore.CreateBranchAsync(scope, new NewBranch(branchId, request.BranchName), ct);
+            // A sysadmin acting on a selected organization audits the write
+            // with themselves as actor (platform-administration spec
+            // "Sysadmin Acts On A Selected Organization"); a same-org caller
+            // keeps today's behavior (no audit row for branch creation).
+            var audit = scope.IsActingOnSelectedOrganization
+                ? new UserManagementAuditEntry("org-user", callerId, scope.OrganizationId, "branch", branchId, "branch.created", null, JsonSerializer.Serialize(new { name = request.BranchName }))
+                : null;
+            await organizationStore.CreateBranchAsync(scope, new NewBranch(branchId, request.BranchName), audit, ct);
             return Results.Created($"/account/branches/{branchId}", new CreateBranchResponse(branchId));
         });
 
@@ -421,8 +428,8 @@ public static class AccountEndpoints
             var scope = TenantScopeEndpointFilter.GetScope(httpContext);
             var claim = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             if (claim is null || !Guid.TryParse(claim, out var callerId)) return Results.StatusCode(StatusCodes.Status403Forbidden);
-            var caller = await userStore.LoadActorAsync(scope, callerId, ct);
-            if (caller is null || caller.IsRevoked || !caller.EffectivePermissions.HasFlag(Permission.ManageBranchSettings)) return Results.StatusCode(StatusCodes.Status403Forbidden);
+            var caller = await userStore.LoadActorAsync(scope.IdentityScope, callerId, ct);
+            if (caller is null || caller.IsRevoked || !ActingPermissions.For(caller, scope).HasFlag(Permission.ManageBranchSettings)) return Results.StatusCode(StatusCodes.Status403Forbidden);
             var branches = await organizationStore.ListBranchesAsync(scope, ct);
             return Results.Ok(branches.Select(branch => new BranchSummaryDto(branch.Id, branch.Name)));
         });
@@ -448,8 +455,8 @@ public static class AccountEndpoints
                 return Results.Forbid();
             }
 
-            var caller = await userStore.LoadActorAsync(scope, callerId, ct);
-            if (caller is null || caller.IsRevoked || !caller.EffectivePermissions.HasFlag(Permission.ManageUsers))
+            var caller = await userStore.LoadActorAsync(scope.IdentityScope, callerId, ct);
+            if (caller is null || caller.IsRevoked || !ActingPermissions.For(caller, scope).HasFlag(Permission.ManageUsers))
             {
                 return Results.StatusCode(StatusCodes.Status403Forbidden);
             }
@@ -482,13 +489,13 @@ public static class AccountEndpoints
                 return Results.Forbid();
             }
 
-            var caller = await userStore.LoadActorAsync(scope, callerId, ct);
+            var caller = await userStore.LoadActorAsync(scope.IdentityScope, callerId, ct);
             if (caller is null || caller.IsRevoked)
             {
                 return Results.Forbid();
             }
 
-            if (!caller.EffectivePermissions.HasFlag(Permission.ManageUsers))
+            if (!ActingPermissions.For(caller, scope).HasFlag(Permission.ManageUsers))
             {
                 return Results.Forbid();
             }
@@ -543,13 +550,13 @@ public static class AccountEndpoints
                 return Results.Forbid();
             }
 
-            var caller = await userStore.LoadActorAsync(scope, callerId, ct);
+            var caller = await userStore.LoadActorAsync(scope.IdentityScope, callerId, ct);
             if (caller is null || caller.IsRevoked)
             {
                 return Results.Forbid();
             }
 
-            if (!caller.EffectivePermissions.HasFlag(Permission.ManageUsers))
+            if (!ActingPermissions.For(caller, scope).HasFlag(Permission.ManageUsers))
             {
                 return Results.Forbid();
             }
@@ -572,7 +579,7 @@ public static class AccountEndpoints
             // location"): unknown role -> 400, reserved role or a grant that
             // exceeds the caller's own permissions -> 403, regardless of
             // what the caller otherwise holds.
-            if (!RoleGrantPolicy.TryAuthorize(caller, request.RoleNames ?? [], out var roles, out var denial))
+            if (!RoleGrantPolicy.TryAuthorize(ActingPermissions.EffectiveCaller(caller, scope), request.RoleNames ?? [], out var roles, out var denial))
             {
                 return denial == GrantDenial.UnknownRole
                     ? Results.ValidationProblem(new Dictionary<string, string[]>
@@ -642,13 +649,13 @@ public static class AccountEndpoints
                 return Results.Forbid();
             }
 
-            var caller = await userStore.LoadActorAsync(scope, callerId, ct);
+            var caller = await userStore.LoadActorAsync(scope.IdentityScope, callerId, ct);
             if (caller is null || caller.IsRevoked)
             {
                 return Results.Forbid();
             }
 
-            if (!caller.EffectivePermissions.HasFlag(Permission.ManageUsers))
+            if (!ActingPermissions.For(caller, scope).HasFlag(Permission.ManageUsers))
             {
                 return Results.Forbid();
             }
@@ -674,7 +681,7 @@ public static class AccountEndpoints
                 });
             }
 
-            if (!RoleGrantPolicy.TryAuthorize(caller, request.RoleNames ?? [], out var roles, out var denial))
+            if (!RoleGrantPolicy.TryAuthorize(ActingPermissions.EffectiveCaller(caller, scope), request.RoleNames ?? [], out var roles, out var denial))
             {
                 return denial == GrantDenial.UnknownRole
                     ? Results.ValidationProblem(new Dictionary<string, string[]>

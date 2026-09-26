@@ -168,7 +168,20 @@ public sealed class PostgresOrganizationStore
         await tx.CommitAsync(ct);
         return results;
     }
-    public async Task CreateBranchAsync(CloudTenantScope scope, NewBranch branch, CancellationToken ct)
+    public Task CreateBranchAsync(CloudTenantScope scope, NewBranch branch, CancellationToken ct) =>
+        CreateBranchAsync(scope, branch, audit: null, ct);
+
+    /// <summary>
+    /// <paramref name="audit"/> is written in the SAME transaction as the
+    /// branch insert (platform-administration spec "Sysadmin Acts On A
+    /// Selected Organization": "every write ... is audited"). Every
+    /// existing caller keeps passing <c>null</c> (no behavior change for a
+    /// same-org caller); only the sysadmin-acting-on-a-selected-organization
+    /// path (`POST /account/branches` under
+    /// <see cref="Tenancy.CloudTenantScope.IsActingOnSelectedOrganization"/>)
+    /// supplies one.
+    /// </summary>
+    public async Task CreateBranchAsync(CloudTenantScope scope, NewBranch branch, Auditing.UserManagementAuditEntry? audit, CancellationToken ct)
     {
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
@@ -181,6 +194,10 @@ public sealed class PostgresOrganizationStore
         {
             cmd.Parameters.AddWithValue(branch.Id); cmd.Parameters.AddWithValue(scope.OrganizationId); cmd.Parameters.AddWithValue(branch.Name);
             await cmd.ExecuteNonQueryAsync(ct);
+        }
+        if (audit is not null)
+        {
+            await Auditing.AuditLogWriter.InsertAsync(connection, tx, audit, ct);
         }
         await tx.CommitAsync(ct);
     }
@@ -213,6 +230,34 @@ public sealed class PostgresOrganizationStore
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         while (await reader.ReadAsync(ct)) organizations.Add(new OrganizationSummary(reader.GetGuid(0), reader.GetString(1), reader.GetFieldValue<DateTimeOffset>(2)));
         return organizations;
+    }
+
+    /// <summary>
+    /// Existence check for a caller-submitted organization id (platform-
+    /// administration spec "Sysadmin Acts On A Selected Organization"):
+    /// used ONLY by <see cref="Tenancy.TenantScopeEndpointFilter"/> to decide
+    /// whether a system administrator's selected-organization header names a
+    /// real organization before honoring it. Same `set_config` +
+    /// scoped-read pattern as <see cref="GetBrandingAsync"/> — RLS still
+    /// applies, this never bypasses it.
+    /// </summary>
+    public async Task<bool> OrganizationExistsAsync(Guid organizationId, CancellationToken ct)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+
+        await using (var scopeCmd = new NpgsqlCommand("SELECT set_config('app.current_org_id', $1, true)", connection, tx))
+        {
+            scopeCmd.Parameters.AddWithValue(organizationId.ToString());
+            await scopeCmd.ExecuteNonQueryAsync(ct);
+        }
+
+        await using var cmd = new NpgsqlCommand("SELECT EXISTS (SELECT 1 FROM organizations WHERE id = $1)", connection, tx);
+        cmd.Parameters.AddWithValue(organizationId);
+        var exists = (bool)(await cmd.ExecuteScalarAsync(ct))!;
+
+        await tx.CommitAsync(ct);
+        return exists;
     }
 
     /// <summary>

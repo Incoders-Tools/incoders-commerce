@@ -266,8 +266,8 @@ public static class CatalogEndpoints
             return null;
         }
 
-        var caller = await userStore.LoadActorAsync(scope, callerId, ct);
-        if (caller is null || caller.IsRevoked || !caller.EffectivePermissions.HasFlag(Permission.ManageCatalog))
+        var caller = await userStore.LoadActorAsync(scope.IdentityScope, callerId, ct);
+        if (caller is null || caller.IsRevoked || !ActingPermissions.For(caller, scope).HasFlag(Permission.ManageCatalog))
         {
             return null;
         }
