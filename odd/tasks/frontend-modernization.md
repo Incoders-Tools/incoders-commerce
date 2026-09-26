@@ -913,7 +913,7 @@ implementation gap before implementing.
       review price lists and place orders.
 - [ ] B5. Modularization: organization management is sysadmin-only, and
       each role should see only its own modules.
-- [ ] B6. Branches cannot be created from the UI.
+- [x] B6. Branches cannot be created from the UI.
 - [ ] B7. More attractive menu; for business admins, a top navbar with a
       branch switcher.
 - [ ] B8. Owner's concern: the project is behind — determine whether the
@@ -979,8 +979,35 @@ implementation gap before implementing.
   WARNING `R3-seed-promote-not-atomic` (TestSeedEndpoints.cs:88-90),
   SUGGESTION `R3-no-conflict-path-coverage`.
 
+- 2026-09-25: B6 done (delegated direct). `a2668e2` spec requirement
+  "Sysadmin Acts On A Selected Organization" (platform-administration);
+  `1731de0` `X-Organization-Id` honored only when the caller's freshly
+  loaded row is a non-revoked sysadmin and the org exists (unknown -> 404),
+  ignored for anyone else; `ActingPermissions` grants the full staff set for
+  that request only; cross-org branch creation audited; `fefe9c2`
+  `OrganizationContext` + switcher + "Open" row action + nav gating.
+  Checks: integration 708/708 (clean worktree, re-run on final HEAD), web
+  243/243, lint exit 0 / 20 (+3 `only-export-components`), build clean, e2e
+  typecheck clean. RDD over `c9bcf42..fefe9c2`: medium (1102 lines),
+  granted, lineage `review-03117369f466d82d`. The reviewer raised CRITICAL
+  `R3-stale-header-mirror` (the header mirror was synced in a parent effect,
+  so a screen's first fetch after "Open" or a reload went out without the
+  header and got 403). One bounded correction by the parent, `a3035ef`:
+  mirror updated synchronously with every selection change; TDD RED 2/3
+  then GREEN. Targeted validation APPROVED, acknowledged; boundary ->
+  `a3035ef`. Parent follow-up `20d7a10`: `/app` lands a sysadmin with no
+  selection on Organizations instead of the hidden Catalog (review WARNING
+  `R3-sysadmin-landing-hidden-route`); TDD RED 1/3 then GREEN; web 249/249;
+  RDD assess `under_budget` (43 lines), pending in the slice.
+  Open decisions/follow-ups (B6b): audit only covers cross-org branch
+  creation, not other sysadmin writes; WARNING
+  `R3-platform-endpoints-under-selection` (TenantScopeEndpointFilter.cs:78),
+  WARNING `R3-switch-stale-data` (OrganizationSwitcher.tsx:47-57),
+  SUGGESTIONs `R3-malformed-selector-silent`, `R3-weak-unknown-org-assertion`.
+  The user's running Cloud.Api is an older build; B6 needs an API restart.
+
 ## Next step
 
-B1 in progress (writer). Then B6+B7 together: spec for the sysadmin
-organization context and the business-admin branch context, then the top
-navbar with both switchers. Then B2 semantics, B3, B4 confirmation.
+B7 (business-admin branch switcher in the top navbar; needs a spec for a
+selected branch — the audit found no staff endpoint filters by branch
+today). Then B2 semantics, B3, B4 confirmation, B1b/B6b/T6b cleanups.
