@@ -63,7 +63,7 @@ describe('PriceHistory', () => {
     const user = userEvent.setup()
     render(<PriceHistory priceListId={priceListId} presentationId={presentationId} />)
 
-    await user.click(screen.getByRole('button', { name: /history/i }))
+    await user.click(screen.getByRole('button', { name: /historial/i }))
 
     const items = await screen.findAllByRole('listitem')
     expect(items[0]).toHaveTextContent('2024-06-01')
@@ -80,9 +80,9 @@ describe('PriceHistory', () => {
     const user = userEvent.setup()
     render(<PriceHistory priceListId={priceListId} presentationId={presentationId} />)
 
-    await user.click(screen.getByRole('button', { name: /history/i }))
+    await user.click(screen.getByRole('button', { name: /historial/i }))
 
-    await screen.findByText('No published prices yet.')
+    await screen.findByText('Todavía no hay precios publicados.')
   })
 
   it('collapses again without a second fetch', async () => {
@@ -91,13 +91,13 @@ describe('PriceHistory', () => {
     const user = userEvent.setup()
     render(<PriceHistory priceListId={priceListId} presentationId={presentationId} />)
 
-    await user.click(screen.getByRole('button', { name: /history/i }))
+    await user.click(screen.getByRole('button', { name: /historial/i }))
     await screen.findAllByRole('listitem')
-    await user.click(screen.getByRole('button', { name: /hide history/i }))
+    await user.click(screen.getByRole('button', { name: /ocultar historial/i }))
 
     expect(screen.queryByText(/2024-06-01/)).not.toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: /history/i }))
+    await user.click(screen.getByRole('button', { name: /historial/i }))
     expect(await screen.findAllByRole('listitem')).toHaveLength(2)
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })

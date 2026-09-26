@@ -1,1 +1,102 @@
-{}
+{
+  "title": "Price lists",
+  "description": "Published prices per presentation, and the supplier import that feeds them.",
+  "createDefault": "Create default price list",
+  "errors": {
+    "unexpectedLoad": "Unexpected error loading price lists.",
+    "unexpectedCreateDefault": "Unexpected error creating the default price list.",
+    "unexpectedPublish": "Unexpected error publishing the price.",
+    "unexpectedLoadSupplierMappings": "Unexpected error loading supplier mappings.",
+    "unexpectedUpload": "Unexpected error uploading the file.",
+    "unexpectedCommit": "Unexpected error committing the batch.",
+    "unexpectedReject": "Unexpected error rejecting the batch.",
+    "unexpectedSaveMapping": "Unexpected error saving the supplier mapping."
+  },
+  "sectionsNav": {
+    "label": "Price list sections",
+    "prices": "Prices",
+    "suppliers": "Suppliers",
+    "import": "Import"
+  },
+  "search": {
+    "label": "Search price lists",
+    "placeholder": "Search by name…"
+  },
+  "empty": {
+    "none": "No price lists yet.",
+    "noMatch": "No price lists match this search.",
+    "loadError": "The price lists could not be loaded."
+  },
+  "columns": {
+    "name": "Name",
+    "isDefault": "Is default",
+    "yes": "Yes",
+    "no": "No",
+    "created": "Created"
+  },
+  "actions": {
+    "managePrices": "Manage prices"
+  },
+  "suppliersPlaceholder": "Supplier mappings (column mapping for Excel imports) land here in a future release — the `supplier_price_mappings` table does not exist yet.",
+  "detail": {
+    "title": "Prices in {{name}}",
+    "description": "Each presentation's published entries, newest effective date first.",
+    "backLabel": "Back to price lists",
+    "noPresentations": "No presentations yet.",
+    "noCode": "No code",
+    "newPrice": "New price"
+  },
+  "newPriceForm": {
+    "unitPriceLabel": "Unit price",
+    "effectiveFromLabel": "Effective from",
+    "publishing": "Publishing…",
+    "publish": "Publish",
+    "cancel": "Cancel"
+  },
+  "history": {
+    "hide": "Hide history",
+    "show": "History",
+    "loading": "Loading history…",
+    "unexpectedLoad": "Unexpected error loading price history.",
+    "empty": "No published prices yet."
+  },
+  "import": {
+    "loading": "Loading…",
+    "supplierLabel": "Supplier",
+    "fileLabel": "File",
+    "uploading": "Uploading…",
+    "upload": "Upload",
+    "batchStatus": "Batch {{status}}.",
+    "createMapping": {
+      "explanation": "No supplier mapping exists yet — configure one before importing.",
+      "supplierNameLabel": "Supplier name",
+      "sheetNameLabel": "Sheet name",
+      "headerRowLabel": "Header row",
+      "codeColumnLabel": "Code column",
+      "priceColumnLabel": "Price column",
+      "saving": "Saving…",
+      "save": "Save mapping"
+    },
+    "reviewTable": {
+      "empty": "No rows to review yet.",
+      "columns": {
+        "row": "#",
+        "code": "Code",
+        "item": "Item",
+        "current": "Current",
+        "proposed": "Proposed",
+        "status": "Status"
+      },
+      "statusOptions": {
+        "matched": "Matched",
+        "noChange": "No change",
+        "unknownCode": "Unknown code",
+        "invalidPrice": "Invalid price",
+        "duplicateInFile": "Duplicate in file"
+      },
+      "committing": "Committing…",
+      "commit": "Commit",
+      "reject": "Reject"
+    }
+  }
+}

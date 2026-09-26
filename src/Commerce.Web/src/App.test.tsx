@@ -73,13 +73,13 @@ describe('App route table', () => {
   it('mounts the price lists screen at /app/price-lists for an admin', async () => {
     renderAppAt('/app/price-lists', buildUser({ permissions: Permission.ManageUsers }))
 
-    expect(await screen.findByRole('heading', { name: 'Price lists' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Listas de precios' })).toBeInTheDocument()
   })
 
   it('links the price lists screen from the admin sidebar', async () => {
     renderAppAt('/app/price-lists', buildUser({ permissions: Permission.ManageUsers }))
 
-    await screen.findByRole('heading', { name: 'Price lists' })
+    await screen.findByRole('heading', { name: 'Listas de precios' })
     const nav = within(screen.getByRole('navigation', { name: 'Principal' }))
     const links = nav.getAllByRole('link', { name: /listas de precios/i })
     expect(links).toHaveLength(1)
@@ -92,7 +92,7 @@ describe('App route table', () => {
     expect(await screen.findByRole('heading', { name: 'Catálogo' })).toBeInTheDocument()
     // "Price lists" is a real heading of a real screen in this same app (see
     // the admin case above), so its absence here is a fact about the guard.
-    expect(screen.queryByRole('heading', { name: 'Price lists' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Listas de precios' })).not.toBeInTheDocument()
     const nav = within(screen.getByRole('navigation', { name: 'Principal' }))
     expect(nav.queryAllByRole('link', { name: /listas de precios/i })).toHaveLength(0)
   })

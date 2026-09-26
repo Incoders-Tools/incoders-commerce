@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { listHistory } from '@/api/pricing'
 import { ApiError } from '@/api/client'
@@ -17,6 +18,7 @@ interface PriceHistoryProps {
  * request per row on screen load.
  */
 export function PriceHistory({ priceListId, presentationId }: PriceHistoryProps) {
+  const { t } = useTranslation('priceLists')
   const [expanded, setExpanded] = useState(false)
   const [entries, setEntries] = useState<PriceListEntryRecord[] | null>(null)
   const [loading, setLoading] = useState(false)
@@ -33,7 +35,7 @@ export function PriceHistory({ priceListId, presentationId }: PriceHistoryProps)
         // server never changing that.
         setEntries([...fetched].sort((a, b) => (a.effectiveFrom < b.effectiveFrom ? 1 : -1)))
       } catch (err) {
-        setError(err instanceof ApiError ? err.message : 'Unexpected error loading price history.')
+        setError(err instanceof ApiError ? err.message : t('history.unexpectedLoad'))
       } finally {
         setLoading(false)
       }
@@ -44,17 +46,17 @@ export function PriceHistory({ priceListId, presentationId }: PriceHistoryProps)
   return (
     <div>
       <Button type="button" variant="outline" size="sm" onClick={() => void toggle()}>
-        {expanded ? 'Hide history' : 'History'}
+        {expanded ? t('history.hide') : t('history.show')}
       </Button>
       {expanded && (
         <div className="mt-2 text-sm">
-          {loading && <p>Loading history…</p>}
+          {loading && <p>{t('history.loading')}</p>}
           {error && (
             <p role="alert" className="text-destructive">
               {error}
             </p>
           )}
-          {entries && entries.length === 0 && <p>No published prices yet.</p>}
+          {entries && entries.length === 0 && <p>{t('history.empty')}</p>}
           {entries && entries.length > 0 && (
             <ul className="flex flex-col gap-1">
               {entries.map((entry) => (

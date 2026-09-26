@@ -1,1 +1,102 @@
-{}
+{
+  "title": "Listas de precios",
+  "description": "Precios publicados por presentación, y la importación de proveedores que los alimenta.",
+  "createDefault": "Crear lista de precios predeterminada",
+  "errors": {
+    "unexpectedLoad": "Error inesperado al cargar las listas de precios.",
+    "unexpectedCreateDefault": "Error inesperado al crear la lista de precios predeterminada.",
+    "unexpectedPublish": "Error inesperado al publicar el precio.",
+    "unexpectedLoadSupplierMappings": "Error inesperado al cargar los mapeos de proveedores.",
+    "unexpectedUpload": "Error inesperado al subir el archivo.",
+    "unexpectedCommit": "Error inesperado al confirmar el lote.",
+    "unexpectedReject": "Error inesperado al rechazar el lote.",
+    "unexpectedSaveMapping": "Error inesperado al guardar el mapeo de proveedor."
+  },
+  "sectionsNav": {
+    "label": "Secciones de listas de precios",
+    "prices": "Precios",
+    "suppliers": "Proveedores",
+    "import": "Importar"
+  },
+  "search": {
+    "label": "Buscar listas de precios",
+    "placeholder": "Buscar por nombre…"
+  },
+  "empty": {
+    "none": "Todavía no hay listas de precios.",
+    "noMatch": "Ninguna lista de precios coincide con esta búsqueda.",
+    "loadError": "No se pudieron cargar las listas de precios."
+  },
+  "columns": {
+    "name": "Nombre",
+    "isDefault": "Es predeterminada",
+    "yes": "Sí",
+    "no": "No",
+    "created": "Creada"
+  },
+  "actions": {
+    "managePrices": "Gestionar precios"
+  },
+  "suppliersPlaceholder": "Los mapeos de proveedores (mapeo de columnas para importaciones de Excel) llegarán en una futura versión; la tabla `supplier_price_mappings` todavía no existe.",
+  "detail": {
+    "title": "Precios en {{name}}",
+    "description": "Las entradas publicadas de cada presentación, con la fecha de vigencia más reciente primero.",
+    "backLabel": "Volver a listas de precios",
+    "noPresentations": "Todavía no hay presentaciones.",
+    "noCode": "Sin código",
+    "newPrice": "Nuevo precio"
+  },
+  "newPriceForm": {
+    "unitPriceLabel": "Precio unitario",
+    "effectiveFromLabel": "Vigente desde",
+    "publishing": "Publicando…",
+    "publish": "Publicar",
+    "cancel": "Cancelar"
+  },
+  "history": {
+    "hide": "Ocultar historial",
+    "show": "Historial",
+    "loading": "Cargando historial…",
+    "unexpectedLoad": "Error inesperado al cargar el historial de precios.",
+    "empty": "Todavía no hay precios publicados."
+  },
+  "import": {
+    "loading": "Cargando…",
+    "supplierLabel": "Proveedor",
+    "fileLabel": "Archivo",
+    "uploading": "Subiendo…",
+    "upload": "Subir",
+    "batchStatus": "Lote {{status}}.",
+    "createMapping": {
+      "explanation": "Todavía no existe un mapeo de proveedor; configure uno antes de importar.",
+      "supplierNameLabel": "Nombre del proveedor",
+      "sheetNameLabel": "Nombre de la hoja",
+      "headerRowLabel": "Fila de encabezado",
+      "codeColumnLabel": "Columna de código",
+      "priceColumnLabel": "Columna de precio",
+      "saving": "Guardando…",
+      "save": "Guardar mapeo"
+    },
+    "reviewTable": {
+      "empty": "Todavía no hay filas para revisar.",
+      "columns": {
+        "row": "N.°",
+        "code": "Código",
+        "item": "Artículo",
+        "current": "Actual",
+        "proposed": "Propuesto",
+        "status": "Estado"
+      },
+      "statusOptions": {
+        "matched": "Coincide",
+        "noChange": "Sin cambios",
+        "unknownCode": "Código desconocido",
+        "invalidPrice": "Precio inválido",
+        "duplicateInFile": "Duplicado en el archivo"
+      },
+      "committing": "Confirmando…",
+      "commit": "Confirmar",
+      "reject": "Rechazar"
+    }
+  }
+}

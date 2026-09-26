@@ -65,7 +65,7 @@ describe('PriceListsScreen routing', () => {
     })
 
     expect(screen.getByText('Catalog content')).toBeInTheDocument()
-    expect(screen.queryByText('Prices')).not.toBeInTheDocument()
+    expect(screen.queryByText('Precios')).not.toBeInTheDocument()
   })
 })
 
@@ -110,8 +110,8 @@ describe('PriceListsScreen', () => {
     const user = userEvent.setup()
     render(<PriceListsScreen />)
 
-    await screen.findByRole('button', { name: /create default price list/i })
-    await user.click(screen.getByRole('button', { name: /create default price list/i }))
+    await screen.findByRole('button', { name: /crear lista de precios predeterminada/i })
+    await user.click(screen.getByRole('button', { name: /crear lista de precios predeterminada/i }))
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
     const [url, init] = fetchMock.mock.calls[2]
@@ -145,12 +145,12 @@ describe('PriceListsScreen', () => {
     render(<PriceListsScreen />)
 
     await screen.findByText('Default')
-    await user.click(screen.getByRole('button', { name: /manage prices/i }))
+    await user.click(screen.getByRole('button', { name: /gestionar precios/i }))
     await screen.findByText('1.5L bottle')
-    await user.click(screen.getByRole('button', { name: /new price/i }))
-    await user.type(screen.getByLabelText('Unit price'), '600')
-    await user.type(screen.getByLabelText('Effective from'), '2024-07-01')
-    await user.click(screen.getByRole('button', { name: /^publish$/i }))
+    await user.click(screen.getByRole('button', { name: /nuevo precio/i }))
+    await user.type(screen.getByLabelText('Precio unitario'), '600')
+    await user.type(screen.getByLabelText('Vigente desde'), '2024-07-01')
+    await user.click(screen.getByRole('button', { name: /^publicar$/i }))
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
     const [url, init] = fetchMock.mock.calls[2]
@@ -171,8 +171,8 @@ describe('PriceListsScreen', () => {
     render(<PriceListsScreen />)
 
     await screen.findByText('Default')
-    await user.click(screen.getByRole('button', { name: /^suppliers$/i }))
-    expect(screen.getByText(/supplier mappings/i)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /^proveedores$/i }))
+    expect(screen.getByText(/mapeos de proveedores/i)).toBeInTheDocument()
   })
 
   const mapping = {
@@ -228,19 +228,19 @@ describe('PriceListsScreen', () => {
     await screen.findByText('Default')
 
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify([mapping]), { status: 200 })) // GET /pricing/supplier-mappings
-    await user.click(screen.getByRole('button', { name: /^import$/i }))
-    await screen.findByLabelText(/supplier/i)
+    await user.click(screen.getByRole('button', { name: /^importar$/i }))
+    await screen.findByLabelText(/proveedor/i)
 
     fetchMock
       .mockResolvedValueOnce(new Response(JSON.stringify(batch), { status: 201 })) // POST /pricing/imports
       .mockResolvedValueOnce(new Response(JSON.stringify(batchDetail), { status: 200 })) // GET /pricing/imports/{id}
 
     const file = new File(['dummy'], 'prices.xlsx', { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
-    await user.upload(screen.getByLabelText(/file/i), file)
-    await user.click(screen.getByRole('button', { name: /^upload$/i }))
+    await user.upload(screen.getByLabelText(/archivo/i), file)
+    await user.click(screen.getByRole('button', { name: /^subir$/i }))
 
-    expect(await screen.findByTestId('import-row-status-2')).toHaveTextContent('Matched')
-    const commitButton = screen.getByRole('button', { name: /^commit$/i })
+    expect(await screen.findByTestId('import-row-status-2')).toHaveTextContent('Coincide')
+    const commitButton = screen.getByRole('button', { name: /^confirmar$/i })
     expect(commitButton).toBeEnabled()
 
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ ...batch, status: 'Committed' }), { status: 200 })) // POST commit
@@ -260,23 +260,23 @@ describe('PriceListsScreen', () => {
     await screen.findByText('Default')
 
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify([mapping]), { status: 200 }))
-    await user.click(screen.getByRole('button', { name: /^import$/i }))
-    await screen.findByLabelText(/supplier/i)
+    await user.click(screen.getByRole('button', { name: /^importar$/i }))
+    await screen.findByLabelText(/proveedor/i)
 
     fetchMock
       .mockResolvedValueOnce(new Response(JSON.stringify(batch), { status: 201 }))
       .mockResolvedValueOnce(new Response(JSON.stringify(batchDetail), { status: 200 }))
 
     const file = new File(['dummy'], 'prices.xlsx', { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
-    await user.upload(screen.getByLabelText(/file/i), file)
-    await user.click(screen.getByRole('button', { name: /^upload$/i }))
+    await user.upload(screen.getByLabelText(/archivo/i), file)
+    await user.click(screen.getByRole('button', { name: /^subir$/i }))
 
     await screen.findByTestId('import-row-status-2')
 
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ ...batch, status: 'Rejected' }), { status: 200 }))
-    await user.click(screen.getByRole('button', { name: /^reject$/i }))
+    await user.click(screen.getByRole('button', { name: /^rechazar$/i }))
 
-    expect(await screen.findByText(/batch rejected\./i)).toBeInTheDocument()
+    expect(await screen.findByText(/lote rejected./i)).toBeInTheDocument()
     const rejectCall = fetchMock.mock.calls.find(([url]) => url === `/pricing/imports/${batch.id}/reject`)
     expect(rejectCall).toBeDefined()
   })
@@ -310,7 +310,7 @@ describe('PriceListsScreen', () => {
 
     render(<PriceListsScreen />)
 
-    expect(await screen.findByText('No price lists yet.')).toBeInTheDocument()
+    expect(await screen.findByText('Todavía no hay listas de precios.')).toBeInTheDocument()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
   })
 
@@ -322,8 +322,8 @@ describe('PriceListsScreen', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/no está disponible/i)
     // "No price lists yet." is a real rendering of this screen (see the empty
     // state case above), so its absence here is a fact about this state.
-    expect(screen.queryAllByText('No price lists yet.')).toHaveLength(0)
-    expect(screen.getByTestId('data-view-load-error')).toHaveTextContent(/price lists could not be loaded/i)
+    expect(screen.queryAllByText('Todavía no hay listas de precios.')).toHaveLength(0)
+    expect(screen.getByTestId('data-view-load-error')).toHaveTextContent(/no se pudieron cargar las listas de precios/i)
   })
 
   it('keeps a failed action from being reported as a failed load', async () => {
@@ -335,13 +335,13 @@ describe('PriceListsScreen', () => {
     const user = userEvent.setup()
     render(<PriceListsScreen />)
 
-    await screen.findByText('No price lists yet.')
-    await user.click(screen.getByRole('button', { name: /create default price list/i }))
+    await screen.findByText('Todavía no hay listas de precios.')
+    await user.click(screen.getByRole('button', { name: /crear lista de precios predeterminada/i }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/a default price list already exists/i)
     // The list itself was read fine — it is genuinely empty, not unreadable.
     expect(screen.queryAllByTestId('data-view-load-error')).toHaveLength(0)
-    expect(screen.getByText('No price lists yet.')).toBeInTheDocument()
+    expect(screen.getByText('Todavía no hay listas de precios.')).toBeInTheDocument()
   })
 
   it('filters the listed price lists client-side by name', async () => {
@@ -353,7 +353,7 @@ describe('PriceListsScreen', () => {
     await screen.findByText('Seasonal')
     expect(screen.getAllByText('Default')).toHaveLength(1)
 
-    await user.type(screen.getByLabelText(/search price lists/i), 'seasonal')
+    await user.type(screen.getByLabelText(/buscar listas de precios/i), 'seasonal')
 
     expect(screen.getByText('Seasonal')).toBeInTheDocument()
     expect(screen.queryAllByText('Default')).toHaveLength(0)
@@ -368,9 +368,9 @@ describe('PriceListsScreen', () => {
     render(<PriceListsScreen />)
 
     await screen.findByText('Seasonal')
-    await user.type(screen.getByLabelText(/search price lists/i), 'zzzz')
+    await user.type(screen.getByLabelText(/buscar listas de precios/i), 'zzzz')
 
-    expect(screen.getByText(/no price lists match/i)).toBeInTheDocument()
+    expect(screen.getByText(/ninguna lista de precios coincide/i)).toBeInTheDocument()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
     expect(screen.queryAllByTestId('data-view-card')).toHaveLength(0)
   })
@@ -432,14 +432,14 @@ describe('PriceListsScreen', () => {
       .getAllByRole('row')
       .find((candidate) => within(candidate).queryByText('Default') !== null)
     expect(row).toBeDefined()
-    await user.click(within(row!).getByRole('button', { name: /manage prices/i }))
+    await user.click(within(row!).getByRole('button', { name: /gestionar precios/i }))
 
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: /prices in default/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /precios en default/i })).toBeInTheDocument()
     const prices = screen.getByTestId('price-list-entries')
     expect(within(prices).getByText('1.5L bottle')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: /back to price lists/i }))
+    await user.click(screen.getByRole('button', { name: /volver a listas de precios/i }))
 
     expect(screen.getByText('Default')).toBeInTheDocument()
     expect(screen.getByText('Seasonal')).toBeInTheDocument()
@@ -472,14 +472,14 @@ describe('PriceListsScreen', () => {
       .getAllByRole('row')
       .find((candidate) => within(candidate).queryByText('Seasonal') !== null)
     expect(row).toBeDefined()
-    await user.click(within(row!).getByRole('button', { name: /manage prices/i }))
+    await user.click(within(row!).getByRole('button', { name: /gestionar precios/i }))
 
-    expect(screen.getByRole('heading', { name: /prices in seasonal/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /precios en seasonal/i })).toBeInTheDocument()
     const prices = screen.getByTestId('price-list-entries')
-    await user.click(within(prices).getByRole('button', { name: /new price/i }))
-    await user.type(screen.getByLabelText('Unit price'), '720')
-    await user.type(screen.getByLabelText('Effective from'), '2024-08-01')
-    await user.click(screen.getByRole('button', { name: /^publish$/i }))
+    await user.click(within(prices).getByRole('button', { name: /nuevo precio/i }))
+    await user.type(screen.getByLabelText('Precio unitario'), '720')
+    await user.type(screen.getByLabelText('Vigente desde'), '2024-08-01')
+    await user.click(screen.getByRole('button', { name: /^publicar$/i }))
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
     expect(fetchMock.mock.calls[2][0]).toBe(`/pricing/price-lists/${seasonalPriceList.id}/entries`)
@@ -495,7 +495,7 @@ describe('PriceListsScreen', () => {
       .getAllByRole('row')
       .find((candidate) => within(candidate).queryByText('Default') !== null)
     expect(row).toBeDefined()
-    await user.click(within(row!).getByRole('button', { name: /manage prices/i }))
+    await user.click(within(row!).getByRole('button', { name: /gestionar precios/i }))
     const prices = await screen.findByTestId('price-list-entries')
 
     fetchMock.mockResolvedValueOnce(
@@ -517,7 +517,7 @@ describe('PriceListsScreen', () => {
         { status: 200 },
       ),
     )
-    await user.click(within(prices).getByRole('button', { name: /^history$/i }))
+    await user.click(within(prices).getByRole('button', { name: /^historial$/i }))
 
     expect(await screen.findByText('2024-05-01: $540.50')).toBeInTheDocument()
     expect(fetchMock.mock.calls[2][0]).toBe(

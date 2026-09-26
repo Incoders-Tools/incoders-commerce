@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -63,6 +64,7 @@ function formatCreatedAt(value: string): string {
  * prices.
  */
 export function PriceListsScreen() {
+  const { t } = useTranslation('priceLists')
   const [tab, setTab] = useState<Tab>('prices')
   const [priceLists, setPriceLists] = useState<PriceListRecord[]>([])
   const [presentations, setPresentations] = useState<PresentationRecord[]>([])
@@ -79,7 +81,7 @@ export function PriceListsScreen() {
   const [search, setSearch] = useState('')
   const [view, setView] = useViewPreference('price-lists')
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     setLoading(true)
     setLoadError(null)
     try {
@@ -87,15 +89,15 @@ export function PriceListsScreen() {
       setPriceLists(lists)
       setPresentations(items)
     } catch (err) {
-      setLoadError(err instanceof ApiError ? err.message : 'Unexpected error loading price lists.')
+      setLoadError(err instanceof ApiError ? err.message : t('errors.unexpectedLoad'))
     } finally {
       setLoading(false)
     }
-  }
+  }, [t])
 
   useEffect(() => {
     void refresh()
-  }, [])
+  }, [refresh])
 
   const defaultPriceList = priceLists.find((list) => list.isDefault) ?? null
   const managingList = priceLists.find((list) => list.id === managingListId) ?? null
@@ -106,7 +108,7 @@ export function PriceListsScreen() {
       const created = await createPriceList({ name: 'Default', isDefault: true })
       setPriceLists((current) => [...current, created])
     } catch (err) {
-      setActionError(err instanceof ApiError ? err.message : 'Unexpected error creating the default price list.')
+      setActionError(err instanceof ApiError ? err.message : t('errors.unexpectedCreateDefault'))
     }
   }
 
@@ -117,14 +119,18 @@ export function PriceListsScreen() {
   }, [priceLists, trimmedSearch])
 
   const columns: DataViewColumn<PriceListRecord>[] = [
-    { key: 'name', header: 'Name', cell: (list) => list.name },
+    { key: 'name', header: t('columns.name'), cell: (list) => list.name },
     // "Is default", not "Default": a list is also commonly NAMED "Default",
     // and a header identical to a cell value elsewhere in the same table
     // makes both the screen and its tests ambiguous.
-    { key: 'isDefault', header: 'Is default', cell: (list) => (list.isDefault ? 'Yes' : 'No') },
+    {
+      key: 'isDefault',
+      header: t('columns.isDefault'),
+      cell: (list) => (list.isDefault ? t('columns.yes') : t('columns.no')),
+    },
     {
       key: 'createdAtUtc',
-      header: 'Created',
+      header: t('columns.created'),
       cell: (list) => formatCreatedAt(list.createdAtUtc),
       hideOnMobile: true,
     },
@@ -148,11 +154,11 @@ export function PriceListsScreen() {
   return (
     <section className="flex w-full flex-col gap-6">
       <PageHeader
-        title="Price lists"
-        description="Published prices per presentation, and the supplier import that feeds them."
+        title={t('title')}
+        description={t('description')}
         actions={
           !loading && loadError === null && defaultPriceList === null ? (
-            <Button onClick={() => void handleCreateDefault()}>Create default price list</Button>
+            <Button onClick={() => void handleCreateDefault()}>{t('createDefault')}</Button>
           ) : null
         }
       />
@@ -168,15 +174,15 @@ export function PriceListsScreen() {
         </p>
       )}
 
-      <nav aria-label="Price list sections" className="flex gap-2">
+      <nav aria-label={t('sectionsNav.label')} className="flex gap-2">
         <Button variant={tab === 'prices' ? 'default' : 'outline'} size="sm" onClick={() => setTab('prices')}>
-          Prices
+          {t('sectionsNav.prices')}
         </Button>
         <Button variant={tab === 'suppliers' ? 'default' : 'outline'} size="sm" onClick={() => setTab('suppliers')}>
-          Suppliers
+          {t('sectionsNav.suppliers')}
         </Button>
         <Button variant={tab === 'import' ? 'default' : 'outline'} size="sm" onClick={() => setTab('import')}>
-          Import
+          {t('sectionsNav.import')}
         </Button>
       </nav>
 
@@ -185,8 +191,8 @@ export function PriceListsScreen() {
           <DataToolbar
             searchValue={search}
             onSearchChange={setSearch}
-            searchLabel="Search price lists"
-            searchPlaceholder="Search by name…"
+            searchLabel={t('search.label')}
+            searchPlaceholder={t('search.placeholder')}
             view={view}
             onViewChange={setView}
           />
@@ -197,10 +203,8 @@ export function PriceListsScreen() {
             getRowKey={(list) => list.id}
             view={view}
             loading={loading}
-            loadErrorMessage={loadError ? 'The price lists could not be loaded.' : null}
-            emptyMessage={
-              priceLists.length === 0 ? 'No price lists yet.' : 'No price lists match this search.'
-            }
+            loadErrorMessage={loadError ? t('empty.loadError') : null}
+            emptyMessage={priceLists.length === 0 ? t('empty.none') : t('empty.noMatch')}
             renderActions={(list) => (
               <Button
                 type="button"
@@ -211,7 +215,7 @@ export function PriceListsScreen() {
                   setPublishingFor(null)
                 }}
               >
-                Manage prices
+                {t('actions.managePrices')}
               </Button>
             )}
           />
@@ -220,8 +224,7 @@ export function PriceListsScreen() {
 
       {tab === 'suppliers' && (
         <p className="text-sm text-muted-foreground">
-          Supplier mappings (column mapping for Excel imports) land here in a future release — the
-          `supplier_price_mappings` table does not exist yet.
+          {t('suppliersPlaceholder')}
         </p>
       )}
 
@@ -253,16 +256,17 @@ function PriceListDetail({
   setPublishingFor: (presentationId: string | null) => void
   onBack: () => void
 }) {
+  const { t } = useTranslation('priceLists')
   return (
     <FormPage
-      title={`Prices in ${priceList.name}`}
-      description="Each presentation's published entries, newest effective date first."
+      title={t('detail.title', { name: priceList.name })}
+      description={t('detail.description')}
       onBack={onBack}
-      backLabel="Back to price lists"
+      backLabel={t('detail.backLabel')}
     >
       <div data-testid="price-list-entries" className="flex w-full flex-col gap-3">
         {presentations.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No presentations yet.</p>
+          <p className="text-sm text-muted-foreground">{t('detail.noPresentations')}</p>
         ) : (
           <ul className="flex flex-col gap-3">
             {presentations.map((presentation) => (
@@ -270,7 +274,7 @@ function PriceListDetail({
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="min-w-0">
                     <p className="font-medium break-words">{presentation.name}</p>
-                    <p className="text-xs text-muted-foreground">{presentation.identificationCode ?? 'No code'}</p>
+                    <p className="text-xs text-muted-foreground">{presentation.identificationCode ?? t('detail.noCode')}</p>
                   </div>
                   <div className="flex items-center gap-2">
                     <PriceHistory priceListId={priceList.id} presentationId={presentation.id} />
@@ -280,7 +284,7 @@ function PriceListDetail({
                       size="sm"
                       onClick={() => setPublishingFor(publishingFor === presentation.id ? null : presentation.id)}
                     >
-                      New price
+                      {t('detail.newPrice')}
                     </Button>
                   </div>
                 </div>
@@ -312,6 +316,7 @@ function NewPriceForm({
   onCancel: () => void
   onPublished: () => void
 }) {
+  const { t } = useTranslation('priceLists')
   const [unitPrice, setUnitPrice] = useState('')
   const [effectiveFrom, setEffectiveFrom] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -329,7 +334,7 @@ function NewPriceForm({
       })
       onPublished()
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Unexpected error publishing the price.')
+      setError(err instanceof ApiError ? err.message : t('errors.unexpectedPublish'))
     } finally {
       setSubmitting(false)
     }
@@ -345,7 +350,7 @@ function NewPriceForm({
             and `PriceHistory`'s rendering of the same field — is what has to
             change. Until then the screen shows the stored figure only, with no
             derived column, tax breakdown or total. */}
-        <Label htmlFor={`unitPrice-${presentationId}`}>Unit price</Label>
+        <Label htmlFor={`unitPrice-${presentationId}`}>{t('newPriceForm.unitPriceLabel')}</Label>
         <Input
           id={`unitPrice-${presentationId}`}
           type="number"
@@ -356,7 +361,7 @@ function NewPriceForm({
         />
       </div>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor={`effectiveFrom-${presentationId}`}>Effective from</Label>
+        <Label htmlFor={`effectiveFrom-${presentationId}`}>{t('newPriceForm.effectiveFromLabel')}</Label>
         <Input
           id={`effectiveFrom-${presentationId}`}
           type="date"
@@ -371,10 +376,10 @@ function NewPriceForm({
         </p>
       )}
       <Button type="submit" size="sm" disabled={submitting}>
-        {submitting ? 'Publishing…' : 'Publish'}
+        {submitting ? t('newPriceForm.publishing') : t('newPriceForm.publish')}
       </Button>
       <Button type="button" variant="outline" size="sm" onClick={onCancel} disabled={submitting}>
-        Cancel
+        {t('newPriceForm.cancel')}
       </Button>
     </form>
   )
@@ -403,6 +408,7 @@ function toReviewRows(rows: { rowNumber: number; rawCode: string | null; present
  * a full Suppliers CRUD screen the design does not otherwise require here.
  */
 function ImportTab() {
+  const { t } = useTranslation('priceLists')
   const [mappings, setMappings] = useState<SupplierPriceMappingRecord[] | null>(null)
   const [selectedMappingId, setSelectedMappingId] = useState('')
   const [file, setFile] = useState<File | null>(null)
@@ -421,7 +427,10 @@ function ImportTab() {
           setSelectedMappingId(list[0].id)
         }
       })
-      .catch((err) => setError(err instanceof ApiError ? err.message : 'Unexpected error loading supplier mappings.'))
+      .catch((err) => setError(err instanceof ApiError ? err.message : t('errors.unexpectedLoadSupplierMappings')))
+    // Mount-only: matches the original one-shot fetch; `t` is a stable
+    // reference from react-i18next.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const handleUpload = async () => {
@@ -437,7 +446,7 @@ function ImportTab() {
       setBatchId(batch.id)
       setRows(toReviewRows(detail.rows))
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Unexpected error uploading the file.')
+      setError(err instanceof ApiError ? err.message : t('errors.unexpectedUpload'))
     } finally {
       setUploading(false)
     }
@@ -453,7 +462,7 @@ function ImportTab() {
       const result = await commitImport(batchId)
       setResolvedStatus(result.status)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Unexpected error committing the batch.')
+      setError(err instanceof ApiError ? err.message : t('errors.unexpectedCommit'))
     } finally {
       setCommitting(false)
     }
@@ -469,14 +478,14 @@ function ImportTab() {
       const result = await rejectImport(batchId)
       setResolvedStatus(result.status)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Unexpected error rejecting the batch.')
+      setError(err instanceof ApiError ? err.message : t('errors.unexpectedReject'))
     } finally {
       setCommitting(false)
     }
   }
 
   if (mappings === null) {
-    return <p>Loading…</p>
+    return <p>{t('import.loading')}</p>
   }
 
   return (
@@ -495,7 +504,7 @@ function ImportTab() {
       ) : (
         <div className="flex flex-wrap items-end gap-2">
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="import-supplier">Supplier</Label>
+            <Label htmlFor="import-supplier">{t('import.supplierLabel')}</Label>
             <select
               id="import-supplier"
               className="h-9 rounded-md border border-input px-2 text-sm"
@@ -510,7 +519,7 @@ function ImportTab() {
             </select>
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="import-file">File</Label>
+            <Label htmlFor="import-file">{t('import.fileLabel')}</Label>
             <input
               id="import-file"
               type="file"
@@ -519,12 +528,15 @@ function ImportTab() {
             />
           </div>
           <Button type="button" size="sm" onClick={() => void handleUpload()} disabled={!file || uploading}>
-            {uploading ? 'Uploading…' : 'Upload'}
+            {uploading ? t('import.uploading') : t('import.upload')}
           </Button>
         </div>
       )}
 
-      {resolvedStatus && <p>Batch {resolvedStatus.toLowerCase()}.</p>}
+      {/* `resolvedStatus` is the raw server-returned batch status word
+          (e.g. "Committed"/"Rejected"); left untranslated like other
+          server-driven values, only the surrounding sentence is localized. */}
+      {resolvedStatus && <p>{t('import.batchStatus', { status: resolvedStatus.toLowerCase() })}</p>}
 
       <ImportReviewTable
         rows={rows}
@@ -537,6 +549,7 @@ function ImportTab() {
 }
 
 function CreateSupplierMappingInline({ onCreated }: { onCreated: (created: SupplierPriceMappingRecord) => void }) {
+  const { t } = useTranslation('priceLists')
   const [supplierName, setSupplierName] = useState('')
   const [sheetName, setSheetName] = useState('')
   const [headerRow, setHeaderRow] = useState('1')
@@ -559,7 +572,7 @@ function CreateSupplierMappingInline({ onCreated }: { onCreated: (created: Suppl
       })
       onCreated(created)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Unexpected error saving the supplier mapping.')
+      setError(err instanceof ApiError ? err.message : t('errors.unexpectedSaveMapping'))
     } finally {
       setSubmitting(false)
     }
@@ -567,26 +580,26 @@ function CreateSupplierMappingInline({ onCreated }: { onCreated: (created: Suppl
 
   return (
     <form className="flex flex-col gap-3" onSubmit={handleSubmit}>
-      <p className="text-sm text-muted-foreground">No supplier mapping exists yet — configure one before importing.</p>
+      <p className="text-sm text-muted-foreground">{t('import.createMapping.explanation')}</p>
       <div className="flex flex-wrap gap-2">
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="supplier-name">Supplier name</Label>
+          <Label htmlFor="supplier-name">{t('import.createMapping.supplierNameLabel')}</Label>
           <Input id="supplier-name" value={supplierName} onChange={(e) => setSupplierName(e.target.value)} required />
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="sheet-name">Sheet name</Label>
+          <Label htmlFor="sheet-name">{t('import.createMapping.sheetNameLabel')}</Label>
           <Input id="sheet-name" value={sheetName} onChange={(e) => setSheetName(e.target.value)} required />
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="header-row">Header row</Label>
+          <Label htmlFor="header-row">{t('import.createMapping.headerRowLabel')}</Label>
           <Input id="header-row" type="number" min={1} value={headerRow} onChange={(e) => setHeaderRow(e.target.value)} required />
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="code-column">Code column</Label>
+          <Label htmlFor="code-column">{t('import.createMapping.codeColumnLabel')}</Label>
           <Input id="code-column" value={codeColumn} onChange={(e) => setCodeColumn(e.target.value)} required />
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="price-column">Price column</Label>
+          <Label htmlFor="price-column">{t('import.createMapping.priceColumnLabel')}</Label>
           <Input id="price-column" value={priceColumn} onChange={(e) => setPriceColumn(e.target.value)} required />
         </div>
       </div>
@@ -597,7 +610,7 @@ function CreateSupplierMappingInline({ onCreated }: { onCreated: (created: Suppl
       )}
       <div>
         <Button type="submit" size="sm" disabled={submitting}>
-          {submitting ? 'Saving…' : 'Save mapping'}
+          {submitting ? t('import.createMapping.saving') : t('import.createMapping.save')}
         </Button>
       </div>
     </form>

@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 
 /**
@@ -31,23 +32,32 @@ interface ImportReviewTableProps {
  * disabled when no row is `Matched`") — a batch that only surfaces
  * unknown/duplicate/unchanged rows has nothing safe to publish.
  */
+const STATUS_KEYS: Record<ImportRowStatus, 'matched' | 'noChange' | 'unknownCode' | 'invalidPrice' | 'duplicateInFile'> = {
+  Matched: 'matched',
+  NoChange: 'noChange',
+  UnknownCode: 'unknownCode',
+  InvalidPrice: 'invalidPrice',
+  DuplicateInFile: 'duplicateInFile',
+}
+
 export function ImportReviewTable({ rows, onCommit, onReject, committing = false }: ImportReviewTableProps) {
+  const { t } = useTranslation('priceLists')
   const hasMatchedRow = rows.some((row) => row.status === 'Matched')
 
   return (
     <div className="flex flex-col gap-3">
       {rows.length === 0 ? (
-        <p>No rows to review yet.</p>
+        <p>{t('import.reviewTable.empty')}</p>
       ) : (
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left">
-              <th>#</th>
-              <th>Code</th>
-              <th>Item</th>
-              <th>Current</th>
-              <th>Proposed</th>
-              <th>Status</th>
+              <th>{t('import.reviewTable.columns.row')}</th>
+              <th>{t('import.reviewTable.columns.code')}</th>
+              <th>{t('import.reviewTable.columns.item')}</th>
+              <th>{t('import.reviewTable.columns.current')}</th>
+              <th>{t('import.reviewTable.columns.proposed')}</th>
+              <th>{t('import.reviewTable.columns.status')}</th>
             </tr>
           </thead>
           <tbody>
@@ -59,7 +69,9 @@ export function ImportReviewTable({ rows, onCommit, onReject, committing = false
                 <td>{row.currentPrice !== null ? row.currentPrice.toFixed(2) : '—'}</td>
                 <td>{row.proposedPrice.toFixed(2)}</td>
                 <td>
-                  <span data-testid={`import-row-status-${row.rowNumber}`}>{row.status}</span>
+                  <span data-testid={`import-row-status-${row.rowNumber}`}>
+                    {t(`import.reviewTable.statusOptions.${STATUS_KEYS[row.status]}`)}
+                  </span>
                 </td>
               </tr>
             ))}
@@ -68,10 +80,10 @@ export function ImportReviewTable({ rows, onCommit, onReject, committing = false
       )}
       <div className="flex gap-2">
         <Button onClick={onCommit} disabled={!hasMatchedRow || committing}>
-          {committing ? 'Committing…' : 'Commit'}
+          {committing ? t('import.reviewTable.committing') : t('import.reviewTable.commit')}
         </Button>
         <Button variant="outline" onClick={onReject} disabled={rows.length === 0 || committing}>
-          Reject
+          {t('import.reviewTable.reject')}
         </Button>
       </div>
     </div>

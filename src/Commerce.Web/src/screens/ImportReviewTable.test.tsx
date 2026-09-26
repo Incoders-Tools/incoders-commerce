@@ -19,15 +19,15 @@ describe('ImportReviewTable', () => {
   it('renders one row per review row with its status badge', () => {
     render(<ImportReviewTable rows={unmatchedRows} onCommit={vi.fn()} onReject={vi.fn()} />)
 
-    expect(screen.getByTestId('import-row-status-1')).toHaveTextContent('UnknownCode')
-    expect(screen.getByTestId('import-row-status-2')).toHaveTextContent('NoChange')
+    expect(screen.getByTestId('import-row-status-1')).toHaveTextContent('Código desconocido')
+    expect(screen.getByTestId('import-row-status-2')).toHaveTextContent('Sin cambios')
     expect(screen.getByText('Coca Cola 1.5L')).toBeInTheDocument()
   })
 
   it('disables Commit when zero rows are Matched', () => {
     render(<ImportReviewTable rows={unmatchedRows} onCommit={vi.fn()} onReject={vi.fn()} />)
 
-    expect(screen.getByRole('button', { name: /commit/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /confirmar/i })).toBeDisabled()
   })
 
   it('enables Commit when at least one row is Matched, and invokes onCommit', async () => {
@@ -39,7 +39,7 @@ describe('ImportReviewTable', () => {
     const user = userEvent.setup()
     render(<ImportReviewTable rows={rows} onCommit={onCommit} onReject={vi.fn()} />)
 
-    const commitButton = screen.getByRole('button', { name: /commit/i })
+    const commitButton = screen.getByRole('button', { name: /confirmar/i })
     expect(commitButton).toBeEnabled()
     await user.click(commitButton)
 
@@ -49,7 +49,7 @@ describe('ImportReviewTable', () => {
   it('shows an empty state with zero rows and keeps Commit disabled', () => {
     render(<ImportReviewTable rows={[]} onCommit={vi.fn()} onReject={vi.fn()} />)
 
-    expect(screen.getByText('No rows to review yet.')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /commit/i })).toBeDisabled()
+    expect(screen.getByText('Todavía no hay filas para revisar.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /confirmar/i })).toBeDisabled()
   })
 })
