@@ -130,7 +130,7 @@ describe('OrganizationBrandingForm', () => {
 
     render(<OrganizationBrandingForm organization={acme} onSaved={onSaved} onCancel={onCancel} />)
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/commerce\.cloud\.api is unreachable/i)
+    expect(await screen.findByRole('alert')).toHaveTextContent(/no está disponible/i)
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument()
 

@@ -42,8 +42,8 @@ describe('OrderScreen', () => {
   it('renders both peer options with guest listed first and no login-pressure copy', async () => {
     render(<OrderScreen />)
 
-    const guestOption = await screen.findByRole('tab', { name: /order as guest/i })
-    const registeredOption = screen.getByRole('tab', { name: /sign in to order/i })
+    const guestOption = await screen.findByRole('tab', { name: /pedir como invitado/i })
+    const registeredOption = screen.getByRole('tab', { name: /iniciar sesión para pedir/i })
 
     const tabs = screen.getAllByRole('tab')
     expect(tabs[0]).toBe(guestOption)
@@ -64,7 +64,7 @@ describe('OrderScreen', () => {
   it('defaults to the guest branch and shows no raw GUID input fields', async () => {
     render(<OrderScreen />)
 
-    await screen.findByLabelText(/document/i)
+    await screen.findByLabelText(/documento/i)
     expect(screen.queryByLabelText(/customer id/i)).not.toBeInTheDocument()
     expect(screen.queryByLabelText(/access credential/i)).not.toBeInTheDocument()
     expect(screen.queryByLabelText(/destination branch id/i)).not.toBeInTheDocument()
@@ -98,9 +98,9 @@ describe('OrderScreen', () => {
     const user = userEvent.setup()
     render(<OrderScreen />)
 
-    await user.type(await screen.findByLabelText(/document/i), '30111222'.slice(0, 8))
-    await user.type(screen.getByLabelText(/^email/i), 'guest@example.com')
-    await user.click(screen.getByRole('button', { name: /send verification code/i }))
+    await user.type(await screen.findByLabelText(/documento/i), '30111222'.slice(0, 8))
+    await user.type(screen.getByLabelText(/^correo/i), 'guest@example.com')
+    await user.click(screen.getByRole('button', { name: /enviar código de verificación/i }))
 
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
@@ -109,9 +109,9 @@ describe('OrderScreen', () => {
       ),
     )
 
-    const codeInput = await screen.findByLabelText(/verification code/i)
+    const codeInput = await screen.findByLabelText(/código de verificación/i)
     await user.type(codeInput, '123456')
-    await user.click(screen.getByRole('button', { name: /confirm code/i }))
+    await user.click(screen.getByRole('button', { name: /confirmar código/i }))
 
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
@@ -120,9 +120,9 @@ describe('OrderScreen', () => {
       ),
     )
 
-    await user.selectOptions(await screen.findByRole('combobox', { name: /presentation/i }), 'pres-1')
-    await user.click(screen.getByRole('button', { name: /add line/i }))
-    await user.click(screen.getByRole('button', { name: /submit order/i }))
+    await user.selectOptions(await screen.findByRole('combobox', { name: /presentación/i }), 'pres-1')
+    await user.click(screen.getByRole('button', { name: /agregar línea/i }))
+    await user.click(screen.getByRole('button', { name: /enviar pedido/i }))
 
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith('/public/guest-orders', expect.objectContaining({ method: 'POST' })),
@@ -142,12 +142,12 @@ describe('OrderScreen', () => {
     const user = userEvent.setup()
     render(<OrderScreen />)
 
-    await user.selectOptions(await screen.findByRole('combobox', { name: /presentation/i }), 'pres-1')
-    await user.click(screen.getByRole('button', { name: /add line/i }))
+    await user.selectOptions(await screen.findByRole('combobox', { name: /presentación/i }), 'pres-1')
+    await user.click(screen.getByRole('button', { name: /agregar línea/i }))
 
-    const submitButton = screen.getByRole('button', { name: /submit order/i })
+    const submitButton = screen.getByRole('button', { name: /enviar pedido/i })
     expect(submitButton).toBeDisabled()
-    expect(screen.getByText(/confirm your verification code before submitting/i)).toBeInTheDocument()
+    expect(screen.getByText(/confirme su código de verificación antes de enviar/i)).toBeInTheDocument()
 
     await user.click(submitButton)
     expect(fetchMock).not.toHaveBeenCalledWith('/public/guest-orders', expect.anything())
@@ -157,11 +157,11 @@ describe('OrderScreen', () => {
     const user = userEvent.setup()
     render(<OrderScreen />)
 
-    await user.click(await screen.findByRole('tab', { name: /sign in to order/i }))
+    await user.click(await screen.findByRole('tab', { name: /iniciar sesión para pedir/i }))
 
     const panel = screen.getByRole('tabpanel')
-    expect(within(panel).getByLabelText(/^email/i)).toBeInTheDocument()
-    expect(within(panel).getByLabelText(/password/i)).toBeInTheDocument()
+    expect(within(panel).getByLabelText(/^correo/i)).toBeInTheDocument()
+    expect(within(panel).getByLabelText(/contraseña/i)).toBeInTheDocument()
     expect(within(panel).queryByLabelText(/customer id/i)).not.toBeInTheDocument()
     expect(within(panel).queryByLabelText(/access credential/i)).not.toBeInTheDocument()
   })

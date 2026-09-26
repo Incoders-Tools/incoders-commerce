@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
@@ -23,6 +24,7 @@ export function OrderLinesEditor({
   lines: SubmitOrderLine[]
   onChange: (lines: SubmitOrderLine[]) => void
 }) {
+  const { t } = useTranslation('orders')
   const [selectedPresentationId, setSelectedPresentationId] = useState(presentations[0]?.id ?? '')
   const [quantity, setQuantity] = useState('1')
 
@@ -47,7 +49,7 @@ export function OrderLinesEditor({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="order-line-presentation">Presentation</Label>
+        <Label htmlFor="order-line-presentation">{t('lineEditor.presentationLabel')}</Label>
         <Select
           id="order-line-presentation"
           value={selectedPresentationId}
@@ -61,7 +63,7 @@ export function OrderLinesEditor({
         </Select>
       </div>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="order-line-quantity">Quantity</Label>
+        <Label htmlFor="order-line-quantity">{t('lineEditor.quantityLabel')}</Label>
         <Input
           id="order-line-quantity"
           type="number"
@@ -71,7 +73,7 @@ export function OrderLinesEditor({
         />
       </div>
       <Button type="button" variant="outline" onClick={handleAddLine} disabled={presentations.length === 0}>
-        Add line
+        {t('lineEditor.addLine')}
       </Button>
 
       {lines.length > 0 && (
@@ -81,10 +83,10 @@ export function OrderLinesEditor({
             return (
               <li key={`${line.presentationId}-${index}`} className="flex items-center justify-between gap-2">
                 <span>
-                  {presentation?.name ?? line.presentationId} — qty: {line.quantity}
+                  {t('lineEditor.lineSummary', { name: presentation?.name ?? line.presentationId, quantity: line.quantity })}
                 </span>
                 <Button type="button" variant="outline" size="sm" onClick={() => handleRemoveLine(index)}>
-                  Remove
+                  {t('lineEditor.remove')}
                 </Button>
               </li>
             )

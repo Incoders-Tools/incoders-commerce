@@ -1,1 +1,4 @@
-{}
+{
+  "apiUnreachable": "Commerce.Cloud.Api no está disponible.",
+  "requestFailedWithStatus": "La solicitud falló con estado {{status}}"
+}

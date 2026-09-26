@@ -23,13 +23,13 @@ describe('StaffOrderScreen', () => {
   })
 
   async function fillAndSubmit(user: ReturnType<typeof userEvent.setup>) {
-    await user.type(screen.getByLabelText('Customer ID'), 'c1')
-    await user.type(screen.getByLabelText('Access credential'), 'cred1')
-    await user.type(screen.getByLabelText('Destination branch ID'), 'branch1')
-    await user.type(screen.getByLabelText('Actor ID'), 'actor1')
-    await user.type(screen.getByLabelText('Product ID'), 'prod1')
-    await user.type(screen.getByLabelText('Presentation ID'), 'pres1')
-    await user.click(screen.getByRole('button', { name: /submit order/i }))
+    await user.type(screen.getByLabelText('ID de cliente'), 'c1')
+    await user.type(screen.getByLabelText('Credencial de acceso'), 'cred1')
+    await user.type(screen.getByLabelText('ID de sucursal de destino'), 'branch1')
+    await user.type(screen.getByLabelText('ID de actor'), 'actor1')
+    await user.type(screen.getByLabelText('ID de producto'), 'prod1')
+    await user.type(screen.getByLabelText('ID de presentación'), 'pres1')
+    await user.click(screen.getByRole('button', { name: /enviar pedido/i }))
   }
 
   it('POSTs to the real /orders/ route with the exact request shape', async () => {
@@ -66,7 +66,7 @@ describe('StaffOrderScreen', () => {
     expect(body.lines[0].unitId).toBeUndefined()
 
     await screen.findByTestId('order-outcome')
-    expect(screen.getByTestId('order-outcome')).toHaveTextContent('Order accepted.')
+    expect(screen.getByTestId('order-outcome')).toHaveTextContent('Pedido aceptado.')
   })
 
   it('surfaces a visible error state when the API is unreachable', async () => {
@@ -77,6 +77,6 @@ describe('StaffOrderScreen', () => {
     await fillAndSubmit(user)
 
     const alert = await screen.findByRole('alert')
-    expect(alert).toHaveTextContent(/unreachable/i)
+    expect(alert).toHaveTextContent(/no está disponible/i)
   })
 })

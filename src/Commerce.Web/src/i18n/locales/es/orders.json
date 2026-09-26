@@ -1,1 +1,70 @@
-{}
+{
+  "placeOrder": {
+    "title": "Realizar pedido",
+    "tabsLabel": "Pedido como",
+    "guestTab": "Pedir como invitado",
+    "registeredTab": "Iniciar sesión para pedir",
+    "errors": {
+      "unexpectedCatalogLoad": "Error inesperado al cargar el catálogo.",
+      "unexpectedRequestCode": "Error inesperado al solicitar el código de verificación.",
+      "unexpectedConfirmCode": "Error inesperado al confirmar el código de verificación.",
+      "confirmBeforeSubmitting": "Confirme su código de verificación antes de enviar el pedido.",
+      "unexpectedSubmit": "Error inesperado al enviar el pedido.",
+      "unexpectedSignIn": "Error inesperado al iniciar sesión."
+    },
+    "guest": {
+      "documentLabel": "Documento (DNI)",
+      "emailLabel": "Correo electrónico",
+      "nameLabel": "Nombre",
+      "deliveryNotesLabel": "Notas de entrega (opcional)",
+      "sending": "Enviando…",
+      "resendCode": "Reenviar código de verificación",
+      "sendCode": "Enviar código de verificación",
+      "codeLabel": "Código de verificación",
+      "confirming": "Confirmando…",
+      "confirmCode": "Confirmar código",
+      "verificationConfirmed": "Verificación confirmada.",
+      "confirmBeforeSubmitting": "Confirme su código de verificación antes de enviar el pedido."
+    },
+    "registered": {
+      "emailLabel": "Correo electrónico",
+      "passwordLabel": "Contraseña",
+      "signingIn": "Iniciando sesión…",
+      "signIn": "Iniciar sesión",
+      "signedInAs": "Sesión iniciada como {{email}}"
+    },
+    "outcome": {
+      "accepted": "Pedido aceptado.",
+      "denied": "Rechazado: {{reason}}"
+    },
+    "submitting": "Enviando…",
+    "submit": "Enviar pedido"
+  },
+  "staffOrder": {
+    "title": "Enviar pedido (personal)",
+    "customerIdLabel": "ID de cliente",
+    "accessCredentialLabel": "Credencial de acceso",
+    "destinationBranchIdLabel": "ID de sucursal de destino",
+    "actorIdLabel": "ID de actor",
+    "productIdLabel": "ID de producto",
+    "presentationIdLabel": "ID de presentación",
+    "quantityLabel": "Cantidad",
+    "errors": {
+      "unexpectedSubmit": "Error inesperado al enviar el pedido."
+    },
+    "outcome": {
+      "accepted": "Pedido aceptado.",
+      "denied": "Rechazado: {{reason}}"
+    },
+    "total": "Total: {{total}}",
+    "submitting": "Enviando…",
+    "submit": "Enviar pedido"
+  },
+  "lineEditor": {
+    "presentationLabel": "Presentación",
+    "quantityLabel": "Cantidad",
+    "addLine": "Agregar línea",
+    "remove": "Quitar",
+    "lineSummary": "{{name}} — cant.: {{quantity}}"
+  }
+}

@@ -1,4 +1,12 @@
+import i18next from '@/i18n'
 import { getSelectedOrganizationId } from '@/organization/OrganizationContext'
+
+// Not a React component: this module runs plain i18next (the singleton
+// `initReactI18next` initializes in `main.tsx`/`test/setup.ts`) rather than
+// the `useTranslation` hook, since `apiFetch` executes outside render.
+function t(key: 'apiUnreachable' | 'requestFailedWithStatus', options?: Record<string, unknown>): string {
+  return i18next.t(`errors:${key}`, options)
+}
 
 /**
  * Thin same-origin fetch wrapper. `credentials: 'include'` sends the
@@ -47,7 +55,7 @@ export async function apiFetch<TResponse>(
   } catch {
     // Network-level failure: API unreachable (spec.md "API unreachable"
     // scenario) — surfaced as a typed error the caller renders visibly.
-    throw new ApiError('Commerce.Cloud.Api is unreachable.', 0)
+    throw new ApiError(t('apiUnreachable'), 0)
   }
 
   if (!response.ok) {
@@ -58,7 +66,7 @@ export async function apiFetch<TResponse>(
     } catch {
       // Non-JSON error body; fall back to statusText.
     }
-    throw new ApiError(detail || `Request failed with status ${response.status}`, response.status)
+    throw new ApiError(detail || t('requestFailedWithStatus', { status: response.status }), response.status)
   }
 
   if (response.status === 204) {
@@ -83,7 +91,7 @@ export async function apiFetchForm<TResponse>(path: string, formData: FormData):
       body: formData,
     })
   } catch {
-    throw new ApiError('Commerce.Cloud.Api is unreachable.', 0)
+    throw new ApiError(t('apiUnreachable'), 0)
   }
 
   if (!response.ok) {
@@ -94,7 +102,7 @@ export async function apiFetchForm<TResponse>(path: string, formData: FormData):
     } catch {
       // Non-JSON error body; fall back to statusText.
     }
-    throw new ApiError(detail || `Request failed with status ${response.status}`, response.status)
+    throw new ApiError(detail || t('requestFailedWithStatus', { status: response.status }), response.status)
   }
 
   return (await response.json()) as TResponse
@@ -132,7 +140,7 @@ export async function apiFetchOutcome<TOutcome>(
       },
     })
   } catch {
-    throw new ApiError('Commerce.Cloud.Api is unreachable.', 0)
+    throw new ApiError(t('apiUnreachable'), 0)
   }
 
   const rawBody = await response.text()
@@ -152,5 +160,5 @@ export async function apiFetchOutcome<TOutcome>(
   } catch {
     // Non-JSON error body; fall back to statusText.
   }
-  throw new ApiError(detail || `Request failed with status ${response.status}`, response.status)
+  throw new ApiError(detail || t('requestFailedWithStatus', { status: response.status }), response.status)
 }

@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -24,6 +25,7 @@ type Branch = 'guest' | 'registered'
  * `StaffOrderScreen`, tasks.md 6.8's regression guard).
  */
 export function OrderScreen() {
+  const { t } = useTranslation('orders')
   const [branch, setBranch] = useState<Branch>('guest')
   const [presentations, setPresentations] = useState<PresentationRecord[]>([])
   const [catalogError, setCatalogError] = useState<string | null>(null)
@@ -38,21 +40,21 @@ export function OrderScreen() {
       })
       .catch((err) => {
         if (!cancelled) {
-          setCatalogError(err instanceof ApiError ? err.message : 'Unexpected error loading the catalog.')
+          setCatalogError(err instanceof ApiError ? err.message : t('placeOrder.errors.unexpectedCatalogLoad'))
         }
       })
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [t])
 
   return (
     <Card className="mx-auto mt-8 w-full max-w-lg">
       <CardHeader>
-        <CardTitle>Place an order</CardTitle>
+        <CardTitle>{t('placeOrder.title')}</CardTitle>
       </CardHeader>
       <CardContent>
-        <div role="tablist" aria-label="Order as" className="mb-4 flex gap-2">
+        <div role="tablist" aria-label={t('placeOrder.tabsLabel')} className="mb-4 flex gap-2">
           <Button
             type="button"
             role="tab"
@@ -60,7 +62,7 @@ export function OrderScreen() {
             variant={branch === 'guest' ? 'default' : 'outline'}
             onClick={() => setBranch('guest')}
           >
-            Order as guest
+            {t('placeOrder.guestTab')}
           </Button>
           <Button
             type="button"
@@ -69,7 +71,7 @@ export function OrderScreen() {
             variant={branch === 'registered' ? 'default' : 'outline'}
             onClick={() => setBranch('registered')}
           >
-            Sign in to order
+            {t('placeOrder.registeredTab')}
           </Button>
         </div>
 
@@ -92,6 +94,7 @@ export function OrderScreen() {
 }
 
 function GuestOrderPanel({ presentations }: { presentations: PresentationRecord[] }) {
+  const { t } = useTranslation('orders')
   const [documentId, setDocumentId] = useState('')
   const [email, setEmail] = useState('')
   const [displayName, setDisplayName] = useState('')
@@ -114,7 +117,7 @@ function GuestOrderPanel({ presentations }: { presentations: PresentationRecord[
       const result = await requestGuestVerification({ documentId, email })
       setVerificationId(result.verificationId)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Unexpected error requesting the verification code.')
+      setError(err instanceof ApiError ? err.message : t('placeOrder.errors.unexpectedRequestCode'))
     } finally {
       setRequesting(false)
     }
@@ -131,7 +134,7 @@ function GuestOrderPanel({ presentations }: { presentations: PresentationRecord[
       await confirmGuestVerification({ verificationId, code })
       setVerified(true)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Unexpected error confirming the verification code.')
+      setError(err instanceof ApiError ? err.message : t('placeOrder.errors.unexpectedConfirmCode'))
     } finally {
       setConfirming(false)
     }
@@ -143,7 +146,7 @@ function GuestOrderPanel({ presentations }: { presentations: PresentationRecord[
     // Gate Before Admission") — the server is the real gate; this only
     // stops an obviously-doomed request from ever leaving the browser.
     if (!verified || !verificationId) {
-      setError('Confirm your verification code before submitting the order.')
+      setError(t('placeOrder.errors.confirmBeforeSubmitting'))
       return
     }
     setError(null)
@@ -162,7 +165,7 @@ function GuestOrderPanel({ presentations }: { presentations: PresentationRecord[
       })
       setOutcome(result)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Unexpected error submitting the order.')
+      setError(err instanceof ApiError ? err.message : t('placeOrder.errors.unexpectedSubmit'))
     } finally {
       setSubmitting(false)
     }
@@ -171,12 +174,12 @@ function GuestOrderPanel({ presentations }: { presentations: PresentationRecord[
   return (
     <div className="flex flex-col gap-6">
       <form className="flex flex-col gap-4" onSubmit={handleRequestCode}>
-        <Field id="guest-document" label="Document (DNI)" value={documentId} onChange={setDocumentId} disabled={verified} />
-        <Field id="guest-email" label="Email" value={email} onChange={setEmail} type="email" disabled={verified} />
-        <Field id="guest-display-name" label="Name" value={displayName} onChange={setDisplayName} disabled={verified} required={false} />
+        <Field id="guest-document" label={t('placeOrder.guest.documentLabel')} value={documentId} onChange={setDocumentId} disabled={verified} />
+        <Field id="guest-email" label={t('placeOrder.guest.emailLabel')} value={email} onChange={setEmail} type="email" disabled={verified} />
+        <Field id="guest-display-name" label={t('placeOrder.guest.nameLabel')} value={displayName} onChange={setDisplayName} disabled={verified} required={false} />
         <Field
           id="guest-delivery-notes"
-          label="Delivery notes (optional)"
+          label={t('placeOrder.guest.deliveryNotesLabel')}
           value={deliveryNotes}
           onChange={setDeliveryNotes}
           disabled={verified}
@@ -184,27 +187,31 @@ function GuestOrderPanel({ presentations }: { presentations: PresentationRecord[
         />
         {!verified && (
           <Button type="submit" disabled={requesting || !documentId || !email}>
-            {requesting ? 'Sending…' : verificationId ? 'Resend verification code' : 'Send verification code'}
+            {requesting
+              ? t('placeOrder.guest.sending')
+              : verificationId
+                ? t('placeOrder.guest.resendCode')
+                : t('placeOrder.guest.sendCode')}
           </Button>
         )}
       </form>
 
       {verificationId && !verified && (
         <form className="flex flex-col gap-4" onSubmit={handleConfirmCode}>
-          <Field id="guest-code" label="Verification code" value={code} onChange={setCode} />
+          <Field id="guest-code" label={t('placeOrder.guest.codeLabel')} value={code} onChange={setCode} />
           <Button type="submit" disabled={confirming || !code}>
-            {confirming ? 'Confirming…' : 'Confirm code'}
+            {confirming ? t('placeOrder.guest.confirming') : t('placeOrder.guest.confirmCode')}
           </Button>
         </form>
       )}
 
-      {verified && <p className="text-sm text-green-700">Verification confirmed.</p>}
+      {verified && <p className="text-sm text-green-700">{t('placeOrder.guest.verificationConfirmed')}</p>}
 
       <form className="flex flex-col gap-4" onSubmit={handleSubmitOrder}>
         <OrderLinesEditor presentations={presentations} lines={lines} onChange={setLines} />
 
         {!verified && (
-          <p className="text-sm text-neutral-600">Confirm your verification code before submitting the order.</p>
+          <p className="text-sm text-neutral-600">{t('placeOrder.guest.confirmBeforeSubmitting')}</p>
         )}
 
         {error && (
@@ -214,12 +221,14 @@ function GuestOrderPanel({ presentations }: { presentations: PresentationRecord[
         )}
         {outcome && (
           <p data-testid="order-outcome" className="text-sm text-neutral-700">
-            {outcome.status === OrderSubmissionOutcomeStatus.Accepted ? 'Order accepted.' : `Denied: ${outcome.reason}`}
+            {outcome.status === OrderSubmissionOutcomeStatus.Accepted
+              ? t('placeOrder.outcome.accepted')
+              : t('placeOrder.outcome.denied', { reason: outcome.reason })}
           </p>
         )}
 
         <Button type="submit" disabled={submitting || !verified || lines.length === 0}>
-          {submitting ? 'Submitting…' : 'Submit order'}
+          {submitting ? t('placeOrder.submitting') : t('placeOrder.submit')}
         </Button>
       </form>
     </div>
@@ -227,6 +236,7 @@ function GuestOrderPanel({ presentations }: { presentations: PresentationRecord[
 }
 
 function RegisteredOrderPanel({ presentations }: { presentations: PresentationRecord[] }) {
+  const { t } = useTranslation('orders')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [session, setSession] = useState<CustomerSignedInResponse | null>(null)
@@ -244,7 +254,7 @@ function RegisteredOrderPanel({ presentations }: { presentations: PresentationRe
       const signedIn = await customerSignIn({ email, password })
       setSession(signedIn)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Unexpected error signing in.')
+      setError(err instanceof ApiError ? err.message : t('placeOrder.errors.unexpectedSignIn'))
     } finally {
       setSigningIn(false)
     }
@@ -266,7 +276,7 @@ function RegisteredOrderPanel({ presentations }: { presentations: PresentationRe
       })
       setOutcome(result)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Unexpected error submitting the order.')
+      setError(err instanceof ApiError ? err.message : t('placeOrder.errors.unexpectedSubmit'))
     } finally {
       setSubmitting(false)
     }
@@ -275,15 +285,15 @@ function RegisteredOrderPanel({ presentations }: { presentations: PresentationRe
   if (!session) {
     return (
       <form className="flex flex-col gap-4" onSubmit={handleSignIn}>
-        <Field id="customer-email" label="Email" value={email} onChange={setEmail} type="email" />
-        <Field id="customer-password" label="Password" value={password} onChange={setPassword} type="password" />
+        <Field id="customer-email" label={t('placeOrder.registered.emailLabel')} value={email} onChange={setEmail} type="email" />
+        <Field id="customer-password" label={t('placeOrder.registered.passwordLabel')} value={password} onChange={setPassword} type="password" />
         {error && (
           <p role="alert" className="text-sm text-red-600">
             {error}
           </p>
         )}
         <Button type="submit" disabled={signingIn || !email || !password}>
-          {signingIn ? 'Signing in…' : 'Sign in'}
+          {signingIn ? t('placeOrder.registered.signingIn') : t('placeOrder.registered.signIn')}
         </Button>
       </form>
     )
@@ -292,7 +302,7 @@ function RegisteredOrderPanel({ presentations }: { presentations: PresentationRe
   return (
     <form className="flex flex-col gap-4" onSubmit={handleSubmitOrder}>
       {/* Pre-filled from the signed-in session — never re-typed. */}
-      <p className="text-sm text-neutral-700">Signed in as {session.email}</p>
+      <p className="text-sm text-neutral-700">{t('placeOrder.registered.signedInAs', { email: session.email })}</p>
 
       <OrderLinesEditor presentations={presentations} lines={lines} onChange={setLines} />
 
@@ -303,12 +313,14 @@ function RegisteredOrderPanel({ presentations }: { presentations: PresentationRe
       )}
       {outcome && (
         <p data-testid="order-outcome" className="text-sm text-neutral-700">
-          {outcome.status === OrderSubmissionOutcomeStatus.Accepted ? 'Order accepted.' : `Denied: ${outcome.reason}`}
+          {outcome.status === OrderSubmissionOutcomeStatus.Accepted
+            ? t('placeOrder.outcome.accepted')
+            : t('placeOrder.outcome.denied', { reason: outcome.reason })}
         </p>
       )}
 
       <Button type="submit" disabled={submitting || lines.length === 0}>
-        {submitting ? 'Submitting…' : 'Submit order'}
+        {submitting ? t('placeOrder.submitting') : t('placeOrder.submit')}
       </Button>
     </form>
   )

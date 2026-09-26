@@ -90,7 +90,7 @@ describe('CatalogScreen', () => {
     render(<CatalogScreen />)
 
     const alert = await screen.findByRole('alert')
-    expect(alert).toHaveTextContent(/unreachable|error/i)
+    expect(alert).toHaveTextContent(/no está disponible/i)
   })
 
   // T4: the shared data-view layer (PageHeader + DataToolbar + DataView).

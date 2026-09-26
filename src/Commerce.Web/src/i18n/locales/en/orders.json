@@ -1,1 +1,70 @@
-{}
+{
+  "placeOrder": {
+    "title": "Place an order",
+    "tabsLabel": "Order as",
+    "guestTab": "Order as guest",
+    "registeredTab": "Sign in to order",
+    "errors": {
+      "unexpectedCatalogLoad": "Unexpected error loading the catalog.",
+      "unexpectedRequestCode": "Unexpected error requesting the verification code.",
+      "unexpectedConfirmCode": "Unexpected error confirming the verification code.",
+      "confirmBeforeSubmitting": "Confirm your verification code before submitting the order.",
+      "unexpectedSubmit": "Unexpected error submitting the order.",
+      "unexpectedSignIn": "Unexpected error signing in."
+    },
+    "guest": {
+      "documentLabel": "Document (DNI)",
+      "emailLabel": "Email",
+      "nameLabel": "Name",
+      "deliveryNotesLabel": "Delivery notes (optional)",
+      "sending": "Sending…",
+      "resendCode": "Resend verification code",
+      "sendCode": "Send verification code",
+      "codeLabel": "Verification code",
+      "confirming": "Confirming…",
+      "confirmCode": "Confirm code",
+      "verificationConfirmed": "Verification confirmed.",
+      "confirmBeforeSubmitting": "Confirm your verification code before submitting the order."
+    },
+    "registered": {
+      "emailLabel": "Email",
+      "passwordLabel": "Password",
+      "signingIn": "Signing in…",
+      "signIn": "Sign in",
+      "signedInAs": "Signed in as {{email}}"
+    },
+    "outcome": {
+      "accepted": "Order accepted.",
+      "denied": "Denied: {{reason}}"
+    },
+    "submitting": "Submitting…",
+    "submit": "Submit order"
+  },
+  "staffOrder": {
+    "title": "Submit order (staff)",
+    "customerIdLabel": "Customer ID",
+    "accessCredentialLabel": "Access credential",
+    "destinationBranchIdLabel": "Destination branch ID",
+    "actorIdLabel": "Actor ID",
+    "productIdLabel": "Product ID",
+    "presentationIdLabel": "Presentation ID",
+    "quantityLabel": "Quantity",
+    "errors": {
+      "unexpectedSubmit": "Unexpected error submitting order."
+    },
+    "outcome": {
+      "accepted": "Order accepted.",
+      "denied": "Denied: {{reason}}"
+    },
+    "total": "Total: {{total}}",
+    "submitting": "Submitting…",
+    "submit": "Submit order"
+  },
+  "lineEditor": {
+    "presentationLabel": "Presentation",
+    "quantityLabel": "Quantity",
+    "addLine": "Add line",
+    "remove": "Remove",
+    "lineSummary": "{{name}} — qty: {{quantity}}"
+  }
+}

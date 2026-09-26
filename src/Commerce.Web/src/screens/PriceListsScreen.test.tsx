@@ -319,7 +319,7 @@ describe('PriceListsScreen', () => {
 
     render(<PriceListsScreen />)
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/unreachable/i)
+    expect(await screen.findByRole('alert')).toHaveTextContent(/no está disponible/i)
     // "No price lists yet." is a real rendering of this screen (see the empty
     // state case above), so its absence here is a fact about this state.
     expect(screen.queryAllByText('No price lists yet.')).toHaveLength(0)
