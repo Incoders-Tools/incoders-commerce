@@ -19,6 +19,10 @@ public sealed record UserCredentialRecord(
 /// <summary>
 /// Input to <see cref="PostgresUserAccountStore.TryCreateAsync"/> — a new
 /// user to insert into both `users` and `user_directory` in one transaction.
+/// Never carries the platform system-administrator flag: that is set only
+/// AFTER insert, via <see cref="PostgresUserAccountStore.PromoteToSystemAdminAsync"/>
+/// (B1, frontend-modernization) — every row this record creates keeps the
+/// column's own `DEFAULT false` at insert time.
 /// </summary>
 public sealed record NewUserAccount(
     Guid Id,

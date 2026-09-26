@@ -1,8 +1,10 @@
 # Restores the two local development identities in one command:
 #
 #   1. the platform system administrator (seeded through the Development-only
-#      /internal/test-seed/user seam, then promoted with
-#      `is_system_admin = true`), and
+#      /internal/test-seed/user seam with `systemAdmin = true`, then REPAIRED
+#      idempotently: `is_system_admin = true` and every organization role /
+#      branch-scope assignment removed — the sysadmin is the platform owner,
+#      never a client's `business-admin` inside an organization), and
 #   2. the first organization plus its `business-admin`, created the real way —
 #      authenticated as that system administrator, through
 #      POST /account/organizations, which writes organization, branch, user and
@@ -17,7 +19,7 @@
 #
 # So each identity is ENSURED rather than created: on 409 the script proves the
 # account that already exists is the one described by deploy/dev/.env, by
-# signing in as it and (for the sysadmin) re-applying the promotion. It never
+# signing in as it and (for the sysadmin) re-applying the repair. It never
 # rewrites a password to make a mismatch disappear; a stored password that
 # differs from .env fails loudly, naming the account and the file, because
 # silently "fixing" someone's account is worse than stopping.
@@ -210,48 +212,51 @@ $client.BaseAddress = [Uri]::new($apiUri.GetLeftPart([System.UriPartial]::Author
 
 try {
     # --- 1. System administrator -----------------------------------------
+    # B1 (odd/tasks/frontend-modernization.md, product review backlog): the
+    # sysadmin is the PLATFORM owner, business-admin is a CLIENT's user
+    # inside an organization — they must never be conflated. `systemAdmin =
+    # $true` asks /internal/test-seed/user's fixed seam for a sysadmin with
+    # ZERO organization roles and ZERO branch scope, rather than the
+    # business-admin grant it used to hand out unconditionally.
     $systemAdminExisted = $false
     $organizationId = [guid]::NewGuid()
     $seedResponse = Send-LocalJsonRequest -Client $client -Path 'internal/test-seed/user' -Body @{
         organizationId = $organizationId
         email = $email
         password = $password
+        systemAdmin = $true
     }
 
     if ($seedResponse.StatusCode -eq 200) {
-        try {
-            $seededUser = $seedResponse.Body | ConvertFrom-Json
-            $userId = [guid]$seededUser.userId
-        }
-        catch {
-            throw 'Development test seed returned an invalid user identifier; no promotion was attempted.'
-        }
-
-        $promotion = Invoke-LocalPsql -RepositoryRoot $repositoryRoot -Sql "UPDATE users SET is_system_admin = true WHERE id = '$userId'::uuid RETURNING id;"
-        if ($promotion.ExitCode -ne 0) {
-            throw 'Local database promotion failed. Confirm the postgres service is running and healthy.'
-        }
-        if ($promotion.Output -notmatch [regex]::Escape($userId.ToString())) {
-            throw 'Local database promotion did not return the seeded user identifier.'
-        }
+        $systemAdminExisted = $false
     }
     elseif ($seedResponse.StatusCode -eq 409) {
-        # Already present. Re-apply the promotion (a no-op if it stuck) and let
-        # the sign-in check below decide whether it is really OUR account.
-        # `users.email` holds the normalized address
-        # (PostgresUserAccountStore.Normalize: trim + lowercase), which is what
-        # Assert-SafeEmail produced.
         $systemAdminExisted = $true
-        $promotion = Invoke-LocalPsql -RepositoryRoot $repositoryRoot -Sql "UPDATE users SET is_system_admin = true WHERE email = '$email' RETURNING id;"
-        if ($promotion.ExitCode -ne 0) {
-            throw 'Local database promotion failed. Confirm the postgres service is running and healthy.'
-        }
-        if ($promotion.Output -notmatch '\(1 row\)') {
-            throw "The local account '$email' was reported as already existing by the API, but no matching row was found in commerce_dev. Confirm deploy/dev/compose.yaml's postgres is the database Cloud.Api is pointed at."
-        }
     }
     else {
         throw "Development test seed failed with HTTP $($seedResponse.StatusCode). Confirm the full local compose stack is running in Development."
+    }
+
+    # Idempotent REPAIR, run unconditionally on BOTH the created and the
+    # already-present path, and regardless of whether the running API build
+    # is new enough to understand `systemAdmin` (an older build silently
+    # ignores the unknown JSON field via the seam's own defaulted parameter
+    # and falls back to granting the ordinary business-admin shape). This is
+    # the one statement that repairs that stray grant too: is_system_admin
+    # is set true, and every organization role and branch-scope assignment
+    # is removed — a sysadmin holds NO organization roles, ever, and this
+    # runs every time so a stray grant from before this fix (or from an old
+    # API build) never survives a re-run.
+    # `users.email` holds the normalized address (PostgresUserAccountStore.
+    # Normalize: trim + lowercase), which is what Assert-SafeEmail produced,
+    # and `user_directory.email_normalized` is globally unique, so matching
+    # by email alone identifies exactly the account this script owns.
+    $repair = Invoke-LocalPsql -RepositoryRoot $repositoryRoot -Sql "UPDATE users SET is_system_admin = true, roles = '[]'::jsonb, branch_scope = '{}' WHERE email = '$email' RETURNING id;"
+    if ($repair.ExitCode -ne 0) {
+        throw 'Local database repair failed. Confirm the postgres service is running and healthy.'
+    }
+    if ($repair.Output -notmatch '\(1 row\)') {
+        throw "The local account '$email' was not found in commerce_dev after seeding. Confirm deploy/dev/compose.yaml's postgres is the database Cloud.Api is pointed at."
     }
 
     # --- 2. Verify the system administrator signs in ----------------------

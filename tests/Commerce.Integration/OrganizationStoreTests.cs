@@ -69,6 +69,14 @@ public sealed class OrganizationStoreTests : IDisposable
         var recoverySql = File.ReadAllText(Path.Combine(repoRoot, "deploy", "db", "migrations", "0005_password_recovery.sql"));
         using (var cmd = new NpgsqlCommand(recoverySql, owner)) cmd.ExecuteNonQuery();
 
+        // B1 (frontend-modernization): adds `users.is_system_admin`, needed
+        // by this file's own PromoteToSystemAdminAsync coverage below. Its
+        // platform_admins-merge block is guarded by
+        // `to_regclass(...) IS NOT NULL`, so applying it here without
+        // 0006-0011 first is a no-op there.
+        var adminConsoleSql = File.ReadAllText(Path.Combine(repoRoot, "deploy", "db", "migrations", "0012_admin_console.sql"));
+        using (var cmd = new NpgsqlCommand(adminConsoleSql, owner)) cmd.ExecuteNonQuery();
+
         // device_credentials (0004) and password_reset_tokens (0005) carry
         // FKs to organizations/branches, so they must be truncated
         // before/alongside them. CASCADE additionally covers `customers`
@@ -296,5 +304,60 @@ public sealed class OrganizationStoreTests : IDisposable
         using var branchCmd = new NpgsqlCommand("SELECT count(*) FROM branches WHERE id = $1", owner);
         branchCmd.Parameters.AddWithValue(newBranchId);
         Assert.Equal(0L, (long)branchCmd.ExecuteScalar()!);
+    }
+
+    /// <summary>
+    /// B1 (odd/tasks/frontend-modernization.md, product review backlog):
+    /// the platform sysadmin must never carry an organization role — the bug
+    /// was `TestSeedEndpoints` always granting `business-admin`. This proves
+    /// the chosen shape end to end: bootstrap a user with ZERO roles and
+    /// ZERO branch scope (as the seed seam's `systemAdmin` branch does), then
+    /// promote it, and assert the promotion sets ONLY `is_system_admin` —
+    /// roles and branch_scope are untouched, still empty.
+    /// </summary>
+    [Fact]
+    public async Task PromoteToSystemAdminAsync_SetsFlagOnly_RolesAndBranchScopeStayEmpty()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var userStore = new PostgresUserAccountStore(_dataSource!);
+        var store = new PostgresOrganizationStore(_dataSource!, userStore);
+
+        var orgId = Guid.NewGuid();
+        var branchId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var scope = new CloudTenantScope(orgId);
+
+        var outcome = await store.TryCreateBootstrapAsync(
+            scope,
+            new NewOrganization(orgId, "Platform System Administrator"),
+            new NewBranch(branchId, "Main"),
+            new NewUserAccount(userId, "sysadmin@example.com", "hashed-password", Array.Empty<Guid>(), Array.Empty<RoleDto>()),
+            CancellationToken.None);
+        Assert.Equal(BootstrapOutcome.Created, outcome);
+
+        var beforePromotion = await userStore.LoadActorAsync(scope, userId, CancellationToken.None);
+        Assert.NotNull(beforePromotion);
+        Assert.False(beforePromotion!.IsSystemAdmin);
+
+        await userStore.PromoteToSystemAdminAsync(scope, userId, CancellationToken.None);
+
+        var actor = await userStore.LoadActorAsync(scope, userId, CancellationToken.None);
+        Assert.NotNull(actor);
+        Assert.True(actor!.IsSystemAdmin);
+        Assert.Empty(actor.Roles);
+        Assert.Empty(actor.BranchScope);
+        Assert.Equal(Permission.None, actor.EffectivePermissions);
+
+        using var ownerConn = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        ownerConn.Open();
+        using var cmd = new NpgsqlCommand(
+            "SELECT is_system_admin, roles, branch_scope FROM users WHERE id = $1", ownerConn);
+        cmd.Parameters.AddWithValue(userId);
+        using var reader = cmd.ExecuteReader();
+        Assert.True(reader.Read());
+        Assert.True(reader.GetBoolean(0));
+        Assert.Equal("[]", reader.GetString(1));
+        Assert.Empty(reader.GetFieldValue<Guid[]>(2));
     }
 }

@@ -240,6 +240,36 @@ public sealed class PostgresUserAccountStore
     }
 
     /// <summary>
+    /// B1 (frontend-modernization: "Users screen shows the platform
+    /// sysadmin with the business-admin role checked"). The ONLY place
+    /// application code sets `users.is_system_admin` — a promotion, never
+    /// part of the ordinary insert path, so every existing INSERT (this
+    /// class's own <see cref="InsertAsync"/>, every caller of
+    /// <see cref="TryCreateAsync"/>, every live-Postgres test fixture that
+    /// never applies migration 0012) keeps writing the column's own
+    /// `DEFAULT false` unchanged. Sets ONLY the flag: it never touches
+    /// `roles` or `branch_scope`, because cross-org sysadmin capability is
+    /// this flag alone (openspec/specs/platform-administration/spec.md
+    /// "Sysadmin Identity Lives in the Unified Model") — the caller is
+    /// responsible for having granted zero organization roles to begin
+    /// with (<see cref="Endpoints.TestSeedEndpoints"/>'s `systemAdmin`
+    /// branch does exactly that).
+    /// </summary>
+    public async Task PromoteToSystemAdminAsync(CloudTenantScope scope, Guid userId, CancellationToken ct)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+
+        await SetTenantScopeAsync(connection, tx, scope, ct);
+
+        await using var cmd = new NpgsqlCommand("UPDATE users SET is_system_admin = true WHERE id = $1", connection, tx);
+        cmd.Parameters.AddWithValue(userId);
+        await cmd.ExecuteNonQueryAsync(ct);
+
+        await tx.CommitAsync(ct);
+    }
+
+    /// <summary>
     /// Confirms every id in <paramref name="branchIds"/> resolves to a
     /// branch visible under <paramref name="scope"/> (commerce-role-taxonomy
     /// design.md "Data Flow" — "branchIds not a subset of caller-org

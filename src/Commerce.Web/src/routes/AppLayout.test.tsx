@@ -108,6 +108,24 @@ describe('AppLayout', () => {
     expect(nav.getByRole('link', { name: /organizations/i })).toBeInTheDocument()
   })
 
+  // B1 (odd/tasks/frontend-modernization.md, product review backlog): the
+  // sysadmin is the platform owner, never an organization's business-admin
+  // — after the seeding fix it holds ZERO permissions (permissions: 0 is
+  // this test's default), so it must see exactly Organizations and NOT the
+  // tenant-scoped screens that gate on ManageUsers.
+  it('shows a system admin with no roles Organizations only, not the tenant-scoped screens', () => {
+    renderLayout(buildUser({ isSystemAdmin: true }))
+
+    const nav = within(screen.getByRole('navigation'))
+    expect(nav.getByRole('link', { name: /organizations/i })).toBeInTheDocument()
+    expect(nav.getByRole('link', { name: /catalog/i })).toBeInTheDocument()
+    expect(nav.getByRole('link', { name: /orders/i })).toBeInTheDocument()
+    expect(nav.queryByRole('link', { name: /customers/i })).not.toBeInTheDocument()
+    expect(nav.queryByRole('link', { name: /users/i })).not.toBeInTheDocument()
+    expect(nav.queryByRole('link', { name: /branches/i })).not.toBeInTheDocument()
+    expect(nav.queryByRole('link', { name: /price lists/i })).not.toBeInTheDocument()
+  })
+
   it('renders full-width content (no centered max-width column) alongside the sidebar', () => {
     const { container } = renderLayout(buildUser())
 

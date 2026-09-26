@@ -39,6 +39,7 @@ public static class TestSeedEndpoints
         group.MapPost("/user", async (
             TestSeedUserRequest request,
             PostgresOrganizationStore organizationStore,
+            PostgresUserAccountStore userAccountStore,
             PasswordHasher<UserAccount> hasher,
             CancellationToken ct) =>
         {
@@ -48,23 +49,47 @@ public static class TestSeedEndpoints
             var passwordHash = hasher.HashPassword(
                 new UserAccount(userId, request.OrganizationId, [], []), request.Password);
 
+            // B1 (odd/tasks/frontend-modernization.md, product review
+            // backlog): the platform sysadmin must never hold an
+            // organization role — that was this seam's own bug, always
+            // granting `business-admin`. `systemAdmin: true` grants ZERO
+            // roles and ZERO branch scope (openspec/specs/platform-
+            // administration/spec.md "Sysadmin Identity Lives in the
+            // Unified Model": cross-org capability is the `is_system_admin`
+            // flag alone, never a role grant). The organization+branch row
+            // still exists — `users.organization_id` is `NOT NULL`, schema
+            // has no nullable escape hatch — but it is minimal and never
+            // named after the caller's own organization, so it reads as
+            // what it is: bootstrap plumbing, not a real tenant.
+            var roles = request.SystemAdmin
+                ? Array.Empty<RoleDto>()
+                : new[]
+                {
+                    new RoleDto(
+                        RoleCatalog.BusinessAdmin,
+                        Permission.ViewSales | Permission.ManageCatalog | Permission.ManageUsers | Permission.ManageBranchSettings),
+                };
+            var branchScope = request.SystemAdmin ? Array.Empty<Guid>() : new[] { branchId };
+            var organizationName = request.SystemAdmin ? "Platform System Administrator" : "E2E Test Organization";
+
             var outcome = await organizationStore.TryCreateBootstrapAsync(
                 scope,
-                new NewOrganization(request.OrganizationId, "E2E Test Organization"),
+                new NewOrganization(request.OrganizationId, organizationName),
                 new NewBranch(branchId, "Main"),
-                new NewUserAccount(
-                    userId,
-                    request.Email,
-                    passwordHash,
-                    [branchId],
-                    [new RoleDto(
-                        RoleCatalog.BusinessAdmin,
-                        Permission.ViewSales | Permission.ManageCatalog | Permission.ManageUsers | Permission.ManageBranchSettings)]),
+                new NewUserAccount(userId, request.Email, passwordHash, branchScope, roles),
                 ct);
 
-            return outcome == BootstrapOutcome.Created
-                ? Results.Ok(new TestSeedUserResponse(userId, request.OrganizationId, branchId, request.Email))
-                : Results.Conflict();
+            if (outcome != BootstrapOutcome.Created)
+            {
+                return Results.Conflict();
+            }
+
+            if (request.SystemAdmin)
+            {
+                await userAccountStore.PromoteToSystemAdminAsync(scope, userId, ct);
+            }
+
+            return Results.Ok(new TestSeedUserResponse(userId, request.OrganizationId, branchId, request.Email));
         }).AllowAnonymous();
 
         // Phase 8 follow-up B (commerce-guest-ordering verify-report.md
@@ -111,7 +136,14 @@ public static class TestSeedEndpoints
     }
 }
 
-public sealed record TestSeedUserRequest(Guid OrganizationId, string Email, string Password);
+/// <param name="SystemAdmin">
+/// B1 (frontend-modernization): when true, seeds the platform system
+/// administrator instead of an ordinary business-admin — zero organization
+/// roles, zero branch scope, `is_system_admin = true`. Defaults to false so
+/// every pre-existing caller (`src/Commerce.Web/e2e/helpers.ts`'s
+/// `seedUser`) keeps its exact current behavior unchanged.
+/// </param>
+public sealed record TestSeedUserRequest(Guid OrganizationId, string Email, string Password, bool SystemAdmin = false);
 
 public sealed record TestSeedUserResponse(Guid UserId, Guid OrganizationId, Guid BranchId, string Email);
 
