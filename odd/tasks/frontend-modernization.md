@@ -915,7 +915,16 @@ implementation gap before implementing.
       each role should see only its own modules.
 - [x] B6. Branches cannot be created from the UI.
 - [ ] B7. More attractive menu; for business admins, a top navbar with a
-      branch switcher.
+      branch switcher. Owner decision 2026-09-25: EVERYTHING is filtered by
+      organization AND branch, not only orders. First case to support:
+      organization "Vaca Verde", branch "Ruta 51". Owner decision
+      2026-09-26: the catalog is per branch, with admin-only copy of the
+      whole catalog or of individual products from one branch to another
+      (spec `catalog-item-identification`, "Copying Catalog Between
+      Branches"). Whether a copy also carries prices is still open.
+- [x] B9. Spanish UI through i18n (owner, 2026-09-25): clients and
+      organizations are Spanish-speaking; ship Spanish now on an i18n layer
+      so more languages can be added later. Code/specs/commits stay English.
 - [ ] B8. Owner's concern: the project is behind — determine whether the
       cause is missing definition (specs) or failing implementation, per
       item.
@@ -1006,8 +1015,58 @@ implementation gap before implementing.
   SUGGESTIONs `R3-malformed-selector-silent`, `R3-weak-unknown-org-assertion`.
   The user's running Cloud.Api is an older build; B6 needs an API restart.
 
+- 2026-09-26: B7 design (design fork, opus). Spec additions across 12
+  `openspec/specs/` files: `X-Branch-Id` selector validated against the
+  scoped org and the caller's branch scope (sysadmin: any branch of the
+  selected org), missing selector rejected with `branch-selection-required`,
+  device path uses its paired branch, `/account/me` returns selectable
+  branches, branch-owned tables get `branch_id NOT NULL` + composite FK +
+  backfill to each org's earliest branch, RLS enforces
+  `app.current_branch_id` fail-closed, users and branch management stay
+  org-level (Users screen lists staff of the selected branch), dev renames
+  Vaca Verde's branch to "Ruta 51". Adopted the design fork's
+  recommendations on everything except the catalog, which the owner decided.
+  Plan (work units): U1 selector plumbing, U2 dev "Ruta 51", U3 web branch
+  switcher (synchronous header mirror), U4 catalog (+ copy), U5 pricing,
+  U6 customers, U7 orders/payments/inbox, U8 users/audit.
+
+- 2026-09-26: B7 U1+U2 done (delegated direct; writer cut off once by a
+  usage limit and resumed). `ac1623b` U1: `X-Branch-Id` resolved after the
+  org selector; device requests always use their paired branch and ignore
+  the header; malformed -> 400; unknown/other-org/out-of-scope -> identical
+  403 (`Results.StatusCode(403)` — `Forbid()` 302-redirects under the staff
+  cookie scheme, caught in RED/GREEN); `BranchSelectionRequirement` guard
+  ready but not wired (U4+); `/account/me` and sign-in return
+  `selectableBranches` and `/me` now goes through the tenant filter;
+  `TenantScopeSql.ApplyAsync` replaces 20 hand-rolled `set_config` calls in
+  13 files and sets `app.current_branch_id` when selected (no RLS policy
+  reads it yet). `db7b7a2` U2: provisioning defaults the branch to
+  "Ruta 51", renames a single-branch org in place (id kept), widens the
+  admin's branch scope; `.env.example` and README fixed. Checks: full
+  integration 723/723 in a clean worktree; parent spot check 21/21
+  (branch + org selection tests); dev DB: Vaca Verde -> "Ruta 51".
+
+- 2026-09-26: B9 done (delegated direct; cut off once by a usage limit and
+  resumed). `8622713` i18n layer (`i18next` + `react-i18next`, `es` default
+  and fallback, no detection, `en` at full key parity enforced by a test,
+  12 namespaces), then one commit per screen group (`b2443dc`, `b3110aa`,
+  `1e21411`, `8c4f725`, `11d66fc`, `a3f972b`, `6db99c9`, `e27f38e`) and
+  `8845aa0` Spanish E2E selectors. Dates `es-AR`. Left in English on
+  purpose: role slugs, wire enum values, server ValidationProblem texts
+  (follow-up: localize server errors). TDD RED per group; disclosed gaps:
+  key-parity test never RED, a HomeScreen micro-edit not RED-checked. Checks:
+  web 252/252 (44 files), lint exit 0 / 20, build clean, e2e typecheck
+  clean. Parent spot check 252/252.
+  RDD: the whole block `a3035ef..8845aa0` (136 files, 4467 lines, high) hit
+  `lens_context_budget_exceeded`; split into five contiguous slices reviewed
+  from detached worktrees (`..8622713`, `..b3110aa`, `..ac1623b`,
+  `..db7b7a2`, `..8845aa0`). The user DECLINED all five (candidate-scoped;
+  exact decline invocations run, `declined_this_candidate` confirmed each
+  time). No review receipt exists for these commits.
+
 ## Next step
 
-B7 (business-admin branch switcher in the top navbar; needs a spec for a
-selected branch — the audit found no staff endpoint filters by branch
-today). Then B2 semantics, B3, B4 confirmation, B1b/B6b/T6b cleanups.
+B7 U3 (web branch switcher in the top navbar, synchronous header mirror),
+then U4 catalog (+ copy; open: does a copy carry prices?), U5..U8, B2
+semantics, B3, B4 confirmation, B1b/B6b/T6b cleanups, localized server
+errors.
