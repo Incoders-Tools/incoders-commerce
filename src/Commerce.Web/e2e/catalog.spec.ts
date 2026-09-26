@@ -30,9 +30,9 @@ test.describe('catalog screen', () => {
     const otherContext = await page.context().browser()!.newContext({ ignoreHTTPSErrors: true })
     const otherPage = await otherContext.newPage()
     await otherPage.goto('/login')
-    await otherPage.getByLabel('Email').fill(otherOrgUser.email)
-    await otherPage.getByLabel('Password').fill(password)
-    await otherPage.getByRole('button', { name: /sign in/i }).click()
+    await otherPage.getByLabel('Correo electrónico').fill(otherOrgUser.email)
+    await otherPage.getByLabel('Contraseña').fill(password)
+    await otherPage.getByRole('button', { name: /iniciar sesión/i }).click()
     await expectSignedIn(otherPage)
 
     const otherProduct = await otherPage.request.post('/catalog/products', {
@@ -53,13 +53,13 @@ test.describe('catalog screen', () => {
     await otherContext.close()
 
     await page.goto('/login')
-    await page.getByLabel('Email').fill(user.email)
-    await page.getByLabel('Password').fill(password)
-    await page.getByRole('button', { name: /sign in/i }).click()
+    await page.getByLabel('Correo electrónico').fill(user.email)
+    await page.getByLabel('Contraseña').fill(password)
+    await page.getByRole('button', { name: /iniciar sesión/i }).click()
     await expectSignedIn(page)
 
     // Catalog is the default tab.
-    await expect(page.getByText('No presentations yet.')).toBeVisible()
+    await expect(page.getByText('Todavía no hay presentaciones.')).toBeVisible()
     await expect(page.getByText('Other Org Presentation')).toHaveCount(0)
   })
 
@@ -68,9 +68,9 @@ test.describe('catalog screen', () => {
     const user = await seedUser(baseURL!, { email: uniqueEmail('catalog-edit'), password })
 
     await page.goto('/login')
-    await page.getByLabel('Email').fill(user.email)
-    await page.getByLabel('Password').fill(password)
-    await page.getByRole('button', { name: /sign in/i }).click()
+    await page.getByLabel('Correo electrónico').fill(user.email)
+    await page.getByLabel('Contraseña').fill(password)
+    await page.getByRole('button', { name: /iniciar sesión/i }).click()
     await expectSignedIn(page)
 
     // Seed a real product + presentation through the same production
@@ -96,16 +96,16 @@ test.describe('catalog screen', () => {
     // user purely in-memory with no `/account/me` rehydration on a full page
     // reload (AuthContext.tsx), so a hard refresh here would be a separate,
     // unrelated bug this test has no need to exercise.
-    await page.getByRole('link', { name: 'Orders' }).click()
-    await page.getByRole('link', { name: 'Catalog' }).click()
+    await page.getByRole('link', { name: 'Pedidos' }).click()
+    await page.getByRole('link', { name: 'Catálogo' }).click()
     await expect(page.getByText('E2E Presentation')).toBeVisible()
-    await expect(page.getByText('No code')).toBeVisible()
+    await expect(page.getByText('Sin código')).toBeVisible()
 
-    await page.getByRole('button', { name: /edit code/i }).click()
-    await page.getByLabel(/identification code/i).fill('7791234567890')
-    await page.getByRole('button', { name: /^save$/i }).click()
+    await page.getByRole('button', { name: /editar código/i }).click()
+    await page.getByLabel(/código de identificación/i).fill('7791234567890')
+    await page.getByRole('button', { name: /^guardar$/i }).click()
 
     await expect(page.getByText('7791234567890')).toBeVisible()
-    await expect(page.getByText('No code')).toHaveCount(0)
+    await expect(page.getByText('Sin código')).toHaveCount(0)
   })
 })

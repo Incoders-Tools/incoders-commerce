@@ -22,20 +22,20 @@ test.describe('public route addressability on hard refresh', () => {
 
   test('"/login" survives a hard refresh', async ({ page }) => {
     await page.goto('/login')
-    await expect(page.getByRole('button', { name: /sign in/i })).toBeVisible()
+    await expect(page.getByRole('button', { name: /iniciar sesión/i })).toBeVisible()
 
     await page.reload()
 
-    await expect(page.getByRole('button', { name: /sign in/i })).toBeVisible()
+    await expect(page.getByRole('button', { name: /iniciar sesión/i })).toBeVisible()
   })
 
   test('"/forgot-password" survives a hard refresh', async ({ page }) => {
     await page.goto('/forgot-password')
-    await expect(page.getByRole('heading', { name: /forgot/i })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /recuperar/i })).toBeVisible()
 
     await page.reload()
 
-    await expect(page.getByRole('heading', { name: /forgot/i })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /recuperar/i })).toBeVisible()
   })
 
   test('an unknown deep path falls back to the SPA instead of a raw 404', async ({ page }) => {
@@ -55,6 +55,6 @@ test.describe('guarded route redirect', () => {
     await page.goto('/app')
 
     await expect(page).toHaveURL(/\/login$/)
-    await expect(page.getByRole('button', { name: /sign in/i })).toBeVisible()
+    await expect(page.getByRole('button', { name: /iniciar sesión/i })).toBeVisible()
   })
 })

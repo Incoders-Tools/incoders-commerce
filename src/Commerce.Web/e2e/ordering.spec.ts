@@ -32,9 +32,9 @@ test.describe('order submission', () => {
     const user = await seedUser(baseURL!, { email: uniqueEmail('order-submit'), password })
 
     await page.goto('/login')
-    await page.getByLabel('Email').fill(user.email)
-    await page.getByLabel('Password').fill(password)
-    await page.getByRole('button', { name: /sign in/i }).click()
+    await page.getByLabel('Correo electrónico').fill(user.email)
+    await page.getByLabel('Contraseña').fill(password)
+    await page.getByRole('button', { name: /iniciar sesión/i }).click()
     await expectSignedIn(page)
 
     // Seed a real Retail customer + issued ordering-access credential via the
@@ -69,7 +69,7 @@ test.describe('order submission', () => {
     expect(accessResponse.ok()).toBeTruthy()
     const { credential } = (await accessResponse.json()) as { credential: string }
 
-    await page.getByRole('link', { name: 'Orders' }).click()
+    await page.getByRole('link', { name: 'Pedidos' }).click()
 
     await page.locator('#customerId').fill(customerId)
     await page.locator('#accessCredential').fill(credential)
@@ -79,7 +79,7 @@ test.describe('order submission', () => {
     await page.locator('#presentationId').fill(crypto.randomUUID())
     await page.locator('#quantity').fill('3')
 
-    await page.getByRole('button', { name: /submit order/i }).click()
+    await page.getByRole('button', { name: /enviar pedido/i }).click()
 
     // commerce-pricing-engine: a presentation with no published price has
     // ZERO effective price rows, so CloudOrderSubmissionService now denies
@@ -89,7 +89,7 @@ test.describe('order submission', () => {
     // which this change does not yet ship — asserting the denial here (a
     // real access/binding/customer-enabled acceptance, additive pricing
     // check) is the correct, currently-reachable outcome.
-    await expect(page.getByTestId('order-outcome')).toHaveText('Denied: no-effective-price')
+    await expect(page.getByTestId('order-outcome')).toHaveText('Rechazado: no-effective-price')
   })
 
   test('an unissued (random) credential is denied with reason not-found', async ({ page, baseURL }) => {
@@ -97,12 +97,12 @@ test.describe('order submission', () => {
     const user = await seedUser(baseURL!, { email: uniqueEmail('order-denied'), password })
 
     await page.goto('/login')
-    await page.getByLabel('Email').fill(user.email)
-    await page.getByLabel('Password').fill(password)
-    await page.getByRole('button', { name: /sign in/i }).click()
+    await page.getByLabel('Correo electrónico').fill(user.email)
+    await page.getByLabel('Contraseña').fill(password)
+    await page.getByRole('button', { name: /iniciar sesión/i }).click()
     await expectSignedIn(page)
 
-    await page.getByRole('link', { name: 'Orders' }).click()
+    await page.getByRole('link', { name: 'Pedidos' }).click()
 
     await page.locator('#customerId').fill(crypto.randomUUID())
     await page.locator('#accessCredential').fill(crypto.randomUUID())
@@ -112,9 +112,9 @@ test.describe('order submission', () => {
     await page.locator('#presentationId').fill(crypto.randomUUID())
     await page.locator('#quantity').fill('3')
 
-    await page.getByRole('button', { name: /submit order/i }).click()
+    await page.getByRole('button', { name: /enviar pedido/i }).click()
 
-    await expect(page.getByTestId('order-outcome')).toHaveText('Denied: not-found')
+    await expect(page.getByTestId('order-outcome')).toHaveText('Rechazado: not-found')
   })
 })
 
@@ -129,18 +129,18 @@ test.describe('guest order submission — defense in depth', () => {
   test('a guest requests a verification code and is blocked from submitting until confirmed', async ({ page }) => {
     await page.goto('/order')
 
-    await expect(page.getByRole('tab', { name: /order as guest/i })).toBeVisible()
-    await expect(page.getByRole('tab', { name: /sign in to order/i })).toBeVisible()
+    await expect(page.getByRole('tab', { name: /pedir como invitado/i })).toBeVisible()
+    await expect(page.getByRole('tab', { name: /iniciar sesión para pedir/i })).toBeVisible()
 
-    await page.getByLabel(/document/i).fill('30111222')
-    await page.getByLabel(/^email/i).fill(uniqueEmail('guest'))
-    await page.getByRole('button', { name: /send verification code/i }).click()
+    await page.getByLabel(/documento/i).fill('30111222')
+    await page.getByLabel(/^correo/i).fill(uniqueEmail('guest'))
+    await page.getByRole('button', { name: /enviar código de verificación/i }).click()
 
-    await expect(page.getByLabel(/verification code/i)).toBeVisible()
+    await expect(page.getByLabel(/código de verificación/i)).toBeVisible()
 
-    const submitButton = page.getByRole('button', { name: /submit order/i })
+    const submitButton = page.getByRole('button', { name: /enviar pedido/i })
     await expect(submitButton).toBeDisabled()
-    await expect(page.getByText(/confirm your verification code before submitting/i)).toBeVisible()
+    await expect(page.getByText(/confirme su código de verificación antes de enviar/i)).toBeVisible()
   })
 })
 
@@ -201,11 +201,11 @@ test.describe('guest order submission — full verification cycle (commerce-gues
 
     await page.goto('/order')
 
-    await page.getByLabel(/document/i).fill('30111222')
-    await page.getByLabel(/^email/i).fill(email)
-    await page.getByRole('button', { name: /send verification code/i }).click()
+    await page.getByLabel(/documento/i).fill('30111222')
+    await page.getByLabel(/^correo/i).fill(email)
+    await page.getByRole('button', { name: /enviar código de verificación/i }).click()
 
-    await expect(page.getByLabel(/verification code/i)).toBeVisible()
+    await expect(page.getByLabel(/código de verificación/i)).toBeVisible()
 
     const codeResponse = await request.get(
       `${baseURL}/internal/test-seed/guest-verification-code?contactAddress=${encodeURIComponent(email)}`,
@@ -218,10 +218,10 @@ test.describe('guest order submission — full verification cycle (commerce-gues
     const { code } = (await codeResponse.json()) as { code: string }
     expect(code).toMatch(/^\d{6}$/)
 
-    await page.getByLabel(/verification code/i).fill(code)
-    await page.getByRole('button', { name: /confirm code/i }).click()
+    await page.getByLabel(/código de verificación/i).fill(code)
+    await page.getByRole('button', { name: /confirmar código/i }).click()
 
-    await expect(page.getByText(/verification confirmed/i)).toBeVisible()
+    await expect(page.getByText(/verificación confirmada/i)).toBeVisible()
 
     const presentationOptionCount = await page.locator('#order-line-presentation option').count()
     if (presentationOptionCount === 0) {
@@ -229,15 +229,15 @@ test.describe('guest order submission — full verification cycle (commerce-gues
       // presentations in this environment, so there is no line this test
       // can construct. Assert the real, correctly-disabled state instead
       // of fabricating one.
-      await expect(page.getByRole('button', { name: /^add line$/i })).toBeDisabled()
-      await expect(page.getByRole('button', { name: /submit order/i })).toBeDisabled()
+      await expect(page.getByRole('button', { name: /^agregar línea$/i })).toBeDisabled()
+      await expect(page.getByRole('button', { name: /enviar pedido/i })).toBeDisabled()
       return
     }
 
-    await page.getByRole('button', { name: /^add line$/i }).click()
-    await page.getByRole('button', { name: /submit order/i }).click()
+    await page.getByRole('button', { name: /^agregar línea$/i }).click()
+    await page.getByRole('button', { name: /enviar pedido/i }).click()
 
     await expect(page.getByTestId('order-outcome')).toBeVisible()
-    await expect(page.getByTestId('order-outcome')).toHaveText(/^(Order accepted\.|Denied: .+)$/)
+    await expect(page.getByTestId('order-outcome')).toHaveText(/^(Pedido aceptado\.|Rechazado: .+)$/)
   })
 })

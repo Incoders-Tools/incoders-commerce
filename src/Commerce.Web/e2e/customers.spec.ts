@@ -13,14 +13,14 @@ test.describe('customer registry admin gating', () => {
     const admin = await seedUser(baseURL!, { email: uniqueEmail('customers-admin'), password })
 
     await page.goto('/login')
-    await page.getByLabel('Email').fill(admin.email)
-    await page.getByLabel('Password').fill(password)
-    await page.getByRole('button', { name: /sign in/i }).click()
+    await page.getByLabel('Correo electrónico').fill(admin.email)
+    await page.getByLabel('Contraseña').fill(password)
+    await page.getByRole('button', { name: /iniciar sesión/i }).click()
     await expectSignedIn(page)
 
-    await expect(page.getByRole('link', { name: 'Customers' })).toBeVisible()
-    await page.getByRole('link', { name: 'Customers' }).click()
-    await expect(page.getByRole('heading', { name: 'Customers' })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Clientes' })).toBeVisible()
+    await page.getByRole('link', { name: 'Clientes' }).click()
+    await expect(page.getByRole('heading', { name: 'Clientes' })).toBeVisible()
   })
 
   test('a seller has no Customers tab and is redirected away from /app/customers', async ({ page, baseURL }) => {
@@ -30,9 +30,9 @@ test.describe('customer registry admin gating', () => {
     const sellerPassword = 'correct-horse-battery-staple'
 
     await page.goto('/login')
-    await page.getByLabel('Email').fill(admin.email)
-    await page.getByLabel('Password').fill(password)
-    await page.getByRole('button', { name: /sign in/i }).click()
+    await page.getByLabel('Correo electrónico').fill(admin.email)
+    await page.getByLabel('Contraseña').fill(password)
+    await page.getByRole('button', { name: /iniciar sesión/i }).click()
     await expectSignedIn(page)
 
     // Real, cookie-authorized ManageUsers call — the admin's own session,
@@ -50,16 +50,16 @@ test.describe('customer registry admin gating', () => {
     await signOut(page)
     await expect(page).toHaveURL(/\/login$/)
 
-    await page.getByLabel('Email').fill(sellerEmail)
-    await page.getByLabel('Password').fill(sellerPassword)
-    await page.getByRole('button', { name: /sign in/i }).click()
+    await page.getByLabel('Correo electrónico').fill(sellerEmail)
+    await page.getByLabel('Contraseña').fill(sellerPassword)
+    await page.getByRole('button', { name: /iniciar sesión/i }).click()
     await expectSignedIn(page)
 
     // The Customers tab is hidden for a seller — there is no clickable path
     // into the screen from the UI (design.md "Web admin gating": a UX
     // affordance; the server's ManageUsers check on every /customers call is
     // the real gate, exercised directly by CustomerRegistryTests).
-    await expect(page.getByRole('link', { name: 'Customers' })).not.toBeVisible()
+    await expect(page.getByRole('link', { name: 'Clientes' })).not.toBeVisible()
 
     // In-SPA (client-side) navigation attempt to the guarded path — no full
     // page reload, so the still-mounted AuthProvider's `user` state (and its
