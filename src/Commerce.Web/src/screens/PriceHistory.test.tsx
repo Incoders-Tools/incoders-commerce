@@ -11,6 +11,7 @@ const entries: PriceListEntryRecord[] = [
   {
     id: '33333333-3333-3333-3333-333333333333',
     organizationId: 'org-1',
+    branchId: 'branch-1',
     priceListId,
     presentationId,
     unitPrice: 550,
@@ -23,6 +24,7 @@ const entries: PriceListEntryRecord[] = [
   {
     id: '44444444-4444-4444-4444-444444444444',
     organizationId: 'org-1',
+    branchId: 'branch-1',
     priceListId,
     presentationId,
     unitPrice: 500,

@@ -53,6 +53,24 @@
     "publish": "Publish",
     "cancel": "Cancel"
   },
+  "dateFilter": {
+    "title": "Filter by date",
+    "asOfLabel": "As of",
+    "or": "or",
+    "fromLabel": "From",
+    "toLabel": "To",
+    "apply": "Apply",
+    "clear": "Clear",
+    "loading": "Loading…",
+    "empty": "No prices in effect for this date.",
+    "rangeBothRequired": "Enter both dates of the range.",
+    "unexpectedLoad": "Unexpected error loading prices by date.",
+    "columns": {
+      "presentation": "Presentation",
+      "price": "Price",
+      "effectiveFrom": "Effective from"
+    }
+  },
   "history": {
     "hide": "Hide history",
     "show": "History",

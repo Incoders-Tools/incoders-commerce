@@ -309,6 +309,7 @@ export interface UpdatePresentationRequest {
 export interface PriceListRecord {
   id: string
   organizationId: string
+  branchId: string
   name: string
   isDefault: boolean
   createdAtUtc: string
@@ -326,6 +327,7 @@ export interface CreatePriceListRequest {
 export interface PriceListEntryRecord {
   id: string
   organizationId: string
+  branchId: string
   priceListId: string
   presentationId: string
   unitPrice: number
@@ -349,6 +351,7 @@ export interface AppendPriceEntryRequest {
 export interface SupplierPriceMappingRecord {
   id: string
   organizationId: string
+  branchId: string
   supplierName: string
   sheetName: string
   headerRow: number
@@ -380,6 +383,7 @@ export type ImportBatchStatus = (typeof ImportBatchStatus)[keyof typeof ImportBa
 export interface ImportBatchRecord {
   id: string
   organizationId: string
+  branchId: string
   supplierMappingId: string
   fileName: string
   rowCount: number
@@ -392,6 +396,7 @@ export interface ImportBatchRecord {
 export interface ImportBatchRowRecord {
   id: string
   organizationId: string
+  branchId: string
   batchId: string
   rowNumber: number
   rawCode: string | null

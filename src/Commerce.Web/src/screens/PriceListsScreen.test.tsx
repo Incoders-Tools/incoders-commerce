@@ -11,6 +11,7 @@ import type { PresentationRecord, PriceListRecord } from '@/api/types'
 const defaultPriceList: PriceListRecord = {
   id: '11111111-1111-1111-1111-111111111111',
   organizationId: 'org-1',
+  branchId: 'branch-1',
   name: 'Default',
   isDefault: true,
   createdAtUtc: '2024-01-01T00:00:00Z',
@@ -20,6 +21,7 @@ const defaultPriceList: PriceListRecord = {
 const seasonalPriceList: PriceListRecord = {
   id: '99999999-9999-9999-9999-999999999999',
   organizationId: 'org-1',
+  branchId: 'branch-1',
   name: 'Seasonal',
   isDefault: false,
   createdAtUtc: '2024-03-05T00:00:00Z',
@@ -124,6 +126,9 @@ describe('PriceListsScreen', () => {
     fetchMock
       .mockResolvedValueOnce(new Response(JSON.stringify([defaultPriceList]), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify([presentation]), { status: 200 }))
+      // GET .../prices — the date filter's own "now" load, fired on mount
+      // of the managed list's detail page.
+      .mockResolvedValueOnce(new Response(JSON.stringify([]), { status: 200 }))
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
@@ -153,8 +158,8 @@ describe('PriceListsScreen', () => {
     await user.type(screen.getByLabelText('Vigente desde'), '2024-07-01')
     await user.click(screen.getByRole('button', { name: /^publicar$/i }))
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
-    const [url, init] = fetchMock.mock.calls[2]
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4))
+    const [url, init] = fetchMock.mock.calls[3]
     expect(url).toBe(`/pricing/price-lists/${defaultPriceList.id}/entries`)
     expect(JSON.parse(init.body as string)).toMatchObject({
       presentationId: presentation.id,
@@ -425,6 +430,8 @@ describe('PriceListsScreen', () => {
 
   it('opens the default list\'s prices as a full-screen page, replacing the list', async () => {
     loadOnce([defaultPriceList, seasonalPriceList])
+    // GET .../prices — the date filter's own "now" load.
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify([]), { status: 200 }))
 
     const user = userEvent.setup()
     render(<PriceListsScreen />)
@@ -448,23 +455,26 @@ describe('PriceListsScreen', () => {
 
   it('publishes against the price list the operator picked, not the default one', async () => {
     loadOnce([defaultPriceList, seasonalPriceList])
-    fetchMock.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({
-          id: '55555555-5555-5555-5555-555555555555',
-          organizationId: 'org-1',
-          priceListId: seasonalPriceList.id,
-          presentationId: presentation.id,
-          unitPrice: 720,
-          effectiveFrom: '2024-08-01',
-          source: 'Manual',
-          importBatchId: null,
-          createdAtUtc: '2024-08-01T00:00:00Z',
-          createdByUserId: 'user-1',
-        }),
-        { status: 201 },
-      ),
-    )
+    fetchMock
+      // GET .../prices — the date filter's own "now" load.
+      .mockResolvedValueOnce(new Response(JSON.stringify([]), { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: '55555555-5555-5555-5555-555555555555',
+            organizationId: 'org-1',
+            priceListId: seasonalPriceList.id,
+            presentationId: presentation.id,
+            unitPrice: 720,
+            effectiveFrom: '2024-08-01',
+            source: 'Manual',
+            importBatchId: null,
+            createdAtUtc: '2024-08-01T00:00:00Z',
+            createdByUserId: 'user-1',
+          }),
+          { status: 201 },
+        ),
+      )
 
     const user = userEvent.setup()
     render(<PriceListsScreen />)
@@ -482,12 +492,14 @@ describe('PriceListsScreen', () => {
     await user.type(screen.getByLabelText('Vigente desde'), '2024-08-01')
     await user.click(screen.getByRole('button', { name: /^publicar$/i }))
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
-    expect(fetchMock.mock.calls[2][0]).toBe(`/pricing/price-lists/${seasonalPriceList.id}/entries`)
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4))
+    expect(fetchMock.mock.calls[3][0]).toBe(`/pricing/price-lists/${seasonalPriceList.id}/entries`)
   })
 
   it('reads the history of the managed price list', async () => {
     loadOnce([defaultPriceList, seasonalPriceList])
+    // GET .../prices — the date filter's own "now" load.
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify([]), { status: 200 }))
 
     const user = userEvent.setup()
     render(<PriceListsScreen />)
@@ -521,7 +533,7 @@ describe('PriceListsScreen', () => {
     await user.click(within(prices).getByRole('button', { name: /^historial$/i }))
 
     expect(await screen.findByText('2024-05-01: $540.50')).toBeInTheDocument()
-    expect(fetchMock.mock.calls[2][0]).toBe(
+    expect(fetchMock.mock.calls[3][0]).toBe(
       `/pricing/price-lists/${defaultPriceList.id}/presentations/${presentation.id}/history`,
     )
   })

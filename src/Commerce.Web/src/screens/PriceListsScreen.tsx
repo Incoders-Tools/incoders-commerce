@@ -8,6 +8,7 @@ import { DataView, type DataViewColumn } from '@/components/data/DataView'
 import { PageHeader } from '@/components/data/PageHeader'
 import { useViewPreference } from '@/components/data/useViewPreference'
 import { FormPage } from '@/components/layout/FormPage'
+import { PriceDateFilter } from './PriceDateFilter'
 import { PriceHistory } from './PriceHistory'
 import { ImportReviewTable, type ImportReviewRow } from './ImportReviewTable'
 import { listPresentations } from '@/api/catalog'
@@ -264,6 +265,8 @@ function PriceListDetail({
       onBack={onBack}
       backLabel={t('detail.backLabel')}
     >
+      <PriceDateFilter priceListId={priceList.id} presentations={presentations} />
+
       <div data-testid="price-list-entries" className="flex w-full flex-col gap-3">
         {presentations.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t('detail.noPresentations')}</p>

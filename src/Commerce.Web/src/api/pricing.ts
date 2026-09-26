@@ -31,6 +31,34 @@ export function listHistory(priceListId: string, presentationId: string): Promis
   )
 }
 
+/**
+ * price-list-management spec "Price History Filterable By Date": review
+ * the branch's prices as of a single date, or across a range showing every
+ * change inside it. Pass either `asOf` alone, or `from`+`to` together
+ * (never both shapes at once — the server rejects that combination); pass
+ * neither for "now" (`GET /pricing/price-lists/{id}/prices`'s own default).
+ * Read-only.
+ */
+export function listPrices(
+  priceListId: string,
+  filter: { asOf?: string } | { from: string; to: string } | Record<string, never> = {},
+): Promise<PriceListEntryRecord[]> {
+  const params = new URLSearchParams()
+  if ('asOf' in filter && filter.asOf) {
+    params.set('asOf', filter.asOf)
+  }
+  if ('from' in filter && filter.from) {
+    params.set('from', filter.from)
+  }
+  if ('to' in filter && filter.to) {
+    params.set('to', filter.to)
+  }
+  const query = params.toString()
+  return apiFetch<PriceListEntryRecord[]>(
+    `/pricing/price-lists/${priceListId}/prices${query ? `?${query}` : ''}`,
+  )
+}
+
 export function appendEntry(
   priceListId: string,
   request: AppendPriceEntryRequest,

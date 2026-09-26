@@ -53,6 +53,24 @@
     "publish": "Publicar",
     "cancel": "Cancelar"
   },
+  "dateFilter": {
+    "title": "Filtrar por fecha",
+    "asOfLabel": "Al día",
+    "or": "o",
+    "fromLabel": "Desde",
+    "toLabel": "Hasta",
+    "apply": "Aplicar",
+    "clear": "Limpiar",
+    "loading": "Cargando…",
+    "empty": "No hay precios vigentes para esta fecha.",
+    "rangeBothRequired": "Ingrese ambas fechas del rango.",
+    "unexpectedLoad": "Error inesperado al cargar los precios por fecha.",
+    "columns": {
+      "presentation": "Presentación",
+      "price": "Precio",
+      "effectiveFrom": "Vigente desde"
+    }
+  },
   "history": {
     "hide": "Ocultar historial",
     "show": "Historial",
