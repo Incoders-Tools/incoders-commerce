@@ -79,7 +79,7 @@ describe('OrganizationsScreen', () => {
 
     const row = within(await screen.findByRole('table')).getAllByRole('row')[1]
     expect(within(row).getByText('Vaca Verde')).toBeInTheDocument()
-    expect(within(row).getByText(new Date(vacaVerde.createdAt).toLocaleDateString())).toBeInTheDocument()
+    expect(within(row).getByText(new Date(vacaVerde.createdAt).toLocaleDateString('es-AR'))).toBeInTheDocument()
   })
 
   it('shows an empty state when there are no organizations', async () => {

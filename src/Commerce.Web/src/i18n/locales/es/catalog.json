@@ -1,1 +1,40 @@
-{}
+{
+  "title": "Catálogo",
+  "description": "Presentaciones disponibles para vender, y sus códigos de identificación.",
+  "columns": {
+    "name": "Nombre",
+    "identificationCode": "Código de identificación",
+    "noCode": "Sin código",
+    "quantityBehavior": "Comportamiento de cantidad",
+    "lastUpdated": "Última actualización"
+  },
+  "quantityBehaviorOptions": {
+    "fixedQuantity": "Cantidad fija",
+    "weighted": "Pesable",
+    "bulk": "A granel",
+    "unknown": "Desconocido"
+  },
+  "search": {
+    "label": "Buscar presentaciones",
+    "placeholder": "Buscar por nombre o código…"
+  },
+  "empty": {
+    "loadError": "No se pudo cargar el catálogo.",
+    "none": "Todavía no hay presentaciones.",
+    "noMatch": "Ninguna presentación coincide con esta búsqueda."
+  },
+  "editCode": "Editar código",
+  "errors": {
+    "unexpectedLoad": "Error inesperado: el servicio de catálogo no está disponible.",
+    "unexpectedUpdate": "Error inesperado al actualizar el código de identificación."
+  },
+  "form": {
+    "title": "Editar código",
+    "description": "Código de identificación para \"{{name}}\".",
+    "backLabel": "Volver al catálogo",
+    "label": "Código de identificación",
+    "saving": "Guardando…",
+    "save": "Guardar",
+    "cancel": "Cancelar"
+  }
+}

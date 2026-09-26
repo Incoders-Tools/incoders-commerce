@@ -1,1 +1,40 @@
-{}
+{
+  "title": "Catalog",
+  "description": "Presentations available to sell, and their identification codes.",
+  "columns": {
+    "name": "Name",
+    "identificationCode": "Identification code",
+    "noCode": "No code",
+    "quantityBehavior": "Quantity behavior",
+    "lastUpdated": "Last updated"
+  },
+  "quantityBehaviorOptions": {
+    "fixedQuantity": "Fixed quantity",
+    "weighted": "Weighted",
+    "bulk": "Bulk",
+    "unknown": "Unknown"
+  },
+  "search": {
+    "label": "Search presentations",
+    "placeholder": "Search by name or code…"
+  },
+  "empty": {
+    "loadError": "The catalog could not be loaded.",
+    "none": "No presentations yet.",
+    "noMatch": "No presentations match this search."
+  },
+  "editCode": "Edit code",
+  "errors": {
+    "unexpectedLoad": "Unexpected error: the catalog service is unreachable.",
+    "unexpectedUpdate": "Unexpected error updating the identification code."
+  },
+  "form": {
+    "title": "Edit code",
+    "description": "Identification code for \"{{name}}\".",
+    "backLabel": "Back to catalog",
+    "label": "Identification code",
+    "saving": "Saving…",
+    "save": "Save",
+    "cancel": "Cancel"
+  }
+}

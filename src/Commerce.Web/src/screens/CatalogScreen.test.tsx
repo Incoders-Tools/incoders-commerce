@@ -50,7 +50,7 @@ describe('CatalogScreen', () => {
     render(<CatalogScreen />)
 
     await screen.findByText('1.5L bottle')
-    expect(screen.getByText('No code')).toBeInTheDocument()
+    expect(screen.getByText('Sin código')).toBeInTheDocument()
     expect(fetchMock.mock.calls[0][0]).toBe('/catalog/presentations')
   })
 
@@ -65,9 +65,9 @@ describe('CatalogScreen', () => {
     render(<CatalogScreen />)
 
     await screen.findByText('1.5L bottle')
-    await user.click(screen.getByRole('button', { name: /edit code/i }))
-    await user.type(screen.getByLabelText(/identification code/i), '7791234567890')
-    await user.click(screen.getByRole('button', { name: /^save$/i }))
+    await user.click(screen.getByRole('button', { name: /editar código/i }))
+    await user.type(screen.getByLabelText(/código de identificación/i), '7791234567890')
+    await user.click(screen.getByRole('button', { name: /^guardar$/i }))
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
     const [url, init] = fetchMock.mock.calls[1]
@@ -81,7 +81,7 @@ describe('CatalogScreen', () => {
     })
 
     await screen.findByText('7791234567890')
-    expect(screen.queryByText('No code')).not.toBeInTheDocument()
+    expect(screen.queryByText('Sin código')).not.toBeInTheDocument()
   })
 
   it('surfaces a visible error state when the API is unreachable, never stale/mock data', async () => {
@@ -109,7 +109,7 @@ describe('CatalogScreen', () => {
 
     render(<CatalogScreen />)
 
-    expect(await screen.findByText(/no presentations/i)).toBeInTheDocument()
+    expect(await screen.findByText(/no hay presentaciones/i)).toBeInTheDocument()
   })
 
   it('filters the listed presentations client-side by name or identification code', async () => {
@@ -121,15 +121,15 @@ describe('CatalogScreen', () => {
     await screen.findByText('1.5L bottle')
     expect(screen.getByText('330ml can')).toBeInTheDocument()
 
-    await user.type(screen.getByLabelText(/search presentations/i), '330')
+    await user.type(screen.getByLabelText(/buscar presentaciones/i), '330')
 
     expect(screen.getByText('330ml can')).toBeInTheDocument()
     expect(screen.queryByText('1.5L bottle')).not.toBeInTheDocument()
     // Filtering is purely client-side over what was already loaded.
     expect(fetchMock).toHaveBeenCalledTimes(1)
 
-    await user.clear(screen.getByLabelText(/search presentations/i))
-    await user.type(screen.getByLabelText(/search presentations/i), '7790000000001')
+    await user.clear(screen.getByLabelText(/buscar presentaciones/i))
+    await user.type(screen.getByLabelText(/buscar presentaciones/i), '7790000000001')
 
     expect(screen.getByText('330ml can')).toBeInTheDocument()
     expect(screen.queryByText('1.5L bottle')).not.toBeInTheDocument()
@@ -142,9 +142,9 @@ describe('CatalogScreen', () => {
     render(<CatalogScreen />)
 
     await screen.findByText('1.5L bottle')
-    await user.type(screen.getByLabelText(/search presentations/i), 'zzzz')
+    await user.type(screen.getByLabelText(/buscar presentaciones/i), 'zzzz')
 
-    expect(screen.getByText(/no presentations match/i)).toBeInTheDocument()
+    expect(screen.getByText(/ninguna presentación coincide/i)).toBeInTheDocument()
   })
 
   it('switches to the card view and restores that preference on remount', async () => {
@@ -184,9 +184,9 @@ describe('CatalogScreen', () => {
     render(<CatalogScreen />)
 
     await screen.findByText('1.5L bottle')
-    await user.click(screen.getByRole('button', { name: /edit code/i }))
-    await user.type(screen.getByLabelText(/identification code/i), '7791234567890')
-    await user.click(screen.getByRole('button', { name: /^save$/i }))
+    await user.click(screen.getByRole('button', { name: /editar código/i }))
+    await user.type(screen.getByLabelText(/código de identificación/i), '7791234567890')
+    await user.click(screen.getByRole('button', { name: /^guardar$/i }))
 
     await screen.findByText('7791234567890')
   })
@@ -198,15 +198,15 @@ describe('CatalogScreen', () => {
     render(<CatalogScreen />)
 
     await screen.findByText('1.5L bottle')
-    await user.click(screen.getAllByRole('button', { name: /edit code/i })[0])
+    await user.click(screen.getAllByRole('button', { name: /editar código/i })[0])
 
     // The list (and the other presentation's row) is gone, not just a form
     // appended under this row.
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
     expect(screen.queryByText('330ml can')).not.toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Edit code' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Editar código' })).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: /back to catalog/i }))
+    await user.click(screen.getByRole('button', { name: /volver al catálogo/i }))
 
     expect(screen.getByText('1.5L bottle')).toBeInTheDocument()
     expect(screen.getByText('330ml can')).toBeInTheDocument()
@@ -220,14 +220,14 @@ describe('CatalogScreen', () => {
 
     await screen.findByText('1.5L bottle')
     await user.click(screen.getByRole('radio', { name: /vista de tarjetas/i }))
-    await user.type(screen.getByLabelText(/search presentations/i), '330')
+    await user.type(screen.getByLabelText(/buscar presentaciones/i), '330')
     expect(screen.getByText('330ml can')).toBeInTheDocument()
     expect(screen.queryByText('1.5L bottle')).not.toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: /edit code/i }))
-    await user.click(screen.getByRole('button', { name: /back to catalog/i }))
+    await user.click(screen.getByRole('button', { name: /editar código/i }))
+    await user.click(screen.getByRole('button', { name: /volver al catálogo/i }))
 
-    expect(screen.getByLabelText(/search presentations/i)).toHaveValue('330')
+    expect(screen.getByLabelText(/buscar presentaciones/i)).toHaveValue('330')
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
     expect(screen.getByText('330ml can')).toBeInTheDocument()
     expect(screen.queryByText('1.5L bottle')).not.toBeInTheDocument()

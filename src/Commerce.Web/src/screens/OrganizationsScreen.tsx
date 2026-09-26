@@ -14,7 +14,7 @@ import { OrganizationBrandingForm } from './OrganizationBrandingForm'
 
 function formatCreatedAt(value: string): string {
   const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? '—' : parsed.toLocaleDateString()
+  return Number.isNaN(parsed.getTime()) ? '—' : parsed.toLocaleDateString('es-AR')
 }
 
 /**

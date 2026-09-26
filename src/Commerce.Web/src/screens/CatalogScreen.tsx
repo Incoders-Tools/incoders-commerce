@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -11,15 +12,15 @@ import { listPresentations, updatePresentation } from '@/api/catalog'
 import { ApiError } from '@/api/client'
 import { QuantityBehavior, type PresentationRecord } from '@/api/types'
 
-const QUANTITY_BEHAVIOR_LABELS: Record<QuantityBehavior, string> = {
-  [QuantityBehavior.FixedQuantity]: 'Fixed quantity',
-  [QuantityBehavior.Weighted]: 'Weighted',
-  [QuantityBehavior.Bulk]: 'Bulk',
+const QUANTITY_BEHAVIOR_KEYS: Record<QuantityBehavior, 'fixedQuantity' | 'weighted' | 'bulk'> = {
+  [QuantityBehavior.FixedQuantity]: 'fixedQuantity',
+  [QuantityBehavior.Weighted]: 'weighted',
+  [QuantityBehavior.Bulk]: 'bulk',
 }
 
 function formatUpdatedAt(value: string): string {
   const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? '—' : parsed.toLocaleDateString()
+  return Number.isNaN(parsed.getTime()) ? '—' : parsed.toLocaleDateString('es-AR')
 }
 
 /**
@@ -45,6 +46,7 @@ function formatUpdatedAt(value: string): string {
  * unmounts.
  */
 export function CatalogScreen() {
+  const { t } = useTranslation('catalog')
   const [presentations, setPresentations] = useState<PresentationRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -64,7 +66,7 @@ export function CatalogScreen() {
       })
       .catch((err) => {
         if (!cancelled) {
-          setError(err instanceof ApiError ? err.message : 'Unexpected error: the catalog service is unreachable.')
+          setError(err instanceof ApiError ? err.message : t('errors.unexpectedLoad'))
         }
       })
       .finally(() => {
@@ -75,7 +77,7 @@ export function CatalogScreen() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [t])
 
   const handleUpdated = (updated: PresentationRecord) => {
     setPresentations((current) => current.map((item) => (item.id === updated.id ? updated : item)))
@@ -108,22 +110,23 @@ export function CatalogScreen() {
   }
 
   const columns: DataViewColumn<PresentationRecord>[] = [
-    { key: 'name', header: 'Name', cell: (presentation) => presentation.name },
+    { key: 'name', header: t('columns.name'), cell: (presentation) => presentation.name },
     {
       key: 'identificationCode',
-      header: 'Identification code',
+      header: t('columns.identificationCode'),
       cell: (presentation) =>
-        presentation.identificationCode ?? <span className="text-muted-foreground">No code</span>,
+        presentation.identificationCode ?? <span className="text-muted-foreground">{t('columns.noCode')}</span>,
     },
     {
       key: 'quantityBehavior',
-      header: 'Quantity behavior',
-      cell: (presentation) => QUANTITY_BEHAVIOR_LABELS[presentation.quantityBehavior] ?? 'Unknown',
+      header: t('columns.quantityBehavior'),
+      cell: (presentation) =>
+        t(`quantityBehaviorOptions.${QUANTITY_BEHAVIOR_KEYS[presentation.quantityBehavior] ?? 'unknown'}`),
       hideOnMobile: true,
     },
     {
       key: 'updatedAtUtc',
-      header: 'Last updated',
+      header: t('columns.lastUpdated'),
       cell: (presentation) => formatUpdatedAt(presentation.updatedAtUtc),
       hideOnMobile: true,
     },
@@ -131,7 +134,7 @@ export function CatalogScreen() {
 
   return (
     <section className="flex w-full flex-col gap-6">
-      <PageHeader title="Catalog" description="Presentations available to sell, and their identification codes." />
+      <PageHeader title={t('title')} description={t('description')} />
 
       {error && (
         <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
@@ -142,8 +145,8 @@ export function CatalogScreen() {
       <DataToolbar
         searchValue={search}
         onSearchChange={setSearch}
-        searchLabel="Search presentations"
-        searchPlaceholder="Search by name or code…"
+        searchLabel={t('search.label')}
+        searchPlaceholder={t('search.placeholder')}
         view={view}
         onViewChange={setView}
       />
@@ -156,14 +159,14 @@ export function CatalogScreen() {
         loading={loading}
         emptyMessage={
           error
-            ? 'The catalog could not be loaded.'
+            ? t('empty.loadError')
             : presentations.length === 0
-              ? 'No presentations yet.'
-              : 'No presentations match this search.'
+              ? t('empty.none')
+              : t('empty.noMatch')
         }
         renderActions={(presentation) => (
           <Button type="button" variant="outline" size="sm" onClick={() => setEditingId(presentation.id)}>
-            Edit code
+            {t('editCode')}
           </Button>
         )}
       />
@@ -180,6 +183,7 @@ function IdentificationCodeForm({
   onCancel: () => void
   onUpdated: (updated: PresentationRecord) => void
 }) {
+  const { t } = useTranslation('catalog')
   const [identificationCode, setIdentificationCode] = useState(presentation.identificationCode ?? '')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -197,7 +201,7 @@ function IdentificationCodeForm({
       })
       onUpdated(updated)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Unexpected error updating the identification code.')
+      setError(err instanceof ApiError ? err.message : t('errors.unexpectedUpdate'))
     } finally {
       setSubmitting(false)
     }
@@ -205,14 +209,14 @@ function IdentificationCodeForm({
 
   return (
     <FormPage
-      title="Edit code"
-      description={`Identification code for "${presentation.name}".`}
+      title={t('form.title')}
+      description={t('form.description', { name: presentation.name })}
       onBack={onCancel}
-      backLabel="Back to catalog"
+      backLabel={t('form.backLabel')}
     >
       <form className="flex max-w-md flex-col gap-4" onSubmit={handleSubmit}>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="identificationCode">Identification code</Label>
+          <Label htmlFor="identificationCode">{t('form.label')}</Label>
           <Input
             id="identificationCode"
             value={identificationCode}
@@ -226,10 +230,10 @@ function IdentificationCodeForm({
         )}
         <div className="flex gap-2">
           <Button type="submit" disabled={submitting}>
-            {submitting ? 'Saving…' : 'Save'}
+            {submitting ? t('form.saving') : t('form.save')}
           </Button>
           <Button type="button" variant="outline" onClick={onCancel} disabled={submitting}>
-            Cancel
+            {t('form.cancel')}
           </Button>
         </div>
       </form>

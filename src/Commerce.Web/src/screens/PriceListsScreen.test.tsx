@@ -302,7 +302,7 @@ describe('PriceListsScreen', () => {
     expect(within(row).getByText('Seasonal')).toBeInTheDocument()
     // `isDefault` is rendered as its own column, not inferred from the name.
     expect(within(row).getByText('No')).toBeInTheDocument()
-    expect(within(row).getByText(new Date('2024-03-05T00:00:00Z').toLocaleDateString())).toBeInTheDocument()
+    expect(within(row).getByText(new Date('2024-03-05T00:00:00Z').toLocaleDateString('es-AR'))).toBeInTheDocument()
   })
 
   it('shows an empty state when the organization has no price list at all', async () => {

@@ -89,7 +89,7 @@ describe('App route table', () => {
   it('redirects a non-admin away from /app/price-lists to the catalog', async () => {
     renderAppAt('/app/price-lists', buildUser({ permissions: Permission.ViewSales }))
 
-    expect(await screen.findByRole('heading', { name: 'Catalog' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Catálogo' })).toBeInTheDocument()
     // "Price lists" is a real heading of a real screen in this same app (see
     // the admin case above), so its absence here is a fact about the guard.
     expect(screen.queryByRole('heading', { name: 'Price lists' })).not.toBeInTheDocument()
@@ -110,7 +110,7 @@ describe('App route table', () => {
     renderAppAt('/app', buildUser({ isSystemAdmin: true }))
 
     expect(await screen.findByRole('heading', { name: 'Organizations' })).toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: 'Catalog' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Catálogo' })).not.toBeInTheDocument()
   })
 
   it('lands a system administrator acting on an organization on the catalog', async () => {
@@ -118,12 +118,12 @@ describe('App route table', () => {
 
     renderAppAt('/app', buildUser({ isSystemAdmin: true }))
 
-    expect(await screen.findByRole('heading', { name: 'Catalog' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Catálogo' })).toBeInTheDocument()
   })
 
   it('still lands staff on the catalog', async () => {
     renderAppAt('/app', buildUser({ permissions: Permission.ViewSales }))
 
-    expect(await screen.findByRole('heading', { name: 'Catalog' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Catálogo' })).toBeInTheDocument()
   })
 })
