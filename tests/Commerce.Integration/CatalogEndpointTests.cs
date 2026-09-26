@@ -111,13 +111,14 @@ public sealed class CatalogEndpointTests : IClassFixture<WebApplicationFactory<P
     /// `BranchSelectionRequirement`/`TenantScopeEndpointFilter` validation),
     /// not merely an entry in a user's `BranchScope` array.
     /// </summary>
-    private async Task SeedBranchAsync(Guid organizationId, Guid branchId)
+    private async Task SeedBranchAsync(Guid organizationId, Guid branchId, string name = "Main")
     {
         using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
         await owner.OpenAsync();
-        using var cmd = new NpgsqlCommand("INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, 'Main')", owner);
+        using var cmd = new NpgsqlCommand("INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, $3)", owner);
         cmd.Parameters.AddWithValue(branchId);
         cmd.Parameters.AddWithValue(organizationId);
+        cmd.Parameters.AddWithValue(name);
         await cmd.ExecuteNonQueryAsync();
     }
 
@@ -180,7 +181,11 @@ public sealed class CatalogEndpointTests : IClassFixture<WebApplicationFactory<P
             }
         }
 
-        await SeedBranchAsync(organizationId.Value, branchId);
+        // A unique-per-branch name: this org may already hold a branch (a
+        // second actor signed into the SAME organization, e.g.
+        // `Rename_WhenStoredActorLacksPermission_...`), and
+        // `branches_org_name_unique` rejects a second "Main".
+        await SeedBranchAsync(organizationId.Value, branchId, $"Branch {branchId:N}");
 
         var client = await SignInViaTestEndpointAsync(organizationId.Value, userId);
         // Every call this client makes selects `branchId` — matches this
@@ -318,7 +323,7 @@ public sealed class CatalogEndpointTests : IClassFixture<WebApplicationFactory<P
 
         var (client, organizationId, _) = await SignedInClientAsync(Permission.ManageCatalog);
         var otherBranchId = Guid.NewGuid();
-        await SeedBranchAsync(organizationId, otherBranchId);
+        await SeedBranchAsync(organizationId, otherBranchId, "Centro");
 
         client.DefaultRequestHeaders.Remove(TenantScopeEndpointFilter.BranchSelectorHeader);
         client.DefaultRequestHeaders.Add(TenantScopeEndpointFilter.BranchSelectorHeader, otherBranchId.ToString());
@@ -348,7 +353,7 @@ public sealed class CatalogEndpointTests : IClassFixture<WebApplicationFactory<P
         var (client, organizationId, rutaCincuentaYUnoId) = await SignedInClientAsync(
             Permission.ManageCatalog, branchScope: null, organizationId: null);
         var centroId = Guid.NewGuid();
-        await SeedBranchAsync(organizationId, centroId);
+        await SeedBranchAsync(organizationId, centroId, "Centro");
         // This user may act on BOTH branches — isolation must still hold.
         using (var scope = _factory.Services.CreateScope())
         {
@@ -391,7 +396,7 @@ public sealed class CatalogEndpointTests : IClassFixture<WebApplicationFactory<P
 
         var (client, organizationId, rutaCincuentaYUnoId) = await SignedInClientAsync(Permission.ManageCatalog);
         var centroId = Guid.NewGuid();
-        await SeedBranchAsync(organizationId, centroId);
+        await SeedBranchAsync(organizationId, centroId, "Centro");
         using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
         {
             owner.Open();

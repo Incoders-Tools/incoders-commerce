@@ -86,14 +86,15 @@ public sealed class PostgresCatalogStoreTests : IDisposable
     /// used against <see cref="PostgresCatalogStore"/> needs a REAL branch
     /// row (the composite FK requires one) in addition to the organization.
     /// </summary>
-    private static Guid SeedBranch(Guid organizationId)
+    private static Guid SeedBranch(Guid organizationId, string name = "Main")
     {
         var branchId = Guid.NewGuid();
         using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
         owner.Open();
-        using var cmd = new NpgsqlCommand("INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, 'Main')", owner);
+        using var cmd = new NpgsqlCommand("INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, $3)", owner);
         cmd.Parameters.AddWithValue(branchId);
         cmd.Parameters.AddWithValue(organizationId);
+        cmd.Parameters.AddWithValue(name);
         cmd.ExecuteNonQuery();
         return branchId;
     }
@@ -253,8 +254,8 @@ public sealed class PostgresCatalogStoreTests : IDisposable
 
         var organizationId = Guid.NewGuid();
         SeedOrganization(organizationId);
-        var branchAId = SeedBranch(organizationId);
-        var branchBId = SeedBranch(organizationId);
+        var branchAId = SeedBranch(organizationId, "Ruta 51");
+        var branchBId = SeedBranch(organizationId, "Centro");
         var store = new PostgresCatalogStore(_dataSource!);
         var actorId = Guid.NewGuid();
 
