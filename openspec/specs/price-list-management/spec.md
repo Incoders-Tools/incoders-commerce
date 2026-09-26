@@ -80,3 +80,17 @@ NOT remove or alter prior history.
 - GIVEN a caller lacks price-management authorization
 - WHEN they attempt to create a price entry
 - THEN the request is denied and no entry is persisted
+
+### Requirement: Branch-Owned Price Lists
+
+Price lists, their entries, and their rate component sets MUST be owned by
+the selected branch, and each branch MUST have at most one default price
+list. A price entry or rate component set MUST reference a price list and
+presentation of the same branch. Price reads, history, and resolution
+MUST use only the selected branch's lists.
+
+#### Scenario: Ruta 51 and Centro price the same product independently
+
+- GIVEN "Ruta 51" and "Centro" each have their own default price list
+- WHEN "Ruta 51" adds a new entry for one of its presentations
+- THEN Ruta 51's resolved price changes and Centro's does not

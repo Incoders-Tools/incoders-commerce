@@ -252,3 +252,28 @@ behaves under the requirements above.
   organization
 - THEN an audit row exists recording the sysadmin as actor and the selected
   organization as the acted-on organization
+
+### Requirement: Sysadmin Selects Any Branch Of The Selected Organization
+
+A verified system administrator acting on a selected organization MUST be
+able to select any persisted branch of that organization, regardless of
+the sysadmin's own (empty) `BranchScope`, and every branch-owned tenant
+module MUST then behave exactly as for a `business-admin` of that
+organization with that branch selected. A branch of any other
+organization MUST be rejected. Writes performed under that selection MUST
+be audited recording the selected branch alongside the selected
+organization.
+
+#### Scenario: Sysadmin works on Vaca Verde's Ruta 51
+
+- GIVEN an authenticated sysadmin who has selected organization
+  "Vaca Verde"
+- WHEN the sysadmin selects branch "Ruta 51" and creates a product
+- THEN the product is owned by Vaca Verde / "Ruta 51" and an audit row
+  records the sysadmin, Vaca Verde, and "Ruta 51"
+
+#### Scenario: Sysadmin cannot pair a branch with the wrong organization
+
+- GIVEN an authenticated sysadmin who has selected organization A
+- WHEN the sysadmin selects a branch belonging to organization B
+- THEN the request is rejected and no data is read or written

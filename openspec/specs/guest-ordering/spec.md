@@ -130,3 +130,15 @@ actor."
 - WHEN the order's actor/audit information is read
 - THEN it explicitly identifies the order as non-staff-originated rather
   than presenting an empty or default staff actor id
+
+### Requirement: Guest Surface Uses Its Configured Branch's Data
+
+The public guest surface MUST read catalog and prices, and record guest
+order verifications and orders, only for its configured destination
+branch, which MUST belong to its configured organization.
+
+#### Scenario: Guest catalog shows only the configured branch
+
+- GIVEN the guest surface is configured for Vaca Verde's "Ruta 51"
+- WHEN a guest browses the catalog
+- THEN only Ruta 51's presentations and prices are shown

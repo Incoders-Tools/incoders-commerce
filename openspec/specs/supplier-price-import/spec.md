@@ -98,3 +98,17 @@ rejected upload MUST leave zero prices changed.
 - GIVEN an uploaded file is not the expected Excel format
 - WHEN the upload is submitted
 - THEN the system rejects it before attempting to parse rows
+
+### Requirement: Branch-Owned Supplier Mappings And Imports
+
+Supplier column mappings, import batches, and import rows MUST be owned by
+the selected branch. An import MUST match rows only against the selected
+branch's presentations and commit only into the selected branch's price
+list.
+
+#### Scenario: Import into Ruta 51 leaves Centro untouched
+
+- GIVEN "Ruta 51" and "Centro" both carry a presentation with the same
+  barcode
+- WHEN a supplier file is imported and committed with "Ruta 51" selected
+- THEN only Ruta 51's price list receives entries

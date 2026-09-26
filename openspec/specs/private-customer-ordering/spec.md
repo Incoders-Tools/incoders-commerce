@@ -216,3 +216,24 @@ operational path already defined for private customer ordering.
   Reference Integrity" and "Bound and Revocable Customer Access"
   requirements, with the prior order's settlement state having no bearing
   on acceptance
+
+### Requirement: Orders Belong To Their Destination Branch
+
+An order's owning branch MUST be its destination branch. A staff-submitted
+order MUST take its destination from the selected branch; a submitted
+destination that differs from the selected branch MUST be rejected. A
+registered customer's order MUST be destined to the customer's home
+branch. Order read and pending-list endpoints MUST return only orders
+destined to the selected branch.
+
+#### Scenario: Ruta 51's pending list excludes Centro orders
+
+- GIVEN pending orders destined to "Ruta 51" and to "Centro"
+- WHEN a staff member with "Ruta 51" selected lists pending orders
+- THEN only the Ruta 51 orders are returned
+
+#### Scenario: A customer's order goes to the customer's branch
+
+- GIVEN a signed-in customer whose home branch is "Ruta 51"
+- WHEN the customer submits an order
+- THEN the order's destination branch is "Ruta 51"

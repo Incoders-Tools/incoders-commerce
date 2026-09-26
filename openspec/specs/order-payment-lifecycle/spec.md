@@ -178,3 +178,16 @@ later" rather than gate the sale path.
   recorded payment
 - THEN the sale commits locally and is not blocked by the absence of
   cloud or gateway payment confirmation
+
+### Requirement: Branch-Owned Payment Entries
+
+Each payment entry MUST be owned by the branch of its subject (the order's
+destination branch or the sale's branch). Recording, reversing, and
+settlement queries MUST operate only on the selected branch's entries, and
+recording a payment for a subject owned by another branch MUST be rejected.
+
+#### Scenario: Ruta 51 settlement ignores Centro payments
+
+- GIVEN payments recorded for orders of "Ruta 51" and "Centro"
+- WHEN a settlement is queried with "Ruta 51" selected
+- THEN only Ruta 51's payment entries contribute

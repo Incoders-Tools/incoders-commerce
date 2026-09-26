@@ -57,3 +57,55 @@ match.
 - GIVEN no Presentation carries the submitted code
 - WHEN the lookup is performed
 - THEN it reports no match rather than an arbitrary or partial result
+
+### Requirement: Branch-Owned Catalog
+
+Products and presentations MUST be owned by exactly one branch
+(organization-persistence, "Branch-Owned Business Data"), and catalog
+reads, writes, and lookups by identification code MUST operate only on
+the selected branch's catalog. The identification-code uniqueness in
+"Database-Enforced Uniqueness" MUST hold within a branch; the same code
+MAY exist in two branches of one organization.
+
+#### Scenario: Same barcode in two Vaca Verde branches
+
+- GIVEN "Ruta 51" has a presentation with code "7791234567890"
+- WHEN "Centro" saves its own presentation with the same code
+- THEN both persist, and a lookup with "Ruta 51" selected returns only
+  Ruta 51's presentation
+
+### Requirement: Copying Catalog Between Branches
+
+An administrator (a `business-admin` of the organization, or the system
+administrator acting on it) MUST be able to copy catalog items from one
+branch of an organization to another branch of the SAME organization,
+either the whole catalog or individual products. A copy MUST create new,
+independent products and presentations owned by the target branch —
+later edits in either branch MUST NOT affect the other. A copy MUST NOT
+overwrite or merge into an existing target item: an item whose
+identification code already exists in the target branch MUST be skipped
+and reported, never duplicated. Staff without administrator rights MUST
+be refused, and copying across organizations MUST be refused. Each copy
+MUST be audited with the actor, source branch, target branch, and the
+number of items copied and skipped.
+
+#### Scenario: Seeding a new branch from Ruta 51
+
+- GIVEN "Ruta 51" of "Vaca Verde" has 120 products and "Centro" is empty
+- WHEN an administrator copies the whole catalog from "Ruta 51" to "Centro"
+- THEN "Centro" holds 120 new products owned by "Centro", and renaming one
+  in "Centro" leaves Ruta 51's product unchanged
+
+#### Scenario: Copying one product that partly exists
+
+- GIVEN a product whose presentation code "7791234567890" already exists in
+  "Centro"
+- WHEN an administrator copies that product from "Ruta 51" to "Centro"
+- THEN the conflicting presentation is skipped and reported, the rest is
+  copied, and nothing in "Centro" is overwritten
+
+#### Scenario: A seller cannot copy
+
+- GIVEN a user whose roles lack administrator rights
+- WHEN they request a catalog copy between branches
+- THEN the request is refused and nothing is copied

@@ -282,3 +282,18 @@ second freshness mechanism.
 - WHEN the branch is queried for freshness
 - THEN the same freshness state ADR-002 already exposes for other
   replicated data is reused, with no separate price-freshness indicator
+
+### Requirement: Replication And Inbox Scoped To The Paired Branch
+
+Cloud-to-branch replication (catalog, prices, identification codes,
+customers) MUST deliver only rows owned by the device's paired branch, and
+cloud inbox reads MUST return only envelopes whose `branch_id` is that
+branch. The branch MUST come from the server-issued device credential,
+never from the request.
+
+#### Scenario: Ruta 51 POS receives only Ruta 51 catalog
+
+- GIVEN a POS paired to Vaca Verde's "Ruta 51" and products owned by
+  "Ruta 51" and "Centro"
+- WHEN the POS runs its catalog sync
+- THEN only Ruta 51's products and prices are delivered

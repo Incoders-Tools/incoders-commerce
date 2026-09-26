@@ -118,3 +118,16 @@ number) in any form.
 - WHEN that field is inspected
 - THEN it contains a tokenized/PCI-scoped reference only, with no PAN,
   CVV, or raw card number present in any form
+
+### Requirement: Branch-Owned Customers
+
+Each customer and its ordering access MUST be owned by exactly one branch,
+its home branch. Customer list, read, create, edit, and ordering-access
+endpoints MUST operate only on the selected branch's customers. Device
+customer sync MUST return only the paired branch's customers.
+
+#### Scenario: Centro cannot see a Ruta 51 customer
+
+- GIVEN a customer owned by "Ruta 51"
+- WHEN a staff member with "Centro" selected lists or opens customers
+- THEN that customer is neither listed nor returned

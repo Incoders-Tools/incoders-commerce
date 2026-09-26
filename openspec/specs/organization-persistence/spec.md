@@ -221,3 +221,64 @@ organization.
 - WHEN an authenticated caller in Organization A calls the branch-listing
   endpoint
 - THEN no branch belonging to Organization B is returned
+
+### Requirement: Branch-Owned Business Data
+
+Every business table other than organization, branch, identity, and
+credential infrastructure MUST carry a non-null `branch_id` in addition to
+`organization_id`, constrained so the branch belongs to the row's
+organization (a composite foreign key onto `branches (organization_id,
+id)`). Branch-owned tables are: products, presentations, price lists,
+price list entries, rate component sets and components, supplier price
+mappings, price import batches and rows, customers, customer ordering
+access, guest order verifications, and payment entries. Uniqueness rules
+that were per organization (identification code, one default price list,
+supplier mapping name) MUST become per branch.
+
+Row-level security on each branch-owned table MUST require both
+`organization_id` and `branch_id` to match the transaction's scoped
+organization and branch, using the established
+`NULLIF(current_setting(...), '')::uuid` pooler idiom, so a transaction
+without a scoped branch reads and writes nothing (fail-closed). Existing
+asymmetric lookup policies (credential-hash lookups) keep their current
+shape and compare the branch in the application after lookup.
+
+The migration that adds `branch_id` MUST backfill every existing row into
+its organization's earliest-created branch, and for an organization that
+owns rows but has no branch MUST first create a branch named "Main". The
+column becomes `NOT NULL` only after the backfill.
+
+#### Scenario: Existing rows land in the organization's first branch
+
+- GIVEN organization "Vaca Verde" has products, price lists, and customers
+  created before this change and its earliest branch is "Ruta 51"
+- WHEN the branch-ownership migration runs
+- THEN every one of those rows is owned by "Ruta 51" and remains readable
+  with "Ruta 51" selected
+
+#### Scenario: A row cannot reference another organization's branch
+
+- GIVEN a branch that belongs to Organization B
+- WHEN a row scoped to Organization A is written with that branch
+- THEN the database rejects the write
+
+#### Scenario: Unscoped branch reads nothing
+
+- GIVEN a transaction that scoped its organization but not its branch
+- WHEN it reads a branch-owned table
+- THEN zero rows are returned
+
+### Requirement: Selectable Branches In The Session
+
+The signed-in session response (`GET /account/me`) MUST list the branches
+the caller may select, each with id and name: the persisted branches in
+the caller's `BranchScope`, or, for a system administrator acting on a
+selected organization, every branch of that organization. The list MUST
+NOT include a branch outside those rules.
+
+#### Scenario: Vaca Verde admin sees only Ruta 51
+
+- GIVEN a Vaca Verde `business-admin` whose `BranchScope` contains only
+  "Ruta 51" while Vaca Verde also has "Centro"
+- WHEN they request their session
+- THEN the selectable branches are exactly "Ruta 51"

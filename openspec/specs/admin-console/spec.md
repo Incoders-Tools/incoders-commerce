@@ -204,3 +204,47 @@ permission-driven visibility defined above.
   name
 - THEN a new organization, branch, and business-admin are created, and
   the organization appears in the onboarding screen's list
+
+### Requirement: Top Navbar Branch Switcher
+
+`Commerce.Web` MUST show staff a top navbar containing a branch switcher
+populated from the session's selectable branches, and MUST send the
+selected branch with every branch-owned API request from the first request
+of every screen. When exactly one branch is selectable it MUST be selected
+automatically; when several are selectable the last selection MUST be
+restored if still selectable, otherwise the first listed branch is
+selected. Switching branch MUST reload the current screen's data for the
+new branch and MUST NOT show data from the previous branch. A staff member
+with no selectable branch MUST see a message that no branch is assigned
+instead of any branch-owned screen. For a sysadmin, the branch switcher
+appears only after an organization is selected and lists that
+organization's branches.
+
+#### Scenario: Vaca Verde admin lands on Ruta 51
+
+- GIVEN a Vaca Verde `business-admin` whose only selectable branch is
+  "Ruta 51"
+- WHEN they sign in
+- THEN the navbar shows "Ruta 51" as the selected branch and the first
+  screen's data is Ruta 51's
+
+#### Scenario: Switching branch replaces the screen's data
+
+- GIVEN a staff member with "Ruta 51" and "Centro" selectable, viewing
+  Ruta 51's customers
+- WHEN they switch to "Centro"
+- THEN the list shows only Centro's customers and none of Ruta 51's
+
+### Requirement: Users Screen Lists Staff Of The Selected Branch
+
+The Users screen MUST list the staff whose `BranchScope` contains the
+selected branch, and a user created from it MUST include the selected
+branch in their `BranchScope`. Users remain organization identities: a
+user scoped to several branches appears under each of them.
+
+#### Scenario: Ruta 51 staff only
+
+- GIVEN Vaca Verde staff scoped to "Ruta 51", to "Centro", and to both
+- WHEN a `business-admin` views Users with "Ruta 51" selected
+- THEN the "Ruta 51" and "both" staff are listed and the "Centro"-only
+  staff member is not
