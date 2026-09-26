@@ -36,16 +36,16 @@ describe('BranchesScreen', () => {
     const user = userEvent.setup()
     render(<BranchesScreen />)
 
-    await screen.findByText('No branches yet.')
-    await user.type(screen.getByLabelText('Branch name'), 'Central warehouse')
-    await user.click(screen.getByRole('button', { name: 'Create branch' }))
+    await screen.findByText('Todavía no hay sucursales.')
+    await user.type(screen.getByLabelText('Nombre de la sucursal'), 'Central warehouse')
+    await user.click(screen.getByRole('button', { name: 'Crear sucursal' }))
 
     await screen.findByText('Central warehouse')
     expect(fetchMock.mock.calls[1][0]).toBe('/account/branches')
     expect(fetchMock.mock.calls[1][1].method).toBe('POST')
     expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toEqual({ branchName: 'Central warehouse' })
     // The name field is cleared once the branch exists.
-    expect(screen.getByLabelText('Branch name')).toHaveValue('')
+    expect(screen.getByLabelText('Nombre de la sucursal')).toHaveValue('')
   })
 
   it('surfaces a create failure as an alert without clearing the typed name', async () => {
@@ -54,12 +54,12 @@ describe('BranchesScreen', () => {
     const user = userEvent.setup()
     render(<BranchesScreen />)
 
-    await screen.findByText('No branches yet.')
-    await user.type(screen.getByLabelText('Branch name'), 'Central warehouse')
-    await user.click(screen.getByRole('button', { name: 'Create branch' }))
+    await screen.findByText('Todavía no hay sucursales.')
+    await user.type(screen.getByLabelText('Nombre de la sucursal'), 'Central warehouse')
+    await user.click(screen.getByRole('button', { name: 'Crear sucursal' }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/unable to create branch/i)
-    expect(screen.getByLabelText('Branch name')).toHaveValue('Central warehouse')
+    expect(await screen.findByRole('alert')).toHaveTextContent(/no se pudo crear la sucursal/i)
+    expect(screen.getByLabelText('Nombre de la sucursal')).toHaveValue('Central warehouse')
   })
 
   it('surfaces a load failure as an alert', async () => {
@@ -67,7 +67,7 @@ describe('BranchesScreen', () => {
 
     render(<BranchesScreen />)
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/unable to load branches/i)
+    expect(await screen.findByRole('alert')).toHaveTextContent(/no se pudieron cargar las sucursales/i)
   })
 
   it('does not claim there are no branches when the load failed', async () => {
@@ -78,8 +78,8 @@ describe('BranchesScreen', () => {
     await screen.findByRole('alert')
     // "No branches yet." is a real rendering of this screen (see the empty
     // state case above), so its absence here is a fact about this state.
-    expect(screen.queryByText('No branches yet.')).not.toBeInTheDocument()
-    expect(screen.getByTestId('data-view-load-error')).toHaveTextContent(/branches could not be loaded/i)
+    expect(screen.queryByText('Todavía no hay sucursales.')).not.toBeInTheDocument()
+    expect(screen.getByTestId('data-view-load-error')).toHaveTextContent(/no se pudieron cargar las sucursales/i)
   })
 
   it('stops reporting a load failure once a later load succeeds', async () => {
@@ -92,8 +92,8 @@ describe('BranchesScreen', () => {
     render(<BranchesScreen />)
 
     await screen.findByTestId('data-view-load-error')
-    await user.type(screen.getByLabelText('Branch name'), 'Central warehouse')
-    await user.click(screen.getByRole('button', { name: 'Create branch' }))
+    await user.type(screen.getByLabelText('Nombre de la sucursal'), 'Central warehouse')
+    await user.click(screen.getByRole('button', { name: 'Crear sucursal' }))
 
     await screen.findByText('Central warehouse')
     expect(screen.queryByTestId('data-view-load-error')).not.toBeInTheDocument()
@@ -127,7 +127,7 @@ describe('BranchesScreen', () => {
 
     render(<BranchesScreen />)
 
-    expect(await screen.findByText('No branches yet.')).toBeInTheDocument()
+    expect(await screen.findByText('Todavía no hay sucursales.')).toBeInTheDocument()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
   })
 
@@ -140,7 +140,7 @@ describe('BranchesScreen', () => {
     await screen.findByText('Central warehouse')
     expect(screen.getByText('Downtown store')).toBeInTheDocument()
 
-    await user.type(screen.getByLabelText(/search branches/i), 'downtown')
+    await user.type(screen.getByLabelText(/buscar sucursales/i), 'downtown')
 
     expect(screen.getByText('Downtown store')).toBeInTheDocument()
     expect(screen.queryByText('Central warehouse')).not.toBeInTheDocument()
@@ -154,9 +154,9 @@ describe('BranchesScreen', () => {
     render(<BranchesScreen />)
 
     await screen.findByText('Central warehouse')
-    await user.type(screen.getByLabelText(/search branches/i), 'zzzz')
+    await user.type(screen.getByLabelText(/buscar sucursales/i), 'zzzz')
 
-    expect(screen.getByText(/no branches match/i)).toBeInTheDocument()
+    expect(screen.getByText(/ninguna sucursal coincide/i)).toBeInTheDocument()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
     expect(screen.queryAllByTestId('data-view-card')).toHaveLength(0)
   })

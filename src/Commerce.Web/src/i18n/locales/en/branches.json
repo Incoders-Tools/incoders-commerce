@@ -1,1 +1,26 @@
-{}
+{
+  "title": "Branches",
+  "description": "Physical locations orders and stock are attributed to.",
+  "errors": {
+    "unableToLoad": "Unable to load branches.",
+    "unableToCreate": "Unable to create branch."
+  },
+  "createForm": {
+    "nameAriaLabel": "Branch name",
+    "namePlaceholder": "New branch name",
+    "submit": "Create branch"
+  },
+  "search": {
+    "label": "Search branches",
+    "placeholder": "Search by branch name…"
+  },
+  "empty": {
+    "none": "No branches yet.",
+    "noMatch": "No branches match this search.",
+    "loadError": "Branches could not be loaded."
+  },
+  "columns": {
+    "branchName": "Branch name",
+    "identifier": "Identifier"
+  }
+}

@@ -1,1 +1,26 @@
-{}
+{
+  "title": "Sucursales",
+  "description": "Ubicaciones físicas a las que se atribuyen pedidos y stock.",
+  "errors": {
+    "unableToLoad": "No se pudieron cargar las sucursales.",
+    "unableToCreate": "No se pudo crear la sucursal."
+  },
+  "createForm": {
+    "nameAriaLabel": "Nombre de la sucursal",
+    "namePlaceholder": "Nombre de la nueva sucursal",
+    "submit": "Crear sucursal"
+  },
+  "search": {
+    "label": "Buscar sucursales",
+    "placeholder": "Buscar por nombre de sucursal…"
+  },
+  "empty": {
+    "none": "Todavía no hay sucursales.",
+    "noMatch": "Ninguna sucursal coincide con esta búsqueda.",
+    "loadError": "No se pudieron cargar las sucursales."
+  },
+  "columns": {
+    "branchName": "Nombre de la sucursal",
+    "identifier": "Identificador"
+  }
+}

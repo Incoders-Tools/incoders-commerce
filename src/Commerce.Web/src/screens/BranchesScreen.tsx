@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useTranslation } from 'react-i18next'
 import { createBranch, listBranches } from '@/api/account'
 import type { BranchSummary } from '@/api/types'
 import { Button } from '@/components/ui/button'
@@ -22,6 +23,7 @@ import { useViewPreference } from '@/components/data/useViewPreference'
  * returned; there is no server-side branch search endpoint.
  */
 export function BranchesScreen() {
+  const { t } = useTranslation('branches')
   const [branches, setBranches] = useState<BranchSummary[]>([])
   const [name, setName] = useState('')
   /** Why the last load failed, if it did. Never set by an action: an action
@@ -32,20 +34,20 @@ export function BranchesScreen() {
   const [search, setSearch] = useState('')
   const [view, setView] = useViewPreference('branches')
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     try {
       setBranches(await listBranches())
       setLoadError(null)
     } catch {
-      setLoadError('Unable to load branches.')
+      setLoadError(t('errors.unableToLoad'))
     } finally {
       setLoading(false)
     }
-  }
+  }, [t])
 
   useEffect(() => {
     void refresh()
-  }, [])
+  }, [refresh])
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
@@ -55,7 +57,7 @@ export function BranchesScreen() {
       setName('')
       await refresh()
     } catch {
-      setActionError('Unable to create branch.')
+      setActionError(t('errors.unableToCreate'))
     }
   }
 
@@ -66,10 +68,10 @@ export function BranchesScreen() {
   }, [branches, trimmedSearch])
 
   const columns: DataViewColumn<BranchSummary>[] = [
-    { key: 'branchName', header: 'Branch name', cell: (branch) => branch.branchName },
+    { key: 'branchName', header: t('columns.branchName'), cell: (branch) => branch.branchName },
     {
       key: 'branchId',
-      header: 'Identifier',
+      header: t('columns.identifier'),
       cell: (branch) => <span className="font-mono text-xs text-muted-foreground">{branch.branchId}</span>,
       hideOnMobile: true,
     },
@@ -78,19 +80,19 @@ export function BranchesScreen() {
   return (
     <section className="flex w-full flex-col gap-6">
       <PageHeader
-        title="Branches"
-        description="Physical locations orders and stock are attributed to."
+        title={t('title')}
+        description={t('description')}
         actions={
           <form onSubmit={submit} className="flex w-full items-center gap-2 sm:w-auto">
             <Input
-              aria-label="Branch name"
+              aria-label={t('createForm.nameAriaLabel')}
               className="sm:w-56"
-              placeholder="New branch name"
+              placeholder={t('createForm.namePlaceholder')}
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
             />
-            <Button type="submit">Create branch</Button>
+            <Button type="submit">{t('createForm.submit')}</Button>
           </form>
         }
       />
@@ -110,8 +112,8 @@ export function BranchesScreen() {
       <DataToolbar
         searchValue={search}
         onSearchChange={setSearch}
-        searchLabel="Search branches"
-        searchPlaceholder="Search by branch name…"
+        searchLabel={t('search.label')}
+        searchPlaceholder={t('search.placeholder')}
         view={view}
         onViewChange={setView}
       />
@@ -122,8 +124,8 @@ export function BranchesScreen() {
         getRowKey={(branch) => branch.branchId}
         view={view}
         loading={loading}
-        emptyMessage={branches.length === 0 ? 'No branches yet.' : 'No branches match this search.'}
-        loadErrorMessage={loadError === null ? null : 'Branches could not be loaded.'}
+        emptyMessage={branches.length === 0 ? t('empty.none') : t('empty.noMatch')}
+        loadErrorMessage={loadError === null ? null : t('empty.loadError')}
       />
     </section>
   )
