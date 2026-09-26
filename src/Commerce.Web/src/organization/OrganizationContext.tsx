@@ -61,7 +61,10 @@ function writeStored(storageKey: string, value: SelectedOrganization | null): vo
  * Module-scoped mirror of the current selection, read by `apiFetch`
  * (`api/client.ts`) OUTSIDE React so every request can attach the
  * `X-Organization-Id` header without threading it through every API call
- * site. Kept in sync by `OrganizationProvider` alone.
+ * site. Kept in sync by `OrganizationProvider` alone, and updated
+ * SYNCHRONOUSLY with every selection change: React runs a child's effects
+ * before its parent's, so an effect-based sync would let a screen's
+ * on-mount fetch go out without the header (and be answered 403).
  */
 let currentSelectedOrganizationId: string | null = null
 
@@ -74,9 +77,16 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
   const userId = auth?.user?.userId
   const storageKey = storageKeyFor(userId)
 
-  const [selectedOrganization, setSelectedOrganization] = useState<SelectedOrganization | null>(() =>
-    readStored(storageKey),
-  )
+  const [selectedOrganization, setSelectedOrganizationState] = useState<SelectedOrganization | null>(() => {
+    const stored = readStored(storageKey)
+    currentSelectedOrganizationId = stored?.id ?? null
+    return stored
+  })
+
+  const setSelectedOrganization = (organization: SelectedOrganization | null) => {
+    currentSelectedOrganizationId = organization?.id ?? null
+    setSelectedOrganizationState(organization)
+  }
 
   // Re-read (or clear) the persisted selection whenever the effective
   // identity changes — sign-in, sign-out, or switching accounts on the same
@@ -86,10 +96,6 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
     setSelectedOrganization(readStored(storageKey))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storageKey])
-
-  useEffect(() => {
-    currentSelectedOrganizationId = selectedOrganization?.id ?? null
-  }, [selectedOrganization])
 
   const selectOrganization = (organization: SelectedOrganization) => {
     writeStored(storageKey, organization)
