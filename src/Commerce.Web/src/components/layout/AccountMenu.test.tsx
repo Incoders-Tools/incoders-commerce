@@ -13,6 +13,7 @@ const baseUser: SignedInResponse = {
   displayName: 'Ada Lovelace',
   permissions: 0,
   isSystemAdmin: false,
+  selectableBranches: [],
 }
 
 function renderMenu(signOut = vi.fn().mockResolvedValue(undefined)) {

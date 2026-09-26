@@ -30,6 +30,7 @@ function buildUser(overrides: Partial<SignedInResponse> = {}): SignedInResponse 
     displayName: 'Ada Lovelace',
     permissions: 0,
     isSystemAdmin: false,
+    selectableBranches: [],
     ...overrides,
   }
 }

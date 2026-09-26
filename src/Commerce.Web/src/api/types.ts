@@ -16,6 +16,17 @@ export interface SignedInResponse {
   // (actor.EffectivePermissions), never trusted from the client.
   permissions: number
   isSystemAdmin: boolean
+  // organization-persistence spec, "Selectable Branches In The Session"
+  // (B7 U1, Endpoints/Account.cs `SelectableBranch`): the caller's own
+  // `BranchScope`, or every branch of the selected organization for a
+  // system administrator acting on one. Returned by both sign-in and
+  // `/account/me`.
+  selectableBranches: SelectableBranch[]
+}
+
+export interface SelectableBranch {
+  id: string
+  name: string
 }
 
 // Mirrors Commerce.Domain.Identity.Permission's [Flags] bit layout exactly —

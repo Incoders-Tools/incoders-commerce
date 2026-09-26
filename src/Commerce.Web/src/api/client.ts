@@ -1,4 +1,5 @@
 import i18next from '@/i18n'
+import { getSelectedBranchId } from '@/branch/BranchContext'
 import { getSelectedOrganizationId } from '@/organization/OrganizationContext'
 
 // Not a React component: this module runs plain i18next (the singleton
@@ -25,16 +26,22 @@ export class ApiError extends Error {
 }
 
 /**
- * platform-administration spec, "Sysadmin Acts On A Selected Organization":
- * attaches `X-Organization-Id` when a system administrator has selected a
- * target organization (`organization/OrganizationContext.tsx`). The server
- * honors this ONLY for a verified sysadmin and ignores it for anyone else —
- * this client never decides that, it only reflects the current UI
- * selection.
+ * platform-administration spec, "Sysadmin Acts On A Selected Organization",
+ * and admin-console spec, "Top Navbar Branch Switcher": attaches
+ * `X-Organization-Id` when a system administrator has selected a target
+ * organization (`organization/OrganizationContext.tsx`) and `X-Branch-Id`
+ * when a branch is selected (`branch/BranchContext.tsx`), alongside each
+ * other. The server honors either header only for a caller entitled to use
+ * it and ignores it otherwise — this client never decides that, it only
+ * reflects the current UI selection.
  */
-function organizationHeaders(): HeadersInit {
+function tenantHeaders(): HeadersInit {
   const organizationId = getSelectedOrganizationId()
-  return organizationId ? { 'X-Organization-Id': organizationId } : {}
+  const branchId = getSelectedBranchId()
+  return {
+    ...(organizationId ? { 'X-Organization-Id': organizationId } : {}),
+    ...(branchId ? { 'X-Branch-Id': branchId } : {}),
+  }
 }
 
 export async function apiFetch<TResponse>(
@@ -48,7 +55,7 @@ export async function apiFetch<TResponse>(
       credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
-        ...organizationHeaders(),
+        ...tenantHeaders(),
         ...init?.headers,
       },
     })

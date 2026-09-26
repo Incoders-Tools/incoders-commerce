@@ -52,7 +52,7 @@ describe('HomeScreen', () => {
       <MemoryRouter>
         <AuthContext.Provider
           value={{
-            user: { organizationId: 'org-1', userId: 'user-1', displayName: 'Jane Doe', permissions: 0 , isSystemAdmin: false},
+            user: { organizationId: 'org-1', userId: 'user-1', displayName: 'Jane Doe', permissions: 0, isSystemAdmin: false, selectableBranches: [] },
             error: null,
             signIn: vi.fn(),
             signOut: vi.fn(),

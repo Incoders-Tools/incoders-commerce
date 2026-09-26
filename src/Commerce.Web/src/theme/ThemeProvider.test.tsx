@@ -25,6 +25,7 @@ function renderAsUser(userId: string, primaryColor: string | null = null) {
     displayName: 'Test User',
     permissions: 0,
     isSystemAdmin: false,
+    selectableBranches: [],
   }
   return render(
     <AuthContext.Provider value={{ user, error: null, signIn: async () => {}, signOut: async () => {} }}>

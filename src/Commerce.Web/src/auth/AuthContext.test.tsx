@@ -14,6 +14,7 @@ describe('hasPermission', () => {
     displayName: 'Jane',
     permissions: Permission.ViewSales | Permission.ManageUsers,
     isSystemAdmin: false,
+    selectableBranches: [],
   }
   const seller: SignedInResponse = {
     organizationId: 'org-1',
@@ -21,6 +22,7 @@ describe('hasPermission', () => {
     displayName: 'Sam',
     permissions: Permission.ViewSales,
     isSystemAdmin: false,
+    selectableBranches: [],
   }
 
   it('returns true when the user holds the requested bit', () => {
