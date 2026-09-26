@@ -1,6 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router'
-import { AuthProvider } from '@/auth/AuthContext'
-import { OrganizationProvider } from '@/organization/OrganizationContext'
+import { AuthProvider, useOptionalAuth } from '@/auth/AuthContext'
+import { OrganizationProvider, useOptionalOrganizationContext } from '@/organization/OrganizationContext'
 import { OrganizationBrandingProvider } from '@/theme/OrganizationBrandingProvider'
 import { ThemeProvider } from '@/theme/ThemeProvider'
 import { AppLayout } from '@/routes/AppLayout'
@@ -20,6 +20,19 @@ import { UsersScreen } from '@/screens/UsersScreen'
 import { BranchesScreen } from '@/screens/BranchesScreen'
 import { PriceListsScreen } from '@/screens/PriceListsScreen'
 import { OrganizationsScreen } from '@/screens/OrganizationsScreen'
+
+/**
+ * `/app` landing. A system administrator with no real org permissions and no
+ * selected organization only has platform screens (platform-administration
+ * spec, "Sysadmin Acts On A Selected Organization"), so the catalog would be
+ * a hidden, 403-answering page for them; everyone else keeps the catalog.
+ */
+function AppIndexRedirect() {
+  const user = useOptionalAuth()?.user
+  const selectedOrganization = useOptionalOrganizationContext()?.selectedOrganization
+  const platformOnly = Boolean(user?.isSystemAdmin) && user?.permissions === 0 && selectedOrganization == null
+  return <Navigate to={platformOnly ? 'organizations' : 'catalog'} replace />
+}
 
 /**
  * Route tree replacing the former auth ternary (design.md "Route tree").
@@ -56,7 +69,7 @@ function App() {
               <Route path="/order" element={<OrderScreen />} />
               <Route element={<RequireAuth />}>
                 <Route path="/app" element={<AppLayout />}>
-                  <Route index element={<Navigate to="catalog" replace />} />
+                  <Route index element={<AppIndexRedirect />} />
                   <Route path="catalog" element={<CatalogScreen />} />
                   {/* tasks.md 6.8 regression guard: unchanged staff-operated
                       submission path, extracted to its own component. */}

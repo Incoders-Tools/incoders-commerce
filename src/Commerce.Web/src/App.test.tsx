@@ -102,4 +102,28 @@ describe('App route table', () => {
 
     expect(await screen.findByRole('heading', { name: /sign in/i })).toBeInTheDocument()
   })
+
+  // platform-administration spec: a sysadmin with no selected organization
+  // sees only Organizations, so /app must not land them on a tenant screen
+  // their nav hides and the API answers 403.
+  it('lands a system administrator without a selected organization on Organizations', async () => {
+    renderAppAt('/app', buildUser({ isSystemAdmin: true }))
+
+    expect(await screen.findByRole('heading', { name: 'Organizations' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Catalog' })).not.toBeInTheDocument()
+  })
+
+  it('lands a system administrator acting on an organization on the catalog', async () => {
+    window.localStorage.setItem('sysadmin-organization:user-1', JSON.stringify({ id: 'org-a', name: 'Org A' }))
+
+    renderAppAt('/app', buildUser({ isSystemAdmin: true }))
+
+    expect(await screen.findByRole('heading', { name: 'Catalog' })).toBeInTheDocument()
+  })
+
+  it('still lands staff on the catalog', async () => {
+    renderAppAt('/app', buildUser({ permissions: Permission.ViewSales }))
+
+    expect(await screen.findByRole('heading', { name: 'Catalog' })).toBeInTheDocument()
+  })
 })
