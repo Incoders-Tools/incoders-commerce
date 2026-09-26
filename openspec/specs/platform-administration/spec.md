@@ -168,3 +168,87 @@ capability representation, decided at design time.)
 - THEN an audit row exists in that same transaction recording the
   sysadmin as actor, the created organization and admin user as acted-on
   entities, the action, and the timestamp
+
+### Requirement: Sysadmin Acts On A Selected Organization
+
+A caller holding cross-org sysadmin capability MUST be able to select a
+target organization and, for the remainder of that request, exercise every
+tenant module (branches, users, catalog, price lists, customers, orders) on
+that organization with the full staff permission set — not only the
+organization-CRUD endpoints already covered by the other requirements in
+this spec. Every existing tenant-scoped screen and endpoint MUST be reused
+for this; none of them are duplicated under a sysadmin-only surface.
+
+The target organization is supplied per-request (never persisted server-side
+against the sysadmin's identity) and is honored ONLY when the authenticated
+caller holds cross-org sysadmin capability and the target organization
+exists. RLS row scoping MUST still apply, scoped to the target organization
+— sysadmin capability elevates the caller's permissions for that request, it
+never bypasses row-level tenant isolation.
+
+A caller who does NOT hold cross-org sysadmin capability but supplies a
+target-organization selector MUST have that selector ignored: the request
+proceeds scoped to the caller's own organization exactly as if no selector
+had been supplied, never to the organization named in the selector. This
+keeps every existing org-scoped endpoint's isolation guarantee unchanged for
+every caller who is not a verified sysadmin.
+
+Every write performed while acting on a selected organization MUST be
+audited (Requirement: Platform-Admin Action Auditing) recording the sysadmin
+as actor and the selected organization as the acted-on organization.
+
+A sysadmin who has selected no organization is acting only in their own
+(hidden, organization-less-in-effect) identity: they see and can use only
+the cross-org sysadmin screens (organizations and other platform-level
+screens), never a tenant module's data, exactly as an unselected sysadmin
+behaves under the requirements above.
+
+#### Scenario: Sysadmin creates a branch in a selected organization
+
+- GIVEN an authenticated sysadmin who has not been granted any org-scoped
+  `Permission` and an existing organization the sysadmin does not belong to
+- WHEN the sysadmin selects that organization and calls the create-branch
+  endpoint
+- THEN a branch is created in the selected organization and the sysadmin's
+  subsequent list-branches call for that organization includes it
+
+#### Scenario: Sysadmin acts on tenant modules beyond organization CRUD
+
+- GIVEN an authenticated sysadmin who has selected an organization
+- WHEN the sysadmin calls a users, catalog, price-list, customer, or order
+  endpoint scoped to that organization
+- THEN the call succeeds with the full staff permission set, identically to
+  a `business-admin` of that organization
+
+#### Scenario: Sysadmin without a selected organization sees no tenant data
+
+- GIVEN an authenticated sysadmin who has not selected an organization
+- WHEN the sysadmin calls a tenant-scoped endpoint without a target
+  organization
+- THEN the call is scoped to the sysadmin's own organization-less-in-effect
+  identity and returns no tenant module data, and the sysadmin's own client
+  surface shows only organizations and other platform-level screens
+
+#### Scenario: Non-sysadmin's target-organization selector is ignored
+
+- GIVEN an authenticated `business-admin` of organization B who holds every
+  org-scoped `Permission` flag for B
+- WHEN they call a tenant-scoped endpoint supplying organization A as the
+  target-organization selector
+- THEN the request is scoped to organization B, not A, exactly as if no
+  selector had been supplied, and no data from A is read or written
+
+#### Scenario: Selecting an unknown organization is rejected
+
+- GIVEN an authenticated sysadmin
+- WHEN the sysadmin selects a target-organization id that does not exist
+- THEN the request is rejected and no tenant module call proceeds under that
+  selection
+
+#### Scenario: A write while acting on a selected organization is audited
+
+- GIVEN an authenticated sysadmin who has selected an organization
+- WHEN the sysadmin performs a write on a tenant module for that
+  organization
+- THEN an audit row exists recording the sysadmin as actor and the selected
+  organization as the acted-on organization
