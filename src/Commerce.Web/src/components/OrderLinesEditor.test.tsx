@@ -15,6 +15,7 @@ describe('OrderLinesEditor', () => {
     {
       id: 'pres-1',
       organizationId: 'org-1',
+      branchId: 'branch-1',
       productId: 'prod-1',
       name: '1.5L bottle',
       quantityBehavior: 0,
@@ -27,6 +28,7 @@ describe('OrderLinesEditor', () => {
     {
       id: 'pres-2',
       organizationId: 'org-1',
+      branchId: 'branch-1',
       productId: 'prod-2',
       name: '2kg bag',
       quantityBehavior: 0,

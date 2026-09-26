@@ -17,6 +17,7 @@ describe('CatalogScreen', () => {
   const unlabelled: PresentationRecord = {
     id: '11111111-1111-1111-1111-111111111111',
     organizationId: 'org-1',
+    branchId: 'branch-1',
     productId: '22222222-2222-2222-2222-222222222222',
     name: '1.5L bottle',
     quantityBehavior: QuantityBehavior.FixedQuantity,

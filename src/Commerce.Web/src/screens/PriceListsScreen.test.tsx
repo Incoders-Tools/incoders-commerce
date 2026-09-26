@@ -29,6 +29,7 @@ const seasonalPriceList: PriceListRecord = {
 const presentation: PresentationRecord = {
   id: '22222222-2222-2222-2222-222222222222',
   organizationId: 'org-1',
+  branchId: 'branch-1',
   productId: '33333333-3333-3333-3333-333333333333',
   name: '1.5L bottle',
   quantityBehavior: 0,

@@ -36,11 +36,13 @@ test.describe('catalog screen', () => {
     await expectSignedIn(otherPage)
 
     const otherProduct = await otherPage.request.post('/catalog/products', {
+      headers: { 'X-Branch-Id': otherOrgUser.branchId },
       data: { name: 'Other Org Product', categoryId: crypto.randomUUID(), defaultUnitId: crypto.randomUUID() },
     })
     expect(otherProduct.ok()).toBeTruthy()
     const otherProductBody = await otherProduct.json()
     const otherPresentation = await otherPage.request.post('/catalog/presentations', {
+      headers: { 'X-Branch-Id': otherOrgUser.branchId },
       data: {
         productId: otherProductBody.id,
         name: 'Other Org Presentation',
@@ -76,11 +78,13 @@ test.describe('catalog screen', () => {
     // Seed a real product + presentation through the same production
     // endpoints CatalogScreen itself calls, using this admin's own session.
     const product = await page.request.post('/catalog/products', {
+      headers: { 'X-Branch-Id': user.branchId },
       data: { name: 'E2E Product', categoryId: crypto.randomUUID(), defaultUnitId: crypto.randomUUID() },
     })
     expect(product.ok()).toBeTruthy()
     const productBody = await product.json()
     const presentation = await page.request.post('/catalog/presentations', {
+      headers: { 'X-Branch-Id': user.branchId },
       data: {
         productId: productBody.id,
         name: 'E2E Presentation',

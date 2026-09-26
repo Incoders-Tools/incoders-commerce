@@ -65,10 +65,6 @@ export interface RoleDto {
 }
 
 export interface RenameProductRequest {
-  targetBranchId: string
-  currentName: string
-  categoryId: string
-  defaultUnitId: string
   newName: string
   isOffline: boolean
   correlationId: string
@@ -258,6 +254,7 @@ export type QuantityBehavior = (typeof QuantityBehavior)[keyof typeof QuantityBe
 export interface ProductRecord {
   id: string
   organizationId: string
+  branchId: string
   name: string
   categoryId: string
   defaultUnitId: string
@@ -280,6 +277,7 @@ export interface CreateProductRequest {
 export interface PresentationRecord {
   id: string
   organizationId: string
+  branchId: string
   productId: string
   name: string
   quantityBehavior: QuantityBehavior
