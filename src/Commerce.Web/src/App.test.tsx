@@ -80,8 +80,8 @@ describe('App route table', () => {
     renderAppAt('/app/price-lists', buildUser({ permissions: Permission.ManageUsers }))
 
     await screen.findByRole('heading', { name: 'Price lists' })
-    const nav = within(screen.getByRole('navigation', { name: 'Primary' }))
-    const links = nav.getAllByRole('link', { name: /price lists/i })
+    const nav = within(screen.getByRole('navigation', { name: 'Principal' }))
+    const links = nav.getAllByRole('link', { name: /listas de precios/i })
     expect(links).toHaveLength(1)
     expect(links[0]).toHaveAttribute('href', '/app/price-lists')
   })
@@ -93,8 +93,8 @@ describe('App route table', () => {
     // "Price lists" is a real heading of a real screen in this same app (see
     // the admin case above), so its absence here is a fact about the guard.
     expect(screen.queryByRole('heading', { name: 'Price lists' })).not.toBeInTheDocument()
-    const nav = within(screen.getByRole('navigation', { name: 'Primary' }))
-    expect(nav.queryAllByRole('link', { name: /price lists/i })).toHaveLength(0)
+    const nav = within(screen.getByRole('navigation', { name: 'Principal' }))
+    expect(nav.queryAllByRole('link', { name: /listas de precios/i })).toHaveLength(0)
   })
 
   it('sends a signed-out visitor from /app/price-lists to the login screen', async () => {

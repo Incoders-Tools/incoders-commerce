@@ -1,4 +1,5 @@
 import { useEffect, useState, type ChangeEvent } from 'react'
+import { useTranslation } from 'react-i18next'
 import { listOrganizations } from '@/api/account'
 import { ApiError } from '@/api/client'
 import type { OrganizationSummary } from '@/api/types'
@@ -17,6 +18,7 @@ const NO_ORGANIZATION_VALUE = ''
  * other platform screens, per the spec's "sees no tenant data" scenario).
  */
 export function OrganizationSwitcher() {
+  const { t } = useTranslation('nav')
   const { user } = useAuth()
   // Non-throwing: a host that renders `AppLayout` without an
   // `OrganizationProvider` mounted (e.g. an existing test) still renders —
@@ -33,12 +35,12 @@ export function OrganizationSwitcher() {
         if (!cancelled) setOrganizations(result)
       })
       .catch((err) => {
-        if (!cancelled) setLoadError(err instanceof ApiError ? err.message : 'Unexpected error loading organizations.')
+        if (!cancelled) setLoadError(err instanceof ApiError ? err.message : t('organizationSwitcher.loadError'))
       })
     return () => {
       cancelled = true
     }
-  }, [user?.isSystemAdmin])
+  }, [user?.isSystemAdmin, t])
 
   if (!user?.isSystemAdmin || !organizationContext) return null
 
@@ -59,17 +61,17 @@ export function OrganizationSwitcher() {
   return (
     <div className="flex items-center gap-2">
       <label htmlFor="organization-switcher" className="text-sm font-medium text-muted-foreground">
-        Organization
+        {t('organizationSwitcher.label')}
       </label>
       <select
         id="organization-switcher"
-        aria-label="Organization"
+        aria-label={t('organizationSwitcher.label')}
         value={selectedOrganization?.id ?? NO_ORGANIZATION_VALUE}
         onChange={handleChange}
         title={loadError ?? undefined}
         className="h-8 rounded-md border border-border bg-card px-2 text-sm text-foreground"
       >
-        <option value={NO_ORGANIZATION_VALUE}>No organization</option>
+        <option value={NO_ORGANIZATION_VALUE}>{t('organizationSwitcher.noOrganization')}</option>
         {organizations.map((organization) => (
           <option key={organization.id} value={organization.id}>
             {organization.name}

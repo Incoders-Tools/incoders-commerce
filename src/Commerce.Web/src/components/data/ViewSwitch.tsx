@@ -1,4 +1,5 @@
 import type { SVGProps } from 'react'
+import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 
 /** The two layouts every data screen offers. Stored verbatim in localStorage. */
@@ -25,9 +26,9 @@ function CardsIcon(props: SVGProps<SVGSVGElement>) {
   )
 }
 
-const OPTIONS: { value: DataViewMode; label: string; Icon: (props: SVGProps<SVGSVGElement>) => React.JSX.Element }[] = [
-  { value: 'table', label: 'Table view', Icon: TableIcon },
-  { value: 'cards', label: 'Card view', Icon: CardsIcon },
+const OPTIONS: { value: DataViewMode; labelKey: 'tableView' | 'cardView'; Icon: (props: SVGProps<SVGSVGElement>) => React.JSX.Element }[] = [
+  { value: 'table', labelKey: 'tableView', Icon: TableIcon },
+  { value: 'cards', labelKey: 'cardView', Icon: CardsIcon },
 ]
 
 /**
@@ -46,14 +47,16 @@ export function ViewSwitch({
   onChange: (view: DataViewMode) => void
   className?: string
 }) {
+  const { t } = useTranslation('common')
   return (
     <div
       role="radiogroup"
-      aria-label="View"
+      aria-label={t('dataView.view')}
       className={cn('inline-flex items-center gap-0.5 rounded-md border border-border bg-muted p-0.5', className)}
     >
-      {OPTIONS.map(({ value: option, label, Icon }) => {
+      {OPTIONS.map(({ value: option, labelKey, Icon }) => {
         const selected = value === option
+        const label = t(`dataView.${labelKey}`)
         return (
           <button
             key={option}

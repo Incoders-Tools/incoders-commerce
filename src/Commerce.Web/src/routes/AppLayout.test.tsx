@@ -57,21 +57,21 @@ describe('AppLayout', () => {
     renderLayout(buildUser())
 
     const nav = within(screen.getByRole('navigation'))
-    expect(nav.getByRole('link', { name: /catalog/i })).toBeInTheDocument()
-    expect(nav.getByRole('link', { name: /orders/i })).toBeInTheDocument()
-    expect(nav.queryByRole('link', { name: /customers/i })).not.toBeInTheDocument()
-    expect(nav.queryByRole('link', { name: /users/i })).not.toBeInTheDocument()
-    expect(nav.queryByRole('link', { name: /branches/i })).not.toBeInTheDocument()
-    expect(nav.queryByRole('link', { name: /organizations/i })).not.toBeInTheDocument()
+    expect(nav.getByRole('link', { name: /catálogo/i })).toBeInTheDocument()
+    expect(nav.getByRole('link', { name: /pedidos/i })).toBeInTheDocument()
+    expect(nav.queryByRole('link', { name: /clientes/i })).not.toBeInTheDocument()
+    expect(nav.queryByRole('link', { name: /usuarios/i })).not.toBeInTheDocument()
+    expect(nav.queryByRole('link', { name: /sucursales/i })).not.toBeInTheDocument()
+    expect(nav.queryByRole('link', { name: /organizaciones/i })).not.toBeInTheDocument()
     // Change password moved into the account menu, not the nav bar.
-    expect(nav.queryByRole('link', { name: /change password/i })).not.toBeInTheDocument()
+    expect(nav.queryByRole('link', { name: /cambiar contraseña/i })).not.toBeInTheDocument()
   })
 
   it('renders an identifying icon next to every visible nav link, without changing its accessible name', () => {
     renderLayout(buildUser({ permissions: Permission.ManageUsers, isSystemAdmin: true }))
 
     const nav = within(screen.getByRole('navigation'))
-    for (const name of ['Catalog', 'Orders', 'Customers', 'Users', 'Branches', 'Price lists', 'Organizations']) {
+    for (const name of ['Catálogo', 'Pedidos', 'Clientes', 'Usuarios', 'Sucursales', 'Listas de precios', 'Organizaciones']) {
       const link = nav.getByRole('link', { name })
       const icon = link.querySelector('svg')
       expect(icon).not.toBeNull()
@@ -82,7 +82,7 @@ describe('AppLayout', () => {
   it('replaces the hand-drawn hamburger icon with a lucide Menu icon', () => {
     renderLayout(buildUser())
 
-    const toggle = screen.getByRole('button', { name: /toggle navigation/i })
+    const toggle = screen.getByRole('button', { name: /alternar navegación/i })
     const icon = toggle.querySelector('svg')
     expect(icon).not.toBeNull()
     expect(icon).toHaveAttribute('aria-hidden', 'true')
@@ -96,17 +96,17 @@ describe('AppLayout', () => {
     renderLayout(buildUser({ permissions: Permission.ManageUsers }))
 
     const nav = within(screen.getByRole('navigation'))
-    expect(nav.getByRole('link', { name: /customers/i })).toBeInTheDocument()
-    expect(nav.getByRole('link', { name: /users/i })).toBeInTheDocument()
-    expect(nav.getByRole('link', { name: /branches/i })).toBeInTheDocument()
-    expect(nav.queryByRole('link', { name: /organizations/i })).not.toBeInTheDocument()
+    expect(nav.getByRole('link', { name: /clientes/i })).toBeInTheDocument()
+    expect(nav.getByRole('link', { name: /usuarios/i })).toBeInTheDocument()
+    expect(nav.getByRole('link', { name: /sucursales/i })).toBeInTheDocument()
+    expect(nav.queryByRole('link', { name: /organizaciones/i })).not.toBeInTheDocument()
   })
 
   it('shows Organizations to a system admin', () => {
     renderLayout(buildUser({ isSystemAdmin: true }))
 
     const nav = within(screen.getByRole('navigation'))
-    expect(nav.getByRole('link', { name: /organizations/i })).toBeInTheDocument()
+    expect(nav.getByRole('link', { name: /organizaciones/i })).toBeInTheDocument()
   })
 
   // B1 (odd/tasks/frontend-modernization.md, product review backlog): the
@@ -123,13 +123,13 @@ describe('AppLayout', () => {
     renderLayout(buildUser({ isSystemAdmin: true }))
 
     const nav = within(screen.getByRole('navigation'))
-    expect(nav.getByRole('link', { name: /organizations/i })).toBeInTheDocument()
-    expect(nav.queryByRole('link', { name: /catalog/i })).not.toBeInTheDocument()
-    expect(nav.queryByRole('link', { name: /orders/i })).not.toBeInTheDocument()
-    expect(nav.queryByRole('link', { name: /customers/i })).not.toBeInTheDocument()
-    expect(nav.queryByRole('link', { name: /users/i })).not.toBeInTheDocument()
-    expect(nav.queryByRole('link', { name: /branches/i })).not.toBeInTheDocument()
-    expect(nav.queryByRole('link', { name: /price lists/i })).not.toBeInTheDocument()
+    expect(nav.getByRole('link', { name: /organizaciones/i })).toBeInTheDocument()
+    expect(nav.queryByRole('link', { name: /catálogo/i })).not.toBeInTheDocument()
+    expect(nav.queryByRole('link', { name: /pedidos/i })).not.toBeInTheDocument()
+    expect(nav.queryByRole('link', { name: /clientes/i })).not.toBeInTheDocument()
+    expect(nav.queryByRole('link', { name: /usuarios/i })).not.toBeInTheDocument()
+    expect(nav.queryByRole('link', { name: /sucursales/i })).not.toBeInTheDocument()
+    expect(nav.queryByRole('link', { name: /listas de precios/i })).not.toBeInTheDocument()
   })
 
   // Once the sysadmin has selected an organization (OrganizationProvider
@@ -160,7 +160,7 @@ describe('AppLayout', () => {
     )
 
     const nav = within(screen.getByRole('navigation'))
-    for (const name of ['Catalog', 'Orders', 'Customers', 'Users', 'Branches', 'Price lists', 'Organizations']) {
+    for (const name of ['Catálogo', 'Pedidos', 'Clientes', 'Usuarios', 'Sucursales', 'Listas de precios', 'Organizaciones']) {
       expect(nav.getByRole('link', { name })).toBeInTheDocument()
     }
   })
@@ -175,7 +175,7 @@ describe('AppLayout', () => {
     const user = userEvent.setup()
     const { container } = renderLayout(buildUser())
 
-    const toggle = screen.getByRole('button', { name: /toggle navigation/i })
+    const toggle = screen.getByRole('button', { name: /alternar navegación/i })
     const aside = container.querySelector('aside')
     expect(aside).not.toBeNull()
 
@@ -200,7 +200,7 @@ describe('AppLayout', () => {
   it('renders the organization logo in the brand spot when logoUrl is set', () => {
     renderLayout(buildUser(), { logoUrl: 'https://cdn.example.com/logo.png', primaryColor: null })
 
-    const logo = screen.getByRole('img', { name: 'Organization logo' })
+    const logo = screen.getByRole('img', { name: 'Logotipo de la organización' })
     expect(logo).toHaveAttribute('src', 'https://cdn.example.com/logo.png')
     expect(screen.queryByRole('heading', { name: 'Commerce' })).not.toBeInTheDocument()
   })
@@ -208,7 +208,7 @@ describe('AppLayout', () => {
   it('falls back to the text brand when the logo fails to load', () => {
     renderLayout(buildUser(), { logoUrl: 'https://cdn.example.com/logo.png', primaryColor: null })
 
-    const logo = screen.getByRole('img', { name: 'Organization logo' })
+    const logo = screen.getByRole('img', { name: 'Logotipo de la organización' })
     fireEvent.error(logo)
 
     expect(screen.getByRole('heading', { name: 'Commerce' })).toBeInTheDocument()

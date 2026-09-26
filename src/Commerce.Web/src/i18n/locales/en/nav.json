@@ -1,0 +1,23 @@
+{
+  "primary": "Primary",
+  "toggleNavigation": "Toggle navigation",
+  "items": {
+    "catalog": "Catalog",
+    "orders": "Orders",
+    "customers": "Customers",
+    "users": "Users",
+    "branches": "Branches",
+    "priceLists": "Price lists",
+    "organizations": "Organizations"
+  },
+  "account": {
+    "label": "Account",
+    "changePassword": "Change password",
+    "signOut": "Sign out"
+  },
+  "organizationSwitcher": {
+    "label": "Organization",
+    "noOrganization": "No organization",
+    "loadError": "Unexpected error loading organizations."
+  }
+}

@@ -126,7 +126,7 @@ describe('OrganizationsScreen', () => {
     await screen.findByText('Acme Co')
     expect(screen.getByRole('table')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('radio', { name: /card view/i }))
+    await user.click(screen.getByRole('radio', { name: /vista de tarjetas/i }))
 
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
     expect(screen.getAllByTestId('data-view-card')).toHaveLength(2)

@@ -54,14 +54,14 @@ describe('FormPage', () => {
     expect(icon).toHaveAttribute('aria-hidden', 'true')
   })
 
-  it('falls back to a generic "Back" label when none is given', () => {
+  it('falls back to a generic "Volver" label when none is given', () => {
     render(
       <FormPage title="New customer" onBack={vi.fn()}>
         <p>body</p>
       </FormPage>,
     )
 
-    expect(screen.getByRole('button', { name: 'Back' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Volver' })).toBeInTheDocument()
   })
 
   it('renders an optional footer/actions area under the body', () => {

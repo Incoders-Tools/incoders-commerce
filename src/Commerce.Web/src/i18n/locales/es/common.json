@@ -1,0 +1,33 @@
+{
+  "actions": {
+    "save": "Guardar",
+    "cancel": "Cancelar",
+    "close": "Cerrar",
+    "edit": "Editar",
+    "delete": "Eliminar",
+    "create": "Crear",
+    "add": "Agregar",
+    "retry": "Reintentar",
+    "back": "Volver",
+    "confirm": "Confirmar",
+    "search": "Buscar"
+  },
+  "states": {
+    "loading": "Cargando…",
+    "saving": "Guardando…",
+    "empty": "No hay resultados.",
+    "unexpectedError": "Ocurrió un error inesperado."
+  },
+  "app": {
+    "name": "Commerce",
+    "logoAlt": "Logotipo de la organización"
+  },
+  "dataView": {
+    "loading": "Cargando…",
+    "actions": "Acciones",
+    "tableView": "Vista de tabla",
+    "cardView": "Vista de tarjetas",
+    "view": "Vista",
+    "searchPlaceholder": "Buscar…"
+  }
+}

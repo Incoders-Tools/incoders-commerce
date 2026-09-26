@@ -1,0 +1,33 @@
+{
+  "actions": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "close": "Close",
+    "edit": "Edit",
+    "delete": "Delete",
+    "create": "Create",
+    "add": "Add",
+    "retry": "Retry",
+    "back": "Back",
+    "confirm": "Confirm",
+    "search": "Search"
+  },
+  "states": {
+    "loading": "Loading…",
+    "saving": "Saving…",
+    "empty": "No results.",
+    "unexpectedError": "An unexpected error occurred."
+  },
+  "app": {
+    "name": "Commerce",
+    "logoAlt": "Organization logo"
+  },
+  "dataView": {
+    "loading": "Loading…",
+    "actions": "Actions",
+    "tableView": "Table view",
+    "cardView": "Card view",
+    "view": "View",
+    "searchPlaceholder": "Search…"
+  }
+}

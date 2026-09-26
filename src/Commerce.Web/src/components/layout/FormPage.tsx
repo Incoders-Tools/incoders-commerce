@@ -1,5 +1,6 @@
 import { ArrowLeft } from 'lucide-react'
 import type { ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 
 interface FormPageProps {
@@ -31,7 +32,8 @@ interface FormPageProps {
  * and reachable via `e2e/system-admin.spec.ts`'s flow), so this header gives
  * a second, always-visible way back without renaming or removing that one.
  */
-export function FormPage({ title, description, onBack, backLabel = 'Back', children, footer, className }: FormPageProps) {
+export function FormPage({ title, description, onBack, backLabel, children, footer, className }: FormPageProps) {
+  const { t } = useTranslation('common')
   return (
     <section className={cn('flex w-full flex-col gap-6', className)}>
       <div className="flex flex-col gap-3">
@@ -41,7 +43,7 @@ export function FormPage({ title, description, onBack, backLabel = 'Back', child
           className="inline-flex w-fit items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
         >
           <ArrowLeft className="size-4 shrink-0" aria-hidden="true" />
-          {backLabel}
+          {backLabel ?? t('actions.back')}
         </button>
         <div className="min-w-0">
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">{title}</h1>

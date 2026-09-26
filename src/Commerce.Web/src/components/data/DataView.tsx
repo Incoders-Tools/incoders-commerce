@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import type { DataViewMode } from './ViewSwitch'
 
@@ -55,14 +56,16 @@ export function DataView<T>({
   loading = false,
   emptyMessage,
   loadErrorMessage = null,
-  loadingMessage = 'Loading…',
+  loadingMessage,
   renderActions,
   className,
 }: DataViewProps<T>) {
+  const { t } = useTranslation('common')
+  const resolvedLoadingMessage = loadingMessage ?? t('dataView.loading')
   if (loading) {
     return (
       <p role="status" className="rounded-lg border border-border bg-card px-4 py-10 text-center text-sm text-muted-foreground">
-        {loadingMessage}
+        {resolvedLoadingMessage}
       </p>
     )
   }
@@ -135,7 +138,7 @@ export function DataView<T>({
             ))}
             {renderActions && (
               <th scope="col" className="px-4 py-3 text-right font-medium">
-                <span className="sr-only">Actions</span>
+                <span className="sr-only">{t('dataView.actions')}</span>
               </th>
             )}
           </tr>

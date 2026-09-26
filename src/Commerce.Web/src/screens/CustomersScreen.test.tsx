@@ -241,7 +241,7 @@ describe('CustomersScreen', () => {
     await screen.findByText('Jane Doe')
     expect(screen.getByRole('table')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('radio', { name: /card view/i }))
+    await user.click(screen.getByRole('radio', { name: /vista de tarjetas/i }))
 
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
     expect(screen.getAllByTestId('data-view-card')).toHaveLength(2)
@@ -253,7 +253,7 @@ describe('CustomersScreen', () => {
     await screen.findByText('Jane Doe')
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
     expect(screen.getAllByTestId('data-view-card')).toHaveLength(2)
-    expect(screen.getByRole('radio', { name: /card view/i })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByRole('radio', { name: /vista de tarjetas/i })).toHaveAttribute('aria-checked', 'true')
   })
 
   it('still edits a customer from the card view', async () => {

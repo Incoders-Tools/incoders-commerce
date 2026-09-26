@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
+import { useTranslation } from 'react-i18next'
 import { ChevronDown, KeyRound, LogOut } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/auth/AuthContext'
@@ -15,6 +16,7 @@ import { ThemeSwitcher } from '@/components/theme/ThemeSwitcher'
  * mirroring the accessibility behavior those libraries provide for free.
  */
 export function AccountMenu() {
+  const { t } = useTranslation('nav')
   const { user, signOut } = useAuth()
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -59,7 +61,7 @@ export function AccountMenu() {
       {open && (
         <div
           role="menu"
-          aria-label="Account"
+          aria-label={t('account.label')}
           className="absolute right-0 top-full z-50 mt-2 w-60 overflow-hidden rounded-md border border-border bg-card text-card-foreground shadow-md"
         >
           <div className="border-b border-border px-3 py-2">
@@ -73,7 +75,7 @@ export function AccountMenu() {
               className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
             >
               <KeyRound aria-hidden="true" className="size-4 shrink-0" />
-              Change password
+              {t('account.changePassword')}
             </Link>
           </div>
           <div className="border-t border-border p-2">
@@ -90,7 +92,7 @@ export function AccountMenu() {
               className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
             >
               <LogOut aria-hidden="true" className="size-4 shrink-0" />
-              Sign out
+              {t('account.signOut')}
             </button>
           </div>
         </div>

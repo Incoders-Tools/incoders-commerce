@@ -55,17 +55,17 @@ describe('AccountMenu', () => {
     const menu = screen.getByRole('menu')
     expect(within(menu).getByText('Ada Lovelace')).toBeInTheDocument()
 
-    const changePasswordLink = within(menu).getByRole('menuitem', { name: /change password/i })
+    const changePasswordLink = within(menu).getByRole('menuitem', { name: /cambiar contraseña/i })
     expect(changePasswordLink).toHaveAttribute('href', '/app/password')
 
-    expect(within(menu).getByRole('radiogroup', { name: /theme/i })).toBeInTheDocument()
+    expect(within(menu).getByRole('radiogroup', { name: /tema/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /ada lovelace/i })).toHaveAttribute('aria-expanded', 'true')
 
     // Pinned because the E2E suite addresses this control by role: the
     // explicit role="menuitem" overrides the element's implicit button role,
     // so a query for a 'button' named Sign out finds nothing.
-    expect(within(menu).getByRole('menuitem', { name: 'Sign out' })).toBeInTheDocument()
-    expect(within(menu).queryByRole('button', { name: 'Sign out' })).not.toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Cerrar sesión' })).toBeInTheDocument()
+    expect(within(menu).queryByRole('button', { name: 'Cerrar sesión' })).not.toBeInTheDocument()
   })
 
   it('shows an identifying icon on Change password and Sign out without changing their accessible names', async () => {
@@ -75,7 +75,7 @@ describe('AccountMenu', () => {
     await user.click(screen.getByRole('button', { name: /ada lovelace/i }))
     const menu = screen.getByRole('menu')
 
-    const changePasswordLink = within(menu).getByRole('menuitem', { name: 'Change password' })
+    const changePasswordLink = within(menu).getByRole('menuitem', { name: 'Cambiar contraseña' })
     const changePasswordIcon = changePasswordLink.querySelector('svg')
     expect(changePasswordIcon).not.toBeNull()
     expect(changePasswordIcon).toHaveAttribute('aria-hidden', 'true')
@@ -84,7 +84,7 @@ describe('AccountMenu', () => {
     // class, so this is what actually proves it is the real KeyRound icon.
     expect(changePasswordIcon).toHaveClass('lucide', 'lucide-key-round')
 
-    const signOutItem = within(menu).getByRole('menuitem', { name: 'Sign out' })
+    const signOutItem = within(menu).getByRole('menuitem', { name: 'Cerrar sesión' })
     const signOutIcon = signOutItem.querySelector('svg')
     expect(signOutIcon).not.toBeNull()
     expect(signOutIcon).toHaveAttribute('aria-hidden', 'true')
@@ -132,7 +132,7 @@ describe('AccountMenu', () => {
     const { signOut } = renderMenu()
 
     await user.click(screen.getByRole('button', { name: /ada lovelace/i }))
-    await user.click(screen.getByRole('menuitem', { name: /sign out/i }))
+    await user.click(screen.getByRole('menuitem', { name: /cerrar sesión/i }))
 
     expect(signOut).toHaveBeenCalledTimes(1)
   })

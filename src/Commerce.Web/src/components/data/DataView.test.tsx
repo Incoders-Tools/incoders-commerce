@@ -39,7 +39,7 @@ describe('DataView', () => {
   it('renders a busy status while loading and no table', () => {
     renderView({ loading: true, items: [] })
 
-    expect(screen.getByRole('status')).toHaveTextContent(/loading/i)
+    expect(screen.getByRole('status')).toHaveTextContent(/cargando/i)
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
     expect(screen.queryByText('No rows yet.')).not.toBeInTheDocument()
   })
@@ -108,7 +108,7 @@ describe('DataView', () => {
   it('prefers the loading state over the load-failure message', () => {
     renderView({ items: [], loading: true, loadErrorMessage: 'Rows could not be loaded.' })
 
-    expect(screen.getByRole('status')).toHaveTextContent(/loading/i)
+    expect(screen.getByRole('status')).toHaveTextContent(/cargando/i)
     expect(screen.queryByTestId('data-view-load-error')).not.toBeInTheDocument()
   })
 })

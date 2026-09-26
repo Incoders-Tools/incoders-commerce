@@ -1,5 +1,6 @@
 import { useState, type ComponentType, type ReactNode } from 'react'
 import { NavLink, Outlet } from 'react-router'
+import { useTranslation } from 'react-i18next'
 import {
   Building2,
   ClipboardList,
@@ -29,6 +30,7 @@ import { useOptionalOrganizationContext } from '@/organization/OrganizationConte
  * in the header as a T2 placeholder).
  */
 export function AppLayout() {
+  const { t } = useTranslation('nav')
   const { user } = useAuth()
   const organizationContext = useOptionalOrganizationContext()
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -71,11 +73,11 @@ export function AppLayout() {
         <div className="flex h-14 items-center border-b border-border px-4">
           <BrandMark />
         </div>
-        <nav aria-label="Primary" className="flex flex-1 flex-col gap-1 overflow-y-auto p-3">
+        <nav aria-label={t('primary')} className="flex flex-1 flex-col gap-1 overflow-y-auto p-3">
           {showCatalogAndOrdersNav && (
             <>
-              <NavItem to="/app/catalog" icon={Package} onNavigate={closeMobileNav}>Catalog</NavItem>
-              <NavItem to="/app/orders" icon={ClipboardList} onNavigate={closeMobileNav}>Orders</NavItem>
+              <NavItem to="/app/catalog" icon={Package} onNavigate={closeMobileNav}>{t('items.catalog')}</NavItem>
+              <NavItem to="/app/orders" icon={ClipboardList} onNavigate={closeMobileNav}>{t('items.orders')}</NavItem>
             </>
           )}
           {/* commerce-customer-identity "Web admin gating": hidden, not just
@@ -83,17 +85,17 @@ export function AppLayout() {
               server's ManageUsers check on every /customers call is that. */}
           {showTenantNav && (
             <>
-              <NavItem to="/app/customers" icon={Users2} onNavigate={closeMobileNav}>Customers</NavItem>
-              <NavItem to="/app/users" icon={UserCog} onNavigate={closeMobileNav}>Users</NavItem>
-              <NavItem to="/app/branches" icon={Store} onNavigate={closeMobileNav}>Branches</NavItem>
+              <NavItem to="/app/customers" icon={Users2} onNavigate={closeMobileNav}>{t('items.customers')}</NavItem>
+              <NavItem to="/app/users" icon={UserCog} onNavigate={closeMobileNav}>{t('items.users')}</NavItem>
+              <NavItem to="/app/branches" icon={Store} onNavigate={closeMobileNav}>{t('items.branches')}</NavItem>
               {/* Same UI-only gate as its siblings: `App.tsx`'s
                   `RequireAdmin` is the routing boundary, and Pricing.cs's
                   own permission check is the real one. */}
-              <NavItem to="/app/price-lists" icon={Tags} onNavigate={closeMobileNav}>Price lists</NavItem>
+              <NavItem to="/app/price-lists" icon={Tags} onNavigate={closeMobileNav}>{t('items.priceLists')}</NavItem>
             </>
           )}
           {user?.isSystemAdmin && (
-            <NavItem to="/app/organizations" icon={Building2} onNavigate={closeMobileNav}>Organizations</NavItem>
+            <NavItem to="/app/organizations" icon={Building2} onNavigate={closeMobileNav}>{t('items.organizations')}</NavItem>
           )}
         </nav>
       </aside>
@@ -102,7 +104,7 @@ export function AppLayout() {
         <header className="flex h-14 items-center justify-between border-b border-border bg-card px-4 md:px-6">
           <button
             type="button"
-            aria-label="Toggle navigation"
+            aria-label={t('toggleNavigation')}
             onClick={() => setMobileOpen((prev) => !prev)}
             className="rounded-md p-1.5 text-foreground transition-colors hover:bg-accent hover:text-accent-foreground md:hidden"
           >
@@ -130,6 +132,7 @@ export function AppLayout() {
  * image icon.
  */
 function BrandMark() {
+  const { t } = useTranslation('common')
   const { branding } = useOrganizationBranding()
   const [logoFailed, setLogoFailed] = useState(false)
   const logoUrl = branding?.logoUrl
@@ -138,14 +141,14 @@ function BrandMark() {
     return (
       <img
         src={logoUrl}
-        alt="Organization logo"
+        alt={t('app.logoAlt')}
         className="h-8 max-w-full object-contain"
         onError={() => setLogoFailed(true)}
       />
     )
   }
 
-  return <h1 className="text-lg font-semibold">Commerce</h1>
+  return <h1 className="text-lg font-semibold">{t('app.name')}</h1>
 }
 
 function NavItem({

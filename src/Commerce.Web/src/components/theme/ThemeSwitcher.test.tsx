@@ -16,16 +16,16 @@ describe('ThemeSwitcher', () => {
     document.documentElement.classList.remove('dark')
   })
 
-  it('renders exactly 3 options: Light, Dark, Custom', () => {
+  it('renders exactly 3 options: Claro, Oscuro, Personalizado', () => {
     render(
       <ThemeProvider>
         <ThemeSwitcher />
       </ThemeProvider>,
     )
 
-    expect(screen.getByRole('radio', { name: /light/i })).toBeInTheDocument()
-    expect(screen.getByRole('radio', { name: /dark/i })).toBeInTheDocument()
-    expect(screen.getByRole('radio', { name: /custom/i })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /claro/i })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /oscuro/i })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /personalizado/i })).toBeInTheDocument()
   })
 
   it('marks light as selected by default and switches selection + applies the dark class on click', async () => {
@@ -36,12 +36,12 @@ describe('ThemeSwitcher', () => {
       </ThemeProvider>,
     )
 
-    expect(screen.getByRole('radio', { name: /light/i })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByRole('radio', { name: /claro/i })).toHaveAttribute('aria-checked', 'true')
 
-    await user.click(screen.getByRole('radio', { name: /dark/i }))
+    await user.click(screen.getByRole('radio', { name: /oscuro/i }))
 
-    expect(screen.getByRole('radio', { name: /dark/i })).toHaveAttribute('aria-checked', 'true')
-    expect(screen.getByRole('radio', { name: /light/i })).toHaveAttribute('aria-checked', 'false')
+    expect(screen.getByRole('radio', { name: /oscuro/i })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByRole('radio', { name: /claro/i })).toHaveAttribute('aria-checked', 'false')
     expect(document.documentElement.classList.contains('dark')).toBe(true)
   })
 
@@ -54,7 +54,7 @@ describe('ThemeSwitcher', () => {
       </OrganizationBrandingContext.Provider>,
     )
 
-    expect(screen.getByRole('radio', { name: 'Custom' })).toBeDisabled()
+    expect(screen.getByRole('radio', { name: 'Personalizado' })).toBeDisabled()
   })
 
   it('enables Custom when the organization has a primary color', () => {
@@ -68,6 +68,6 @@ describe('ThemeSwitcher', () => {
       </OrganizationBrandingContext.Provider>,
     )
 
-    expect(screen.getByRole('radio', { name: 'Custom' })).not.toBeDisabled()
+    expect(screen.getByRole('radio', { name: 'Personalizado' })).not.toBeDisabled()
   })
 })

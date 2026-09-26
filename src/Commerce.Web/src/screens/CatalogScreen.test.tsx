@@ -158,7 +158,7 @@ describe('CatalogScreen', () => {
     await screen.findByText('1.5L bottle')
     expect(screen.getByRole('table')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('radio', { name: /card view/i }))
+    await user.click(screen.getByRole('radio', { name: /vista de tarjetas/i }))
 
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
     expect(screen.getAllByTestId('data-view-card')).toHaveLength(1)
@@ -169,7 +169,7 @@ describe('CatalogScreen', () => {
 
     await screen.findByText('1.5L bottle')
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
-    expect(screen.getByRole('radio', { name: /card view/i })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByRole('radio', { name: /vista de tarjetas/i })).toHaveAttribute('aria-checked', 'true')
   })
 
   it('still edits the identification code from the card view', async () => {
@@ -219,7 +219,7 @@ describe('CatalogScreen', () => {
     render(<CatalogScreen />)
 
     await screen.findByText('1.5L bottle')
-    await user.click(screen.getByRole('radio', { name: /card view/i }))
+    await user.click(screen.getByRole('radio', { name: /vista de tarjetas/i }))
     await user.type(screen.getByLabelText(/search presentations/i), '330')
     expect(screen.getByText('330ml can')).toBeInTheDocument()
     expect(screen.queryByText('1.5L bottle')).not.toBeInTheDocument()

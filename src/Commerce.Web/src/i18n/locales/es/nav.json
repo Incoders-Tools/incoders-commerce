@@ -1,0 +1,23 @@
+{
+  "primary": "Principal",
+  "toggleNavigation": "Alternar navegación",
+  "items": {
+    "catalog": "Catálogo",
+    "orders": "Pedidos",
+    "customers": "Clientes",
+    "users": "Usuarios",
+    "branches": "Sucursales",
+    "priceLists": "Listas de precios",
+    "organizations": "Organizaciones"
+  },
+  "account": {
+    "label": "Cuenta",
+    "changePassword": "Cambiar contraseña",
+    "signOut": "Cerrar sesión"
+  },
+  "organizationSwitcher": {
+    "label": "Organización",
+    "noOrganization": "Sin organización",
+    "loadError": "Error inesperado al cargar las organizaciones."
+  }
+}
