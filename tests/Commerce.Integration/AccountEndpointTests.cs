@@ -74,6 +74,11 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
         var catalogAndPricingSql = File.ReadAllText(Path.Combine(repoRoot.FullName, "deploy", "db", "migrations", "0009_catalog_and_pricing.sql"));
         using (var cmd = new NpgsqlCommand(catalogAndPricingSql, owner)) cmd.ExecuteNonQuery();
 
+        // B7 U4: products/presentations are branch-owned now, and the
+        // catalog-rename test below selects a branch via X-Branch-Id.
+        var branchOwnershipSql = File.ReadAllText(Path.Combine(repoRoot.FullName, "deploy", "db", "migrations", "0016_catalog_branch_ownership.sql"));
+        using (var cmd = new NpgsqlCommand(branchOwnershipSql, owner)) cmd.ExecuteNonQuery();
+
         var adminConsoleSql = File.ReadAllText(Path.Combine(repoRoot.FullName, "deploy", "db", "migrations", "0012_admin_console.sql"));
         using (var cmd = new NpgsqlCommand(adminConsoleSql, owner)) cmd.ExecuteNonQuery();
 
@@ -539,11 +544,16 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
             "/account/sign-in", new SignInRequest("renamer@example.com", "rename-password"));
         Assert.Equal(HttpStatusCode.OK, signInResponse.StatusCode);
 
-        // commerce-pricing-engine Work Unit 1: the rename endpoint now
-        // authorizes over a REAL persisted product — bootstrap's
+        // B7 U4: `/catalog/*` now requires a selected branch, and the
+        // rename endpoint's old `TargetBranchId` body field is gone — the
+        // branch a rename applies to is always the request's own resolved
+        // `X-Branch-Id`. commerce-pricing-engine Work Unit 1: the rename
+        // endpoint authorizes over a REAL persisted product — bootstrap's
         // business-admin role carries ManageCatalog, so it creates one
-        // first. The SAME product id is reused for both calls below: the
-        // "denied" case is about a BRANCH mismatch, not product identity.
+        // first, WITH the created branch selected.
+        client.DefaultRequestHeaders.Add(
+            Commerce.Cloud.Api.Tenancy.TenantScopeEndpointFilter.BranchSelectorHeader, bootstrapBody!.BranchId.ToString());
+
         var createProductResponse = await client.PostAsJsonAsync(
             "/catalog/products", new { name = "Original", categoryId = Guid.NewGuid(), defaultUnitId = Guid.NewGuid() });
         Assert.Equal(HttpStatusCode.Created, createProductResponse.StatusCode);
@@ -552,12 +562,19 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
 
         var allowedResponse = await client.PostAsJsonAsync(
             $"/catalog/products/{productId}/rename",
-            new RenameProductRequest(bootstrapBody!.BranchId, "Renamed", false, Guid.NewGuid()));
+            new RenameProductRequest("Renamed", false, Guid.NewGuid()));
         Assert.Equal(HttpStatusCode.OK, allowedResponse.StatusCode);
+
+        // A DIFFERENT (out-of-scope) branch header is denied at the tenant
+        // scope filter itself, before the rename handler is ever reached —
+        // same 403 shape as any other unknown/out-of-scope branch selector.
+        client.DefaultRequestHeaders.Remove(Commerce.Cloud.Api.Tenancy.TenantScopeEndpointFilter.BranchSelectorHeader);
+        client.DefaultRequestHeaders.Add(
+            Commerce.Cloud.Api.Tenancy.TenantScopeEndpointFilter.BranchSelectorHeader, Guid.NewGuid().ToString());
 
         var deniedResponse = await client.PostAsJsonAsync(
             $"/catalog/products/{productId}/rename",
-            new RenameProductRequest(Guid.NewGuid(), "Renamed", false, Guid.NewGuid()));
+            new RenameProductRequest("Renamed", false, Guid.NewGuid()));
         Assert.Equal(HttpStatusCode.Forbidden, deniedResponse.StatusCode);
     }
 
