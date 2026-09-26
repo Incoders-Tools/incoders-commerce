@@ -901,7 +901,7 @@ Reported by the product owner while using the app. Each item is being
 checked against `openspec/specs/` to classify it as a spec gap or an
 implementation gap before implementing.
 
-- [ ] B1. Users screen shows the platform sysadmin with the
+- [x] B1. Users screen shows the platform sysadmin with the
       `business-admin` role checked. Wrong: sysadmin is the platform
       owner's role, business-admin is the client's user inside an
       organization. They must never be conflated.
@@ -920,8 +920,67 @@ implementation gap before implementing.
       cause is missing definition (specs) or failing implementation, per
       item.
 
+### Gap audit result (mapping fork, 2026-09-25)
+
+- B1 IMPLEMENTATION GAP. Spec (`platform-administration`, "Sysadmin
+  Identity Lives in the Unified Model") makes sysadmin the
+  `is_system_admin` flag, not a role; `platform-admin` role is reserved and
+  unassignable. Bug is in seeding: `TestSeedEndpoints.cs:39-68` grants
+  every seeded user `business-admin` with full permissions in an auto-made
+  "E2E Test Organization", and `provision-admin.ps1` seeds the sysadmin
+  through it and only sets the flag. Users screen renders what it was
+  given. No spec change needed.
+- B5 mostly a consequence of B1 (tenant nav shown because of that stray
+  role). Organizations is correctly sysadmin-only in API and UI. Missing:
+  a spec line for what a sysadmin with no organization sees.
+- B6 DECIDED by the owner 2026-09-25: the sysadmin can do everything in
+  every organization (not only organization CRUD). Plan: a spec change in
+  `platform-administration` for a sysadmin organization context (pick an
+  organization in the top navbar, then use every tenant module on it with
+  full permissions), reusing the existing screens instead of duplicating
+  them under Organizations. Shares the navbar with B7's branch switcher.
+- B6 was a SPEC GAP (acknowledged-open in the admin-console change): branches
+  are created only inside the caller's own org (`POST /account/branches`,
+  `ManageBranchSettings`); no sysadmin cross-org path. A business-admin can
+  create branches today.
+- B2 IMPLEMENTATION + SPEC GAP: no update/disable for organizations,
+  branches, price lists, products (only rename), presentations delete;
+  users can change roles and reset passwords but `IsRevoked` is never set
+  by any endpoint. Specs never define delete vs disable per entity.
+- B3 matches spec (checkbox per assignable role, platform-admin excluded);
+  purely a UI quality change.
+- B4 SPEC-INTENTIONAL: customers are a separate entity with their own
+  credential scheme (`private-customer-ordering`, `customer-registry`,
+  `CustomerOrderingAccess`, `/order`), not a staff role. Customer login and
+  ordering exist. Needs owner confirmation, not a fix.
+- B7 SPEC GAP: no "selected branch" session concept or switch API
+  anywhere; multi-branch users exist in the model.
+- B8 answer: both. B1/B2(partly) are implementation failures against
+  existing specs; B6/B7/B2(delete semantics) were never defined.
+
+- 2026-09-25: B1 done (delegated direct; writer was cut off once by a usage
+  limit and resumed). `656c807` seed seam gains `systemAdmin` (zero roles,
+  zero branch scope, own "Platform System Administrator" org because
+  `users.organization_id` is NOT NULL) + `PromoteToSystemAdminAsync`;
+  `provision-admin.ps1` seeds with it and always repairs the sysadmin row
+  (`roles = []`, `branch_scope = {}`); `b9c052d` treats the expected 403
+  `no-branches-assigned` Desktop pairing as success for a branchless
+  sysadmin; parent fix `fix(tests)` added a missing `using` the writer never
+  compiled. Checks: full integration suite 702/702 in a clean worktree (the
+  user's running API/POS lock the main tree's DLLs; `--artifacts-path` gives
+  361 false failures — do not use it); `npm run test` 242/242, lint exit 0 /
+  17, build clean. Dev DB verified: sysadmin `is_system_admin=t`, roles `[]`,
+  no branches; Vaca Verde admin unchanged. RED evidence for the backend
+  tests was not captured separately (writer could not build) — disclosed.
+  RDD over `05ce1f6..HEAD`: medium (433 lines), granted, lineage
+  `review-2a111627d67b4672`, APPROVED and acknowledged. Follow-ups (B1b):
+  WARNING `R3-applayout-test-contradicts-name` (AppLayout.test.tsx:116-122),
+  WARNING `R3-pair-parse-before-status` (provision-admin.ps1:303-305),
+  WARNING `R3-seed-promote-not-atomic` (TestSeedEndpoints.cs:88-90),
+  SUGGESTION `R3-no-conflict-path-coverage`.
+
 ## Next step
 
-Gap audit (mapping) of B1-B8 against specs and code, then plan and
-implement, spec changes first where the audit finds a spec gap. T6b in
-parallel as a small cleanup.
+B1 in progress (writer). Then B6+B7 together: spec for the sysadmin
+organization context and the business-admin branch context, then the top
+navbar with both switchers. Then B2 semantics, B3, B4 confirmation.
