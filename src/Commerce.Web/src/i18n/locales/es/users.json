@@ -1,1 +1,46 @@
-{}
+{
+  "title": "Usuarios",
+  "description": "Cuentas del personal, sus roles y restablecimientos de contraseña.",
+  "errors": {
+    "unableToLoad": "No se pudieron cargar los usuarios.",
+    "unableToCreate": "No se pudo crear el usuario.",
+    "unableToSaveRolesWithDetail": "No se pudieron guardar los roles de {{email}}: {{detail}}",
+    "unableToSaveRoles": "No se pudieron guardar los roles de {{email}}.",
+    "enterReplacementPassword": "Ingrese una contraseña de reemplazo.",
+    "unableToResetPassword": "No se pudo restablecer la contraseña."
+  },
+  "createForm": {
+    "emailAriaLabel": "Correo electrónico del usuario",
+    "emailPlaceholder": "Correo electrónico",
+    "passwordAriaLabel": "Contraseña del usuario",
+    "passwordPlaceholder": "Contraseña",
+    "roleForNewUser": "{{role}} para nuevo usuario",
+    "submit": "Crear usuario"
+  },
+  "search": {
+    "label": "Buscar usuarios",
+    "placeholder": "Buscar por correo electrónico o rol…"
+  },
+  "empty": {
+    "none": "Todavía no hay usuarios.",
+    "noMatch": "Ningún usuario coincide con esta búsqueda.",
+    "loadError": "No se pudieron cargar los usuarios."
+  },
+  "columns": {
+    "email": "Correo electrónico",
+    "roles": "Roles",
+    "noRoles": "Sin roles",
+    "status": "Estado"
+  },
+  "statusOptions": {
+    "active": "Activo",
+    "revoked": "Revocado"
+  },
+  "row": {
+    "roleForUser": "{{role}} para {{email}}",
+    "saveRoles": "Guardar roles",
+    "replacementPasswordAriaLabel": "Contraseña de reemplazo para {{email}}",
+    "newPasswordPlaceholder": "Nueva contraseña",
+    "forceReset": "Forzar restablecimiento"
+  }
+}

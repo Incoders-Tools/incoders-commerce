@@ -40,8 +40,8 @@ describe('UsersScreen', () => {
     render(<UsersScreen />)
 
     await screen.findByText('staff@example.com')
-    await user.type(screen.getByLabelText('Replacement password for staff@example.com'), 'Unique-Password-42!')
-    await user.click(screen.getByRole('button', { name: 'Force reset' }))
+    await user.type(screen.getByLabelText('Contraseña de reemplazo para staff@example.com'), 'Unique-Password-42!')
+    await user.click(screen.getByRole('button', { name: 'Forzar restablecimiento' }))
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
     expect(fetchMock.mock.calls[1][0]).toBe('/account/users/user-1/reset-password')
@@ -55,9 +55,9 @@ describe('UsersScreen', () => {
     render(<UsersScreen />)
 
     await screen.findByText('staff@example.com')
-    await user.click(screen.getByRole('button', { name: 'Force reset' }))
+    await user.click(screen.getByRole('button', { name: 'Forzar restablecimiento' }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/replacement password/i)
+    expect(await screen.findByRole('alert')).toHaveTextContent(/contraseña de reemplazo/i)
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
@@ -69,10 +69,10 @@ describe('UsersScreen', () => {
     const user = userEvent.setup()
     render(<UsersScreen />)
 
-    await screen.findByText('No users yet.')
-    await user.type(screen.getByLabelText('User email'), 'staff@example.com')
-    await user.type(screen.getByLabelText('User password'), 'correct-horse-battery-staple')
-    await user.click(screen.getByRole('button', { name: 'Create user' }))
+    await screen.findByText('Todavía no hay usuarios.')
+    await user.type(screen.getByLabelText('Correo electrónico del usuario'), 'staff@example.com')
+    await user.type(screen.getByLabelText('Contraseña del usuario'), 'correct-horse-battery-staple')
+    await user.click(screen.getByRole('button', { name: 'Crear usuario' }))
 
     await screen.findByText('staff@example.com')
     expect(fetchMock.mock.calls[1][0]).toBe('/account/users')
@@ -92,7 +92,7 @@ describe('UsersScreen', () => {
     render(<UsersScreen />)
 
     await screen.findByText('staff@example.com')
-    await user.click(screen.getByRole('button', { name: 'Save roles' }))
+    await user.click(screen.getByRole('button', { name: 'Guardar roles' }))
 
     // Three calls now, not two: a successful save re-reads the list so the
     // row cannot keep showing a selection the server may have adjusted.
@@ -116,9 +116,9 @@ describe('UsersScreen', () => {
     // server's RoleCatalog deliberately excludes platform-admin from what an
     // organization can grant, so the row must offer that exact set.
     expect(within(row).getAllByRole('checkbox').map((box) => box.getAttribute('aria-label'))).toEqual([
-      'business-admin for staff@example.com',
-      'seller for staff@example.com',
-      'provider for staff@example.com',
+      'business-admin para staff@example.com',
+      'seller para staff@example.com',
+      'provider para staff@example.com',
     ])
   })
 
@@ -131,10 +131,10 @@ describe('UsersScreen', () => {
 
     await screen.findByText('staff@example.com')
     // Make the create form's selection differ from every row's own roles.
-    await user.click(screen.getByLabelText('provider for new user'))
+    await user.click(screen.getByLabelText('provider para nuevo usuario'))
 
     const sellerRow = (await tableRows())[1]
-    await user.click(within(sellerRow).getByRole('button', { name: 'Save roles' }))
+    await user.click(within(sellerRow).getByRole('button', { name: 'Guardar roles' }))
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
     expect(fetchMock.mock.calls[1][0]).toBe('/account/users/user-1/roles')
@@ -151,16 +151,16 @@ describe('UsersScreen', () => {
     render(<UsersScreen />)
 
     await screen.findByText('staff@example.com')
-    await user.click(screen.getByLabelText('business-admin for staff@example.com'))
-    await user.click(screen.getByLabelText('seller for staff@example.com'))
+    await user.click(screen.getByLabelText('business-admin para staff@example.com'))
+    await user.click(screen.getByLabelText('seller para staff@example.com'))
 
     // The other row keeps its own, independent selection.
-    expect(screen.getByLabelText('provider for supplier@vendor.test')).toBeChecked()
-    expect(screen.getByLabelText('business-admin for supplier@vendor.test')).not.toBeChecked()
-    expect(screen.getByLabelText('seller for supplier@vendor.test')).not.toBeChecked()
+    expect(screen.getByLabelText('provider para supplier@vendor.test')).toBeChecked()
+    expect(screen.getByLabelText('business-admin para supplier@vendor.test')).not.toBeChecked()
+    expect(screen.getByLabelText('seller para supplier@vendor.test')).not.toBeChecked()
 
     const sellerRow = (await tableRows())[1]
-    await user.click(within(sellerRow).getByRole('button', { name: 'Save roles' }))
+    await user.click(within(sellerRow).getByRole('button', { name: 'Guardar roles' }))
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
     expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toEqual({ roleNames: ['business-admin'] })
@@ -180,13 +180,13 @@ describe('UsersScreen', () => {
     render(<UsersScreen />)
 
     await screen.findByText('staff@example.com')
-    await user.click(screen.getByLabelText('business-admin for staff@example.com'))
-    await user.click(screen.getByRole('button', { name: 'Save roles' }))
+    await user.click(screen.getByLabelText('business-admin para staff@example.com'))
+    await user.click(screen.getByRole('button', { name: 'Guardar roles' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/you cannot grant business-admin/i)
     // The grant cap rejected it, so the row must fall back to the stored roles.
-    expect(screen.getByLabelText('business-admin for staff@example.com')).not.toBeChecked()
-    expect(screen.getByLabelText('seller for staff@example.com')).toBeChecked()
+    expect(screen.getByLabelText('business-admin para staff@example.com')).not.toBeChecked()
+    expect(screen.getByLabelText('seller para staff@example.com')).toBeChecked()
     // No refresh was issued: the PUT is the only call after the initial list.
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
@@ -203,8 +203,8 @@ describe('UsersScreen', () => {
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
     expect(screen.getAllByTestId('data-view-card')).toHaveLength(1)
 
-    await user.click(screen.getByLabelText('business-admin for staff@example.com'))
-    await user.click(screen.getByRole('button', { name: 'Save roles' }))
+    await user.click(screen.getByLabelText('business-admin para staff@example.com'))
+    await user.click(screen.getByRole('button', { name: 'Guardar roles' }))
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
     expect(fetchMock.mock.calls[1][0]).toBe('/account/users/user-1/roles')
@@ -218,7 +218,7 @@ describe('UsersScreen', () => {
 
     render(<UsersScreen />)
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/unable to load users/i)
+    expect(await screen.findByRole('alert')).toHaveTextContent(/no se pudieron cargar los usuarios/i)
   })
 
   it('does not claim there are no users when the load failed', async () => {
@@ -229,8 +229,8 @@ describe('UsersScreen', () => {
     await screen.findByRole('alert')
     // "No users yet." is a real rendering of this screen (see the empty state
     // case below), so its absence here is a fact about this state.
-    expect(screen.queryByText('No users yet.')).not.toBeInTheDocument()
-    expect(screen.getByTestId('data-view-load-error')).toHaveTextContent(/users could not be loaded/i)
+    expect(screen.queryByText('Todavía no hay usuarios.')).not.toBeInTheDocument()
+    expect(screen.getByTestId('data-view-load-error')).toHaveTextContent(/no se pudieron cargar los usuarios/i)
   })
 
   it('keeps the load failure separate from a failed action', async () => {
@@ -245,14 +245,14 @@ describe('UsersScreen', () => {
     render(<UsersScreen />)
 
     await screen.findByText('staff@example.com')
-    await user.click(screen.getByLabelText('business-admin for staff@example.com'))
-    await user.click(screen.getByRole('button', { name: 'Save roles' }))
+    await user.click(screen.getByLabelText('business-admin para staff@example.com'))
+    await user.click(screen.getByRole('button', { name: 'Guardar roles' }))
 
     await screen.findByRole('alert')
     // The list loaded fine: a failed action must not make the list area
     // claim the users could not be loaded.
-    await user.type(screen.getByLabelText(/search users/i), 'zzzz')
-    expect(screen.getByText(/no users match/i)).toBeInTheDocument()
+    await user.type(screen.getByLabelText(/buscar usuarios/i), 'zzzz')
+    expect(screen.getByText(/ningún usuario coincide/i)).toBeInTheDocument()
     expect(screen.queryByTestId('data-view-load-error')).not.toBeInTheDocument()
   })
 
@@ -279,7 +279,7 @@ describe('UsersScreen', () => {
     const cells = within(within(await screen.findByRole('table')).getAllByRole('row')[1]).getAllByRole('cell')
     expect(within(cells[0]).getByText('supplier@vendor.test')).toBeInTheDocument()
     expect(within(cells[1]).getByText('provider')).toBeInTheDocument()
-    expect(within(cells[2]).getByText('Revoked')).toBeInTheDocument()
+    expect(within(cells[2]).getByText('Revocado')).toBeInTheDocument()
   })
 
   it('shows an empty state when there are no users', async () => {
@@ -287,7 +287,7 @@ describe('UsersScreen', () => {
 
     render(<UsersScreen />)
 
-    expect(await screen.findByText('No users yet.')).toBeInTheDocument()
+    expect(await screen.findByText('Todavía no hay usuarios.')).toBeInTheDocument()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
   })
 
@@ -300,14 +300,14 @@ describe('UsersScreen', () => {
     await screen.findByText('staff@example.com')
     expect(screen.getByText('supplier@vendor.test')).toBeInTheDocument()
 
-    await user.type(screen.getByLabelText(/search users/i), 'vendor')
+    await user.type(screen.getByLabelText(/buscar usuarios/i), 'vendor')
 
     expect(screen.getByText('supplier@vendor.test')).toBeInTheDocument()
     expect(screen.queryByText('staff@example.com')).not.toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledTimes(1)
 
-    await user.clear(screen.getByLabelText(/search users/i))
-    await user.type(screen.getByLabelText(/search users/i), 'provider')
+    await user.clear(screen.getByLabelText(/buscar usuarios/i))
+    await user.type(screen.getByLabelText(/buscar usuarios/i), 'provider')
 
     expect(screen.getByText('supplier@vendor.test')).toBeInTheDocument()
     expect(screen.queryByText('staff@example.com')).not.toBeInTheDocument()
@@ -320,9 +320,9 @@ describe('UsersScreen', () => {
     render(<UsersScreen />)
 
     await screen.findByText('staff@example.com')
-    await user.type(screen.getByLabelText(/search users/i), 'zzzz')
+    await user.type(screen.getByLabelText(/buscar usuarios/i), 'zzzz')
 
-    expect(screen.getByText(/no users match/i)).toBeInTheDocument()
+    expect(screen.getByText(/ningún usuario coincide/i)).toBeInTheDocument()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
     expect(screen.queryAllByTestId('data-view-card')).toHaveLength(0)
   })
@@ -364,8 +364,8 @@ describe('UsersScreen', () => {
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
     expect(screen.getAllByTestId('data-view-card')).toHaveLength(1)
 
-    await user.type(screen.getByLabelText('Replacement password for staff@example.com'), 'Unique-Password-42!')
-    await user.click(screen.getByRole('button', { name: 'Force reset' }))
+    await user.type(screen.getByLabelText('Contraseña de reemplazo para staff@example.com'), 'Unique-Password-42!')
+    await user.click(screen.getByRole('button', { name: 'Forzar restablecimiento' }))
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
     expect(fetchMock.mock.calls[1][0]).toBe('/account/users/user-1/reset-password')

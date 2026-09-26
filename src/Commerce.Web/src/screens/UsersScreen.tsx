@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useTranslation } from 'react-i18next'
 import { adminResetPassword, createUser, listUsers, updateUserRoles } from '@/api/account'
 import { ApiError } from '@/api/client'
 import type { UserSummary } from '@/api/types'
@@ -31,6 +32,7 @@ const assignableRoles = ['business-admin', 'seller', 'provider']
  * returned; there is no server-side user search endpoint.
  */
 export function UsersScreen() {
+  const { t } = useTranslation('users')
   const [users, setUsers] = useState<UserSummary[]>([])
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -46,22 +48,22 @@ export function UsersScreen() {
   const [search, setSearch] = useState('')
   const [view, setView] = useViewPreference('users')
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     try {
       const loaded = await listUsers()
       setUsers(loaded)
       setRowRoles(Object.fromEntries(loaded.map((user) => [user.userId, user.roleNames])))
       setLoadError(null)
     } catch {
-      setLoadError('Unable to load users.')
+      setLoadError(t('errors.unableToLoad'))
     } finally {
       setLoading(false)
     }
-  }
+  }, [t])
 
   useEffect(() => {
     void refresh()
-  }, [])
+  }, [refresh])
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
@@ -72,7 +74,7 @@ export function UsersScreen() {
       setPassword('')
       await refresh()
     } catch {
-      setActionError('Unable to create user.')
+      setActionError(t('errors.unableToCreate'))
     }
   }
 
@@ -104,8 +106,8 @@ export function UsersScreen() {
       setRowRoles((current) => ({ ...current, [user.userId]: user.roleNames }))
       setActionError(
         err instanceof ApiError
-          ? `Unable to save roles for ${user.email}: ${err.message}`
-          : `Unable to save roles for ${user.email}.`,
+          ? t('errors.unableToSaveRolesWithDetail', { email: user.email, detail: err.message })
+          : t('errors.unableToSaveRoles', { email: user.email }),
       )
     }
   }
@@ -113,7 +115,7 @@ export function UsersScreen() {
   const forceReset = async (userId: string) => {
     const newPassword = resetPasswords[userId]?.trim()
     if (!newPassword) {
-      setActionError('Enter a replacement password.')
+      setActionError(t('errors.enterReplacementPassword'))
       return
     }
     setActionError(null)
@@ -121,7 +123,7 @@ export function UsersScreen() {
       await adminResetPassword(userId, { newPassword })
       setResetPasswords((current) => ({ ...current, [userId]: '' }))
     } catch {
-      setActionError('Unable to reset password.')
+      setActionError(t('errors.unableToResetPassword'))
     }
   }
 
@@ -136,28 +138,28 @@ export function UsersScreen() {
   }, [users, trimmedSearch])
 
   const columns: DataViewColumn<UserSummary>[] = [
-    { key: 'email', header: 'Email', cell: (user) => user.email },
+    { key: 'email', header: t('columns.email'), cell: (user) => user.email },
     {
       key: 'roleNames',
-      header: 'Roles',
+      header: t('columns.roles'),
       cell: (user) =>
         user.roleNames.length > 0 ? (
           user.roleNames.join(', ')
         ) : (
-          <span className="text-muted-foreground">No roles</span>
+          <span className="text-muted-foreground">{t('columns.noRoles')}</span>
         ),
     },
     {
       key: 'isRevoked',
-      header: 'Status',
-      cell: (user) => (user.isRevoked ? 'Revoked' : 'Active'),
+      header: t('columns.status'),
+      cell: (user) => (user.isRevoked ? t('statusOptions.revoked') : t('statusOptions.active')),
       hideOnMobile: true,
     },
   ]
 
   return (
     <section className="flex w-full flex-col gap-6">
-      <PageHeader title="Users" description="Staff accounts, their roles, and password resets." />
+      <PageHeader title={t('title')} description={t('description')} />
 
       {loadError && (
         <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
@@ -176,17 +178,17 @@ export function UsersScreen() {
         className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4 sm:flex-row sm:flex-wrap sm:items-center"
       >
         <Input
-          aria-label="User email"
+          aria-label={t('createForm.emailAriaLabel')}
           className="sm:max-w-xs"
-          placeholder="Email"
+          placeholder={t('createForm.emailPlaceholder')}
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           required
         />
         <Input
-          aria-label="User password"
+          aria-label={t('createForm.passwordAriaLabel')}
           className="sm:max-w-xs"
-          placeholder="Password"
+          placeholder={t('createForm.passwordPlaceholder')}
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
@@ -197,7 +199,7 @@ export function UsersScreen() {
             <label key={role} className="flex items-center gap-1.5 text-sm text-foreground">
               <input
                 type="checkbox"
-                aria-label={`${role} for new user`}
+                aria-label={t('createForm.roleForNewUser', { role })}
                 checked={roles.includes(role)}
                 onChange={() => toggle(role)}
               />
@@ -205,14 +207,14 @@ export function UsersScreen() {
             </label>
           ))}
         </div>
-        <Button type="submit">Create user</Button>
+        <Button type="submit">{t('createForm.submit')}</Button>
       </form>
 
       <DataToolbar
         searchValue={search}
         onSearchChange={setSearch}
-        searchLabel="Search users"
-        searchPlaceholder="Search by email or role…"
+        searchLabel={t('search.label')}
+        searchPlaceholder={t('search.placeholder')}
         view={view}
         onViewChange={setView}
       />
@@ -223,15 +225,15 @@ export function UsersScreen() {
         getRowKey={(user) => user.userId}
         view={view}
         loading={loading}
-        emptyMessage={users.length === 0 ? 'No users yet.' : 'No users match this search.'}
-        loadErrorMessage={loadError === null ? null : 'Users could not be loaded.'}
+        emptyMessage={users.length === 0 ? t('empty.none') : t('empty.noMatch')}
+        loadErrorMessage={loadError === null ? null : t('empty.loadError')}
         renderActions={(user) => (
           <>
             {assignableRoles.map((role) => (
               <label key={role} className="flex items-center gap-1.5 text-sm text-foreground">
                 <input
                   type="checkbox"
-                  aria-label={`${role} for ${user.email}`}
+                  aria-label={t('row.roleForUser', { role, email: user.email })}
                   checked={selectedRolesFor(user).includes(role)}
                   onChange={() => toggleRowRole(user, role)}
                 />
@@ -239,18 +241,18 @@ export function UsersScreen() {
               </label>
             ))}
             <Button size="sm" onClick={() => void saveRoles(user)}>
-              Save roles
+              {t('row.saveRoles')}
             </Button>
             <Input
-              aria-label={`Replacement password for ${user.email}`}
+              aria-label={t('row.replacementPasswordAriaLabel', { email: user.email })}
               className="h-8 w-40"
               type="password"
-              placeholder="New password"
+              placeholder={t('row.newPasswordPlaceholder')}
               value={resetPasswords[user.userId] ?? ''}
               onChange={(e) => setResetPasswords((current) => ({ ...current, [user.userId]: e.target.value }))}
             />
             <Button size="sm" onClick={() => void forceReset(user.userId)}>
-              Force reset
+              {t('row.forceReset')}
             </Button>
           </>
         )}
