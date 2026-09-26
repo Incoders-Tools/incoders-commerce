@@ -33,7 +33,7 @@ describe('HomeScreen', () => {
     ).not.toThrow()
 
     expect(screen.getByRole('heading', { name: 'Commerce' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /sign in/i })).toHaveAttribute('href', '/login')
+    expect(screen.getByRole('link', { name: /iniciar sesión/i })).toHaveAttribute('href', '/login')
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
@@ -44,7 +44,7 @@ describe('HomeScreen', () => {
       </MemoryRouter>,
     )
 
-    expect(screen.queryByRole('link', { name: /go to app/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /ir a la aplicación/i })).not.toBeInTheDocument()
   })
 
   it('shows a visible link into the app when a user is signed in', () => {
@@ -64,6 +64,6 @@ describe('HomeScreen', () => {
     )
 
     expect(screen.getByRole('heading', { name: 'Commerce' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /go to app/i })).toHaveAttribute('href', '/app')
+    expect(screen.getByRole('link', { name: /ir a la aplicación/i })).toHaveAttribute('href', '/app')
   })
 })

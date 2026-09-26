@@ -1,4 +1,5 @@
 import { Link } from 'react-router'
+import { useTranslation } from 'react-i18next'
 import { buttonVariants } from '@/components/ui/button'
 import { useOptionalAuth } from '@/auth/AuthContext'
 
@@ -10,19 +11,20 @@ import { useOptionalAuth } from '@/auth/AuthContext'
  * renders even with no `AuthProvider` mounted at all.
  */
 export function HomeScreen() {
+  const { t } = useTranslation('common')
   const auth = useOptionalAuth()
 
   return (
     <main className="mx-auto flex max-w-3xl flex-col items-center gap-4 p-10 text-center">
-      <h1 className="text-2xl font-semibold">Commerce</h1>
-      <p className="text-sm text-neutral-600">Run your storefront from one place.</p>
+      <h1 className="text-2xl font-semibold">{t('app.name')}</h1>
+      <p className="text-sm text-neutral-600">{t('home.tagline')}</p>
       {auth?.user ? (
         <Link to="/app" className={buttonVariants()}>
-          Go to app
+          {t('home.goToApp')}
         </Link>
       ) : (
         <Link to="/login" className={buttonVariants({ variant: 'outline' })}>
-          Sign in
+          {t('home.signIn')}
         </Link>
       )}
     </main>

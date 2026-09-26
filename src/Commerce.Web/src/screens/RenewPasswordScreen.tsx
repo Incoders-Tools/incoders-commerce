@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -11,6 +12,7 @@ import * as accountApi from '@/api/account'
  * header via a `renew` tab (App.tsx).
  */
 export function RenewPasswordScreen() {
+  const { t } = useTranslation('auth')
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -28,7 +30,7 @@ export function RenewPasswordScreen() {
       setCurrentPassword('')
       setNewPassword('')
     } catch {
-      setError('Current password is incorrect.')
+      setError(t('renewPassword.incorrectCurrentPassword'))
     } finally {
       setSubmitting(false)
     }
@@ -37,12 +39,12 @@ export function RenewPasswordScreen() {
   return (
     <Card className="mx-auto mt-6 w-full max-w-sm">
       <CardHeader>
-        <CardTitle>Change your password</CardTitle>
+        <CardTitle>{t('renewPassword.title')}</CardTitle>
       </CardHeader>
       <CardContent>
         <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="renew-current-password">Current password</Label>
+            <Label htmlFor="renew-current-password">{t('renewPassword.currentPasswordLabel')}</Label>
             <Input
               id="renew-current-password"
               type="password"
@@ -52,7 +54,7 @@ export function RenewPasswordScreen() {
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="renew-new-password">New password</Label>
+            <Label htmlFor="renew-new-password">{t('renewPassword.newPasswordLabel')}</Label>
             <Input
               id="renew-new-password"
               type="password"
@@ -68,11 +70,11 @@ export function RenewPasswordScreen() {
           )}
           {success && (
             <p role="status" className="text-sm text-green-700">
-              Your password has been changed.
+              {t('renewPassword.success')}
             </p>
           )}
           <Button type="submit" disabled={submitting}>
-            {submitting ? 'Changing…' : 'Change password'}
+            {submitting ? t('renewPassword.submitting') : t('renewPassword.submit')}
           </Button>
         </form>
       </CardContent>

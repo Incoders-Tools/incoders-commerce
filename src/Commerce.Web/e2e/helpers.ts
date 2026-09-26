@@ -76,7 +76,7 @@ export function uniqueEmail(prefix: string): string {
  */
 export async function openAccountMenu(page: Page): Promise<void> {
   await page.locator('button[aria-haspopup="menu"]').click()
-  await expect(page.getByRole('menu', { name: 'Account' })).toBeVisible()
+  await expect(page.getByRole('menu', { name: 'Cuenta' })).toBeVisible()
 }
 
 /**
@@ -88,12 +88,12 @@ export async function openAccountMenu(page: Page): Promise<void> {
  */
 export async function expectSignedIn(page: Page): Promise<void> {
   await openAccountMenu(page)
-  await expect(page.getByRole('menuitem', { name: 'Sign out' })).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: 'Cerrar sesión' })).toBeVisible()
   await page.keyboard.press('Escape')
-  await expect(page.getByRole('menu', { name: 'Account' })).toBeHidden()
+  await expect(page.getByRole('menu', { name: 'Cuenta' })).toBeHidden()
 }
 
 export async function signOut(page: Page): Promise<void> {
   await openAccountMenu(page)
-  await page.getByRole('menuitem', { name: 'Sign out' }).click()
+  await page.getByRole('menuitem', { name: 'Cerrar sesión' }).click()
 }

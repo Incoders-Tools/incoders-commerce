@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -15,6 +16,7 @@ import * as accountApi from '@/api/account'
  * (spec: "Unknown email looks identical to a known one").
  */
 export function ForgotPasswordScreen({ onBackToSignIn }: { onBackToSignIn: () => void }) {
+  const { t } = useTranslation('auth')
   const [email, setEmail] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
@@ -37,22 +39,22 @@ export function ForgotPasswordScreen({ onBackToSignIn }: { onBackToSignIn: () =>
   return (
     <Card className="mx-auto mt-16 w-full max-w-sm">
       <CardHeader>
-        <CardTitle>Forgot password</CardTitle>
+        <CardTitle>{t('forgotPassword.title')}</CardTitle>
       </CardHeader>
       <CardContent>
         {submitted ? (
           <div className="flex flex-col gap-4">
             <p role="status" className="text-sm text-neutral-700">
-              If that address exists, check your inbox for a reset link.
+              {t('forgotPassword.confirmation')}
             </p>
             <Button variant="outline" onClick={onBackToSignIn}>
-              Back to sign in
+              {t('forgotPassword.backToSignIn')}
             </Button>
           </div>
         ) : (
           <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="forgot-email">Email</Label>
+              <Label htmlFor="forgot-email">{t('forgotPassword.emailLabel')}</Label>
               <Input
                 id="forgot-email"
                 type="email"
@@ -63,10 +65,10 @@ export function ForgotPasswordScreen({ onBackToSignIn }: { onBackToSignIn: () =>
               />
             </div>
             <Button type="submit" disabled={submitting}>
-              {submitting ? 'Sending…' : 'Send reset link'}
+              {submitting ? t('forgotPassword.submitting') : t('forgotPassword.submit')}
             </Button>
             <Button type="button" variant="outline" onClick={onBackToSignIn}>
-              Back to sign in
+              {t('forgotPassword.backToSignIn')}
             </Button>
           </form>
         )}

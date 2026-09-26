@@ -1,6 +1,7 @@
 import { useNavigate, useParams } from 'react-router'
+import { useTranslation } from 'react-i18next'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { INVALID_RESET_LINK_MESSAGE, ResetPasswordScreen } from '@/screens/ResetPasswordScreen'
+import { INVALID_RESET_LINK_MESSAGE_KEY, ResetPasswordScreen } from '@/screens/ResetPasswordScreen'
 
 /**
  * `/reset-password/:token` (web-app-routing spec: "Reset-Password Uses a
@@ -11,6 +12,7 @@ import { INVALID_RESET_LINK_MESSAGE, ResetPasswordScreen } from '@/screens/Reset
  * error branch so the two treatments cannot drift.
  */
 export function ResetPasswordRoute() {
+  const { t } = useTranslation('auth')
   const { token } = useParams()
   const navigate = useNavigate()
 
@@ -18,11 +20,11 @@ export function ResetPasswordRoute() {
     return (
       <Card className="mx-auto mt-16 w-full max-w-sm">
         <CardHeader>
-          <CardTitle>Reset your password</CardTitle>
+          <CardTitle>{t('resetPassword.title')}</CardTitle>
         </CardHeader>
         <CardContent>
           <p role="alert" className="text-sm text-red-600">
-            {INVALID_RESET_LINK_MESSAGE}
+            {t(INVALID_RESET_LINK_MESSAGE_KEY)}
           </p>
         </CardContent>
       </Card>

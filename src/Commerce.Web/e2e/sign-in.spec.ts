@@ -14,9 +14,9 @@ test.describe('sign-in', () => {
     const user = await seedUser(baseURL!, { email: uniqueEmail('signin-success'), password })
 
     await page.goto('/login')
-    await page.getByLabel('Email').fill(user.email)
-    await page.getByLabel('Password').fill(password)
-    await page.getByRole('button', { name: /sign in/i }).click()
+    await page.getByLabel('Correo electrónico').fill(user.email)
+    await page.getByLabel('Contraseña').fill(password)
+    await page.getByRole('button', { name: /iniciar sesión/i }).click()
 
     // Real /account/sign-in issued a real cookie and returned a real
     // SignedInResponse; the SPA renders the authenticated shell.
@@ -30,16 +30,16 @@ test.describe('sign-in', () => {
     const user = await seedUser(baseURL!, { email: uniqueEmail('signin-wrong-password'), password })
 
     await page.goto('/login')
-    await page.getByLabel('Email').fill(user.email)
-    await page.getByLabel('Password').fill('definitely-the-wrong-password')
-    await page.getByRole('button', { name: /sign in/i }).click()
+    await page.getByLabel('Correo electrónico').fill(user.email)
+    await page.getByLabel('Contraseña').fill('definitely-the-wrong-password')
+    await page.getByRole('button', { name: /iniciar sesión/i }).click()
 
     const alert = page.getByRole('alert')
     await expect(alert).toBeVisible()
     const wrongPasswordMessage = await alert.textContent()
 
     // Still on the sign-in screen — never authenticated.
-    await expect(page.getByRole('button', { name: /sign in/i })).toBeVisible()
+    await expect(page.getByRole('button', { name: /iniciar sesión/i })).toBeVisible()
 
     expect(wrongPasswordMessage).toBeTruthy()
     // Cross-checked against the unknown-email case below: the backend design
@@ -52,15 +52,15 @@ test.describe('sign-in', () => {
   test('rejects an unknown email with the exact same generic error as a wrong password', async ({ page, baseURL }) => {
     // No seeding at all: this email has never existed in any organization.
     await page.goto('/login')
-    await page.getByLabel('Email').fill(uniqueEmail('signin-unknown'))
-    await page.getByLabel('Password').fill('whatever-password')
-    await page.getByRole('button', { name: /sign in/i }).click()
+    await page.getByLabel('Correo electrónico').fill(uniqueEmail('signin-unknown'))
+    await page.getByLabel('Contraseña').fill('whatever-password')
+    await page.getByRole('button', { name: /iniciar sesión/i }).click()
 
     const alert = page.getByRole('alert')
     await expect(alert).toBeVisible()
     const unknownEmailMessage = await alert.textContent()
 
-    await expect(page.getByRole('button', { name: /sign in/i })).toBeVisible()
+    await expect(page.getByRole('button', { name: /iniciar sesión/i })).toBeVisible()
 
     // The generic-401 design (Endpoints/Account.cs: "Sign-in never reveals
     // WHICH check failed") means an unknown email and a wrong password must

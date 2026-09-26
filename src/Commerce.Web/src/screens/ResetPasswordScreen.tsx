@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -15,11 +16,13 @@ import * as accountApi from '@/api/account'
 /**
  * Shared with `ResetPasswordRoute`'s bare-`/reset-password` (no token)
  * treatment, so the two error states can't drift (design.md "`useResetToken`
- * retirement").
+ * retirement"). Kept as an i18n key rather than a resolved literal so both
+ * places translate the same key instead of duplicating a string.
  */
-export const INVALID_RESET_LINK_MESSAGE = 'This reset link is invalid or has expired.'
+export const INVALID_RESET_LINK_MESSAGE_KEY = 'resetPassword.invalidLink' as const
 
 export function ResetPasswordScreen({ token, onSuccess }: { token: string; onSuccess: () => void }) {
+  const { t } = useTranslation('auth')
   const [newPassword, setNewPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -34,7 +37,7 @@ export function ResetPasswordScreen({ token, onSuccess }: { token: string; onSuc
     } catch {
       // Generic message: the endpoint returns the same 401 for an unknown,
       // expired, or already-used token, so this screen must not guess which.
-      setError(INVALID_RESET_LINK_MESSAGE)
+      setError(t(INVALID_RESET_LINK_MESSAGE_KEY))
     } finally {
       setSubmitting(false)
     }
@@ -43,12 +46,12 @@ export function ResetPasswordScreen({ token, onSuccess }: { token: string; onSuc
   return (
     <Card className="mx-auto mt-16 w-full max-w-sm">
       <CardHeader>
-        <CardTitle>Reset your password</CardTitle>
+        <CardTitle>{t('resetPassword.title')}</CardTitle>
       </CardHeader>
       <CardContent>
         <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="reset-new-password">New password</Label>
+            <Label htmlFor="reset-new-password">{t('resetPassword.newPasswordLabel')}</Label>
             <Input
               id="reset-new-password"
               type="password"
@@ -63,7 +66,7 @@ export function ResetPasswordScreen({ token, onSuccess }: { token: string; onSuc
             </p>
           )}
           <Button type="submit" disabled={submitting}>
-            {submitting ? 'Resetting…' : 'Reset password'}
+            {submitting ? t('resetPassword.submitting') : t('resetPassword.submit')}
           </Button>
         </form>
       </CardContent>

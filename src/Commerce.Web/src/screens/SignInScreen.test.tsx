@@ -37,9 +37,9 @@ describe('SignInScreen', () => {
       </AuthProvider>,
     )
 
-    await user.type(screen.getByLabelText('Email'), 'jane@example.com')
-    await user.type(screen.getByLabelText('Password'), 'correct-horse-battery-staple')
-    await user.click(screen.getByRole('button', { name: /sign in/i }))
+    await user.type(screen.getByLabelText('Correo electrónico'), 'jane@example.com')
+    await user.type(screen.getByLabelText('Contraseña'), 'correct-horse-battery-staple')
+    await user.click(screen.getByRole('button', { name: /iniciar sesión/i }))
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
 
@@ -64,9 +64,9 @@ describe('SignInScreen', () => {
       </AuthProvider>,
     )
 
-    await user.type(screen.getByLabelText('Email'), 'jane@example.com')
-    await user.type(screen.getByLabelText('Password'), 'wrong-password')
-    await user.click(screen.getByRole('button', { name: /sign in/i }))
+    await user.type(screen.getByLabelText('Correo electrónico'), 'jane@example.com')
+    await user.type(screen.getByLabelText('Contraseña'), 'wrong-password')
+    await user.click(screen.getByRole('button', { name: /iniciar sesión/i }))
 
     const alert = await screen.findByRole('alert')
     expect(alert).toBeInTheDocument()

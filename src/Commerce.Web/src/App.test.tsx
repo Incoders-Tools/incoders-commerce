@@ -100,7 +100,7 @@ describe('App route table', () => {
   it('sends a signed-out visitor from /app/price-lists to the login screen', async () => {
     renderAppAt('/app/price-lists', null)
 
-    expect(await screen.findByRole('heading', { name: /sign in/i })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /iniciar sesión/i })).toBeInTheDocument()
   })
 
   // platform-administration spec: a sysadmin with no selected organization

@@ -28,8 +28,8 @@ describe('ResetPasswordScreen', () => {
     const user = userEvent.setup()
     render(<ResetPasswordScreen token="the-real-token" onSuccess={onSuccess} />)
 
-    await user.type(screen.getByLabelText('New password'), 'brand-new-password')
-    await user.click(screen.getByRole('button', { name: /reset password/i }))
+    await user.type(screen.getByLabelText('Nueva contraseña'), 'brand-new-password')
+    await user.click(screen.getByRole('button', { name: /restablecer contraseña/i }))
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
     const [url, init] = fetchMock.mock.calls[0]
@@ -46,8 +46,8 @@ describe('ResetPasswordScreen', () => {
     const user = userEvent.setup()
     render(<ResetPasswordScreen token="expired-token" onSuccess={onSuccess} />)
 
-    await user.type(screen.getByLabelText('New password'), 'some-password')
-    await user.click(screen.getByRole('button', { name: /reset password/i }))
+    await user.type(screen.getByLabelText('Nueva contraseña'), 'some-password')
+    await user.click(screen.getByRole('button', { name: /restablecer contraseña/i }))
 
     expect(await screen.findByRole('alert')).toBeInTheDocument()
     expect(onSuccess).not.toHaveBeenCalled()

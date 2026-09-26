@@ -25,16 +25,16 @@ describe('RenewPasswordScreen', () => {
     const user = userEvent.setup()
     render(<RenewPasswordScreen />)
 
-    await user.type(screen.getByLabelText('Current password'), 'old-password')
-    await user.type(screen.getByLabelText('New password'), 'new-password')
-    await user.click(screen.getByRole('button', { name: /change password/i }))
+    await user.type(screen.getByLabelText('Contraseña actual'), 'old-password')
+    await user.type(screen.getByLabelText('Nueva contraseña'), 'new-password')
+    await user.click(screen.getByRole('button', { name: /cambiar contraseña/i }))
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
     const [url, init] = fetchMock.mock.calls[0]
     expect(url).toBe('/account/renew-password')
     expect(JSON.parse(init.body as string)).toEqual({ currentPassword: 'old-password', newPassword: 'new-password' })
 
-    expect(await screen.findByRole('status')).toHaveTextContent('Your password has been changed.')
+    expect(await screen.findByRole('status')).toHaveTextContent('La contraseña se cambió correctamente.')
   })
 
   it('shows an error on 401 without a success message', async () => {
@@ -43,9 +43,9 @@ describe('RenewPasswordScreen', () => {
     const user = userEvent.setup()
     render(<RenewPasswordScreen />)
 
-    await user.type(screen.getByLabelText('Current password'), 'wrong-password')
-    await user.type(screen.getByLabelText('New password'), 'new-password')
-    await user.click(screen.getByRole('button', { name: /change password/i }))
+    await user.type(screen.getByLabelText('Contraseña actual'), 'wrong-password')
+    await user.type(screen.getByLabelText('Nueva contraseña'), 'new-password')
+    await user.click(screen.getByRole('button', { name: /cambiar contraseña/i }))
 
     expect(await screen.findByRole('alert')).toBeInTheDocument()
     expect(screen.queryByRole('status')).not.toBeInTheDocument()

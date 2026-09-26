@@ -22,6 +22,11 @@
     "name": "Commerce",
     "logoAlt": "Logotipo de la organización"
   },
+  "home": {
+    "tagline": "Gestione su tienda desde un solo lugar.",
+    "goToApp": "Ir a la aplicación",
+    "signIn": "Iniciar sesión"
+  },
   "dataView": {
     "loading": "Cargando…",
     "actions": "Acciones",

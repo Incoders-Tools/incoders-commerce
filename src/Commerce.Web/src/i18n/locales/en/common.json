@@ -22,6 +22,11 @@
     "name": "Commerce",
     "logoAlt": "Organization logo"
   },
+  "home": {
+    "tagline": "Run your storefront from one place.",
+    "goToApp": "Go to app",
+    "signIn": "Sign in"
+  },
   "dataView": {
     "loading": "Loading…",
     "actions": "Actions",

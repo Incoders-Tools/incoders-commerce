@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { Link, useLocation, useNavigate, type Location } from 'react-router'
+import { useTranslation } from 'react-i18next'
 import { buttonVariants } from '@/components/ui/button'
 import { SignInScreen } from '@/screens/SignInScreen'
 import { useAuth } from '@/auth/AuthContext'
@@ -14,6 +15,7 @@ import { resolveLandingPath } from './landing'
  * to `resolveLandingPath(user)` (design.md "Guard implementation").
  */
 export function LoginRoute() {
+  const { t } = useTranslation('auth')
   const { user } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
@@ -30,7 +32,7 @@ export function LoginRoute() {
     <div className="flex flex-col gap-3">
       <SignInScreen />
       <Link to="/forgot-password" className={buttonVariants({ variant: 'outline', size: 'sm', className: 'mx-auto' })}>
-        Forgot password?
+        {t('signIn.forgotPassword')}
       </Link>
     </div>
   )
