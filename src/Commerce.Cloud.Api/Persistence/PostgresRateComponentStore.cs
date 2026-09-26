@@ -45,7 +45,7 @@ public sealed class PostgresRateComponentStore
         await TenantScopeSql.ApplyAsync(connection, tx, scope, ct);
     }
 
-    private const string SetColumns = "id, organization_id, price_list_id, effective_from";
+    private const string SetColumns = "id, organization_id, branch_id, price_list_id, effective_from";
 
     private const string ComponentColumns = "code, label, percentage, calculation_base, component_order";
 
@@ -74,6 +74,9 @@ public sealed class PostgresRateComponentStore
     public async Task<RateComponentSet> PublishSetAsync(
         CloudTenantScope scope, NewRateComponentSet set, string actorKind, Guid actorId, CancellationToken ct)
     {
+        var branchId = scope.BranchId
+            ?? throw new InvalidOperationException("PublishSetAsync requires a selected branch.");
+
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
 
@@ -81,12 +84,13 @@ public sealed class PostgresRateComponentStore
 
         await using (var cmd = new NpgsqlCommand(
             """
-            INSERT INTO rate_component_sets (id, organization_id, price_list_id, effective_from, created_by_user_id)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO rate_component_sets (id, organization_id, branch_id, price_list_id, effective_from, created_by_user_id)
+            VALUES ($1, $2, $3, $4, $5, $6)
             """, connection, tx))
         {
             cmd.Parameters.AddWithValue(set.Id);
             cmd.Parameters.AddWithValue(scope.OrganizationId);
+            cmd.Parameters.AddWithValue(branchId);
             cmd.Parameters.AddWithValue((object?)set.PriceListId ?? DBNull.Value);
             cmd.Parameters.AddWithValue(set.EffectiveFrom.ToDateTime(TimeOnly.MinValue));
             cmd.Parameters.AddWithValue(set.CreatedByUserId);
@@ -98,11 +102,12 @@ public sealed class PostgresRateComponentStore
             await using var cmd = new NpgsqlCommand(
                 """
                 INSERT INTO rate_components
-                    (id, organization_id, set_id, code, label, percentage, calculation_base, component_order)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                    (id, organization_id, branch_id, set_id, code, label, percentage, calculation_base, component_order)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                 """, connection, tx);
             cmd.Parameters.AddWithValue(Guid.NewGuid());
             cmd.Parameters.AddWithValue(scope.OrganizationId);
+            cmd.Parameters.AddWithValue(branchId);
             cmd.Parameters.AddWithValue(set.Id);
             cmd.Parameters.AddWithValue(component.Code);
             cmd.Parameters.AddWithValue(component.Label);
@@ -175,11 +180,11 @@ public sealed class PostgresRateComponentStore
             connection, tx,
             $"""
             SELECT {SetColumns} FROM rate_component_sets
-            WHERE organization_id = $1 AND price_list_id IS NULL AND effective_from <= $2
+            WHERE organization_id = $1 AND branch_id = $2 AND price_list_id IS NULL AND effective_from <= $3
             ORDER BY effective_from DESC
             LIMIT 1
             """,
-            ct, scope.OrganizationId, effectiveOn.ToDateTime(TimeOnly.MinValue));
+            ct, scope.OrganizationId, scope.BranchId ?? (object)DBNull.Value, effectiveOn.ToDateTime(TimeOnly.MinValue));
 
         RateComponentSet? result = null;
         if (header is not null)
@@ -261,11 +266,15 @@ public sealed class PostgresRateComponentStore
         return await reader.ReadAsync(ct) ? ReadHeader(reader) : null;
     }
 
+    // Column 2 (branch_id) is intentionally skipped here: nothing downstream
+    // of this header (Rebuild, the domain RateComponentSet) needs the
+    // branch — RLS already scoped the row to the selected branch by the
+    // time it reached this reader.
     private static (Guid Id, Guid OrganizationId, Guid? PriceListId, DateOnly EffectiveFrom) ReadHeader(NpgsqlDataReader reader) => (
         reader.GetGuid(0),
         reader.GetGuid(1),
-        reader.IsDBNull(2) ? null : reader.GetGuid(2),
-        DateOnly.FromDateTime(reader.GetDateTime(3)));
+        reader.IsDBNull(3) ? null : reader.GetGuid(3),
+        DateOnly.FromDateTime(reader.GetDateTime(4)));
 
     private static async Task<IReadOnlyList<RateComponent>> ReadComponentsAsync(
         NpgsqlConnection connection, NpgsqlTransaction tx, Guid setId, CancellationToken ct)

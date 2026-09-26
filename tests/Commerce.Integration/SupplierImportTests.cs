@@ -80,6 +80,7 @@ public sealed class SupplierImportTests : IClassFixture<WebApplicationFactory<Pr
         Apply("0004_device_credentials.sql");
         Apply("0009_catalog_and_pricing.sql");
         Apply("0016_catalog_branch_ownership.sql");
+        Apply("0017_pricing_branch_ownership.sql");
 
         using var resetCmd = new NpgsqlCommand(
             "TRUNCATE TABLE price_import_rows, price_import_batches, supplier_price_mappings, " +

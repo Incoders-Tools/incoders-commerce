@@ -64,6 +64,7 @@ public sealed class PostgresPriceListStoreTests : IDisposable
         Apply("0003_organizations_branches.sql");
         Apply("0009_catalog_and_pricing.sql");
         Apply("0016_catalog_branch_ownership.sql");
+        Apply("0017_pricing_branch_ownership.sql");
 
         using var resetCmd = new NpgsqlCommand(
             "TRUNCATE TABLE price_list_entries, price_lists, presentations, products, branches, organizations CASCADE", owner);
@@ -236,15 +237,20 @@ public sealed class PostgresPriceListStoreTests : IDisposable
             "org-user", actorId, CancellationToken.None));
     }
 
-    /// <summary>One default price list per organization — a second `CreatePriceListAsync(isDefault: true)` throws.</summary>
+    /// <summary>
+    /// B7 U5: one default price list per BRANCH now, not per organization
+    /// (price-list-management spec "Branch-Owned Price Lists") — a second
+    /// `CreatePriceListAsync(isDefault: true)` for the SAME branch throws.
+    /// </summary>
     [Fact]
-    public async Task CreatePriceListAsync_SecondDefaultForSameOrganization_Throws()
+    public async Task CreatePriceListAsync_SecondDefaultForSameBranch_Throws()
     {
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
 
         var organizationId = Guid.NewGuid();
         SeedOrganization(organizationId);
-        var scope = new CloudTenantScope(organizationId);
+        var branchId = SeedBranch(organizationId);
+        var scope = new CloudTenantScope(organizationId, BranchId: branchId);
         var actorId = Guid.NewGuid();
         var priceStore = new PostgresPriceListStore(_dataSource!);
 
@@ -255,13 +261,14 @@ public sealed class PostgresPriceListStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task FindDefaultPriceListAsync_ReturnsTheOrganizationsDefaultList()
+    public async Task FindDefaultPriceListAsync_ReturnsTheBranchsDefaultList()
     {
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
 
         var organizationId = Guid.NewGuid();
         SeedOrganization(organizationId);
-        var scope = new CloudTenantScope(organizationId);
+        var branchId = SeedBranch(organizationId);
+        var scope = new CloudTenantScope(organizationId, BranchId: branchId);
         var actorId = Guid.NewGuid();
         var priceStore = new PostgresPriceListStore(_dataSource!);
 
@@ -272,5 +279,136 @@ public sealed class PostgresPriceListStoreTests : IDisposable
 
         Assert.NotNull(found);
         Assert.Equal(created.Id, found!.Id);
+    }
+
+    /// <summary>
+    /// B7 U5: price-list-management spec "Branch-Owned Price Lists" —
+    /// Ruta 51 and Centro each have their own default price list and price
+    /// each other's presentations independently: Ruta 51's write never
+    /// changes what Centro resolves.
+    /// </summary>
+    [Fact]
+    public async Task RutaCincuentaYUnoAndCentro_HaveIndependentDefaultPriceLists()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var organizationId = Guid.NewGuid();
+        SeedOrganization(organizationId);
+        var (rutaScope, rutaPresentationId, actorId) = await SeedPresentationAsync(organizationId);
+        var centroBranchId = SeedBranch(organizationId);
+        var centroScope = new CloudTenantScope(organizationId, BranchId: centroBranchId);
+
+        var priceStore = new PostgresPriceListStore(_dataSource!);
+        var rutaList = await priceStore.CreatePriceListAsync(
+            rutaScope, new NewPriceList(Guid.NewGuid(), "Ruta 51 Default", true, actorId), "org-user", actorId, CancellationToken.None);
+        var centroList = await priceStore.CreatePriceListAsync(
+            centroScope, new NewPriceList(Guid.NewGuid(), "Centro Default", true, actorId), "org-user", actorId, CancellationToken.None);
+
+        await priceStore.AppendEntryAsync(
+            rutaScope, new NewPriceListEntry(Guid.NewGuid(), rutaList.Id, rutaPresentationId, 100m, new DateOnly(2026, 1, 1), "Manual", null, actorId),
+            "org-user", actorId, CancellationToken.None);
+
+        var rutaFound = await priceStore.FindDefaultPriceListAsync(rutaScope, CancellationToken.None);
+        var centroFound = await priceStore.FindDefaultPriceListAsync(centroScope, CancellationToken.None);
+
+        Assert.Equal(rutaList.Id, rutaFound!.Id);
+        Assert.Equal(centroList.Id, centroFound!.Id);
+
+        // Ruta 51's new entry changed Ruta 51's resolution and left Centro
+        // with zero entries at all for that presentation — Centro's price
+        // list cannot even see Ruta 51's presentation under RLS/FK scoping.
+        var rutaResolved = await priceStore.GetEffectiveAsync(rutaScope, rutaList.Id, rutaPresentationId, new DateOnly(2026, 6, 1), CancellationToken.None);
+        Assert.Equal(100m, rutaResolved!.UnitPrice);
+    }
+
+    /// <summary>
+    /// price-list-management spec "Price History Filterable By Date",
+    /// scenario "Reviewing Ruta 51 prices as of a past date": 1000 from
+    /// March 1, 1200 from June 1 — May 15 resolves to 1000, "today" (a date
+    /// on/after June 1) resolves to 1200.
+    /// </summary>
+    [Fact]
+    public async Task ListAsOfAsync_ResolvesThePriceInEffectOnTheGivenDate()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var organizationId = Guid.NewGuid();
+        SeedOrganization(organizationId);
+        var (scope, presentationId, actorId) = await SeedPresentationAsync(organizationId);
+
+        var priceStore = new PostgresPriceListStore(_dataSource!);
+        var priceList = await priceStore.CreatePriceListAsync(
+            scope, new NewPriceList(Guid.NewGuid(), "Default", true, actorId), "org-user", actorId, CancellationToken.None);
+
+        await priceStore.AppendEntryAsync(
+            scope, new NewPriceListEntry(Guid.NewGuid(), priceList.Id, presentationId, 1000m, new DateOnly(2026, 3, 1), "Manual", null, actorId),
+            "org-user", actorId, CancellationToken.None);
+        await priceStore.AppendEntryAsync(
+            scope, new NewPriceListEntry(Guid.NewGuid(), priceList.Id, presentationId, 1200m, new DateOnly(2026, 6, 1), "Manual", null, actorId),
+            "org-user", actorId, CancellationToken.None);
+
+        var may15 = await priceStore.ListAsOfAsync(scope, priceList.Id, new DateOnly(2026, 5, 15), CancellationToken.None);
+        var today = await priceStore.ListAsOfAsync(scope, priceList.Id, new DateOnly(2026, 7, 1), CancellationToken.None);
+
+        Assert.Equal(1000m, Assert.Single(may15).UnitPrice);
+        Assert.Equal(1200m, Assert.Single(today).UnitPrice);
+    }
+
+    /// <summary>
+    /// price-list-management spec "Price History Filterable By Date",
+    /// scenario "A range shows every change inside it": May 1 to June 30
+    /// lists both the March 1 entry in effect at the range start AND the
+    /// June 1 change, in effective-date order.
+    /// </summary>
+    [Fact]
+    public async Task ListRangeAsync_ReturnsTheStartPriceAndEveryChangeInsideTheRange()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var organizationId = Guid.NewGuid();
+        SeedOrganization(organizationId);
+        var (scope, presentationId, actorId) = await SeedPresentationAsync(organizationId);
+
+        var priceStore = new PostgresPriceListStore(_dataSource!);
+        var priceList = await priceStore.CreatePriceListAsync(
+            scope, new NewPriceList(Guid.NewGuid(), "Default", true, actorId), "org-user", actorId, CancellationToken.None);
+
+        await priceStore.AppendEntryAsync(
+            scope, new NewPriceListEntry(Guid.NewGuid(), priceList.Id, presentationId, 1000m, new DateOnly(2026, 3, 1), "Manual", null, actorId),
+            "org-user", actorId, CancellationToken.None);
+        await priceStore.AppendEntryAsync(
+            scope, new NewPriceListEntry(Guid.NewGuid(), priceList.Id, presentationId, 1200m, new DateOnly(2026, 6, 1), "Manual", null, actorId),
+            "org-user", actorId, CancellationToken.None);
+
+        var range = await priceStore.ListRangeAsync(scope, priceList.Id, new DateOnly(2026, 5, 1), new DateOnly(2026, 6, 30), CancellationToken.None);
+
+        Assert.Equal(2, range.Count);
+        Assert.Equal(1000m, range[0].UnitPrice);
+        Assert.Equal(new DateOnly(2026, 3, 1), range[0].EffectiveFrom);
+        Assert.Equal(1200m, range[1].UnitPrice);
+        Assert.Equal(new DateOnly(2026, 6, 1), range[1].EffectiveFrom);
+    }
+
+    /// <summary>A range whose start has no prior entry lists only the change(s) inside the range, no phantom start row.</summary>
+    [Fact]
+    public async Task ListRangeAsync_WithNoEntryBeforeRangeStart_OmitsAStartRow()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var organizationId = Guid.NewGuid();
+        SeedOrganization(organizationId);
+        var (scope, presentationId, actorId) = await SeedPresentationAsync(organizationId);
+
+        var priceStore = new PostgresPriceListStore(_dataSource!);
+        var priceList = await priceStore.CreatePriceListAsync(
+            scope, new NewPriceList(Guid.NewGuid(), "Default", true, actorId), "org-user", actorId, CancellationToken.None);
+
+        await priceStore.AppendEntryAsync(
+            scope, new NewPriceListEntry(Guid.NewGuid(), priceList.Id, presentationId, 1200m, new DateOnly(2026, 6, 1), "Manual", null, actorId),
+            "org-user", actorId, CancellationToken.None);
+
+        var range = await priceStore.ListRangeAsync(scope, priceList.Id, new DateOnly(2026, 5, 1), new DateOnly(2026, 6, 30), CancellationToken.None);
+
+        Assert.Equal(1200m, Assert.Single(range).UnitPrice);
     }
 }

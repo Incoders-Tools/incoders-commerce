@@ -53,6 +53,20 @@ public sealed class RateComponentStoreTests : IDisposable
         cmd.ExecuteNonQuery();
     }
 
+    /// <summary>B7 U5: rate_component_sets/rate_components are branch-owned now, so every scope needs a real branch row.</summary>
+    private static Guid SeedBranch(Guid organizationId, string name = "Main")
+    {
+        var branchId = Guid.NewGuid();
+        using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        owner.Open();
+        using var cmd = new NpgsqlCommand("INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, $3)", owner);
+        cmd.Parameters.AddWithValue(branchId);
+        cmd.Parameters.AddWithValue(organizationId);
+        cmd.Parameters.AddWithValue(name);
+        cmd.ExecuteNonQuery();
+        return branchId;
+    }
+
     private async Task<Guid> SeedPriceListAsync(CloudTenantScope scope, string name, Guid actorId, bool isDefault)
     {
         var store = new PostgresPriceListStore(_dataSource!);
@@ -87,7 +101,8 @@ public sealed class RateComponentStoreTests : IDisposable
 
         var organizationId = Guid.NewGuid();
         SeedOrganization(organizationId);
-        var scope = new CloudTenantScope(organizationId);
+        var branchId = SeedBranch(organizationId);
+        var scope = new CloudTenantScope(organizationId, BranchId: branchId);
         var actorId = Guid.NewGuid();
         var priceListId = await SeedPriceListAsync(scope, "Reparto", actorId, isDefault: true);
 
@@ -128,7 +143,8 @@ public sealed class RateComponentStoreTests : IDisposable
 
         var organizationId = Guid.NewGuid();
         SeedOrganization(organizationId);
-        var scope = new CloudTenantScope(organizationId);
+        var branchId = SeedBranch(organizationId);
+        var scope = new CloudTenantScope(organizationId, BranchId: branchId);
         var actorId = Guid.NewGuid();
         var priceListId = await SeedPriceListAsync(scope, "Reparto", actorId, isDefault: true);
 
@@ -163,7 +179,8 @@ public sealed class RateComponentStoreTests : IDisposable
 
         var organizationId = Guid.NewGuid();
         SeedOrganization(organizationId);
-        var scope = new CloudTenantScope(organizationId);
+        var branchId = SeedBranch(organizationId);
+        var scope = new CloudTenantScope(organizationId, BranchId: branchId);
         var actorId = Guid.NewGuid();
         var priceListId = await SeedPriceListAsync(scope, "Reparto", actorId, isDefault: true);
 
@@ -196,7 +213,8 @@ public sealed class RateComponentStoreTests : IDisposable
 
         var organizationId = Guid.NewGuid();
         SeedOrganization(organizationId);
-        var scope = new CloudTenantScope(organizationId);
+        var branchId = SeedBranch(organizationId);
+        var scope = new CloudTenantScope(organizationId, BranchId: branchId);
         var actorId = Guid.NewGuid();
         var priceListId = await SeedPriceListAsync(scope, "Compounding", actorId, isDefault: true);
 
@@ -233,7 +251,8 @@ public sealed class RateComponentStoreTests : IDisposable
 
         var organizationId = Guid.NewGuid();
         SeedOrganization(organizationId);
-        var scope = new CloudTenantScope(organizationId);
+        var branchId = SeedBranch(organizationId);
+        var scope = new CloudTenantScope(organizationId, BranchId: branchId);
         var actorId = Guid.NewGuid();
         var priceListId = await SeedPriceListAsync(scope, "Reparto", actorId, isDefault: true);
 
@@ -275,7 +294,8 @@ public sealed class RateComponentStoreTests : IDisposable
 
         var organizationId = Guid.NewGuid();
         SeedOrganization(organizationId);
-        var scope = new CloudTenantScope(organizationId);
+        var branchId = SeedBranch(organizationId);
+        var scope = new CloudTenantScope(organizationId, BranchId: branchId);
         var actorId = Guid.NewGuid();
         var priceListId = await SeedPriceListAsync(scope, "Reparto", actorId, isDefault: true);
 
@@ -305,7 +325,8 @@ public sealed class RateComponentStoreTests : IDisposable
 
         var organizationId = Guid.NewGuid();
         SeedOrganization(organizationId);
-        var scope = new CloudTenantScope(organizationId);
+        var branchId = SeedBranch(organizationId);
+        var scope = new CloudTenantScope(organizationId, BranchId: branchId);
         var actorId = Guid.NewGuid();
         var priceListId = await SeedPriceListAsync(scope, "Reparto", actorId, isDefault: true);
 
@@ -335,7 +356,8 @@ public sealed class RateComponentStoreTests : IDisposable
 
         var organizationId = Guid.NewGuid();
         SeedOrganization(organizationId);
-        var scope = new CloudTenantScope(organizationId);
+        var branchId = SeedBranch(organizationId);
+        var scope = new CloudTenantScope(organizationId, BranchId: branchId);
         var actorId = Guid.NewGuid();
 
         var store = new PostgresRateComponentStore(_dataSource!);
@@ -364,7 +386,8 @@ public sealed class RateComponentStoreTests : IDisposable
 
         var organizationId = Guid.NewGuid();
         SeedOrganization(organizationId);
-        var scope = new CloudTenantScope(organizationId);
+        var branchId = SeedBranch(organizationId);
+        var scope = new CloudTenantScope(organizationId, BranchId: branchId);
         var actorId = Guid.NewGuid();
         var priceListId = await SeedPriceListAsync(scope, "Mostrador", actorId, isDefault: true);
 
@@ -393,7 +416,8 @@ public sealed class RateComponentStoreTests : IDisposable
 
         var organizationId = Guid.NewGuid();
         SeedOrganization(organizationId);
-        var scope = new CloudTenantScope(organizationId);
+        var branchId = SeedBranch(organizationId);
+        var scope = new CloudTenantScope(organizationId, BranchId: branchId);
         var actorId = Guid.NewGuid();
         var priceListId = await SeedPriceListAsync(scope, "Mostrador", actorId, isDefault: true);
 
@@ -429,7 +453,8 @@ public sealed class RateComponentStoreTests : IDisposable
 
         var organizationId = Guid.NewGuid();
         SeedOrganization(organizationId);
-        var scope = new CloudTenantScope(organizationId);
+        var branchId = SeedBranch(organizationId);
+        var scope = new CloudTenantScope(organizationId, BranchId: branchId);
         var actorId = Guid.NewGuid();
         var deliveryListId = await SeedPriceListAsync(scope, "Reparto", actorId, isDefault: true);
         var counterListId = await SeedPriceListAsync(scope, "Mostrador", actorId, isDefault: false);
@@ -470,7 +495,8 @@ public sealed class RateComponentStoreTests : IDisposable
 
         var organizationId = Guid.NewGuid();
         SeedOrganization(organizationId);
-        var scope = new CloudTenantScope(organizationId);
+        var branchId = SeedBranch(organizationId);
+        var scope = new CloudTenantScope(organizationId, BranchId: branchId);
         var actorId = Guid.NewGuid();
         var priceListId = await SeedPriceListAsync(scope, "Mostrador", actorId, isDefault: true);
 
@@ -494,7 +520,8 @@ public sealed class RateComponentStoreTests : IDisposable
 
         var organizationId = Guid.NewGuid();
         SeedOrganization(organizationId);
-        var scope = new CloudTenantScope(organizationId);
+        var branchId = SeedBranch(organizationId);
+        var scope = new CloudTenantScope(organizationId, BranchId: branchId);
         var actorId = Guid.NewGuid();
         var priceListId = await SeedPriceListAsync(scope, "Sin recargos", actorId, isDefault: true);
 
@@ -547,8 +574,10 @@ public sealed class RateComponentStoreTests : IDisposable
         var orgBId = Guid.NewGuid();
         SeedOrganization(orgAId, "Org A");
         SeedOrganization(orgBId, "Org B");
-        var scopeA = new CloudTenantScope(orgAId);
-        var scopeB = new CloudTenantScope(orgBId);
+        var branchAId = SeedBranch(orgAId);
+        var branchBId = SeedBranch(orgBId);
+        var scopeA = new CloudTenantScope(orgAId, BranchId: branchAId);
+        var scopeB = new CloudTenantScope(orgBId, BranchId: branchBId);
         var actorId = Guid.NewGuid();
 
         var listInB = await SeedPriceListAsync(scopeB, "Reparto de B", actorId, isDefault: true);
@@ -587,12 +616,14 @@ public sealed class RateComponentStoreTests : IDisposable
         var orgBId = Guid.NewGuid();
         SeedOrganization(orgAId, "Org A");
         SeedOrganization(orgBId, "Org B");
+        var branchAId = SeedBranch(orgAId);
+        var branchBId = SeedBranch(orgBId);
         var actorId = Guid.NewGuid();
 
         var setInB = Guid.NewGuid();
-        var listInB = await SeedPriceListAsync(new CloudTenantScope(orgBId), "Reparto de B", actorId, isDefault: true);
+        var listInB = await SeedPriceListAsync(new CloudTenantScope(orgBId, BranchId: branchBId), "Reparto de B", actorId, isDefault: true);
         await new PostgresRateComponentStore(_dataSource!).PublishSetAsync(
-            new CloudTenantScope(orgBId),
+            new CloudTenantScope(orgBId, BranchId: branchBId),
             new NewRateComponentSet(setInB, listInB, new DateOnly(2026, 1, 1), VacaVerdeComponents(), actorId),
             "org-user", actorId, CancellationToken.None);
 
@@ -604,11 +635,12 @@ public sealed class RateComponentStoreTests : IDisposable
         using var cmd = new NpgsqlCommand(
             """
             INSERT INTO rate_components
-                (id, organization_id, set_id, code, label, percentage, calculation_base, component_order)
-            VALUES ($1, $2, $3, 'SMUGGLED', 'Smuggled', 99, 'Base', 99)
+                (id, organization_id, branch_id, set_id, code, label, percentage, calculation_base, component_order)
+            VALUES ($1, $2, $3, $4, 'SMUGGLED', 'Smuggled', 99, 'Base', 99)
             """, owner);
         cmd.Parameters.AddWithValue(Guid.NewGuid());
         cmd.Parameters.AddWithValue(orgAId);
+        cmd.Parameters.AddWithValue(branchAId);
         cmd.Parameters.AddWithValue(setInB);
 
         var error = Assert.Throws<PostgresException>(() => cmd.ExecuteNonQuery());
@@ -637,6 +669,7 @@ public sealed class RateComponentStoreTests : IDisposable
 
         var organizationId = Guid.NewGuid();
         SeedOrganization(organizationId);
+        var branchId = SeedBranch(organizationId);
         var setId = Guid.NewGuid();
 
         using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
@@ -644,12 +677,13 @@ public sealed class RateComponentStoreTests : IDisposable
 
         using (var setCmd = new NpgsqlCommand(
             """
-            INSERT INTO rate_component_sets (id, organization_id, price_list_id, effective_from, created_by_user_id)
-            VALUES ($1, $2, NULL, DATE '2026-01-01', $3)
+            INSERT INTO rate_component_sets (id, organization_id, branch_id, price_list_id, effective_from, created_by_user_id)
+            VALUES ($1, $2, $3, NULL, DATE '2026-01-01', $4)
             """, owner))
         {
             setCmd.Parameters.AddWithValue(setId);
             setCmd.Parameters.AddWithValue(organizationId);
+            setCmd.Parameters.AddWithValue(branchId);
             setCmd.Parameters.AddWithValue(Guid.NewGuid());
             setCmd.ExecuteNonQuery();
         }
@@ -659,11 +693,12 @@ public sealed class RateComponentStoreTests : IDisposable
             using var cmd = new NpgsqlCommand(
                 """
                 INSERT INTO rate_components
-                    (id, organization_id, set_id, code, label, percentage, calculation_base, component_order)
-                VALUES ($1, $2, $3, $4, $4, 10.5, 'Base', $5)
+                    (id, organization_id, branch_id, set_id, code, label, percentage, calculation_base, component_order)
+                VALUES ($1, $2, $3, $4, $5, $5, 10.5, 'Base', $6)
                 """, owner);
             cmd.Parameters.AddWithValue(Guid.NewGuid());
             cmd.Parameters.AddWithValue(organizationId);
+            cmd.Parameters.AddWithValue(branchId);
             cmd.Parameters.AddWithValue(setId);
             cmd.Parameters.AddWithValue(code);
             cmd.Parameters.AddWithValue(order);
@@ -699,8 +734,10 @@ public sealed class RateComponentStoreTests : IDisposable
         var orgBId = Guid.NewGuid();
         SeedOrganization(orgAId, "Org A");
         SeedOrganization(orgBId, "Org B");
-        var scopeA = new CloudTenantScope(orgAId);
-        var scopeB = new CloudTenantScope(orgBId);
+        var branchAId = SeedBranch(orgAId);
+        var branchBId = SeedBranch(orgBId);
+        var scopeA = new CloudTenantScope(orgAId, BranchId: branchAId);
+        var scopeB = new CloudTenantScope(orgBId, BranchId: branchBId);
         var actorId = Guid.NewGuid();
 
         var priceListId = await SeedPriceListAsync(scopeA, "Reparto", actorId, isDefault: true);
@@ -748,8 +785,10 @@ public sealed class RateComponentStoreTests : IDisposable
         var orgBId = Guid.NewGuid();
         SeedOrganization(orgAId, "Org A");
         SeedOrganization(orgBId, "Org B");
-        var scopeA = new CloudTenantScope(orgAId);
-        var scopeB = new CloudTenantScope(orgBId);
+        var branchAId = SeedBranch(orgAId);
+        var branchBId = SeedBranch(orgBId);
+        var scopeA = new CloudTenantScope(orgAId, BranchId: branchAId);
+        var scopeB = new CloudTenantScope(orgBId, BranchId: branchBId);
         var actorId = Guid.NewGuid();
 
         var listInA = await SeedPriceListAsync(scopeA, "Reparto", actorId, isDefault: true);

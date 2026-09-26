@@ -51,6 +51,12 @@ public static class PricingEndpoints
             PostgresPriceListStore priceListStore,
             CancellationToken ct) =>
         {
+            var branchFailure = BranchSelectionRequirement.Enforce(httpContext);
+            if (branchFailure is not null)
+            {
+                return branchFailure;
+            }
+
             var auth = await AuthorizeCallerAsync(httpContext, userStore, ct);
             if (auth is null)
             {
@@ -68,6 +74,12 @@ public static class PricingEndpoints
             PostgresPriceListStore priceListStore,
             CancellationToken ct) =>
         {
+            var branchFailure = BranchSelectionRequirement.Enforce(httpContext);
+            if (branchFailure is not null)
+            {
+                return branchFailure;
+            }
+
             var auth = await AuthorizeCallerAsync(httpContext, userStore, ct);
             if (auth is null)
             {
@@ -89,6 +101,12 @@ public static class PricingEndpoints
             PostgresPriceListStore priceListStore,
             CancellationToken ct) =>
         {
+            var branchFailure = BranchSelectionRequirement.Enforce(httpContext);
+            if (branchFailure is not null)
+            {
+                return branchFailure;
+            }
+
             var auth = await AuthorizeCallerAsync(httpContext, userStore, ct);
             if (auth is null)
             {
@@ -129,6 +147,12 @@ public static class PricingEndpoints
             PostgresPriceListStore priceListStore,
             CancellationToken ct) =>
         {
+            var branchFailure = BranchSelectionRequirement.Enforce(httpContext);
+            if (branchFailure is not null)
+            {
+                return branchFailure;
+            }
+
             var auth = await AuthorizeCallerAsync(httpContext, userStore, ct);
             if (auth is null)
             {
@@ -143,6 +167,68 @@ public static class PricingEndpoints
             return Results.Ok(history);
         });
 
+        // price-list-management spec "Price History Filterable By Date":
+        // review the branch's prices as of a single date, or across a
+        // range showing every change inside it. Read-only — no history is
+        // ever altered. `asOf` XOR (`from` AND `to`); neither given
+        // defaults to "now" (design.md "Resolution By Effective Date").
+        group.MapGet("/price-lists/{priceListId:guid}/prices", async (
+            Guid priceListId,
+            DateOnly? asOf,
+            DateOnly? from,
+            DateOnly? to,
+            HttpContext httpContext,
+            PostgresUserAccountStore userStore,
+            PostgresPriceListStore priceListStore,
+            CancellationToken ct) =>
+        {
+            var branchFailure = BranchSelectionRequirement.Enforce(httpContext);
+            if (branchFailure is not null)
+            {
+                return branchFailure;
+            }
+
+            var auth = await AuthorizeCallerAsync(httpContext, userStore, ct);
+            if (auth is null)
+            {
+                return Results.Forbid();
+            }
+
+            var isRange = from is not null || to is not null;
+            if (asOf is not null && isRange)
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["dateFilter"] = ["asOf cannot be combined with from/to."],
+                });
+            }
+
+            if (isRange && (from is null || to is null))
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["dateFilter"] = ["from and to are both required for a range filter."],
+                });
+            }
+
+            if (isRange && to!.Value < from!.Value)
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["dateFilter"] = ["to must not be before from."],
+                });
+            }
+
+            // A cross-org priceListId resolves to zero rows under RLS,
+            // exactly like the history endpoint above — no separate
+            // existence check needed.
+            IReadOnlyList<PriceListEntryRecord> prices = isRange
+                ? await priceListStore.ListRangeAsync(auth.Value.Scope, priceListId, from!.Value, to!.Value, ct)
+                : await priceListStore.ListAsOfAsync(auth.Value.Scope, priceListId, asOf ?? DateOnly.FromDateTime(DateTime.UtcNow), ct);
+
+            return Results.Ok(prices);
+        });
+
         group.MapPost("/price-lists/{priceListId:guid}/entries", async (
             Guid priceListId,
             AppendPriceEntryRequest request,
@@ -151,6 +237,12 @@ public static class PricingEndpoints
             PostgresPriceListStore priceListStore,
             CancellationToken ct) =>
         {
+            var branchFailure = BranchSelectionRequirement.Enforce(httpContext);
+            if (branchFailure is not null)
+            {
+                return branchFailure;
+            }
+
             var auth = await AuthorizeCallerAsync(httpContext, userStore, ct);
             if (auth is null)
             {
@@ -208,6 +300,12 @@ public static class PricingEndpoints
             PostgresPriceListStore priceListStore,
             CancellationToken ct) =>
         {
+            var branchFailure = BranchSelectionRequirement.Enforce(httpContext);
+            if (branchFailure is not null)
+            {
+                return branchFailure;
+            }
+
             var auth = await AuthorizeCallerAsync(httpContext, userStore, ct);
             if (auth is null)
             {
@@ -250,6 +348,12 @@ public static class PricingEndpoints
             PostgresPriceListStore priceListStore,
             CancellationToken ct) =>
         {
+            var branchFailure = BranchSelectionRequirement.Enforce(httpContext);
+            if (branchFailure is not null)
+            {
+                return branchFailure;
+            }
+
             var auth = await AuthorizeCallerAsync(httpContext, userStore, ct);
             if (auth is null)
             {
@@ -385,6 +489,12 @@ public static class PricingEndpoints
             PostgresPriceListStore priceListStore,
             CancellationToken ct) =>
         {
+            var branchFailure = BranchSelectionRequirement.Enforce(httpContext);
+            if (branchFailure is not null)
+            {
+                return branchFailure;
+            }
+
             var auth = await AuthorizeCallerAsync(httpContext, userStore, ct);
             if (auth is null)
             {
@@ -408,6 +518,12 @@ public static class PricingEndpoints
             PostgresPriceListStore priceListStore,
             CancellationToken ct) =>
         {
+            var branchFailure = BranchSelectionRequirement.Enforce(httpContext);
+            if (branchFailure is not null)
+            {
+                return branchFailure;
+            }
+
             var auth = await AuthorizeCallerAsync(httpContext, userStore, ct);
             if (auth is null)
             {
@@ -451,6 +567,12 @@ public static class PricingEndpoints
             PostgresPriceListStore priceListStore,
             CancellationToken ct) =>
         {
+            var branchFailure = BranchSelectionRequirement.Enforce(httpContext);
+            if (branchFailure is not null)
+            {
+                return branchFailure;
+            }
+
             var auth = await AuthorizeCallerAsync(httpContext, userStore, ct);
             if (auth is null)
             {

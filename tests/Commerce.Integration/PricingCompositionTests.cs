@@ -540,7 +540,8 @@ public sealed class PricingCompositionTests : IDisposable
 
         var organizationId = Guid.NewGuid();
         SeedOrganization(organizationId);
-        var scope = new CloudTenantScope(organizationId);
+        var branchId = SeedBranch(organizationId);
+        var scope = new CloudTenantScope(organizationId, BranchId: branchId);
         var actorId = Guid.NewGuid();
 
         var priceStore = new PostgresPriceListStore(_dataSource!);
@@ -588,7 +589,8 @@ public sealed class PricingCompositionTests : IDisposable
 
         var organizationId = Guid.NewGuid();
         SeedOrganization(organizationId);
-        var scope = new CloudTenantScope(organizationId);
+        var branchId = SeedBranch(organizationId);
+        var scope = new CloudTenantScope(organizationId, BranchId: branchId);
         var actorId = Guid.NewGuid();
 
         var priceStore = new PostgresPriceListStore(_dataSource!);

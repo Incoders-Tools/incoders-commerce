@@ -82,6 +82,7 @@ public sealed class CatalogPriceSyncTests : IClassFixture<WebApplicationFactory<
         Apply("0004_device_credentials.sql");
         Apply("0009_catalog_and_pricing.sql");
         Apply("0016_catalog_branch_ownership.sql");
+        Apply("0017_pricing_branch_ownership.sql");
 
         using var resetCmd = new NpgsqlCommand(
             "TRUNCATE TABLE price_list_entries, price_lists, presentations, products, " +
@@ -138,11 +139,11 @@ public sealed class CatalogPriceSyncTests : IClassFixture<WebApplicationFactory<
         return presentation.Id;
     }
 
-    private async Task<Guid> SeedDefaultPriceListAsync(Guid organizationId)
+    private async Task<Guid> SeedDefaultPriceListAsync(Guid organizationId, Guid branchId)
     {
         using var scope = _factory.Services.CreateScope();
         var priceListStore = scope.ServiceProvider.GetRequiredService<PostgresPriceListStore>();
-        var tenantScope = new CloudTenantScope(organizationId);
+        var tenantScope = new CloudTenantScope(organizationId, BranchId: branchId);
         var actorId = Guid.NewGuid();
 
         var priceList = await priceListStore.CreatePriceListAsync(
@@ -152,11 +153,11 @@ public sealed class CatalogPriceSyncTests : IClassFixture<WebApplicationFactory<
         return priceList.Id;
     }
 
-    private async Task PublishPriceAsync(Guid organizationId, Guid priceListId, Guid presentationId, decimal unitPrice)
+    private async Task PublishPriceAsync(Guid organizationId, Guid branchId, Guid priceListId, Guid presentationId, decimal unitPrice)
     {
         using var scope = _factory.Services.CreateScope();
         var priceListStore = scope.ServiceProvider.GetRequiredService<PostgresPriceListStore>();
-        var tenantScope = new CloudTenantScope(organizationId);
+        var tenantScope = new CloudTenantScope(organizationId, BranchId: branchId);
         var actorId = Guid.NewGuid();
 
         await priceListStore.AppendEntryAsync(
@@ -202,8 +203,8 @@ public sealed class CatalogPriceSyncTests : IClassFixture<WebApplicationFactory<
 
         var since = DateTimeOffset.UtcNow.AddMinutes(-1);
         var presentationId = await SeedPresentationAsync(orgId, branchId);
-        var priceListId = await SeedDefaultPriceListAsync(orgId);
-        await PublishPriceAsync(orgId, priceListId, presentationId, 42.50m);
+        var priceListId = await SeedDefaultPriceListAsync(orgId, branchId);
+        await PublishPriceAsync(orgId, branchId, priceListId, presentationId, 42.50m);
 
         var client = _factory.CreateClient();
         var response = await client.SendAsync(
@@ -228,8 +229,8 @@ public sealed class CatalogPriceSyncTests : IClassFixture<WebApplicationFactory<
         var deviceToken = await IssueDeviceTokenAsync(orgId, branchId);
 
         var presentationId = await SeedPresentationAsync(orgId, branchId);
-        var priceListId = await SeedDefaultPriceListAsync(orgId);
-        await PublishPriceAsync(orgId, priceListId, presentationId, 10m);
+        var priceListId = await SeedDefaultPriceListAsync(orgId, branchId);
+        await PublishPriceAsync(orgId, branchId, priceListId, presentationId, 10m);
         await Task.Delay(50);
         var cursor = DateTimeOffset.UtcNow;
 
@@ -254,12 +255,12 @@ public sealed class CatalogPriceSyncTests : IClassFixture<WebApplicationFactory<
         var deviceToken = await IssueDeviceTokenAsync(orgId, branchId);
 
         var presentationId = await SeedPresentationAsync(orgId, branchId);
-        var priceListId = await SeedDefaultPriceListAsync(orgId);
+        var priceListId = await SeedDefaultPriceListAsync(orgId, branchId);
         await Task.Delay(50);
         var cursor = DateTimeOffset.UtcNow;
         await Task.Delay(50);
         // Only the price changes after the cursor; the catalog row does not.
-        await PublishPriceAsync(orgId, priceListId, presentationId, 77m);
+        await PublishPriceAsync(orgId, branchId, priceListId, presentationId, 77m);
 
         var client = _factory.CreateClient();
         var response = await client.SendAsync(

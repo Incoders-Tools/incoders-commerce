@@ -11,6 +11,7 @@ public sealed record NewPriceList(Guid Id, string Name, bool IsDefault, Guid Cre
 public sealed record PriceListRecord(
     Guid Id,
     Guid OrganizationId,
+    Guid BranchId,
     string Name,
     bool IsDefault,
     DateTimeOffset CreatedAtUtc,
@@ -35,6 +36,7 @@ public sealed record NewPriceListEntry(
 public sealed record PriceListEntryRecord(
     Guid Id,
     Guid OrganizationId,
+    Guid BranchId,
     Guid PriceListId,
     Guid PresentationId,
     decimal UnitPrice,
@@ -60,6 +62,7 @@ public sealed record NewSupplierPriceMapping(
 public sealed record SupplierPriceMappingRecord(
     Guid Id,
     Guid OrganizationId,
+    Guid BranchId,
     string SupplierName,
     string SheetName,
     int HeaderRow,
@@ -82,6 +85,7 @@ public sealed record NewImportBatchRow(
 public sealed record ImportBatchRowRecord(
     Guid Id,
     Guid OrganizationId,
+    Guid BranchId,
     Guid BatchId,
     int RowNumber,
     string? RawCode,
@@ -100,6 +104,7 @@ public sealed record ImportBatchRowRecord(
 public sealed record ImportBatchRecord(
     Guid Id,
     Guid OrganizationId,
+    Guid BranchId,
     Guid SupplierMappingId,
     string FileName,
     int RowCount,
