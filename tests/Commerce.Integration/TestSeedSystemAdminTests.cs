@@ -166,4 +166,36 @@ public sealed class TestSeedSystemAdminTests : IDisposable
         Assert.Contains("business-admin", reader.GetString(1));
         Assert.Equal(new[] { seeded.BranchId }, reader.GetFieldValue<Guid[]>(2));
     }
+
+    /// <summary>
+    /// B7 U2: an optional branch name, additive — every pre-existing caller
+    /// (which never sets it) keeps getting "Main" exactly as before (covered
+    /// by <see cref="SystemAdminOmitted_StillGrantsBusinessAdminOverTheSeededBranch"/>).
+    /// </summary>
+    [Fact]
+    public async Task BranchNameProvided_SeedsBranchUnderThatName()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var client = _factory.CreateClient();
+        var organizationId = Guid.NewGuid();
+        const string email = "branch-name-seed@example.com";
+        const string password = "correct-horse-battery-staple";
+
+        var seedResponse = await client.PostAsJsonAsync(
+            "/internal/test-seed/user",
+            new TestSeedUserRequest(organizationId, email, password, BranchName: "Ruta 51"));
+
+        Assert.Equal(HttpStatusCode.OK, seedResponse.StatusCode);
+        var seeded = await seedResponse.Content.ReadFromJsonAsync<TestSeedUserResponse>();
+        Assert.NotNull(seeded);
+
+        using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        owner.Open();
+        using var cmd = new NpgsqlCommand("SELECT name FROM branches WHERE id = $1", owner);
+        cmd.Parameters.AddWithValue(seeded!.BranchId);
+        using var reader = cmd.ExecuteReader();
+        Assert.True(reader.Read());
+        Assert.Equal("Ruta 51", reader.GetString(0));
+    }
 }

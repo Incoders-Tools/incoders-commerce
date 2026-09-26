@@ -72,10 +72,12 @@ public static class TestSeedEndpoints
             var branchScope = request.SystemAdmin ? Array.Empty<Guid>() : new[] { branchId };
             var organizationName = request.SystemAdmin ? "Platform System Administrator" : "E2E Test Organization";
 
+            var branchName = string.IsNullOrWhiteSpace(request.BranchName) ? "Main" : request.BranchName.Trim();
+
             var outcome = await organizationStore.TryCreateBootstrapAsync(
                 scope,
                 new NewOrganization(request.OrganizationId, organizationName),
-                new NewBranch(branchId, "Main"),
+                new NewBranch(branchId, branchName),
                 new NewUserAccount(userId, request.Email, passwordHash, branchScope, roles),
                 ct);
 
@@ -143,7 +145,11 @@ public static class TestSeedEndpoints
 /// every pre-existing caller (`src/Commerce.Web/e2e/helpers.ts`'s
 /// `seedUser`) keeps its exact current behavior unchanged.
 /// </param>
-public sealed record TestSeedUserRequest(Guid OrganizationId, string Email, string Password, bool SystemAdmin = false);
+/// <param name="BranchName">
+/// B7 U2: optional name for the seeded branch. Blank/omitted keeps the
+/// existing "Main" default — every pre-existing caller is unaffected.
+/// </param>
+public sealed record TestSeedUserRequest(Guid OrganizationId, string Email, string Password, bool SystemAdmin = false, string? BranchName = null);
 
 public sealed record TestSeedUserResponse(Guid UserId, Guid OrganizationId, Guid BranchId, string Email);
 

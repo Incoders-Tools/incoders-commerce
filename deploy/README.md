@@ -63,12 +63,12 @@ the platform **system administrator**, and the first **organization** with its
 
    | Variable | Required | Meaning |
    | --- | --- | --- |
-   | `COMMERCE_DEV_ADMIN_EMAIL` | yes | System administrator. Signs in to Web, pairs Desktop, and is the identity the script authenticates as to create the organization. |
-   | `COMMERCE_DEV_ADMIN_PASSWORD` | yes | Its password. |
+   | `COMMERCE_DEV_SYSADMIN_EMAIL` | yes | Platform system administrator (`is_system_admin`, never an organization role). Signs in to Web, pairs Desktop, and is the identity the script authenticates as to create the organization. |
+   | `COMMERCE_DEV_SYSADMIN_PASSWORD` | yes | Its password. |
    | `COMMERCE_DEV_ORGANIZATION_NAME` | yes | Name of the organization to create. |
-   | `COMMERCE_DEV_ORGANIZATION_ADMIN_EMAIL` | yes | The organization's first `business-admin`. Must differ from `COMMERCE_DEV_ADMIN_EMAIL`. |
+   | `COMMERCE_DEV_ORGANIZATION_ADMIN_EMAIL` | yes | The organization's first `business-admin`. Must differ from `COMMERCE_DEV_SYSADMIN_EMAIL`. |
    | `COMMERCE_DEV_ORGANIZATION_ADMIN_PASSWORD` | yes | Its password. |
-   | `COMMERCE_DEV_ORGANIZATION_BRANCH_NAME` | no | First branch; the API defaults to `Main`. |
+   | `COMMERCE_DEV_ORGANIZATION_BRANCH_NAME` | no | First branch name. Defaults to `Ruta 51` (B7: the first supported organization/branch pairing is Vaca Verde / Ruta 51) if absent. For a pre-existing organization with exactly one branch under a different name, the script renames it idempotently to this value instead of creating a second branch. |
 
 2. Start the complete local stack: `docker compose -f deploy/dev/compose.yaml --profile full up -d`.
 3. Run `pwsh -File deploy/dev/provision-admin.ps1`.

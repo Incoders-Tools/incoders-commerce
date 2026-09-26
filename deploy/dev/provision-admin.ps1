@@ -197,11 +197,32 @@ $organizationName = Get-RequiredEnvValue -Values $envValues -Name 'COMMERCE_DEV_
 $organizationAdminEmail = Assert-SafeEmail -Value (Get-RequiredEnvValue -Values $envValues -Name 'COMMERCE_DEV_ORGANIZATION_ADMIN_EMAIL') -Name 'COMMERCE_DEV_ORGANIZATION_ADMIN_EMAIL'
 $organizationAdminPassword = Get-RequiredEnvValue -Values $envValues -Name 'COMMERCE_DEV_ORGANIZATION_ADMIN_PASSWORD'
 
-# Optional: the organization's first branch. The API defaults to "Main".
-$organizationBranchName = 'Main'
+# Optional: the organization's first branch. B7 (odd/tasks/frontend-
+# modernization.md, product review backlog item B7 / owner decision
+# 2026-09-25): the first supported case is organization "Vaca Verde",
+# branch "Ruta 51" — so THIS script's own default is "Ruta 51", not the
+# API's server-side "Main" fallback (POST /account/organizations still
+# defaults a genuinely blank branchName to "Main" for every other caller).
+$organizationBranchName = 'Ruta 51'
 if ($envValues.ContainsKey('COMMERCE_DEV_ORGANIZATION_BRANCH_NAME') -and -not [string]::IsNullOrWhiteSpace($envValues['COMMERCE_DEV_ORGANIZATION_BRANCH_NAME'])) {
     $organizationBranchName = $envValues['COMMERCE_DEV_ORGANIZATION_BRANCH_NAME'].Trim()
 }
+
+# Same conservative-allowlist reasoning as Assert-SafeEmail above: this
+# value is interpolated into raw SQL for the idempotent repair path below
+# (Invoke-LocalPsql has no bound-parameter support), so anything that is
+# not a plain, printable, quote-free name is rejected outright.
+function Assert-SafeBranchName {
+    param([Parameter(Mandatory)] [string]$Value)
+
+    if ($Value.Length -eq 0 -or $Value.Length -gt 100 -or $Value -match "['\\;]") {
+        throw "COMMERCE_DEV_ORGANIZATION_BRANCH_NAME in deploy/dev/.env must be a short name with no quotes, backslashes, or semicolons."
+    }
+
+    return $Value
+}
+
+$organizationBranchName = Assert-SafeBranchName -Value $organizationBranchName
 
 if ($organizationAdminEmail -eq $email) {
     throw 'COMMERCE_DEV_ORGANIZATION_ADMIN_EMAIL must differ from COMMERCE_DEV_SYSADMIN_EMAIL. The system administrator and the organization business-admin are two separate identities.'
@@ -354,7 +375,43 @@ try {
             if ($organizationSignIn.StatusCode -ne 200) {
                 throw "'$organizationAdminEmail' already exists locally but COMMERCE_DEV_ORGANIZATION_ADMIN_PASSWORD does not sign it in (HTTP $($organizationSignIn.StatusCode)). Set the password that account actually has in deploy/dev/.env, or choose a different COMMERCE_DEV_ORGANIZATION_ADMIN_EMAIL. This script never overwrites an existing password."
             }
-            Write-Output "Organization admin already present: $organizationAdminEmail (sign-in verified; no organization was created)."
+
+            # B7 idempotent repair: an organization provisioned before this
+            # change has its first branch named "Main" (or whatever the API's
+            # old server-side default was). Rename it to the configured
+            # branch name ONLY when the organization still has EXACTLY one
+            # branch (never touch a multi-branch organization sight-unseen),
+            # and only when it does not already carry that name. Renaming
+            # preserves the branch's id, so every existing branch_scope /
+            # FK reference stays valid; the trailing UPDATE additively
+            # widens the org admin's own branch_scope to include it in the
+            # rare case it did not already (never removes an existing
+            # branch from that array).
+            $branchRepairSql = @"
+WITH admin_org AS (
+    SELECT organization_id FROM users WHERE email = '$organizationAdminEmail'
+),
+single_branch AS (
+    SELECT b.id FROM branches b, admin_org
+    WHERE b.organization_id = admin_org.organization_id
+      AND (SELECT count(*) FROM branches WHERE organization_id = admin_org.organization_id) = 1
+),
+renamed AS (
+    UPDATE branches SET name = '$organizationBranchName'
+    WHERE id IN (SELECT id FROM single_branch) AND name <> '$organizationBranchName'
+    RETURNING id
+)
+UPDATE users SET branch_scope = branch_scope || (SELECT id FROM renamed)
+WHERE email = '$organizationAdminEmail'
+  AND EXISTS (SELECT 1 FROM renamed)
+  AND NOT (branch_scope @> ARRAY[(SELECT id FROM renamed)]::uuid[]);
+"@
+            $branchRepair = Invoke-LocalPsql -RepositoryRoot $repositoryRoot -Sql $branchRepairSql
+            if ($branchRepair.ExitCode -ne 0) {
+                throw "Local branch-name repair failed. Confirm the postgres service is running and healthy. Output: $($branchRepair.Output)"
+            }
+
+            Write-Output "Organization admin already present: $organizationAdminEmail (sign-in verified; no organization was created; branch name repaired to '$organizationBranchName' if it was not already)."
         }
         401 {
             throw 'The system administrator session was rejected by POST /account/organizations. The sign-in cookie was not accepted; confirm Cloud.Api is running in Development on this loopback origin.'
