@@ -87,7 +87,7 @@ describe('OrganizationsScreen', () => {
 
     renderScreen()
 
-    expect(await screen.findByText('No organizations yet.')).toBeInTheDocument()
+    expect(await screen.findByText('Todavía no hay organizaciones.')).toBeInTheDocument()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
   })
 
@@ -97,8 +97,8 @@ describe('OrganizationsScreen', () => {
     renderScreen()
 
     await screen.findByRole('alert')
-    expect(screen.queryByText('No organizations yet.')).not.toBeInTheDocument()
-    expect(screen.getByTestId('data-view-load-error')).toHaveTextContent(/organizations could not be loaded/i)
+    expect(screen.queryByText('Todavía no hay organizaciones.')).not.toBeInTheDocument()
+    expect(screen.getByTestId('data-view-load-error')).toHaveTextContent(/no se pudieron cargar las organizaciones/i)
   })
 
   it('filters the listed organizations client-side by name', async () => {
@@ -110,7 +110,7 @@ describe('OrganizationsScreen', () => {
     await screen.findByText('Acme Co')
     expect(screen.getByText('Vaca Verde')).toBeInTheDocument()
 
-    await user.type(screen.getByLabelText(/search organizations/i), 'vaca')
+    await user.type(screen.getByLabelText(/buscar organizaciones/i), 'vaca')
 
     expect(screen.getByText('Vaca Verde')).toBeInTheDocument()
     expect(screen.queryByText('Acme Co')).not.toBeInTheDocument()
@@ -140,9 +140,9 @@ describe('OrganizationsScreen', () => {
 
     renderScreen()
 
-    await screen.findByText('No organizations yet.')
-    expect(screen.queryByLabelText('Organization name')).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'New organization' })).toBeInTheDocument()
+    await screen.findByText('Todavía no hay organizaciones.')
+    expect(screen.queryByLabelText('Nombre de la organización')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Nueva organización' })).toBeInTheDocument()
   })
 
   it('opens the create form with visible, exactly-named labels', async () => {
@@ -151,16 +151,16 @@ describe('OrganizationsScreen', () => {
     const user = userEvent.setup()
     renderScreen()
 
-    await screen.findByText('No organizations yet.')
-    await user.click(screen.getByRole('button', { name: 'New organization' }))
+    await screen.findByText('Todavía no hay organizaciones.')
+    await user.click(screen.getByRole('button', { name: 'Nueva organización' }))
 
-    expect(screen.getByLabelText('Organization name')).toBeInTheDocument()
-    expect(screen.getByLabelText('Branch name')).toBeInTheDocument()
-    expect(screen.getByLabelText('Administrator email')).toBeInTheDocument()
-    expect(screen.getByLabelText('Administrator password')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Create organization' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Nombre de la organización')).toBeInTheDocument()
+    expect(screen.getByLabelText('Nombre de la sucursal')).toBeInTheDocument()
+    expect(screen.getByLabelText('Correo electrónico del administrador')).toBeInTheDocument()
+    expect(screen.getByLabelText('Contraseña del administrador')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Crear organización' })).toBeInTheDocument()
     // The list is replaced, not just overlaid.
-    expect(screen.queryByRole('button', { name: 'New organization' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Nueva organización' })).not.toBeInTheDocument()
   })
 
   it('creates an organization with the typed payload and returns to a refreshed list', async () => {
@@ -176,14 +176,14 @@ describe('OrganizationsScreen', () => {
     const user = userEvent.setup()
     renderScreen()
 
-    await screen.findByText('No organizations yet.')
-    await user.click(screen.getByRole('button', { name: 'New organization' }))
+    await screen.findByText('Todavía no hay organizaciones.')
+    await user.click(screen.getByRole('button', { name: 'Nueva organización' }))
 
-    await user.type(screen.getByLabelText('Organization name'), 'Acme Co')
-    await user.type(screen.getByLabelText('Branch name'), 'HQ')
-    await user.type(screen.getByLabelText('Administrator email'), 'admin@acme.test')
-    await user.type(screen.getByLabelText('Administrator password'), 'correct-horse-battery-staple')
-    await user.click(screen.getByRole('button', { name: 'Create organization' }))
+    await user.type(screen.getByLabelText('Nombre de la organización'), 'Acme Co')
+    await user.type(screen.getByLabelText('Nombre de la sucursal'), 'HQ')
+    await user.type(screen.getByLabelText('Correo electrónico del administrador'), 'admin@acme.test')
+    await user.type(screen.getByLabelText('Contraseña del administrador'), 'correct-horse-battery-staple')
+    await user.click(screen.getByRole('button', { name: 'Crear organización' }))
 
     await screen.findByText('Acme Co')
     expect(fetchMock.mock.calls[1][0]).toBe('/account/organizations')
@@ -195,7 +195,7 @@ describe('OrganizationsScreen', () => {
       adminPassword: 'correct-horse-battery-staple',
     })
     // Back on the list screen.
-    expect(screen.getByRole('button', { name: 'New organization' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Nueva organización' })).toBeInTheDocument()
   })
 
   it('creates an organization without a branch name when the optional field is left blank', async () => {
@@ -211,13 +211,13 @@ describe('OrganizationsScreen', () => {
     const user = userEvent.setup()
     renderScreen()
 
-    await screen.findByText('No organizations yet.')
-    await user.click(screen.getByRole('button', { name: 'New organization' }))
+    await screen.findByText('Todavía no hay organizaciones.')
+    await user.click(screen.getByRole('button', { name: 'Nueva organización' }))
 
-    await user.type(screen.getByLabelText('Organization name'), 'Acme Co')
-    await user.type(screen.getByLabelText('Administrator email'), 'admin@acme.test')
-    await user.type(screen.getByLabelText('Administrator password'), 'correct-horse-battery-staple')
-    await user.click(screen.getByRole('button', { name: 'Create organization' }))
+    await user.type(screen.getByLabelText('Nombre de la organización'), 'Acme Co')
+    await user.type(screen.getByLabelText('Correo electrónico del administrador'), 'admin@acme.test')
+    await user.type(screen.getByLabelText('Contraseña del administrador'), 'correct-horse-battery-staple')
+    await user.click(screen.getByRole('button', { name: 'Crear organización' }))
 
     await screen.findByText('Acme Co')
     expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toEqual({
@@ -235,10 +235,10 @@ describe('OrganizationsScreen', () => {
     renderScreen()
 
     await screen.findByText('Acme Co')
-    await user.click(screen.getByRole('button', { name: 'New organization' }))
-    expect(screen.getByLabelText('Organization name')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Nueva organización' }))
+    expect(screen.getByLabelText('Nombre de la organización')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: /cancel/i }))
+    await user.click(screen.getByRole('button', { name: /cancelar/i }))
 
     expect(screen.getByText('Acme Co')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledTimes(1)
@@ -251,10 +251,10 @@ describe('OrganizationsScreen', () => {
     renderScreen()
 
     await screen.findByText('Acme Co')
-    await user.click(screen.getByRole('button', { name: 'New organization' }))
-    expect(screen.getByLabelText('Organization name')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Nueva organización' }))
+    expect(screen.getByLabelText('Nombre de la organización')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: /back to organizations/i }))
+    await user.click(screen.getByRole('button', { name: /volver a organizaciones/i }))
 
     expect(screen.getByText('Acme Co')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledTimes(1)
@@ -275,10 +275,10 @@ describe('OrganizationsScreen', () => {
     // Still loading — the initial GET is deliberately unresolved.
     expect(screen.getByRole('status')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'New organization' }))
-    await user.type(screen.getByLabelText('Organization name'), 'Acme Co')
-    await user.type(screen.getByLabelText('Administrator email'), 'admin@acme.test')
-    await user.type(screen.getByLabelText('Administrator password'), 'correct-horse-battery-staple')
+    await user.click(screen.getByRole('button', { name: 'Nueva organización' }))
+    await user.type(screen.getByLabelText('Nombre de la organización'), 'Acme Co')
+    await user.type(screen.getByLabelText('Correo electrónico del administrador'), 'admin@acme.test')
+    await user.type(screen.getByLabelText('Contraseña del administrador'), 'correct-horse-battery-staple')
 
     fetchMock
       .mockResolvedValueOnce(
@@ -288,10 +288,10 @@ describe('OrganizationsScreen', () => {
       ) // POST create
       .mockResolvedValueOnce(new Response(JSON.stringify([acme]), { status: 200 })) // refresh after create (call 3)
 
-    await user.click(screen.getByRole('button', { name: 'Create organization' }))
+    await user.click(screen.getByRole('button', { name: 'Crear organización' }))
 
     await screen.findByText('Acme Co')
-    expect(screen.getByRole('button', { name: 'New organization' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Nueva organización' })).toBeInTheDocument()
 
     // The stale initial load now resolves with different, older data.
     resolveInitialLoad(new Response(JSON.stringify([vacaVerde]), { status: 200 }))
@@ -314,16 +314,16 @@ describe('OrganizationsScreen', () => {
     const user = userEvent.setup()
     renderScreen()
 
-    await screen.findByText('No organizations yet.')
-    await user.click(screen.getByRole('button', { name: 'New organization' }))
+    await screen.findByText('Todavía no hay organizaciones.')
+    await user.click(screen.getByRole('button', { name: 'Nueva organización' }))
 
-    await user.type(screen.getByLabelText('Organization name'), 'Acme Co')
-    await user.type(screen.getByLabelText('Administrator email'), 'admin@acme.test')
-    await user.type(screen.getByLabelText('Administrator password'), 'correct-horse-battery-staple')
-    await user.click(screen.getByRole('button', { name: 'Create organization' }))
+    await user.type(screen.getByLabelText('Nombre de la organización'), 'Acme Co')
+    await user.type(screen.getByLabelText('Correo electrónico del administrador'), 'admin@acme.test')
+    await user.type(screen.getByLabelText('Contraseña del administrador'), 'correct-horse-battery-staple')
+    await user.click(screen.getByRole('button', { name: 'Crear organización' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/already exists/i)
-    expect(screen.getByLabelText('Organization name')).toHaveValue('Acme Co')
+    expect(screen.getByLabelText('Nombre de la organización')).toHaveValue('Acme Co')
   })
 
   // ---- Edit branding (T5b) ----
@@ -334,7 +334,7 @@ describe('OrganizationsScreen', () => {
     renderScreen()
 
     await screen.findByText('Acme Co')
-    expect(screen.getAllByRole('button', { name: 'Edit branding' })).toHaveLength(2)
+    expect(screen.getAllByRole('button', { name: 'Editar marca' })).toHaveLength(2)
   })
 
   it('opens the branding form for the clicked organization and returns to the list on save', async () => {
@@ -346,18 +346,18 @@ describe('OrganizationsScreen', () => {
     renderScreen()
 
     await screen.findByText('Acme Co')
-    await user.click(screen.getByRole('button', { name: 'Edit branding' }))
+    await user.click(screen.getByRole('button', { name: 'Editar marca' }))
 
-    expect(await screen.findByLabelText('Logo URL')).toBeInTheDocument()
-    expect(screen.getByLabelText('Primary color')).toBeInTheDocument()
+    expect(await screen.findByLabelText('URL del logotipo')).toBeInTheDocument()
+    expect(screen.getByLabelText('Color primario')).toBeInTheDocument()
     expect(fetchMock.mock.calls[1][0]).toBe(`/account/organizations/${acme.id}/branding`)
 
-    await user.type(screen.getByLabelText('Logo URL'), 'https://cdn.example.com/logo.png')
-    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await user.type(screen.getByLabelText('URL del logotipo'), 'https://cdn.example.com/logo.png')
+    await user.click(screen.getByRole('button', { name: 'Guardar' }))
 
     // Back on the list, not the form.
-    await screen.findByRole('button', { name: 'Edit branding' })
-    expect(screen.queryByLabelText('Logo URL')).not.toBeInTheDocument()
+    await screen.findByRole('button', { name: 'Editar marca' })
+    expect(screen.queryByLabelText('URL del logotipo')).not.toBeInTheDocument()
   })
 
   it('cancels the branding form back to the list without saving', async () => {
@@ -369,12 +369,12 @@ describe('OrganizationsScreen', () => {
     renderScreen()
 
     await screen.findByText('Acme Co')
-    await user.click(screen.getByRole('button', { name: 'Edit branding' }))
+    await user.click(screen.getByRole('button', { name: 'Editar marca' }))
 
-    await screen.findByLabelText('Logo URL')
-    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    await screen.findByLabelText('URL del logotipo')
+    await user.click(screen.getByRole('button', { name: 'Cancelar' }))
 
-    expect(screen.getByRole('button', { name: 'Edit branding' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Editar marca' })).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 })

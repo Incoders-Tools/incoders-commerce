@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -30,6 +31,7 @@ const DEFAULT_SWATCH_COLOR = '#000000'
  * itself may legitimately be empty (unset).
  */
 export function OrganizationBrandingForm({ organization, onSaved, onCancel }: OrganizationBrandingFormProps) {
+  const { t } = useTranslation('organizations')
   const [logoUrl, setLogoUrl] = useState('')
   const [primaryColor, setPrimaryColor] = useState('')
   const [loading, setLoading] = useState(true)
@@ -56,7 +58,7 @@ export function OrganizationBrandingForm({ organization, onSaved, onCancel }: Or
       })
       .catch((err) => {
         if (cancelled) return
-        setLoadError(err instanceof ApiError ? err.message : 'Unable to load organization branding.')
+        setLoadError(err instanceof ApiError ? err.message : t('brandingForm.unableToLoad'))
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -64,7 +66,7 @@ export function OrganizationBrandingForm({ organization, onSaved, onCancel }: Or
     return () => {
       cancelled = true
     }
-  }, [organization.id, reloadToken])
+  }, [organization.id, reloadToken, t])
 
   const handleRetry = () => setReloadToken((token) => token + 1)
 
@@ -80,7 +82,7 @@ export function OrganizationBrandingForm({ organization, onSaved, onCancel }: Or
       })
       onSaved()
     } catch (err) {
-      setSubmitError(err instanceof ApiError ? err.message : 'Unable to save organization branding.')
+      setSubmitError(err instanceof ApiError ? err.message : t('brandingForm.unableToSave'))
     } finally {
       setSubmitting(false)
     }
@@ -91,14 +93,14 @@ export function OrganizationBrandingForm({ organization, onSaved, onCancel }: Or
 
   return (
     <FormPage
-      title="Edit branding"
-      description={`Logo and primary color for ${organization.name}.`}
+      title={t('brandingForm.title')}
+      description={t('brandingForm.description', { name: organization.name })}
       onBack={onCancel}
-      backLabel="Back to organizations"
+      backLabel={t('brandingForm.backLabel')}
     >
       <form onSubmit={handleSubmit} className="flex flex-col gap-6">
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="logoUrl">Logo URL</Label>
+          <Label htmlFor="logoUrl">{t('brandingForm.logoUrlLabel')}</Label>
           <Input
             id="logoUrl"
             type="url"
@@ -110,17 +112,17 @@ export function OrganizationBrandingForm({ organization, onSaved, onCancel }: Or
           {trimmedLogoUrl !== '' && (
             <img
               src={trimmedLogoUrl}
-              alt="Organization logo preview"
+              alt={t('brandingForm.logoPreviewAlt')}
               className="mt-2 h-16 w-16 rounded-md border border-border object-contain"
             />
           )}
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="primaryColor">Primary color</Label>
+          <Label htmlFor="primaryColor">{t('brandingForm.primaryColorLabel')}</Label>
           <div className="flex items-center gap-3">
             <Label htmlFor="primaryColorPicker" className="sr-only">
-              Primary color picker
+              {t('brandingForm.primaryColorPickerLabel')}
             </Label>
             <input
               id="primaryColorPicker"
@@ -157,7 +159,7 @@ export function OrganizationBrandingForm({ organization, onSaved, onCancel }: Or
           >
             <p>{loadError}</p>
             <Button type="button" variant="outline" size="sm" onClick={handleRetry}>
-              Retry
+              {t('brandingForm.retry')}
             </Button>
           </div>
         )}
@@ -170,10 +172,10 @@ export function OrganizationBrandingForm({ organization, onSaved, onCancel }: Or
 
         <div className="flex gap-2">
           <Button type="submit" disabled={loading || submitting || Boolean(loadError)}>
-            {submitting ? 'Saving…' : 'Save'}
+            {submitting ? t('brandingForm.saving') : t('brandingForm.save')}
           </Button>
           <Button type="button" variant="outline" onClick={onCancel} disabled={submitting}>
-            Cancel
+            {t('brandingForm.cancel')}
           </Button>
         </div>
       </form>

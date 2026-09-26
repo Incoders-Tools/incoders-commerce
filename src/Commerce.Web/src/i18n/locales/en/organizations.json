@@ -1,1 +1,53 @@
-{}
+{
+  "title": "Organizations",
+  "description": "Tenants onboarded onto this platform, each with their own admin and branch.",
+  "newOrganization": "New organization",
+  "errors": {
+    "unexpectedLoad": "Unexpected error loading organizations."
+  },
+  "search": {
+    "label": "Search organizations",
+    "placeholder": "Search by name…"
+  },
+  "empty": {
+    "none": "No organizations yet.",
+    "noMatch": "No organizations match this search.",
+    "loadError": "Organizations could not be loaded."
+  },
+  "columns": {
+    "name": "Name",
+    "created": "Created"
+  },
+  "actions": {
+    "open": "Open",
+    "editBranding": "Edit branding"
+  },
+  "createForm": {
+    "title": "New organization",
+    "description": "Onboard a new tenant with its first branch and administrator.",
+    "backLabel": "Back to organizations",
+    "organizationNameLabel": "Organization name",
+    "branchNameLabel": "Branch name",
+    "adminEmailLabel": "Administrator email",
+    "adminPasswordLabel": "Administrator password",
+    "creating": "Creating…",
+    "submit": "Create organization",
+    "cancel": "Cancel",
+    "unableToCreate": "Unable to create organization."
+  },
+  "brandingForm": {
+    "title": "Edit branding",
+    "description": "Logo and primary color for {{name}}.",
+    "backLabel": "Back to organizations",
+    "logoUrlLabel": "Logo URL",
+    "logoPreviewAlt": "Organization logo preview",
+    "primaryColorLabel": "Primary color",
+    "primaryColorPickerLabel": "Primary color picker",
+    "unableToLoad": "Unable to load organization branding.",
+    "unableToSave": "Unable to save organization branding.",
+    "retry": "Retry",
+    "saving": "Saving…",
+    "save": "Save",
+    "cancel": "Cancel"
+  }
+}

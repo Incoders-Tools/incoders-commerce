@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -29,6 +30,7 @@ interface OrganizationFormProps {
  * `OrganizationsScreen.test.tsx` "cancels back to the list..." does).
  */
 export function OrganizationForm({ onCreated, onCancel }: OrganizationFormProps) {
+  const { t } = useTranslation('organizations')
   const [organizationName, setOrganizationName] = useState('')
   const [branchName, setBranchName] = useState('')
   const [adminEmail, setAdminEmail] = useState('')
@@ -49,7 +51,7 @@ export function OrganizationForm({ onCreated, onCancel }: OrganizationFormProps)
       })
       onCreated()
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Unable to create organization.')
+      setError(err instanceof ApiError ? err.message : t('createForm.unableToCreate'))
     } finally {
       setSubmitting(false)
     }
@@ -57,24 +59,24 @@ export function OrganizationForm({ onCreated, onCancel }: OrganizationFormProps)
 
   return (
     <FormPage
-      title="New organization"
-      description="Onboard a new tenant with its first branch and administrator."
+      title={t('createForm.title')}
+      description={t('createForm.description')}
       onBack={onCancel}
-      backLabel="Back to organizations"
+      backLabel={t('createForm.backLabel')}
     >
       <form onSubmit={handleSubmit} className="flex flex-col gap-6">
         <div className="grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-2">
           <Field
             id="organizationName"
-            label="Organization name"
+            label={t('createForm.organizationNameLabel')}
             value={organizationName}
             onChange={setOrganizationName}
             required
           />
-          <Field id="branchName" label="Branch name" value={branchName} onChange={setBranchName} />
+          <Field id="branchName" label={t('createForm.branchNameLabel')} value={branchName} onChange={setBranchName} />
           <Field
             id="adminEmail"
-            label="Administrator email"
+            label={t('createForm.adminEmailLabel')}
             type="email"
             value={adminEmail}
             onChange={setAdminEmail}
@@ -82,7 +84,7 @@ export function OrganizationForm({ onCreated, onCancel }: OrganizationFormProps)
           />
           <Field
             id="adminPassword"
-            label="Administrator password"
+            label={t('createForm.adminPasswordLabel')}
             type="password"
             value={adminPassword}
             onChange={setAdminPassword}
@@ -98,10 +100,10 @@ export function OrganizationForm({ onCreated, onCancel }: OrganizationFormProps)
 
         <div className="flex gap-2">
           <Button type="submit" disabled={submitting}>
-            {submitting ? 'Creating…' : 'Create organization'}
+            {submitting ? t('createForm.creating') : t('createForm.submit')}
           </Button>
           <Button type="button" variant="outline" onClick={onCancel} disabled={submitting}>
-            Cancel
+            {t('createForm.cancel')}
           </Button>
         </div>
       </form>

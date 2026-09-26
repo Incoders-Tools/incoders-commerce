@@ -36,8 +36,8 @@ describe('OrganizationBrandingForm', () => {
 
     render(<OrganizationBrandingForm organization={acme} onSaved={onSaved} onCancel={onCancel} />)
 
-    expect(await screen.findByLabelText('Logo URL')).toHaveValue('https://cdn.example.com/logo.png')
-    expect(screen.getByLabelText('Primary color')).toHaveValue('#336699')
+    expect(await screen.findByLabelText('URL del logotipo')).toHaveValue('https://cdn.example.com/logo.png')
+    expect(screen.getByLabelText('Color primario')).toHaveValue('#336699')
     expect(fetchMock.mock.calls[0][0]).toBe(`/account/organizations/${acme.id}/branding`)
   })
 
@@ -46,9 +46,9 @@ describe('OrganizationBrandingForm', () => {
 
     render(<OrganizationBrandingForm organization={acme} onSaved={onSaved} onCancel={onCancel} />)
 
-    await screen.findByLabelText('Logo URL')
-    expect(screen.getByLabelText('Logo URL')).toHaveValue('')
-    expect(screen.getByLabelText('Primary color')).toHaveValue('')
+    await screen.findByLabelText('URL del logotipo')
+    expect(screen.getByLabelText('URL del logotipo')).toHaveValue('')
+    expect(screen.getByLabelText('Color primario')).toHaveValue('')
   })
 
   it('shows a live logo preview once a URL is typed, and a color swatch once a color is picked', async () => {
@@ -57,14 +57,14 @@ describe('OrganizationBrandingForm', () => {
     const user = userEvent.setup()
     render(<OrganizationBrandingForm organization={acme} onSaved={onSaved} onCancel={onCancel} />)
 
-    await screen.findByLabelText('Logo URL')
-    expect(screen.queryByAltText(/logo preview/i)).not.toBeInTheDocument()
+    await screen.findByLabelText('URL del logotipo')
+    expect(screen.queryByAltText(/vista previa del logotipo/i)).not.toBeInTheDocument()
 
-    await user.type(screen.getByLabelText('Logo URL'), 'https://cdn.example.com/logo.png')
-    expect(screen.getByAltText(/logo preview/i)).toHaveAttribute('src', 'https://cdn.example.com/logo.png')
+    await user.type(screen.getByLabelText('URL del logotipo'), 'https://cdn.example.com/logo.png')
+    expect(screen.getByAltText(/vista previa del logotipo/i)).toHaveAttribute('src', 'https://cdn.example.com/logo.png')
 
-    await user.clear(screen.getByLabelText('Primary color'))
-    await user.type(screen.getByLabelText('Primary color'), '#ff0000')
+    await user.clear(screen.getByLabelText('Color primario'))
+    await user.type(screen.getByLabelText('Color primario'), '#ff0000')
     expect(screen.getByTestId('primary-color-swatch')).toHaveStyle({ backgroundColor: '#ff0000' })
   })
 
@@ -75,11 +75,11 @@ describe('OrganizationBrandingForm', () => {
     const user = userEvent.setup()
     render(<OrganizationBrandingForm organization={acme} onSaved={onSaved} onCancel={onCancel} />)
 
-    await screen.findByLabelText('Logo URL')
-    await user.type(screen.getByLabelText('Logo URL'), 'https://cdn.example.com/logo.png')
-    await user.clear(screen.getByLabelText('Primary color'))
-    await user.type(screen.getByLabelText('Primary color'), '#336699')
-    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await screen.findByLabelText('URL del logotipo')
+    await user.type(screen.getByLabelText('URL del logotipo'), 'https://cdn.example.com/logo.png')
+    await user.clear(screen.getByLabelText('Color primario'))
+    await user.type(screen.getByLabelText('Color primario'), '#336699')
+    await user.click(screen.getByRole('button', { name: 'Guardar' }))
 
     expect(fetchMock.mock.calls[1][0]).toBe(`/account/organizations/${acme.id}/branding`)
     expect(fetchMock.mock.calls[1][1].method).toBe('PUT')
@@ -97,10 +97,10 @@ describe('OrganizationBrandingForm', () => {
     const user = userEvent.setup()
     render(<OrganizationBrandingForm organization={acme} onSaved={onSaved} onCancel={onCancel} />)
 
-    await screen.findByLabelText('Logo URL')
-    await user.clear(screen.getByLabelText('Logo URL'))
-    await user.clear(screen.getByLabelText('Primary color'))
-    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await screen.findByLabelText('URL del logotipo')
+    await user.clear(screen.getByLabelText('URL del logotipo'))
+    await user.clear(screen.getByLabelText('Color primario'))
+    await user.click(screen.getByRole('button', { name: 'Guardar' }))
 
     expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toEqual({
       logoUrl: null,
@@ -118,8 +118,8 @@ describe('OrganizationBrandingForm', () => {
     const user = userEvent.setup()
     render(<OrganizationBrandingForm organization={acme} onSaved={onSaved} onCancel={onCancel} />)
 
-    await screen.findByLabelText('Logo URL')
-    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await screen.findByLabelText('URL del logotipo')
+    await user.click(screen.getByRole('button', { name: 'Guardar' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/logoUrl must be an absolute http or https URL/i)
     expect(onSaved).not.toHaveBeenCalled()
@@ -131,14 +131,14 @@ describe('OrganizationBrandingForm', () => {
     render(<OrganizationBrandingForm organization={acme} onSaved={onSaved} onCancel={onCancel} />)
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/no está disponible/i)
-    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Guardar' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Reintentar' })).toBeInTheDocument()
 
     const user = userEvent.setup()
     // R3-branding-load-failure-save-clears: Save must never fire while the
     // load is known to have failed — clicking a disabled button is a no-op,
     // but assert the update call never happens either.
-    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await user.click(screen.getByRole('button', { name: 'Guardar' }))
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
@@ -149,12 +149,12 @@ describe('OrganizationBrandingForm', () => {
     const user = userEvent.setup()
     render(<OrganizationBrandingForm organization={acme} onSaved={onSaved} onCancel={onCancel} />)
 
-    await screen.findByRole('button', { name: 'Retry' })
-    await user.click(screen.getByRole('button', { name: 'Retry' }))
+    await screen.findByRole('button', { name: 'Reintentar' })
+    await user.click(screen.getByRole('button', { name: 'Reintentar' }))
 
-    await waitFor(() => expect(screen.getByLabelText('Logo URL')).toHaveValue('https://cdn.example.com/logo.png'))
-    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Save' })).not.toBeDisabled()
+    await waitFor(() => expect(screen.getByLabelText('URL del logotipo')).toHaveValue('https://cdn.example.com/logo.png'))
+    expect(screen.queryByRole('button', { name: 'Reintentar' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Guardar' })).not.toBeDisabled()
   })
 
   it('cancels without saving', async () => {
@@ -163,8 +163,8 @@ describe('OrganizationBrandingForm', () => {
     const user = userEvent.setup()
     render(<OrganizationBrandingForm organization={acme} onSaved={onSaved} onCancel={onCancel} />)
 
-    await screen.findByLabelText('Logo URL')
-    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    await screen.findByLabelText('URL del logotipo')
+    await user.click(screen.getByRole('button', { name: 'Cancelar' }))
 
     expect(onCancel).toHaveBeenCalled()
     expect(fetchMock).toHaveBeenCalledTimes(1)

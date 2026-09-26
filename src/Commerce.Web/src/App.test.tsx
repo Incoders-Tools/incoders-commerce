@@ -109,7 +109,7 @@ describe('App route table', () => {
   it('lands a system administrator without a selected organization on Organizations', async () => {
     renderAppAt('/app', buildUser({ isSystemAdmin: true }))
 
-    expect(await screen.findByRole('heading', { name: 'Organizations' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Organizaciones' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Catálogo' })).not.toBeInTheDocument()
   })
 

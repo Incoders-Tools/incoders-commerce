@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
+import { useTranslation } from 'react-i18next'
 import { listOrganizations } from '@/api/account'
 import { ApiError } from '@/api/client'
 import type { OrganizationSummary } from '@/api/types'
@@ -32,6 +33,7 @@ function formatCreatedAt(value: string): string {
  * opens (`GET /account/organizations/{id}/branding`).
  */
 export function OrganizationsScreen() {
+  const { t } = useTranslation('organizations')
   const navigate = useNavigate()
   const { selectOrganization } = useOrganizationContext()
   const [organizations, setOrganizations] = useState<OrganizationSummary[]>([])
@@ -51,7 +53,7 @@ export function OrganizationsScreen() {
   // most recent call in flight when it resolves.
   const refreshSequence = useRef(0)
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     const sequence = ++refreshSequence.current
     setLoading(true)
     setLoadError(null)
@@ -62,18 +64,18 @@ export function OrganizationsScreen() {
       }
     } catch (err) {
       if (sequence === refreshSequence.current) {
-        setLoadError(err instanceof ApiError ? err.message : 'Unexpected error loading organizations.')
+        setLoadError(err instanceof ApiError ? err.message : t('errors.unexpectedLoad'))
       }
     } finally {
       if (sequence === refreshSequence.current) {
         setLoading(false)
       }
     }
-  }
+  }, [t])
 
   useEffect(() => {
     void refresh()
-  }, [])
+  }, [refresh])
 
   const handleCreated = () => {
     setCreating(false)
@@ -110,10 +112,10 @@ export function OrganizationsScreen() {
   }
 
   const columns: DataViewColumn<OrganizationSummary>[] = [
-    { key: 'name', header: 'Name', cell: (organization) => organization.name },
+    { key: 'name', header: t('columns.name'), cell: (organization) => organization.name },
     {
       key: 'createdAt',
-      header: 'Created',
+      header: t('columns.created'),
       cell: (organization) => formatCreatedAt(organization.createdAt),
       hideOnMobile: true,
     },
@@ -122,9 +124,9 @@ export function OrganizationsScreen() {
   return (
     <section className="flex w-full flex-col gap-6">
       <PageHeader
-        title="Organizations"
-        description="Tenants onboarded onto this platform, each with their own admin and branch."
-        actions={<Button onClick={() => setCreating(true)}>New organization</Button>}
+        title={t('title')}
+        description={t('description')}
+        actions={<Button onClick={() => setCreating(true)}>{t('newOrganization')}</Button>}
       />
 
       {loadError && (
@@ -136,8 +138,8 @@ export function OrganizationsScreen() {
       <DataToolbar
         searchValue={search}
         onSearchChange={setSearch}
-        searchLabel="Search organizations"
-        searchPlaceholder="Search by name…"
+        searchLabel={t('search.label')}
+        searchPlaceholder={t('search.placeholder')}
         view={view}
         onViewChange={setView}
       />
@@ -148,15 +150,15 @@ export function OrganizationsScreen() {
         getRowKey={(organization) => organization.id}
         view={view}
         loading={loading}
-        emptyMessage={organizations.length === 0 ? 'No organizations yet.' : 'No organizations match this search.'}
-        loadErrorMessage={loadError === null ? null : 'Organizations could not be loaded.'}
+        emptyMessage={organizations.length === 0 ? t('empty.none') : t('empty.noMatch')}
+        loadErrorMessage={loadError === null ? null : t('empty.loadError')}
         renderActions={(organization) => (
           <>
             <Button variant="outline" size="sm" onClick={() => handleOpen(organization)}>
-              Open
+              {t('actions.open')}
             </Button>
             <Button variant="outline" size="sm" onClick={() => setEditingBranding(organization)}>
-              Edit branding
+              {t('actions.editBranding')}
             </Button>
           </>
         )}
