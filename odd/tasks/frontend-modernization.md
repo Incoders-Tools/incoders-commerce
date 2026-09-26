@@ -1064,9 +1064,23 @@ implementation gap before implementing.
   exact decline invocations run, `declined_this_candidate` confirmed each
   time). No review receipt exists for these commits.
 
+- 2026-09-26: B7 U3 done (delegated direct). `5c01bb4` `BranchContext`:
+  selectable branches from the session (sysadmin: refetch `/account/me`
+  with the org header), auto-select 1 -> it, else last used, else first;
+  synchronous `X-Branch-Id` mirror (render-time reset on identity/org
+  change). `a9ee73f` top bar (brand, org switcher, branch switcher,
+  account menu), sidebar grouped under "Operación" / "Administración" /
+  "Plataforma", `<Outlet key={org:branch}>` remounts screens on switch.
+  One branch shows as a static label; accessible names unchanged; e2e
+  untouched, typecheck clean. TDD RED observed. Web 271/271 (46 files),
+  lint exit 0 / 23 (+3 `only-export-components`), build clean. Parent spot
+  check 271/271. RDD `8728d90..a9ee73f`: high (966 lines), user DECLINED,
+  exact decline run. Gaps: "no selectable branch" message not built;
+  Users screen still org-wide (U8); a sysadmin's first branch after an org
+  switch needs one `/account/me` round trip.
+
 ## Next step
 
-B7 U3 (web branch switcher in the top navbar, synchronous header mirror),
-then U4 catalog (+ copy; open: does a copy carry prices?), U5..U8, B2
+B7 U4 catalog (+ copy; open: does a copy carry prices?), U5..U8, B2
 semantics, B3, B4 confirmation, B1b/B6b/T6b cleanups, localized server
 errors.
