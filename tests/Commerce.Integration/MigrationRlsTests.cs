@@ -3978,4 +3978,82 @@ public sealed class MigrationRlsTests
         Assert.False(reader.GetBoolean(1));
         Assert.False(reader.GetBoolean(2));
     }
+
+    /// <summary>Review fix: split a mismatched entry onto a per-branch list copy.</summary>
+    [Fact]
+    public void PricingBranchOwnershipMigration_SplitsEntriesByPresentationBranch_NotListsEarliestBranch()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml."); return; }
+        var (orgId, branchAId, branchBId, productId, presAId, presBId, priceListId, entryAId, entryBId, rateSetId, actorId) =
+            (Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+        // commerce_test is shared/accumulating and 0017's idempotency checks
+        // match constraint names database-wide — only a separate DATABASE
+        // gives a genuine pre-0017 environment (a schema still collides).
+        var dbName = "review0017_" + Guid.NewGuid().ToString("N");
+        using (var admin = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            admin.Open();
+            new NpgsqlCommand($"CREATE DATABASE {dbName} OWNER commerce_owner", admin).ExecuteNonQuery();
+        }
+        var csb = new NpgsqlConnectionStringBuilder(PostgresTestFixture.OwnerConnectionString) { Database = dbName };
+        using var conn = new NpgsqlConnection(csb.ConnectionString);
+        conn.Open();
+        void Exec(string sql, params object[] args)
+        {
+            using var cmd = new NpgsqlCommand(sql, conn);
+            foreach (var a in args) cmd.Parameters.AddWithValue(a);
+            cmd.ExecuteNonQuery();
+        }
+        object[] Row(string sql, Guid id)
+        {
+            using var cmd = new NpgsqlCommand(sql, conn);
+            cmd.Parameters.AddWithValue(id);
+            using var r = cmd.ExecuteReader();
+            Assert.True(r.Read());
+            var values = new object[r.FieldCount];
+            r.GetValues(values);
+            return values;
+        }
+        try
+        {
+            ApplyAllMigrationsThrough0013(conn);
+            ApplyBranchOwnershipMigration(conn);
+            Exec("INSERT INTO organizations (id, name) VALUES ($1, 'Org A')", orgId);
+            Exec("INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, 'Casa Central')", branchAId, orgId);
+            Exec("INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, 'Ruta 51')", branchBId, orgId);
+            Exec("INSERT INTO products (id, organization_id, branch_id, name, category_id, default_unit_id, created_by_user_id) VALUES ($1, $2, $3, 'Harina', $4, $5, $6)", productId, orgId, branchAId, Guid.NewGuid(), Guid.NewGuid(), actorId);
+            Exec("INSERT INTO presentations (id, organization_id, branch_id, product_id, name, quantity_behavior, unit_id, created_by_user_id) VALUES ($1, $2, $3, $4, 'Bolsa 25kg', 'FixedQuantity', $5, $6)", presAId, orgId, branchAId, productId, Guid.NewGuid(), actorId);
+            Exec("INSERT INTO presentations (id, organization_id, branch_id, product_id, name, quantity_behavior, unit_id, created_by_user_id) VALUES ($1, $2, $3, $4, 'Bolsa 50kg', 'FixedQuantity', $5, $6)", presBId, orgId, branchBId, productId, Guid.NewGuid(), actorId);
+            // Pre-0017: price_lists/entries/rate_component_sets have no branch_id yet.
+            Exec("INSERT INTO price_lists (id, organization_id, name, is_default, created_by_user_id) VALUES ($1, $2, 'Reparto', true, $3)", priceListId, orgId, actorId);
+            Exec("INSERT INTO price_list_entries (id, organization_id, price_list_id, presentation_id, unit_price, effective_from, created_by_user_id) VALUES ($1, $2, $3, $4, 100, DATE '2026-01-01', $5)", entryAId, orgId, priceListId, presAId, actorId);
+            Exec("INSERT INTO price_list_entries (id, organization_id, price_list_id, presentation_id, unit_price, effective_from, created_by_user_id) VALUES ($1, $2, $3, $4, 200, DATE '2026-01-01', $5)", entryBId, orgId, priceListId, presBId, actorId);
+            Exec("INSERT INTO rate_component_sets (id, organization_id, price_list_id, effective_from, created_by_user_id) VALUES ($1, $2, $3, DATE '2026-01-01', $4)", rateSetId, orgId, priceListId, actorId);
+            ApplyPricingBranchOwnershipMigration(conn); // must not throw the FK violation the review found
+            var origList = Row("SELECT branch_id, is_default FROM price_lists WHERE id = $1", priceListId);
+            Assert.Equal(branchAId, origList[0]);
+            Assert.Equal(true, origList[1]);
+            var entryA = Row("SELECT branch_id, price_list_id FROM price_list_entries WHERE id = $1", entryAId);
+            Assert.Equal(branchAId, entryA[0]);
+            Assert.Equal(priceListId, entryA[1]);
+            var entryB = Row("SELECT branch_id, price_list_id FROM price_list_entries WHERE id = $1", entryBId);
+            Assert.Equal(branchBId, entryB[0]);
+            var copyListId = (Guid)entryB[1];
+            Assert.NotEqual(priceListId, copyListId);
+            var copyList = Row("SELECT organization_id, name, is_default FROM price_lists WHERE id = $1", copyListId);
+            Assert.Equal(orgId, copyList[0]);
+            Assert.Equal("Reparto", copyList[1]);
+            Assert.Equal(true, copyList[2]);
+            var set = Row("SELECT branch_id, price_list_id FROM rate_component_sets WHERE id = $1", rateSetId);
+            Assert.Equal(branchAId, set[0]);
+            Assert.Equal(priceListId, set[1]);
+        }
+        finally
+        {
+            conn.Close();
+            using var admin = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+            admin.Open();
+            new NpgsqlCommand($"DROP DATABASE IF EXISTS {dbName} WITH (FORCE)", admin).ExecuteNonQuery();
+        }
+    }
 }

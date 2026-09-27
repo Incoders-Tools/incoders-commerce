@@ -35,6 +35,9 @@
 -- Rolling back is lossy the moment two branches of one organization hold
 -- pricing rows: prefer forward-fix after first real multi-branch use, same
 -- caveat as 0016.
+-- ATOMIC (0006's precedent): no dropped FKs / NOT NULL / old RLS half-applied.
+
+BEGIN;
 
 -- ===========================================================================
 -- 1. Referenced keys: presentations (branch_id, id), needed as an FK target
@@ -86,10 +89,43 @@ SET branch_id = earliest.id
 FROM (SELECT DISTINCT ON (organization_id) organization_id, id FROM branches ORDER BY organization_id, created_at, id) AS earliest
 WHERE earliest.organization_id = t.organization_id AND t.branch_id IS NULL;
 
+-- Entries take THEIR PRESENTATION's branch (0016 already made it
+-- branch-owned), not the list's earliest-branch guess above.
 UPDATE price_list_entries t
-SET branch_id = earliest.id
-FROM (SELECT DISTINCT ON (organization_id) organization_id, id FROM branches ORDER BY organization_id, created_at, id) AS earliest
-WHERE earliest.organization_id = t.organization_id AND t.branch_id IS NULL;
+SET branch_id = pres.branch_id
+FROM presentations pres
+WHERE pres.id = t.presentation_id AND t.branch_id IS NULL;
+
+-- Mismatched entries split onto a per-branch COPY of their list (one per
+-- source-list/target-branch pair); a rerun sees zero mismatches (no-op).
+CREATE TEMP TABLE pricing_branch_copies ON COMMIT DROP AS
+SELECT gen_random_uuid() AS new_id, pl.id AS source_id, need.branch_id,
+       pl.organization_id, pl.name, pl.is_default AS source_default,
+       pl.created_at_utc, pl.created_by_user_id
+FROM (SELECT DISTINCT e.price_list_id, e.branch_id
+      FROM price_list_entries e
+      JOIN price_lists src ON src.id = e.price_list_id
+      WHERE e.branch_id <> src.branch_id) AS need
+JOIN price_lists pl ON pl.id = need.price_list_id;
+
+-- Section 5's per-branch default index, moved up: the old org-wide one would
+-- refuse a 2nd default row in another branch.
+DROP INDEX IF EXISTS price_lists_one_default;
+CREATE UNIQUE INDEX IF NOT EXISTS price_lists_one_default_per_branch
+    ON price_lists (organization_id, branch_id) WHERE is_default;
+
+INSERT INTO price_lists (id, organization_id, branch_id, name, is_default, created_at_utc, created_by_user_id)
+SELECT c.new_id, c.organization_id, c.branch_id, c.name,
+       c.source_default AND NOT EXISTS (
+           SELECT 1 FROM price_lists d
+           WHERE d.organization_id = c.organization_id AND d.branch_id = c.branch_id AND d.is_default),
+       c.created_at_utc, c.created_by_user_id
+FROM pricing_branch_copies c;
+
+UPDATE price_list_entries e
+SET price_list_id = c.new_id
+FROM pricing_branch_copies c
+WHERE c.source_id = e.price_list_id AND c.branch_id = e.branch_id;
 
 UPDATE rate_component_sets t
 SET branch_id = earliest.id
@@ -275,10 +311,7 @@ END $$;
 -- price list." supplier-price-import spec (unchanged text, same rule as
 -- 0009's per-organization mapping name): now per branch.
 
-DROP INDEX IF EXISTS price_lists_one_default;
-CREATE UNIQUE INDEX IF NOT EXISTS price_lists_one_default_per_branch
-    ON price_lists (organization_id, branch_id) WHERE is_default;
-
+-- price_lists' swap already ran in section 2 (must precede its INSERT).
 DROP INDEX IF EXISTS supplier_price_mappings_org_name_uk;
 CREATE UNIQUE INDEX IF NOT EXISTS supplier_price_mappings_branch_name_uk
     ON supplier_price_mappings (organization_id, branch_id, supplier_name);
@@ -377,3 +410,5 @@ CREATE POLICY price_import_rows_tenant_isolation ON price_import_rows
         organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid
         AND branch_id    = NULLIF(current_setting('app.current_branch_id', true), '')::uuid
     );
+
+COMMIT;
