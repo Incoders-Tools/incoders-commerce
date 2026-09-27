@@ -1135,6 +1135,13 @@ implementation gap before implementing.
   `R3-stale-entries-on-error` (PriceDateFilter), `R3-missing-failure-path-tests`,
   migration comment/rollback drift (R2/R3/R4); SUGGESTIONs recorded in the
   review receipts.
+  History note: while the correction was in review, the pre-correction
+  split chain (`3138cf4`, `084f5c0`, `8acac24`, `1f04fb6`, `e479601`) had
+  already reached `incoders/dev`. To avoid a force push, the correction
+  landed on top as `452b01a` (same content as the reviewed `0f088af`); the
+  final tree is byte-identical to the reviewed, integrated one. The ids
+  `0f088af`, `ea5d0ea`, `38115b4`, `1663800`, `262604a` exist only in the
+  review receipts, not on the branch.
 
 ## Next step
 
