@@ -1101,9 +1101,43 @@ implementation gap before implementing.
   branch yet, so without `X-Branch-Id` its catalog reads now come back
   empty (fail-closed).
 
+- 2026-09-26/27: B7 U5 done (delegated direct; writer cut off once by a
+  usage limit and resumed). Migration 0017 (`branch_id NOT NULL` on
+  price_lists, price_list_entries, rate_component_sets, rate_components,
+  supplier_price_mappings, price_import_batches, price_import_rows; same-branch
+  composite FKs; one default list and mapping names per branch; branch
+  fail-closed RLS; mirrored), every `/pricing/*` route requires the branch,
+  `GET /pricing/price-lists/{id}/prices?asOf=|from=&to=` reuses the
+  effective-date rule, web `PriceDateFilter` (es-AR, read-only).
+  RDD: the whole U5 range (2186 lines) hit `lens_context_budget_exceeded`;
+  the unpushed 1635-line commit was split by the parent into `3138cf4`
+  (schema only — does NOT pass the pricing tests on its own, the stores are
+  adapted in the next commit) and `ea5d0ea` (endpoints + date API), tree
+  verified identical. Slice 1 (`32f4ff4..3138cf4`, high, four lenses,
+  granted): CRITICAL `R4-entry-backfill-presentation-branch-mismatch` —
+  entries were backfilled to the org's earliest branch while 0016 already
+  made presentations branch-owned, so the composite FK would abort the
+  production migration. One bounded correction `0f088af` (176/180 lines):
+  entries take their presentation's branch, mixed lists get a per-branch
+  copy (one default per branch respected), the migration is now one
+  transaction; new migration test RED then GREEN. Validation APPROVED,
+  acknowledged; the fix was inserted after `3138cf4` and the rest
+  cherry-picked cleanly. Slice 2 (`0f088af..1663800`, medium) APPROVED;
+  slice 3 (`1663800..262604a`, medium) APPROVED; all acknowledged.
+  Checks: integration 734/734 on the integrated HEAD (worktree), web
+  275/275, parent spot check 153/153 pricing tests. Dev DB: 0017 (pre-fix
+  text) was applied by the writer; dev had no presentations/entries, so the
+  fixed backfill changes nothing there.
+  Follow-ups (U5b): WARNINGs `R3-presentation-cascade-deletes-history`
+  (deleting a presentation cascades its price history),
+  `R3-asof-tie-nondeterminism`, `R3-org-default-set-branchless-null`,
+  `R3-prices-endpoint-untested`, `R3-stale-response-race` and
+  `R3-stale-entries-on-error` (PriceDateFilter), `R3-missing-failure-path-tests`,
+  migration comment/rollback drift (R2/R3/R4); SUGGESTIONs recorded in the
+  review receipts.
+
 ## Next step
 
-B7 U5 pricing branch ownership + date
-filter, U5b catalog copy (products + latest price list), U6..U8, B2
+B7 U5b catalog copy (products + latest price list), U6..U8, B2
 semantics, B3, B4 confirmation, B1b/B6b/T6b cleanups, localized server
 errors.
