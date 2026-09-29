@@ -70,8 +70,19 @@ public sealed class ProductCardViewModel : INotifyPropertyChanged
     }
 }
 
-/// <summary>An entry of the category rail. <see cref="Key"/> is null for the "all products" entry.</summary>
-public sealed record CategoryRailItem(string? Key, string Name, string Glyph)
+/// <summary>
+/// An entry of the category rail. <see cref="Key"/> is null for the "all
+/// products" entry, otherwise the category id. <see cref="GlyphFontFamily"/> is
+/// the icon font for "Todos" and the emoji font for real categories (see
+/// <see cref="CategoryGlyphs"/>).
+/// </summary>
+public sealed record CategoryRailItem(
+    string? Key, string Name, string Glyph, string GlyphFontFamily = CategoryGlyphs.FontFamilyName)
 {
-    public static CategoryRailItem All { get; } = new(null, "Todos", "");
+    public static CategoryRailItem All { get; } =
+        new(null, "Todos", "", "Segoe Fluent Icons, Segoe MDL2 Assets");
+
+    /// <summary>"Todos" first, then one entry per local category in the order given.</summary>
+    public static IReadOnlyList<CategoryRailItem> Build(IReadOnlyList<CatalogCategory> categories) =>
+        [All, .. categories.Select(c => new CategoryRailItem(c.Id.ToString(), c.Name, CategoryGlyphs.For(c.IconKey)))];
 }

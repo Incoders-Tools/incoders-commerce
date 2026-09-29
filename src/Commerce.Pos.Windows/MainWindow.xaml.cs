@@ -51,6 +51,8 @@ public partial class MainWindow : Window
     private readonly SyncRunner _syncRunner;
     private readonly SyncScheduler _syncScheduler;
     private DevicePairing _pairing;
+    private Guid? _selectedCategoryId;
+    private bool _railRefreshing;
     private string _lastSyncResult = "Sincronización lista.";
 
     public MainWindow(
@@ -119,6 +121,7 @@ public partial class MainWindow : Window
         RefreshIdentityText();
         RefreshStatus();
         RefreshCustomerPicker();
+        RefreshCategoryRail();
         RefreshCatalogCards();
         RefreshScannedTotal();
         RefreshCatalogFreshness();
@@ -319,19 +322,50 @@ public partial class MainWindow : Window
     /// <summary>Rebuilds the product cards from the local catalog replica (search-filtered, capped).</summary>
     private void RefreshCatalogCards()
     {
-        var result = _store.SearchCatalog(_pairing.OrganizationId, ScanCodeTextBox.Text);
+        var result = _store.SearchCatalog(_pairing.OrganizationId, ScanCodeTextBox.Text, categoryId: _selectedCategoryId);
         _catalogCards.Clear();
         foreach (var item in result.Items)
         {
             _catalogCards.Add(new ProductCardViewModel(item));
         }
 
-        var hasQuery = !string.IsNullOrWhiteSpace(ScanCodeTextBox.Text);
-        CatalogEmptyText.Text = hasQuery
+        var hasFilter = !string.IsNullOrWhiteSpace(ScanCodeTextBox.Text) || _selectedCategoryId is not null;
+        CatalogEmptyText.Text = hasFilter
             ? "Ningún producto coincide con la búsqueda."
             : "No hay productos en el catálogo de esta terminal. Sincronice para descargarlos.";
         CatalogEmptyText.Visibility = _catalogCards.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         CatalogTruncatedText.Visibility = result.Truncated ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>
+    /// Reloads the category rail from the local catalog replica ("Todos" plus
+    /// the distinct local categories). The selection survives when its category
+    /// still exists and otherwise falls back to "Todos", so a category that
+    /// disappeared after a sync can never leave the grid filtered to nothing.
+    /// </summary>
+    private void RefreshCategoryRail()
+    {
+        _railRefreshing = true;
+        try
+        {
+            CategoryRailControl.Categories = CategoryRailItem.Build(_store.ListCatalogCategories(_pairing.OrganizationId));
+            _selectedCategoryId = Guid.TryParse(CategoryRailControl.SelectedCategory?.Key, out var id) ? id : null;
+        }
+        finally
+        {
+            _railRefreshing = false;
+        }
+    }
+
+    private void CategoryRail_CategorySelected(object? sender, CategoryRailItem item)
+    {
+        if (_railRefreshing)
+        {
+            return;
+        }
+
+        _selectedCategoryId = Guid.TryParse(item.Key, out var id) ? id : null;
+        RefreshCatalogCards();
     }
 
     private async void ProductCard_IncrementRequested(object sender, RoutedEventArgs e)
@@ -476,6 +510,7 @@ public partial class MainWindow : Window
         }
 
         RefreshCustomerPicker();
+        RefreshCategoryRail();
         RefreshCatalogCards();
         RefreshScannedTotal();
         RefreshCatalogFreshness();

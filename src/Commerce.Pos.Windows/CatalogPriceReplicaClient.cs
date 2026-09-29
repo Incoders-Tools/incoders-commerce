@@ -54,7 +54,8 @@ public sealed class CatalogPriceReplicaClient
 public sealed record CatalogReplicaRowDto(
     Guid PresentationId, Guid ProductId, string ProductName, string PresentationName,
     string? IdentificationCode, string QuantityBehavior, Guid UnitId,
-    decimal? UnitPrice, DateOnly? EffectiveFrom, DateTimeOffset UpdatedAtUtc);
+    decimal? UnitPrice, DateOnly? EffectiveFrom, DateTimeOffset UpdatedAtUtc,
+    Guid? CategoryId = null, string? CategoryName = null, string? CategoryIconKey = null);
 
 /// <summary>Mirrors `Commerce.Cloud.Api.Endpoints.CatalogSyncResponse`.</summary>
 public sealed record CatalogSyncResponseDto(

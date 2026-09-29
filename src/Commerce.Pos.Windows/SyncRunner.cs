@@ -168,7 +168,8 @@ public sealed class SyncRunner
         var replicaItems = outcome.Items
             .Select(row => new CatalogPriceReplicaItem(
                 row.PresentationId, pairing.OrganizationId, row.ProductId, row.ProductName, row.PresentationName,
-                row.IdentificationCode, row.QuantityBehavior, row.UnitId, row.UnitPrice, row.EffectiveFrom, row.UpdatedAtUtc))
+                row.IdentificationCode, row.QuantityBehavior, row.UnitId, row.UnitPrice, row.EffectiveFrom, row.UpdatedAtUtc,
+                row.CategoryId, row.CategoryName, row.CategoryIconKey))
             .ToList();
 
         _store.ApplyCatalogPriceSync(replicaItems, outcome.RemovedPresentationIds, outcome.ServerTimeUtc.Value);

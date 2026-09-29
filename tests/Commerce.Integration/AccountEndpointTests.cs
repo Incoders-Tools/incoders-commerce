@@ -87,6 +87,10 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
         var pricingBranchOwnershipSql = File.ReadAllText(Path.Combine(repoRoot.FullName, "deploy", "db", "migrations", "0017_pricing_branch_ownership.sql"));
         using (var cmd = new NpgsqlCommand(pricingBranchOwnershipSql, owner)) cmd.ExecuteNonQuery();
 
+        // catalog-categories: products reference organization-owned categories.
+        var categoriesSql = File.ReadAllText(Path.Combine(repoRoot.FullName, "deploy", "db", "migrations", "0018_catalog_categories.sql"));
+        using (var cmd = new NpgsqlCommand(categoriesSql, owner)) cmd.ExecuteNonQuery();
+
         var adminConsoleSql = File.ReadAllText(Path.Combine(repoRoot.FullName, "deploy", "db", "migrations", "0012_admin_console.sql"));
         using (var cmd = new NpgsqlCommand(adminConsoleSql, owner)) cmd.ExecuteNonQuery();
 

@@ -99,4 +99,7 @@ public sealed record CatalogChangeRow(
     string? IdentificationCode,
     QuantityBehavior QuantityBehavior,
     Guid UnitId,
-    DateTimeOffset UpdatedAtUtc);
+    DateTimeOffset UpdatedAtUtc,
+    Guid? CategoryId = null,
+    string? CategoryName = null,
+    string? CategoryIconKey = null);

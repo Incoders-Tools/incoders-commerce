@@ -62,7 +62,17 @@ public sealed record CatalogPriceReplicaItem(
     Guid UnitId,
     decimal? UnitPrice,
     DateOnly? EffectiveFrom,
-    DateTimeOffset UpdatedAtUtc);
+    DateTimeOffset UpdatedAtUtc,
+    Guid? CategoryId = null,
+    string? CategoryName = null,
+    string? CategoryIconKey = null);
+
+/// <summary>
+/// One organization category as known to this terminal (catalog-categories):
+/// derived from the replicated catalog rows, so it only lists categories that
+/// have at least one product locally.
+/// </summary>
+public sealed record CatalogCategory(Guid Id, string Name, string IconKey);
 
 /// <summary>
 /// A capped local catalog search result. <see cref="Truncated"/> is true when
@@ -148,7 +158,10 @@ public sealed class BranchSyncStore : IDisposable
                 identification_code TEXT NULL,
                 quantity_behavior TEXT NOT NULL,
                 unit_id TEXT NOT NULL,
-                updated_at_utc TEXT NOT NULL
+                updated_at_utc TEXT NOT NULL,
+                category_id TEXT NULL,
+                category_name TEXT NULL,
+                category_icon_key TEXT NULL
             );
             CREATE UNIQUE INDEX IF NOT EXISTS catalog_replica_code_uk
                 ON catalog_replica (organization_id, identification_code)
@@ -229,6 +242,40 @@ public sealed class BranchSyncStore : IDisposable
 
         EnsureSaleKindColumnExists();
         EnsureSaleCustomerColumnExists();
+        EnsureCatalogCategoryColumnsExist();
+    }
+
+    /// <summary>
+    /// A `branch.db` created before categories existed has a `catalog_replica`
+    /// without the category columns. Adds each nullable column only when
+    /// missing (SQLite has no `ADD COLUMN IF NOT EXISTS`), so reopening is
+    /// idempotent; existing rows read as uncategorized until the next sync
+    /// re-sends them with their category.
+    /// </summary>
+    private void EnsureCatalogCategoryColumnsExist()
+    {
+        var existing = new HashSet<string>(StringComparer.Ordinal);
+        using (var check = _connection.CreateCommand())
+        {
+            check.CommandText = "PRAGMA table_info(catalog_replica);";
+            using var reader = check.ExecuteReader();
+            while (reader.Read())
+            {
+                existing.Add(reader.GetString(1));
+            }
+        }
+
+        foreach (var column in new[] { "category_id", "category_name", "category_icon_key" })
+        {
+            if (existing.Contains(column))
+            {
+                continue;
+            }
+
+            using var alter = _connection.CreateCommand();
+            alter.CommandText = $"ALTER TABLE catalog_replica ADD COLUMN {column} TEXT NULL;";
+            alter.ExecuteNonQuery();
+        }
     }
 
     /// <summary>
@@ -446,7 +493,8 @@ public sealed class BranchSyncStore : IDisposable
         using var command = _connection.CreateCommand();
         command.CommandText = """
             SELECT c.presentation_id, c.organization_id, c.product_id, c.product_name, c.presentation_name,
-                   c.identification_code, c.quantity_behavior, c.unit_id, p.unit_price, p.effective_from, c.updated_at_utc
+                   c.identification_code, c.quantity_behavior, c.unit_id, p.unit_price, p.effective_from, c.updated_at_utc,
+                   c.category_id, c.category_name, c.category_icon_key
             FROM catalog_replica c
             LEFT JOIN price_replica p ON p.presentation_id = c.presentation_id
             WHERE c.organization_id = $organizationId AND c.identification_code = $code;
@@ -858,7 +906,8 @@ public sealed class BranchSyncStore : IDisposable
     /// <paramref name="limit"/>; <see cref="CatalogSearchResult.Truncated"/>
     /// reports that more rows matched.
     /// </summary>
-    public CatalogSearchResult SearchCatalog(Guid organizationId, string? query, int limit = DefaultCatalogSearchLimit)
+    public CatalogSearchResult SearchCatalog(
+        Guid organizationId, string? query, int limit = DefaultCatalogSearchLimit, Guid? categoryId = null)
     {
         var tokens = (query ?? string.Empty)
             .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
@@ -866,6 +915,10 @@ public sealed class BranchSyncStore : IDisposable
             .ToList();
 
         var where = new System.Text.StringBuilder("c.organization_id = $organizationId");
+        if (categoryId is not null)
+        {
+            where.Append(" AND c.category_id = $categoryId");
+        }
         for (var i = 0; i < tokens.Count; i++)
         {
             where.Append($"""
@@ -877,7 +930,8 @@ public sealed class BranchSyncStore : IDisposable
         using var command = _connection.CreateCommand();
         command.CommandText = $"""
             SELECT c.presentation_id, c.organization_id, c.product_id, c.product_name, c.presentation_name,
-                   c.identification_code, c.quantity_behavior, c.unit_id, p.unit_price, p.effective_from, c.updated_at_utc
+                   c.identification_code, c.quantity_behavior, c.unit_id, p.unit_price, p.effective_from, c.updated_at_utc,
+                   c.category_id, c.category_name, c.category_icon_key
             FROM catalog_replica c
             LEFT JOIN price_replica p ON p.presentation_id = c.presentation_id
             WHERE {where}
@@ -885,6 +939,10 @@ public sealed class BranchSyncStore : IDisposable
             LIMIT $limit;
             """;
         command.Parameters.AddWithValue("$organizationId", organizationId.ToString());
+        if (categoryId is not null)
+        {
+            command.Parameters.AddWithValue("$categoryId", categoryId.Value.ToString());
+        }
         for (var i = 0; i < tokens.Count; i++)
         {
             command.Parameters.AddWithValue($"$t{i}", tokens[i]);
@@ -901,6 +959,33 @@ public sealed class BranchSyncStore : IDisposable
         return items.Count > limit
             ? new CatalogSearchResult(items.Take(limit).ToList(), Truncated: true)
             : new CatalogSearchResult(items, Truncated: false);
+    }
+
+    /// <summary>
+    /// The distinct categories present in the local catalog for the
+    /// organization, ordered by name — what the POS category rail lists after
+    /// "Todos". Products without a category (an older row not re-synced yet)
+    /// contribute nothing here and remain reachable under "Todos".
+    /// </summary>
+    public IReadOnlyList<CatalogCategory> ListCatalogCategories(Guid organizationId)
+    {
+        using var command = _connection.CreateCommand();
+        command.CommandText = """
+            SELECT category_id, MAX(category_name), MAX(coalesce(category_icon_key, 'generic'))
+            FROM catalog_replica
+            WHERE organization_id = $organizationId AND category_id IS NOT NULL AND category_name IS NOT NULL
+            GROUP BY category_id
+            ORDER BY MAX(category_name) COLLATE NOCASE, category_id;
+            """;
+        command.Parameters.AddWithValue("$organizationId", organizationId.ToString());
+
+        var categories = new List<CatalogCategory>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            categories.Add(new CatalogCategory(Guid.Parse(reader.GetString(0)), reader.GetString(1), reader.GetString(2)));
+        }
+        return categories;
     }
 
     /// <summary>Lower-cases and strips diacritics so "Café" and "CAFE" compare equal.</summary>
@@ -928,7 +1013,8 @@ public sealed class BranchSyncStore : IDisposable
         using var command = _connection.CreateCommand();
         command.CommandText = """
             SELECT c.presentation_id, c.organization_id, c.product_id, c.product_name, c.presentation_name,
-                   c.identification_code, c.quantity_behavior, c.unit_id, p.unit_price, p.effective_from, c.updated_at_utc
+                   c.identification_code, c.quantity_behavior, c.unit_id, p.unit_price, p.effective_from, c.updated_at_utc,
+                   c.category_id, c.category_name, c.category_icon_key
             FROM catalog_replica c
             LEFT JOIN price_replica p ON p.presentation_id = c.presentation_id;
             """;
@@ -959,9 +1045,11 @@ public sealed class BranchSyncStore : IDisposable
         command.CommandText = """
             INSERT INTO catalog_replica
                 (presentation_id, organization_id, product_id, product_name, presentation_name,
-                 identification_code, quantity_behavior, unit_id, updated_at_utc)
+                 identification_code, quantity_behavior, unit_id, updated_at_utc,
+                 category_id, category_name, category_icon_key)
             VALUES ($presentationId, $organizationId, $productId, $productName, $presentationName,
-                    $identificationCode, $quantityBehavior, $unitId, $updatedAt)
+                    $identificationCode, $quantityBehavior, $unitId, $updatedAt,
+                    $categoryId, $categoryName, $categoryIconKey)
             ON CONFLICT(presentation_id) DO UPDATE SET
                 organization_id     = excluded.organization_id,
                 product_id          = excluded.product_id,
@@ -970,8 +1058,14 @@ public sealed class BranchSyncStore : IDisposable
                 identification_code = excluded.identification_code,
                 quantity_behavior   = excluded.quantity_behavior,
                 unit_id             = excluded.unit_id,
-                updated_at_utc      = excluded.updated_at_utc;
+                updated_at_utc      = excluded.updated_at_utc,
+                category_id         = excluded.category_id,
+                category_name       = excluded.category_name,
+                category_icon_key   = excluded.category_icon_key;
             """;
+        command.Parameters.AddWithValue("$categoryId", (object?)item.CategoryId?.ToString() ?? DBNull.Value);
+        command.Parameters.AddWithValue("$categoryName", (object?)item.CategoryName ?? DBNull.Value);
+        command.Parameters.AddWithValue("$categoryIconKey", (object?)item.CategoryIconKey ?? DBNull.Value);
         command.Parameters.AddWithValue("$presentationId", item.PresentationId.ToString());
         command.Parameters.AddWithValue("$organizationId", item.OrganizationId.ToString());
         command.Parameters.AddWithValue("$productId", item.ProductId.ToString());
@@ -1045,7 +1139,10 @@ public sealed class BranchSyncStore : IDisposable
         UnitId: Guid.Parse(reader.GetString(7)),
         UnitPrice: reader.IsDBNull(8) ? null : decimal.Parse(reader.GetString(8), System.Globalization.CultureInfo.InvariantCulture),
         EffectiveFrom: reader.IsDBNull(9) ? null : DateOnly.Parse(reader.GetString(9)),
-        UpdatedAtUtc: DateTimeOffset.Parse(reader.GetString(10)));
+        UpdatedAtUtc: DateTimeOffset.Parse(reader.GetString(10)),
+        CategoryId: reader.IsDBNull(11) ? null : Guid.Parse(reader.GetString(11)),
+        CategoryName: reader.IsDBNull(12) ? null : reader.GetString(12),
+        CategoryIconKey: reader.IsDBNull(13) ? null : reader.GetString(13));
 
     private void UpsertCustomerRow(CustomerReplica customer, SqliteTransaction transaction)
     {

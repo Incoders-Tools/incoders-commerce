@@ -13,7 +13,7 @@ public static class CategoryFixture
 {
     public static Guid Create(CloudTenantScope scope) => Create(scope.OrganizationId);
 
-    public static Guid Create(Guid organizationId, string iconKey = "generic")
+    public static Guid Create(Guid organizationId, string iconKey = "generic", string? name = null)
     {
         var id = Guid.NewGuid();
         using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
@@ -22,7 +22,7 @@ public static class CategoryFixture
             "INSERT INTO categories (id, organization_id, name, icon_key) VALUES ($1, $2, $3, $4)", owner);
         cmd.Parameters.AddWithValue(id);
         cmd.Parameters.AddWithValue(organizationId);
-        cmd.Parameters.AddWithValue("Test category " + id.ToString("N"));
+        cmd.Parameters.AddWithValue(name ?? "Test category " + id.ToString("N"));
         cmd.Parameters.AddWithValue(iconKey);
         cmd.ExecuteNonQuery();
         return id;

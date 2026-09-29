@@ -406,9 +406,42 @@ public sealed class PostgresCatalogStore
     }
 
     /// <summary>
+    /// The device sync projection shared by both sync reads: a presentation,
+    /// its product, and (LEFT JOIN, so a product with no category still syncs)
+    /// the product's category (catalog-categories spec).
+    /// </summary>
+    private const string ChangeProjection =
+        """
+        SELECT p.id, pr.id, pr.name, p.name, p.identification_code, p.quantity_behavior, p.unit_id, p.updated_at_utc,
+               cat.id, cat.name, cat.icon_key
+        FROM presentations p
+        JOIN products pr ON pr.id = p.product_id
+        LEFT JOIN categories cat ON cat.id = pr.category_id
+        """;
+
+    private static CatalogChangeRow ReadChangeRow(NpgsqlDataReader reader) => new(
+        PresentationId: reader.GetGuid(0),
+        ProductId: reader.GetGuid(1),
+        ProductName: reader.GetString(2),
+        PresentationName: reader.GetString(3),
+        IdentificationCode: reader.IsDBNull(4) ? null : reader.GetString(4),
+        QuantityBehavior: Enum.Parse<QuantityBehavior>(reader.GetString(5)),
+        UnitId: reader.GetGuid(6),
+        UpdatedAtUtc: reader.GetFieldValue<DateTimeOffset>(7),
+        CategoryId: reader.IsDBNull(8) ? null : reader.GetGuid(8),
+        CategoryName: reader.IsDBNull(9) ? null : reader.GetString(9),
+        CategoryIconKey: reader.IsDBNull(10) ? null : reader.GetString(10));
+
+    /// <summary>
     /// Minimum viable pull projection for the future `GET
     /// /device/catalog/sync` (Work Unit 6): presentations (joined to their
-    /// product) with `updated_at_utc > since`, org-scoped.
+    /// product and category) whose presentation, product OR category changed
+    /// after `since`, org-scoped. Before catalog-categories the cursor followed
+    /// only `presentations.updated_at_utc`, so a product-only edit (name,
+    /// category) was never re-sent to devices. `products_org_updated` and
+    /// `categories_org_updated` (organization, updated_at_utc) already index the
+    /// other two timestamps; a catalog is small enough that the OR does not
+    /// need a dedicated index.
     /// </summary>
     public async Task<IReadOnlyList<CatalogChangeRow>> ListChangedSinceAsync(
         CloudTenantScope scope, DateTimeOffset since, CancellationToken ct)
@@ -420,27 +453,17 @@ public sealed class PostgresCatalogStore
 
         var results = new List<CatalogChangeRow>();
         await using (var cmd = new NpgsqlCommand(
-            """
-            SELECT p.id, pr.id, pr.name, p.name, p.identification_code, p.quantity_behavior, p.unit_id, p.updated_at_utc
-            FROM presentations p
-            JOIN products pr ON pr.id = p.product_id
-            WHERE p.updated_at_utc > $1
-            ORDER BY p.updated_at_utc
+            $"""
+            {ChangeProjection}
+            WHERE p.updated_at_utc > $1 OR pr.updated_at_utc > $1 OR cat.updated_at_utc > $1
+            ORDER BY GREATEST(p.updated_at_utc, pr.updated_at_utc, cat.updated_at_utc)
             """, connection, tx))
         {
             cmd.Parameters.AddWithValue(since);
             await using var reader = await cmd.ExecuteReaderAsync(ct);
             while (await reader.ReadAsync(ct))
             {
-                results.Add(new CatalogChangeRow(
-                    PresentationId: reader.GetGuid(0),
-                    ProductId: reader.GetGuid(1),
-                    ProductName: reader.GetString(2),
-                    PresentationName: reader.GetString(3),
-                    IdentificationCode: reader.IsDBNull(4) ? null : reader.GetString(4),
-                    QuantityBehavior: Enum.Parse<QuantityBehavior>(reader.GetString(5)),
-                    UnitId: reader.GetGuid(6),
-                    UpdatedAtUtc: reader.GetFieldValue<DateTimeOffset>(7)));
+                results.Add(ReadChangeRow(reader));
             }
         }
 
@@ -470,10 +493,8 @@ public sealed class PostgresCatalogStore
 
         var results = new List<CatalogChangeRow>();
         await using (var cmd = new NpgsqlCommand(
-            """
-            SELECT p.id, pr.id, pr.name, p.name, p.identification_code, p.quantity_behavior, p.unit_id, p.updated_at_utc
-            FROM presentations p
-            JOIN products pr ON pr.id = p.product_id
+            $"""
+            {ChangeProjection}
             WHERE p.id = ANY($1)
             """, connection, tx))
         {
@@ -481,15 +502,7 @@ public sealed class PostgresCatalogStore
             await using var reader = await cmd.ExecuteReaderAsync(ct);
             while (await reader.ReadAsync(ct))
             {
-                results.Add(new CatalogChangeRow(
-                    PresentationId: reader.GetGuid(0),
-                    ProductId: reader.GetGuid(1),
-                    ProductName: reader.GetString(2),
-                    PresentationName: reader.GetString(3),
-                    IdentificationCode: reader.IsDBNull(4) ? null : reader.GetString(4),
-                    QuantityBehavior: Enum.Parse<QuantityBehavior>(reader.GetString(5)),
-                    UnitId: reader.GetGuid(6),
-                    UpdatedAtUtc: reader.GetFieldValue<DateTimeOffset>(7)));
+                results.Add(ReadChangeRow(reader));
             }
         }
 

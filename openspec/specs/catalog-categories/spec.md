@@ -157,3 +157,27 @@ identification code when the categories cannot be loaded.
 - GIVEN a category is used by at least one product
 - WHEN an administrator confirms its deletion
 - THEN the screen states that products still use it and the category stays listed
+
+### Requirement: POS Category Rail
+
+The POS MUST store each replicated presentation's category id, name and icon
+key in its local catalog replica, migrating an existing local database
+without losing rows. The sale screen's category rail MUST list "Todos" first
+and then the distinct categories present in the local catalog, each with the
+glyph for its icon key (a generic glyph for an unknown key), and selecting a
+category MUST filter the product cards, combined with the name search. A
+category selection that no longer exists after a sync MUST fall back to
+"Todos".
+
+#### Scenario: Selecting a category filters the cards
+
+- GIVEN the local catalog holds products of two categories
+- WHEN the operator selects one category on the rail and types a name
+- THEN only that category's products whose name matches are listed
+
+#### Scenario: Existing local database is migrated
+
+- GIVEN a branch database created before categories were replicated
+- WHEN the POS opens it
+- THEN its catalog rows are kept, uncategorized, until the next sync
+  re-sends them with their category

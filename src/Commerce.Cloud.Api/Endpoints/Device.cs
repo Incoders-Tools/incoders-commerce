@@ -330,7 +330,8 @@ public static class DeviceEndpoints
                 items.Add(new CatalogReplicaRow(
                     catalogRow.PresentationId, catalogRow.ProductId, catalogRow.ProductName, catalogRow.PresentationName,
                     catalogRow.IdentificationCode, catalogRow.QuantityBehavior.ToString(), catalogRow.UnitId,
-                    priceEntry?.UnitPrice, priceEntry?.EffectiveFrom, catalogRow.UpdatedAtUtc));
+                    priceEntry?.UnitPrice, priceEntry?.EffectiveFrom, catalogRow.UpdatedAtUtc,
+                    catalogRow.CategoryId, catalogRow.CategoryName, catalogRow.CategoryIconKey));
             }
 
             // No deactivation/delete capability exists for presentations yet
@@ -401,7 +402,8 @@ public sealed record CustomerSyncResponse(
 public sealed record CatalogReplicaRow(
     Guid PresentationId, Guid ProductId, string ProductName, string PresentationName,
     string? IdentificationCode, string QuantityBehavior, Guid UnitId,
-    decimal? UnitPrice, DateOnly? EffectiveFrom, DateTimeOffset UpdatedAtUtc);
+    decimal? UnitPrice, DateOnly? EffectiveFrom, DateTimeOffset UpdatedAtUtc,
+    Guid? CategoryId = null, string? CategoryName = null, string? CategoryIconKey = null);
 
 public sealed record CatalogSyncResponse(
     IReadOnlyList<CatalogReplicaRow> Items,

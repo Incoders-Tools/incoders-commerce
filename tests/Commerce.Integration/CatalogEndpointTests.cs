@@ -107,6 +107,10 @@ public sealed class CatalogEndpointTests : IClassFixture<WebApplicationFactory<P
         var pricingBranchOwnershipSql = File.ReadAllText(Path.Combine(repoRoot.FullName, "deploy", "db", "migrations", "0017_pricing_branch_ownership.sql"));
         using (var cmd = new NpgsqlCommand(pricingBranchOwnershipSql, owner)) cmd.ExecuteNonQuery();
 
+        // catalog-categories: products reference organization-owned categories.
+        var categoriesSql = File.ReadAllText(Path.Combine(repoRoot.FullName, "deploy", "db", "migrations", "0018_catalog_categories.sql"));
+        using (var cmd = new NpgsqlCommand(categoriesSql, owner)) cmd.ExecuteNonQuery();
+
         using var resetCmd = new NpgsqlCommand(
             "TRUNCATE TABLE presentations, products, user_directory, users, branches, organizations CASCADE", owner);
         resetCmd.ExecuteNonQuery();
