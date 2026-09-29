@@ -82,9 +82,20 @@ structural tests; cart/search/category logic gets RED→GREEN tests.
       Route: delegated direct (same writer as T1).
 - [x] T3. Local name search (`BranchSyncStore` LIKE query) feeding the cards
       grid; scan keeps exact-code behavior. Route: delegated direct.
-- [ ] T4. Replicate category to the POS (sync DTO + `catalog_replica` column
-      + migration of the local schema) and drive the rail/filter.
-      Route: delegated direct.
+- [ ] T4. Categories, organization-scoped (owner decision 2026-09-29).
+      Split after verifying no categories table exists:
+  - [ ] T4a. Cloud: spec requirement, `categories` table (organization-owned,
+        name unique per org, icon key from a fixed set), RLS, backfill every
+        existing `products.category_id` into a "Sin categoría" row per org,
+        FK from products, admin CRUD endpoints, integration tests.
+  - [ ] T4b. Web: categories management screen (admins, Spanish i18n, icon
+        picker from the fixed set) and a category select in the product form.
+  - [ ] T4c. Sync + POS: category id/name/icon in the device catalog sync
+        and `catalog_replica` (idempotent local migration), re-send on product
+        or category edits (the cursor today follows only
+        `presentations.updated_at_utc`), `CategoryRail` driven by real data
+        filtering the cards.
+      Route: delegated direct (one writer, sequential work units).
 - [x] T5. Pass the selected customer on scanned sales, with a regression
       test. Route: delegated direct.
 - [x] T6. Theme the default WPF ScrollBar and ComboBox (and the popup) with
@@ -196,5 +207,5 @@ in a throwaway worktree at task close.
   authorization.
 
 ## Next step
-Owner decision needed: categories for T4 (model, management, backfill). Then Phase 2 spec work
+T4a..T4c with one writer. Then Phase 2 spec work
 (discounts in `pos-scan-sale`, tender).
