@@ -50,7 +50,7 @@ export function adminResetPassword(userId: string, request: AdminResetPasswordRe
     body: JSON.stringify(request),
   })
 }
-import type { BranchSummary, CreateBranchRequest, CreateBranchResponse, CreateOrganizationRequest, CreateOrganizationResponse, CreateUserRequest, CreateUserResponse, OrganizationBranding, OrganizationSummary, UpdateOrganizationBrandingRequest, UserSummary } from './types'
+import type { BranchDiscountPinStatus, BranchSummary, CreateBranchRequest, CreateBranchResponse, CreateOrganizationRequest, CreateOrganizationResponse, CreateUserRequest, CreateUserResponse, OrganizationBranding, OrganizationSummary, UpdateOrganizationBrandingRequest, UserSummary } from './types'
 export const listUsers = () => apiFetch<UserSummary[]>('/account/users')
 export const createUser = (request: CreateUserRequest) => apiFetch<CreateUserResponse>('/account/users', { method: 'POST', body: JSON.stringify(request) })
 export const updateUserRoles = (userId: string, roleNames: string[]) => apiFetch<void>(`/account/users/${userId}/roles`, { method: 'PUT', body: JSON.stringify({ roleNames }) })
@@ -63,3 +63,6 @@ export const getOrganizationBranding = (organizationId: string) => apiFetch<Orga
 export const updateOrganizationBranding = (organizationId: string, request: UpdateOrganizationBrandingRequest) => apiFetch<void>(`/account/organizations/${organizationId}/branding`, { method: 'PUT', body: JSON.stringify(request) })
 // T6: any authenticated user's OWN organization's branding, for theming — never takes an id.
 export const getOwnOrganizationBranding = () => apiFetch<OrganizationBranding>('/account/organization/branding')
+// branch-discount-pin: status is readable, the PIN is write-only (PUT sets or rotates it).
+export const getBranchDiscountPin = (branchId: string) => apiFetch<BranchDiscountPinStatus>(`/account/branches/${branchId}/discount-pin`)
+export const setBranchDiscountPin = (branchId: string, pin: string) => apiFetch<BranchDiscountPinStatus>(`/account/branches/${branchId}/discount-pin`, { method: 'PUT', body: JSON.stringify({ pin }) })

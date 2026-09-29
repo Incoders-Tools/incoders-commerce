@@ -8,6 +8,7 @@ import { DataToolbar } from '@/components/data/DataToolbar'
 import { DataView, type DataViewColumn } from '@/components/data/DataView'
 import { PageHeader } from '@/components/data/PageHeader'
 import { useViewPreference } from '@/components/data/useViewPreference'
+import { DiscountPinPanel } from './DiscountPinPanel'
 
 /**
  * T4b: migrated onto the shared data-view layer (`components/data/*`),
@@ -33,6 +34,7 @@ export function BranchesScreen() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [view, setView] = useViewPreference('branches')
+  const [pinBranch, setPinBranch] = useState<BranchSummary | null>(null)
 
   const refresh = useCallback(async () => {
     try {
@@ -109,6 +111,8 @@ export function BranchesScreen() {
         </p>
       )}
 
+      {pinBranch && <DiscountPinPanel branch={pinBranch} onClose={() => setPinBranch(null)} />}
+
       <DataToolbar
         searchValue={search}
         onSearchChange={setSearch}
@@ -122,6 +126,16 @@ export function BranchesScreen() {
         items={visibleBranches}
         columns={columns}
         getRowKey={(branch) => branch.branchId}
+        renderActions={(branch) => (
+          <Button
+            type="button"
+            variant="outline"
+            aria-label={t('discountPin.openFor', { name: branch.branchName })}
+            onClick={() => setPinBranch(branch)}
+          >
+            {t('discountPin.open')}
+          </Button>
+        )}
         view={view}
         loading={loading}
         emptyMessage={branches.length === 0 ? t('empty.none') : t('empty.noMatch')}

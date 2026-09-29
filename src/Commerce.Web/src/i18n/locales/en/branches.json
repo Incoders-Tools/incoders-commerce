@@ -22,5 +22,23 @@
   "columns": {
     "branchName": "Branch name",
     "identifier": "Identifier"
+  },
+  "discountPin": {
+    "title": "Discount PIN",
+    "open": "Discount PIN",
+    "openFor": "Discount PIN for {{name}}",
+    "close": "Close",
+    "description": "Authorizes discounts at the {{name}} till. One shared PIN; it is stored hashed and can never be shown again.",
+    "loading": "Loading…",
+    "unset": "This branch has no discount PIN yet.",
+    "set": "PIN set. Last changed: {{date}}",
+    "newLabel": "New discount PIN",
+    "hint": "4 to 12 digits.",
+    "define": "Set PIN",
+    "change": "Change PIN",
+    "saving": "Saving…",
+    "invalid": "The PIN must be 4 to 12 digits.",
+    "loadError": "Unable to read the discount PIN.",
+    "saveError": "Unable to save the discount PIN."
   }
 }

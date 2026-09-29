@@ -197,4 +197,96 @@ describe('BranchesScreen', () => {
     expect(screen.getByRole('table')).toBeInTheDocument()
     await waitFor(() => expect(window.localStorage.getItem('view:branches')).toBeNull())
   })
+
+  // ---- branch-discount-pin: set / rotate the branch discount PIN ----
+
+  const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status })
+
+  const openPinPanel = async (user: ReturnType<typeof userEvent.setup>, branchName: string) => {
+    await user.click(await screen.findByRole('button', { name: `PIN de descuentos de ${branchName}` }))
+    return screen.findByRole('region', { name: 'PIN de descuentos' })
+  }
+
+  it('shows that no discount PIN is set for the chosen branch', async () => {
+    listOnce([central])
+    fetchMock.mockResolvedValueOnce(json({ isSet: false, version: null, changedAtUtc: null }))
+
+    const user = userEvent.setup()
+    render(<BranchesScreen />)
+    const panel = await openPinPanel(user, 'Central warehouse')
+
+    expect(await within(panel).findByText('Esta sucursal todavía no tiene un PIN de descuentos.')).toBeInTheDocument()
+    expect(fetchMock.mock.calls[1][0]).toBe('/account/branches/branch-1/discount-pin')
+    expect(within(panel).getByRole('button', { name: 'Definir PIN' })).toBeInTheDocument()
+  })
+
+  it('shows only that a PIN is set and when it last changed, never the PIN', async () => {
+    listOnce([central])
+    fetchMock.mockResolvedValueOnce(json({ isSet: true, version: 3, changedAtUtc: '2026-09-01T12:00:00Z' }))
+
+    const user = userEvent.setup()
+    render(<BranchesScreen />)
+    const panel = await openPinPanel(user, 'Central warehouse')
+
+    expect(await within(panel).findByText(/PIN configurado\. Último cambio:/)).toBeInTheDocument()
+    expect(within(panel).getByRole('button', { name: 'Cambiar PIN' })).toBeInTheDocument()
+    expect(within(panel).getByLabelText('Nuevo PIN de descuentos')).toHaveValue('')
+  })
+
+  it('sets the PIN with a PUT, clears the field and reports the new status', async () => {
+    listOnce([central])
+    fetchMock.mockResolvedValueOnce(json({ isSet: false, version: null, changedAtUtc: null }))
+    fetchMock.mockResolvedValueOnce(json({ isSet: true, version: 1, changedAtUtc: '2026-09-29T15:00:00Z' }))
+
+    const user = userEvent.setup()
+    render(<BranchesScreen />)
+    const panel = await openPinPanel(user, 'Central warehouse')
+    await within(panel).findByText('Esta sucursal todavía no tiene un PIN de descuentos.')
+
+    const field = within(panel).getByLabelText('Nuevo PIN de descuentos')
+    expect(field).toHaveAttribute('type', 'password')
+    await user.type(field, '482913')
+    await user.click(within(panel).getByRole('button', { name: 'Definir PIN' }))
+
+    expect(await within(panel).findByText(/PIN configurado\. Último cambio:/)).toBeInTheDocument()
+    const [url, init] = fetchMock.mock.calls[2]
+    expect(url).toBe('/account/branches/branch-1/discount-pin')
+    expect(init.method).toBe('PUT')
+    expect(JSON.parse(init.body as string)).toEqual({ pin: '482913' })
+    expect(within(panel).getByLabelText('Nuevo PIN de descuentos')).toHaveValue('')
+    expect(panel).not.toHaveTextContent('482913')
+  })
+
+  it('refuses a PIN that is not 4 to 12 digits without calling the server', async () => {
+    listOnce([central])
+    fetchMock.mockResolvedValueOnce(json({ isSet: false, version: null, changedAtUtc: null }))
+
+    const user = userEvent.setup()
+    render(<BranchesScreen />)
+    const panel = await openPinPanel(user, 'Central warehouse')
+    await within(panel).findByText('Esta sucursal todavía no tiene un PIN de descuentos.')
+
+    await user.type(within(panel).getByLabelText('Nuevo PIN de descuentos'), '12a')
+    await user.click(within(panel).getByRole('button', { name: 'Definir PIN' }))
+
+    expect(await within(panel).findByRole('alert')).toHaveTextContent('El PIN debe tener entre 4 y 12 dígitos.')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('surfaces a failed save as an alert and keeps the typed PIN out of the page text', async () => {
+    listOnce([central])
+    fetchMock.mockResolvedValueOnce(json({ isSet: false, version: null, changedAtUtc: null }))
+    fetchMock.mockResolvedValueOnce(json({}, 500))
+
+    const user = userEvent.setup()
+    render(<BranchesScreen />)
+    const panel = await openPinPanel(user, 'Central warehouse')
+    await within(panel).findByText('Esta sucursal todavía no tiene un PIN de descuentos.')
+
+    await user.type(within(panel).getByLabelText('Nuevo PIN de descuentos'), '1357')
+    await user.click(within(panel).getByRole('button', { name: 'Definir PIN' }))
+
+    expect(await within(panel).findByRole('alert')).toHaveTextContent('No se pudo guardar el PIN de descuentos.')
+    expect(panel).not.toHaveTextContent('1357')
+  })
 })
