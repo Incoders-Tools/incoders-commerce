@@ -47,6 +47,7 @@ public partial class MainWindow : Window
     private readonly Guid _installationId;
     private readonly SaleCart _cart;
     private readonly ObservableCollection<ProductCardViewModel> _catalogCards = new();
+    private readonly System.Windows.Threading.DispatcherTimer _searchDebounce;
     private readonly SyncRunner _syncRunner;
     private readonly SyncScheduler _syncScheduler;
     private DevicePairing _pairing;
@@ -99,6 +100,13 @@ public partial class MainWindow : Window
         _cart = new SaleCart(_pricingResolutionService);
         SaleTable.ItemsSource = _cart.Lines;
         CatalogCardsItemsControl.ItemsSource = _catalogCards;
+        _searchDebounce = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
+        _searchDebounce.Tick += (_, _) =>
+        {
+            _searchDebounce.Stop();
+            RefreshCatalogCards();
+            RefreshScannedTotal();
+        };
 
         // Task 4.6: ONE SyncRunner shared by every trigger (startup, the
         // scheduler's 60s sweep, the post-sale nudge, and the manual
@@ -292,16 +300,38 @@ public partial class MainWindow : Window
         ScanCodeTextBox.Focus();
     }
 
-    /// <summary>Rebuilds the product cards from the local catalog replica.</summary>
+    /// <summary>
+    /// Debounces name search: the cards grid follows the search box as the
+    /// operator types, without a query per keystroke. Enter still resolves an
+    /// exact identification code through <see cref="ScanCodeTextBox_KeyDown"/>.
+    /// </summary>
+    private void ScanCodeTextBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
+    {
+        if (_searchDebounce is null)
+        {
+            return;
+        }
+
+        _searchDebounce.Stop();
+        _searchDebounce.Start();
+    }
+
+    /// <summary>Rebuilds the product cards from the local catalog replica (search-filtered, capped).</summary>
     private void RefreshCatalogCards()
     {
+        var result = _store.SearchCatalog(_pairing.OrganizationId, ScanCodeTextBox.Text);
         _catalogCards.Clear();
-        foreach (var item in _store.ListCatalogPriceReplica().OrderBy(i => i.ProductName).ThenBy(i => i.PresentationName))
+        foreach (var item in result.Items)
         {
             _catalogCards.Add(new ProductCardViewModel(item));
         }
 
+        var hasQuery = !string.IsNullOrWhiteSpace(ScanCodeTextBox.Text);
+        CatalogEmptyText.Text = hasQuery
+            ? "Ningún producto coincide con la búsqueda."
+            : "No hay productos en el catálogo de esta terminal. Sincronice para descargarlos.";
         CatalogEmptyText.Visibility = _catalogCards.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        CatalogTruncatedText.Visibility = result.Truncated ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private async void ProductCard_IncrementRequested(object sender, RoutedEventArgs e)

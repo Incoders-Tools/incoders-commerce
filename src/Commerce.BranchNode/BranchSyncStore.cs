@@ -65,6 +65,12 @@ public sealed record CatalogPriceReplicaItem(
     DateTimeOffset UpdatedAtUtc);
 
 /// <summary>
+/// A capped local catalog search result. <see cref="Truncated"/> is true when
+/// more rows matched than <see cref="Items"/> holds.
+/// </summary>
+public sealed record CatalogSearchResult(IReadOnlyList<CatalogPriceReplicaItem> Items, bool Truncated);
+
+/// <summary>
 /// SQLite-owned branch state (ADR-002: only the branch node opens the file).
 /// Serialized writer, WAL, `synchronous=FULL` per design.md. Sale effect and
 /// outbox row are committed atomically, or neither is committed.
@@ -78,6 +84,10 @@ public sealed class BranchSyncStore : IDisposable
     {
         _connection = new SqliteConnection(connectionString);
         _connection.Open();
+
+        // Case/accent-folding helper for the local catalog search (SQLite's own
+        // LIKE/lower() only fold ASCII).
+        _connection.CreateFunction("fold_text", (string? value) => FoldText(value), isDeterministic: true);
 
         using (var pragma = _connection.CreateCommand())
         {
@@ -808,6 +818,82 @@ public sealed class BranchSyncStore : IDisposable
             UpsertCursor(CatalogPricesChannel, serverTimeUtc, transaction);
             // Deliberately abandoned: no Commit().
         }
+    }
+
+    public const int DefaultCatalogSearchLimit = 120;
+
+    /// <summary>
+    /// Local name search over the replica (desktop POS redesign T3). Every
+    /// whitespace-separated token of <paramref name="query"/> must match
+    /// (accent- and case-insensitively) inside the product + presentation name,
+    /// or be a prefix of the identification code. An empty query lists
+    /// everything. Organization scoped, ordered by name and capped at
+    /// <paramref name="limit"/>; <see cref="CatalogSearchResult.Truncated"/>
+    /// reports that more rows matched.
+    /// </summary>
+    public CatalogSearchResult SearchCatalog(Guid organizationId, string? query, int limit = DefaultCatalogSearchLimit)
+    {
+        var tokens = (query ?? string.Empty)
+            .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
+            .Select(FoldText)
+            .ToList();
+
+        var where = new System.Text.StringBuilder("c.organization_id = $organizationId");
+        for (var i = 0; i < tokens.Count; i++)
+        {
+            where.Append($"""
+                 AND (instr(fold_text(c.product_name || ' ' || c.presentation_name), $t{i}) > 0
+                      OR instr(fold_text(coalesce(c.identification_code, '')), $t{i}) = 1)
+                """);
+        }
+
+        using var command = _connection.CreateCommand();
+        command.CommandText = $"""
+            SELECT c.presentation_id, c.organization_id, c.product_id, c.product_name, c.presentation_name,
+                   c.identification_code, c.quantity_behavior, c.unit_id, p.unit_price, p.effective_from, c.updated_at_utc
+            FROM catalog_replica c
+            LEFT JOIN price_replica p ON p.presentation_id = c.presentation_id
+            WHERE {where}
+            ORDER BY c.product_name COLLATE NOCASE, c.presentation_name COLLATE NOCASE
+            LIMIT $limit;
+            """;
+        command.Parameters.AddWithValue("$organizationId", organizationId.ToString());
+        for (var i = 0; i < tokens.Count; i++)
+        {
+            command.Parameters.AddWithValue($"$t{i}", tokens[i]);
+        }
+        command.Parameters.AddWithValue("$limit", limit + 1);
+
+        var items = new List<CatalogPriceReplicaItem>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            items.Add(ReadCatalogPriceReplicaItem(reader));
+        }
+
+        return items.Count > limit
+            ? new CatalogSearchResult(items.Take(limit).ToList(), Truncated: true)
+            : new CatalogSearchResult(items, Truncated: false);
+    }
+
+    /// <summary>Lower-cases and strips diacritics so "Café" and "CAFE" compare equal.</summary>
+    internal static string FoldText(string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return string.Empty;
+        }
+
+        var decomposed = value.Normalize(System.Text.NormalizationForm.FormD);
+        var builder = new System.Text.StringBuilder(decomposed.Length);
+        foreach (var ch in decomposed)
+        {
+            if (System.Globalization.CharUnicodeInfo.GetUnicodeCategory(ch) != System.Globalization.UnicodeCategory.NonSpacingMark)
+            {
+                builder.Append(char.ToLowerInvariant(ch));
+            }
+        }
+        return builder.ToString();
     }
 
     public IReadOnlyList<CatalogPriceReplicaItem> ListCatalogPriceReplica()
