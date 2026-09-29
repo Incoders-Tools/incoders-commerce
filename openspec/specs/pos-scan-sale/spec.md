@@ -70,3 +70,24 @@ two MUST NOT be silently conflated in the sale record.
 - WHEN the sale is committed and later reviewed
 - THEN each line's origin (catalog-resolved vs. manual-total) remains
   identifiable
+
+### Requirement: Optional Customer Recorded on Scan-Composed Sales
+
+A scan-composed sale MUST record the customer the cashier selected at the
+POS, in the local sale record and in the sale payload sent to the cloud. When
+no customer is selected (walk-in) the customer MUST be absent, never a
+substituted placeholder. Recording the customer MUST NOT depend on the device
+credential being valid or on connectivity.
+
+#### Scenario: Selected customer is recorded on the sale
+
+- GIVEN a cashier has selected a synced customer and scanned two products
+- WHEN the scan-composed sale is committed offline
+- THEN the local sale record and the queued sale payload both carry that
+  customer's identifier
+
+#### Scenario: Walk-in sale carries no customer
+
+- GIVEN the customer selector is left on walk-in
+- WHEN the scan-composed sale is committed
+- THEN the local sale record and the queued sale payload carry no customer

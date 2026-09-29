@@ -400,6 +400,7 @@ public partial class MainWindow : Window
                 vm.Quantity, vm.UnitPrice, vm.LineTotal))
             .ToList();
         var total = lines.Sum(l => l.LineTotal);
+        var customerId = (CustomerPickerComboBox.SelectedItem as SaleCustomerPickerItem)?.CustomerId;
 
         var result = _branchNodeService.CompleteScannedSale(
             organizationId: _pairing.OrganizationId,
@@ -409,7 +410,8 @@ public partial class MainWindow : Window
             lines: lines,
             totalAmount: total,
             operationId: Guid.NewGuid(),
-            correlationId: Guid.NewGuid());
+            correlationId: Guid.NewGuid(),
+            customerId: customerId);
 
         SaleResultText.Text = result.WasNewlyCommitted
             ? $"Venta escaneada {result.Effect.SaleId} registrada por {result.Effect.TotalAmount:C} en branch.db."

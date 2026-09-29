@@ -14,4 +14,5 @@ public sealed record SalePayloadV1(
     decimal TotalAmount,
     string SaleKind,
     DateTimeOffset OccurredAtUtc,
-    IReadOnlyList<SaleLine> Lines);
+    IReadOnlyList<SaleLine> Lines,
+    Guid? CustomerId = null);

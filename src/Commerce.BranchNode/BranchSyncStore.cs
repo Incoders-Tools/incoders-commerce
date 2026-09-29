@@ -102,7 +102,8 @@ public sealed class BranchSyncStore : IDisposable
                 branch_id TEXT NOT NULL,
                 total_amount TEXT NOT NULL,
                 occurred_at_utc TEXT NOT NULL,
-                sale_kind TEXT NOT NULL DEFAULT 'Manual'
+                sale_kind TEXT NOT NULL DEFAULT 'Manual',
+                customer_id TEXT NULL
             );
             CREATE TABLE IF NOT EXISTS outbox (
                 operation_id TEXT PRIMARY KEY,
@@ -227,6 +228,31 @@ public sealed class BranchSyncStore : IDisposable
         createSyncOutbox.ExecuteNonQuery();
 
         EnsureSaleKindColumnExists();
+        EnsureSaleCustomerColumnExists();
+    }
+
+    /// <summary>
+    /// A `branch.db` created before the customer was recorded on sales has no
+    /// `sale_effects.customer_id`. Adds it as a nullable column (existing rows
+    /// stay walk-in/unknown) only when missing, so reopening is idempotent.
+    /// </summary>
+    private void EnsureSaleCustomerColumnExists()
+    {
+        using var check = _connection.CreateCommand();
+        check.CommandText = "PRAGMA table_info(sale_effects);";
+        using var reader = check.ExecuteReader();
+        while (reader.Read())
+        {
+            if (string.Equals(reader.GetString(1), "customer_id", StringComparison.Ordinal))
+            {
+                return;
+            }
+        }
+        reader.Close();
+
+        using var alter = _connection.CreateCommand();
+        alter.CommandText = "ALTER TABLE sale_effects ADD COLUMN customer_id TEXT NULL;";
+        alter.ExecuteNonQuery();
     }
 
     /// <summary>
@@ -317,14 +343,15 @@ public sealed class BranchSyncStore : IDisposable
         using var insertSale = _connection.CreateCommand();
         insertSale.Transaction = transaction;
         insertSale.CommandText = """
-            INSERT INTO sale_effects (sale_id, branch_id, total_amount, occurred_at_utc, sale_kind)
-            VALUES ($saleId, $branchId, $totalAmount, $occurredAt, $saleKind);
+            INSERT INTO sale_effects (sale_id, branch_id, total_amount, occurred_at_utc, sale_kind, customer_id)
+            VALUES ($saleId, $branchId, $totalAmount, $occurredAt, $saleKind, $customerId);
             """;
         insertSale.Parameters.AddWithValue("$saleId", effect.SaleId.ToString());
         insertSale.Parameters.AddWithValue("$branchId", effect.BranchId.ToString());
         insertSale.Parameters.AddWithValue("$totalAmount", effect.TotalAmount.ToString());
         insertSale.Parameters.AddWithValue("$occurredAt", effect.OccurredAtUtc.ToString("O"));
         insertSale.Parameters.AddWithValue("$saleKind", effect.SaleKind);
+        insertSale.Parameters.AddWithValue("$customerId", effect.CustomerId is { } customerId ? customerId.ToString() : DBNull.Value);
         insertSale.ExecuteNonQuery();
     }
 
@@ -1109,7 +1136,7 @@ public sealed class BranchSyncStore : IDisposable
         using var saleCommand = _connection.CreateCommand();
         saleCommand.Transaction = transaction;
         saleCommand.CommandText = """
-            SELECT total_amount, occurred_at_utc, sale_kind FROM sale_effects WHERE sale_id = $saleId;
+            SELECT total_amount, occurred_at_utc, sale_kind, customer_id FROM sale_effects WHERE sale_id = $saleId;
             """;
         saleCommand.Parameters.AddWithValue("$saleId", saleId.ToString());
         using var reader = saleCommand.ExecuteReader();
@@ -1123,7 +1150,8 @@ public sealed class BranchSyncStore : IDisposable
             branchId,
             decimal.Parse(reader.GetString(0), System.Globalization.CultureInfo.InvariantCulture),
             DateTimeOffset.Parse(reader.GetString(1)),
-            reader.GetString(2));
+            reader.GetString(2),
+            reader.IsDBNull(3) ? null : Guid.Parse(reader.GetString(3)));
     }
 
     /// <summary>

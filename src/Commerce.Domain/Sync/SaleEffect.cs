@@ -15,7 +15,8 @@ public sealed record SaleEffect(
     Guid BranchId,
     decimal TotalAmount,
     DateTimeOffset OccurredAtUtc,
-    string SaleKind = "Manual");
+    string SaleKind = "Manual",
+    Guid? CustomerId = null);
 
 /// <summary>
 /// One line of a scan-composed sale (commerce-pricing-engine design.md

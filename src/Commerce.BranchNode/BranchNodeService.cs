@@ -70,6 +70,9 @@ public sealed class BranchNodeService
     /// mode toggle"): same envelope/effect shape, `SaleKind = "Scanned"`, and
     /// its lines committed atomically alongside the sale effect and outbox
     /// row via <see cref="BranchSyncStore.CommitScannedSaleAtomically"/>.
+    /// <paramref name="customerId"/> is the optional customer picked at the
+    /// POS (null = walk-in); it is stored on the sale effect and carried in the
+    /// outbox payload.
     /// </summary>
     public BranchOutboxCommitResult CompleteScannedSale(
         Guid organizationId,
@@ -79,10 +82,11 @@ public sealed class BranchNodeService
         IReadOnlyList<Commerce.Domain.Sync.SaleLine> lines,
         decimal totalAmount,
         Guid operationId,
-        Guid correlationId)
+        Guid correlationId,
+        Guid? customerId = null)
     {
         var occurredAtUtc = _clock();
-        var payload = new SalePayloadV1(saleId, totalAmount, "Scanned", occurredAtUtc, lines);
+        var payload = new SalePayloadV1(saleId, totalAmount, "Scanned", occurredAtUtc, lines, customerId);
         var envelope = new SyncEnvelope(
             OperationId: operationId,
             ContractVersion: 1,
@@ -95,7 +99,7 @@ public sealed class BranchNodeService
             OccurredAtUtc: occurredAtUtc,
             PayloadKind: "sale",
             Payload: SyncPayloadCodec.Serialize(payload));
-        var effect = new SaleEffect(saleId, branchId, totalAmount, occurredAtUtc);
+        var effect = new SaleEffect(saleId, branchId, totalAmount, occurredAtUtc, CustomerId: customerId);
 
         return _store.CommitScannedSaleAtomically(envelope, effect, lines);
     }
