@@ -168,5 +168,29 @@ in a throwaway worktree at task close.
     skipped (Postgres and pgbouncer up). Re-rendered 1120x700 in Dark, Light,
     Vaca Verde with sample categories and an open customer dropdown.
 
+- 2026-09-29 (parent): RDD assess `5cf1b8b..42bc1a9` medium, 721 lines,
+  review due (`slice_budget_reached`); owner DECLINED the review for this
+  candidate. T4 blocker verified by the parent: no categories table exists in
+  any migration; `products.category_id` is a bare uuid.
+  Follow-ups found: the manual sale path does not record the customer either;
+  the customer picker shows "Walk-in (no customer)" in English; product-only
+  edits (name, category) are not re-sent by the catalog sync cursor
+  (`presentations.updated_at_utc`).
+
+## Owner decisions (2026-09-29)
+- Tax: the POS shows only the final-consumer total (tax included), no IVA
+  line. Price composition is shown per product in the web products and price
+  list forms; the IVA breakdown required by Argentine rules belongs on the
+  fiscal ticket, not on the POS screen.
+- Discounts (new Phase 2 scope): the cashier can apply a percentage discount
+  to the whole sale or to specific lines. Every discount requires an
+  authorization prompt (PIN now, card reading later) from an administrator,
+  who may choose to share the ability with cashiers. Pending: whether it is a
+  shared branch PIN (A) or the authorizer's personal operator PIN plus an
+  "authorize discounts" permission (B, recommended: offline-ready through the
+  existing cached operator PIN, per-person audit, no shared secret).
+
 ## Next step
-Owner decision needed for T4 (categories: model, management, backfill). Phase 2 also awaits owner decisions (first: is IVA included in list prices or added on top).
+Owner decisions needed: discount authorization model (A or B), then
+categories for T4 (model, management, backfill). Then Phase 2 spec work
+(discounts in `pos-scan-sale`, tender).
