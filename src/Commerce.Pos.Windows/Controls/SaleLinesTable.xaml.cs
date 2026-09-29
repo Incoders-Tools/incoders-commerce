@@ -34,6 +34,9 @@ public partial class SaleLinesTable : UserControl
 
     public event EventHandler<Guid>? LineRemoved;
 
+    /// <summary>The operator asked to add, change or remove the discount of a line; the host authorizes and applies it.</summary>
+    public event EventHandler<Guid>? LineDiscountRequested;
+
     public IEnumerable? ItemsSource
     {
         get => RowsItemsControl.ItemsSource;
@@ -70,6 +73,14 @@ public partial class SaleLinesTable : UserControl
         if (((FrameworkElement)sender).DataContext is ScannedSaleLineViewModel line)
         {
             LineRemoved?.Invoke(this, line.PresentationId);
+        }
+    }
+
+    private void DiscountButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (((FrameworkElement)sender).DataContext is ScannedSaleLineViewModel line)
+        {
+            LineDiscountRequested?.Invoke(this, line.PresentationId);
         }
     }
 

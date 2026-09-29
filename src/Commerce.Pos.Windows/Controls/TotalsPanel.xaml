@@ -7,6 +7,7 @@
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
             <!-- No tax line yet: the IVA breakdown is Phase 2. -->
@@ -19,7 +20,22 @@
                 <TextBlock x:Name="SubtotalText" Grid.Column="1" Text="$0.00" Style="{StaticResource MutedTextBlock}" />
             </Grid>
 
-            <Grid Grid.Row="1" Margin="0,2,0,10">
+            <!-- Discounts: the amount taken off (lines plus the whole sale) and the action for the whole-sale discount. -->
+            <Grid x:Name="DiscountRow" Grid.Row="1" Margin="0,4,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="Descuento" Style="{StaticResource MutedTextBlock}" VerticalAlignment="Center" />
+                <TextBlock x:Name="DiscountText" Grid.Column="1" Text="$0.00" Style="{StaticResource MutedTextBlock}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                <Button x:Name="SaleDiscountButton" Grid.Column="2" Style="{StaticResource IconButton}" Width="28" Height="28"
+                        Click="SaleDiscountButton_Click" ToolTip="Descuento de la venta" AutomationProperties.Name="Descuento de la venta">
+                    <TextBlock Text="%" FontSize="15" FontWeight="Bold" Foreground="{DynamicResource AccentBrush}" />
+                </Button>
+            </Grid>
+
+            <Grid Grid.Row="2" Margin="0,2,0,10">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
@@ -32,7 +48,7 @@
             </Grid>
 
             <!-- Payment methods arrive in Phase 2; disabled with an explanatory tooltip until then. -->
-            <UniformGrid Grid.Row="2" Rows="1">
+            <UniformGrid Grid.Row="3" Rows="1">
                 <UniformGrid.Resources>
                     <Style TargetType="Button" BasedOn="{StaticResource TenderButton}">
                         <Setter Property="Margin" Value="0,0,6,0" />

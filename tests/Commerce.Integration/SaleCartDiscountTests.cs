@@ -197,6 +197,40 @@ public sealed class SaleCartDiscountTests
     }
 
     [Fact]
+    public async Task BuildSaleLines_CarriesEachLineDiscount_AndTheLinesReconcileWithTheTotal()
+    {
+        var cart = await CartWithAsync((Flour, 1000m, 1), (Wine, 500m, 2));
+        cart.SetLineDiscount(Flour, 10m, Auth);
+        cart.SetSaleDiscount(5m, Auth);
+        var saleId = Guid.NewGuid();
+
+        var lines = cart.BuildSaleLines(saleId);
+
+        Assert.Equal([1, 2], lines.Select(l => l.LineNumber));
+        Assert.All(lines, l => Assert.Equal(saleId, l.SaleId));
+        Assert.Equal(1000m, lines[0].LineTotal);
+        Assert.Equal(10m, lines[0].LineDiscountPercent);
+        Assert.Equal(100m, lines[0].LineDiscountAmount);
+        Assert.Null(lines[1].LineDiscountPercent);
+        Assert.Null(lines[1].LineDiscountAmount);
+        // gross - line discounts - sale discount == the amount charged
+        Assert.Equal(
+            lines.Sum(l => l.LineTotal) - lines.Sum(l => l.LineDiscountAmount ?? 0m) - cart.SaleDiscount!.Amount,
+            cart.Total);
+        Assert.Equal(new SaleDiscount(5m, 95m), cart.SaleDiscount);
+    }
+
+    [Fact]
+    public async Task SaleWithoutDiscounts_HasNoSaleDiscountAndNoAuthorization()
+    {
+        var cart = await CartWithAsync((Flour, 100m, 1));
+
+        Assert.Null(cart.SaleDiscount);
+        Assert.Null(cart.Authorization);
+        Assert.Null(cart.BuildSaleLines(Guid.NewGuid())[0].LineDiscountAmount);
+    }
+
+    [Fact]
     public async Task SaleDiscount_OnAnEmptySale_IsRefused()
     {
         var cart = new SaleCart(new PricingResolutionService(new FakePrices()));

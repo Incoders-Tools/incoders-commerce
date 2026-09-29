@@ -52,6 +52,64 @@ public sealed class PosComponentMarkupTests
     }
 
     [Fact]
+    public void DiscountWindow_ExistsAndIsThemedThroughDynamicResourceOnly()
+    {
+        var xaml = File.ReadAllText(Path.Combine(PosDirectory(), "DiscountWindow.xaml"));
+
+        Assert.True(File.Exists(Path.Combine(PosDirectory(), "DiscountWindow.xaml.cs")));
+        Assert.Contains("PinBox", xaml);
+        Assert.Contains("PercentTextBox", xaml);
+        Assert.Contains("ApplyButton", xaml);
+        Assert.Contains("RemoveDiscountButton", xaml);
+        Assert.Contains("<PasswordBox", xaml);
+        Assert.Contains("{DynamicResource ShellBrush}", xaml);
+        Assert.Empty(Regex.Matches(xaml, @"\{StaticResource\s+\w*Brush\w*\}"));
+    }
+
+    [Fact]
+    public void SaleTable_OffersAPerLineDiscountAction_AndShowsTheDiscountedTotal()
+    {
+        var xaml = File.ReadAllText(Path.Combine(PosDirectory(), "Controls", "SaleLinesTable.xaml"));
+        var code = File.ReadAllText(Path.Combine(PosDirectory(), "Controls", "SaleLinesTable.xaml.cs"));
+
+        Assert.Contains("Aplicar descuento", xaml);
+        Assert.Contains("DiscountText", xaml);
+        Assert.Contains("NetTotalText", xaml);
+        Assert.Contains("LineDiscountRequested", code);
+    }
+
+    [Fact]
+    public void TotalsPanel_HasADescuentoRowAndASaleDiscountAction_AndKeepsTheOldNames()
+    {
+        var xaml = File.ReadAllText(Path.Combine(PosDirectory(), "Controls", "TotalsPanel.xaml"));
+        var code = File.ReadAllText(Path.Combine(PosDirectory(), "Controls", "TotalsPanel.xaml.cs"));
+
+        Assert.Contains("Descuento", xaml);
+        Assert.Contains("x:Name=\"DiscountRow\"", xaml);
+        Assert.Contains("x:Name=\"SaleDiscountButton\"", xaml);
+        Assert.Contains("SaleDiscountRequested", code);
+        Assert.Contains("x:Name=\"ScannedTotalText\"", xaml);
+        Assert.Contains("x:Name=\"CommitScannedSaleButton\"", xaml);
+    }
+
+    [Fact]
+    public void MainWindow_WiresTheDiscountActions_AndTheSaleCommitNeverReadsTheDeviceToken()
+    {
+        var xaml = File.ReadAllText(Path.Combine(PosDirectory(), "MainWindow.xaml"));
+        var code = File.ReadAllText(Path.Combine(PosDirectory(), "MainWindow.xaml.cs"));
+
+        Assert.Contains("LineDiscountRequested=", xaml);
+        Assert.Contains("SaleDiscountRequested=", xaml);
+
+        // CompleteScannedSale is committed with the cart discounts and authorization, offline.
+        var commit = code[code.IndexOf("private void CommitScannedSaleButton_Click", StringComparison.Ordinal)..];
+        commit = commit[..commit.IndexOf("Task 7.7", StringComparison.Ordinal)];
+        Assert.Contains("saleDiscount: _cart.SaleDiscount", commit);
+        Assert.Contains("discountAuthorization: _cart.Authorization", commit);
+        Assert.DoesNotContain("DeviceToken", commit);
+    }
+
+    [Fact]
     public void TenderButtons_AreDisabledWithAComingSoonTooltip()
     {
         var totals = File.ReadAllText(Path.Combine(PosDirectory(), "Controls", "TotalsPanel.xaml"));

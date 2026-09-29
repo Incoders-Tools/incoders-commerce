@@ -6,6 +6,7 @@ using System.Windows;
 using System.Windows.Input;
 using Commerce.Application.Pricing;
 using Commerce.BranchNode;
+using Commerce.Domain.Discounts;
 using Commerce.Domain.Identity;
 using Commerce.Updater;
 using Commerce.Domain.Sync;
@@ -36,6 +37,7 @@ public partial class MainWindow : Window
     private readonly CurrentOperator _currentOperator;
     private readonly CustomerReplicaClient _customerReplicaClient;
     private readonly CatalogPriceReplicaClient _catalogPriceReplicaClient;
+    private readonly IDiscountAuthorizer _discountAuthorizer;
     private readonly PricingResolutionService _pricingResolutionService;
     private readonly Func<CustomerAdminClient> _customerAdminClientFactory;
     private readonly Func<UserAdminClient> _userAdminClientFactory;
@@ -66,6 +68,7 @@ public partial class MainWindow : Window
         CurrentOperator currentOperator,
         CustomerReplicaClient customerReplicaClient,
         CatalogPriceReplicaClient catalogPriceReplicaClient,
+        DiscountPinReplicaClient discountPinReplicaClient,
         PricingResolutionService pricingResolutionService,
         Func<CustomerAdminClient> customerAdminClientFactory,
         Func<UserAdminClient> userAdminClientFactory,
@@ -100,6 +103,9 @@ public partial class MainWindow : Window
             ?? throw new InvalidOperationException("MainWindow requires an already-paired identity; App.xaml.cs must pair first.");
 
         _cart = new SaleCart(_pricingResolutionService);
+        // Discounts are authorized with the branch PIN cached in branch.db; the
+        // branch is read through the pairing so a re-pair is followed.
+        _discountAuthorizer = new BranchPinDiscountAuthorizer(_store, () => _pairing.BranchId);
         SaleTable.ItemsSource = _cart.Lines;
         CatalogCardsItemsControl.ItemsSource = _catalogCards;
         _searchDebounce = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
@@ -115,7 +121,7 @@ public partial class MainWindow : Window
         // button) — reentrancy-guarded by construction, never duplicated.
         _syncRunner = new SyncRunner(
             _store, _branchNodeService, _syncClient, _customerReplicaClient, _catalogPriceReplicaClient,
-            _operatorProvisioningClient, _localOperatorStore, () => _pairing);
+            _operatorProvisioningClient, _localOperatorStore, () => _pairing, discountPinReplicaClient);
         _syncScheduler = new SyncScheduler(RunSyncAsync);
 
         RefreshIdentityText();
@@ -390,6 +396,68 @@ public partial class MainWindow : Window
     private async void SaleTable_LineRemoved(object? sender, Guid presentationId) =>
         await ApplyCartChangeAsync(() => Task.FromResult(_cart.Remove(presentationId) ? SaleCartResult.Ok : SaleCartResult.Fail("El producto no está en la venta.")));
 
+    private void SaleTable_LineDiscountRequested(object? sender, Guid presentationId)
+    {
+        var line = _cart.Lines.FirstOrDefault(l => l.PresentationId == presentationId);
+        if (line is null)
+        {
+            return;
+        }
+
+        RequestDiscount(
+            "Descuento de la línea", line.DisplayName, line.LineDiscountPercent,
+            (percent, authorization) => _cart.SetLineDiscount(presentationId, percent, authorization),
+            () => _cart.RemoveLineDiscount(presentationId));
+    }
+
+    private void TotalsPanel_SaleDiscountRequested(object sender, RoutedEventArgs e)
+    {
+        if (_cart.IsEmpty)
+        {
+            ScanMessageText.Text = "Agregue productos antes de aplicar un descuento a la venta.";
+            return;
+        }
+
+        RequestDiscount(
+            "Descuento de la venta", "Se aplica al subtotal después de los descuentos de las líneas.", _cart.SaleDiscountPercent,
+            (percent, authorization) => _cart.SetSaleDiscount(percent, authorization),
+            () => _cart.RemoveSaleDiscount());
+    }
+
+    /// <summary>
+    /// Opens the discount prompt. Adding or changing a discount needs the branch
+    /// PIN (checked offline against the cached verifier); removing one does not.
+    /// The cart is only touched with an authorization the prompt granted.
+    /// </summary>
+    private void RequestDiscount(
+        string heading, string subject, decimal? currentPercent,
+        Func<decimal, DiscountAuthorization, SaleCartResult> apply, Func<bool> remove)
+    {
+        var window = new DiscountWindow(
+            _discountAuthorizer, _currentOperator.ResolveActorId(_installationId), heading, subject, currentPercent)
+        {
+            Owner = this
+        };
+
+        if (window.ShowDialog() != true)
+        {
+            return;
+        }
+
+        if (window.Result == DiscountWindowResult.Removed)
+        {
+            remove();
+            ScanMessageText.Text = string.Empty;
+        }
+        else if (window.Result == DiscountWindowResult.Applied && window.Authorization is { } authorization)
+        {
+            var result = apply(window.Percent, authorization);
+            ScanMessageText.Text = result.Succeeded ? string.Empty : result.Message;
+        }
+
+        RefreshScannedTotal();
+    }
+
     private async Task ApplyCartChangeAsync(Func<Task<SaleCartResult>> change)
     {
         var result = await change();
@@ -406,6 +474,8 @@ public partial class MainWindow : Window
 
     private void RefreshScannedTotal()
     {
+        TotalsPanelControl.Subtotal = _cart.Subtotal;
+        TotalsPanelControl.DiscountTotal = _cart.DiscountTotal;
         TotalsPanelControl.Total = _cart.Total;
         foreach (var card in _catalogCards)
         {
@@ -428,12 +498,8 @@ public partial class MainWindow : Window
         }
 
         var saleId = Guid.NewGuid();
-        var lines = _cart.Lines
-            .Select((vm, index) => new SaleLine(
-                saleId, index + 1, vm.PresentationId, vm.IdentificationCode, vm.ProductName, vm.PresentationName,
-                vm.Quantity, vm.UnitPrice, vm.LineTotal))
-            .ToList();
-        var total = lines.Sum(l => l.LineTotal);
+        var lines = _cart.BuildSaleLines(saleId);
+        var total = _cart.Total;
         var customerId = (CustomerPickerComboBox.SelectedItem as SaleCustomerPickerItem)?.CustomerId;
 
         var result = _branchNodeService.CompleteScannedSale(
@@ -445,7 +511,9 @@ public partial class MainWindow : Window
             totalAmount: total,
             operationId: Guid.NewGuid(),
             correlationId: Guid.NewGuid(),
-            customerId: customerId);
+            customerId: customerId,
+            saleDiscount: _cart.SaleDiscount,
+            discountAuthorization: _cart.Authorization);
 
         SaleResultText.Text = result.WasNewlyCommitted
             ? $"Venta escaneada {result.Effect.SaleId} registrada por {result.Effect.TotalAmount:C} en branch.db."

@@ -3,6 +3,7 @@ using System.ComponentModel;
 using Commerce.Application.Pricing;
 using Commerce.BranchNode;
 using Commerce.Domain.Discounts;
+using Commerce.Domain.Sync;
 
 namespace Commerce.Pos.Windows;
 
@@ -67,6 +68,18 @@ public sealed class SaleCart : INotifyPropertyChanged
     public SaleDiscount? SaleDiscount => SaleDiscountPercent is { } percent ? new SaleDiscount(percent, SaleDiscountAmount) : null;
 
     public bool IsEmpty => Lines.Count == 0;
+
+    /// <summary>
+    /// The lines as they are committed: each keeps its UNDISCOUNTED total and
+    /// carries its discount percentage and amount (null when it has none), so
+    /// the gross total, minus the line discounts, minus <see cref="SaleDiscount"/>,
+    /// equals <see cref="Total"/>.
+    /// </summary>
+    public IReadOnlyList<SaleLine> BuildSaleLines(Guid saleId) => Lines
+        .Select((vm, index) => new SaleLine(
+            saleId, index + 1, vm.PresentationId, vm.IdentificationCode, vm.ProductName, vm.PresentationName,
+            vm.Quantity, vm.UnitPrice, vm.LineTotal, vm.LineDiscountPercent, vm.LineDiscountAmount))
+        .ToList();
 
     public event PropertyChangedEventHandler? PropertyChanged;
 

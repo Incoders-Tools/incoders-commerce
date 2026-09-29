@@ -17,7 +17,7 @@
                         <ColumnDefinition Width="52" />
                         <ColumnDefinition Width="80" />
                         <ColumnDefinition Width="88" />
-                        <ColumnDefinition Width="76" />
+                        <ColumnDefinition Width="112" />
                     </Grid.ColumnDefinitions>
                     <TextBlock Text="Producto" Style="{StaticResource TableHeaderTextBlock}" />
                     <TextBlock Grid.Column="1" Text="SKU" Style="{StaticResource TableHeaderTextBlock}" />
@@ -40,13 +40,27 @@
                                         <ColumnDefinition Width="52" />
                                         <ColumnDefinition Width="80" />
                                         <ColumnDefinition Width="88" />
-                                        <ColumnDefinition Width="76" />
+                                        <ColumnDefinition Width="112" />
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Text="{Binding DisplayName}" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                    <StackPanel VerticalAlignment="Center" Margin="0,0,8,0">
+                                        <TextBlock Text="{Binding DisplayName}" TextWrapping="Wrap" />
+                                        <TextBlock Text="{Binding DiscountText}" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource AccentBrush}">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding HasDiscount}" Value="True">
+                                                            <Setter Property="Visibility" Value="Visible" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                    </StackPanel>
                                     <TextBlock Grid.Column="1" Text="{Binding IdentificationCode}" Style="{StaticResource MutedTextBlock}" FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
                                     <TextBlock Grid.Column="2" Text="{Binding QuantityText}" FontWeight="SemiBold" VerticalAlignment="Center" TextAlignment="Right" />
                                     <TextBlock Grid.Column="3" Text="{Binding UnitPriceText}" Style="{StaticResource MutedTextBlock}" VerticalAlignment="Center" TextAlignment="Right" />
-                                    <TextBlock Grid.Column="4" Text="{Binding LineTotalText}" FontWeight="SemiBold" VerticalAlignment="Center" TextAlignment="Right" />
+                                    <TextBlock Grid.Column="4" Text="{Binding NetTotalText}" FontWeight="SemiBold" VerticalAlignment="Center" TextAlignment="Right" />
                                     <StackPanel Grid.Column="5" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
                                         <ToggleButton x:Name="EditToggle" Width="32" Height="32" Cursor="Hand" ToolTip="Editar cantidad"
                                                       AutomationProperties.Name="Editar cantidad">
@@ -76,6 +90,9 @@
                                                 </StackPanel>
                                             </Border>
                                         </Popup>
+                                        <Button Style="{StaticResource IconButton}" Click="DiscountButton_Click" ToolTip="Aplicar descuento" AutomationProperties.Name="Aplicar descuento">
+                                            <TextBlock Text="%" FontSize="16" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource AccentBrush}" />
+                                        </Button>
                                         <Button Style="{StaticResource IconButton}" Click="DeleteButton_Click" ToolTip="Quitar de la venta" AutomationProperties.Name="Quitar de la venta">
                                             <TextBlock Text="{StaticResource IconDelete}" Style="{StaticResource IconTextBlock}" Foreground="{DynamicResource DangerBrush}" />
                                         </Button>
