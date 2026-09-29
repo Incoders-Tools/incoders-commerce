@@ -38,7 +38,25 @@ public sealed class CatalogCopyEndpointTests : IClassFixture<WebApplicationFacto
         }
     }
 
-    public void Dispose() => _factory.Dispose();
+    public void Dispose()
+    {
+        _factory.Dispose();
+
+        // A copy test legitimately leaves the SAME identification code in two
+        // branches of one organization. Later fixtures re-apply 0009 without
+        // truncating first, and 0009's org-wide `presentations_org_code_uk`
+        // cannot be recreated over that data — so leave the shared
+        // `commerce_test` catalog tables empty for whoever runs next.
+        if (_postgresAvailable)
+        {
+            using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+            owner.Open();
+            using var cmd = new NpgsqlCommand(
+                "TRUNCATE TABLE price_import_rows, price_import_batches, supplier_price_mappings, " +
+                "price_list_entries, price_lists, presentations, products CASCADE", owner);
+            cmd.ExecuteNonQuery();
+        }
+    }
 
     private static string RepoRoot()
     {
