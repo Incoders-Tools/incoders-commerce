@@ -1143,8 +1143,52 @@ implementation gap before implementing.
   `0f088af`, `ea5d0ea`, `38115b4`, `1663800`, `262604a` exist only in the
   review receipts, not on the branch.
 
+- 2026-09-29: B7 U5b done (delegated direct: one bounded writer; TDD on,
+  runner `dotnet test` / `vitest`). Commits: `663a4fb`
+  `feat(catalog): copy products and the latest price list between
+  branches`, `4bbdc91` `feat(web): copy the catalog to another branch
+  from the catalog screen`, `7b1e31b` `test(catalog): leave the shared
+  catalog tables empty after each copy test`.
+  Backend: `POST /catalog/copy` (header-selected branch = SOURCE, target in
+  the body; `ManageCatalog` only, target must be a branch of the same
+  organization inside the caller's scope, else 403), `CatalogCopyStore`
+  (one transaction, reads under the source branch GUC, writes under the
+  target's), new independent rows, skip-and-report on identification-code
+  clash (a product whose presentations were all skipped is not created),
+  latest source price list copied as a NEW list with the copied
+  presentations' entries and their effective dates, default only when the
+  target has none, one `catalog.copied` audit row (actor, source, target,
+  products/presentations copied, skipped count). Audit of the WIP against
+  the spec found one gap: "latest uploaded (created or imported)" ranked by
+  list creation only, so a list that later received a supplier import was
+  not treated as latest. Test
+  `Copy_RanksAListThatReceivedALaterImport_AsTheLatestUploaded` observed
+  RED (Strings differ), then GREEN after ranking by the later of the list's
+  creation and its newest `source = 'Import'` entry. Added characterization
+  tests (green on first run, spec clauses the WIP already met): audit
+  skipped count, latest of two lists + only copied presentations' entries,
+  target's existing default/lists untouched.
+  Web: "Copiar catálogo" action on the catalog screen (admin with
+  `ManageCatalog` or sysadmin, only when another branch is selectable),
+  full-screen `CatalogCopyForm` (target branch select excluding the source,
+  whole catalog or selected products, result with copied/price/skipped
+  codes), Spanish + English strings in `catalog.json`. New
+  `CatalogCopy.test.tsx` (6 tests; 4 RED before the form existed, then
+  GREEN). No existing DOM moved; e2e selectors untouched (e2e not changed).
+  Checks: `dotnet build`: 0 errors; focused `--filter
+  FullyQualifiedName~CatalogCopy`: 15/15; web `npm run test`: 281/281,
+  `npm run build`: ok. Full integration suite in a throwaway worktree at `7b1e31b` (`commerce_test`, not dev): 749/749. Trap found: this class legitimately leaves the same
+  code in two branches, which makes fixtures that re-apply 0009 without
+  truncating (BranchSelectionTests...) fail on `presentations_org_code_uk`
+  in a full run; fixed by truncating the catalog tables in the copy tests'
+  `Dispose` (`7b1e31b`). Integration tests silently SKIP (green) when
+  Postgres is down, and the full suite hangs without the pgbouncer
+  container: both containers must be up.
+
 ## Next step
 
-B7 U5b catalog copy (products + latest price list), U6..U8, B2
-semantics, B3, B4 confirmation, B1b/B6b/T6b cleanups, localized server
-errors.
+U6..U8, B2 semantics, B3, B4 confirmation, B1b/B6b/T6b cleanups,
+U5 R3 follow-ups (presentation delete cascades price history, as-of tie
+determinism, org-default branchless null, untested prices endpoint,
+PriceDateFilter stale-response races, failure-path tests), localized
+server errors (the copy form maps every failure to one generic message).
