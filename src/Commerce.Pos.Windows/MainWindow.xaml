@@ -78,7 +78,7 @@
                 </Popup>
             </Grid>
 
-            <StackPanel Grid.Row="2" Margin="0,4,0,4" MinHeight="16">
+            <StackPanel Grid.Row="2" Margin="0,2,0,2">
                 <TextBlock x:Name="ScanMessageText" TextWrapping="Wrap" Foreground="{DynamicResource DangerBrush}" />
                 <TextBlock x:Name="SaleResultText" TextWrapping="Wrap" Style="{StaticResource MutedTextBlock}" />
             </StackPanel>
