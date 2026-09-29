@@ -1,4 +1,3 @@
-using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
 using System.Reflection;
@@ -45,7 +44,7 @@ public partial class MainWindow : Window
     private readonly Version _localVersion;
     private UpdateCheckResult _updateCheckResult;
     private readonly Guid _installationId;
-    private readonly ObservableCollection<ScannedSaleLineViewModel> _scannedLines = new();
+    private readonly SaleCart _cart;
     private readonly SyncRunner _syncRunner;
     private readonly SyncScheduler _syncScheduler;
     private DevicePairing _pairing;
@@ -95,7 +94,8 @@ public partial class MainWindow : Window
         _pairing = identity.Pairing
             ?? throw new InvalidOperationException("MainWindow requires an already-paired identity; App.xaml.cs must pair first.");
 
-        ScannedLinesListView.ItemsSource = _scannedLines;
+        _cart = new SaleCart(_pricingResolutionService);
+        ScannedLinesListView.ItemsSource = _cart.Lines;
 
         // Task 4.6: ONE SyncRunner shared by every trigger (startup, the
         // scheduler's 60s sweep, the post-sale nudge, and the manual
@@ -191,7 +191,7 @@ public partial class MainWindow : Window
         // which is out of scope, so committing manually while scanned lines
         // are pending is blocked with an explicit message rather than
         // silently mixing the two flows in one transaction.
-        if (_scannedLines.Count > 0)
+        if (!_cart.IsEmpty)
         {
             SaleResultText.Text = "No se puede cobrar una venta manual mientras hay productos escaneados pendientes. Cobre la venta escaneada o vacíe la lista primero.";
             return;
@@ -282,33 +282,8 @@ public partial class MainWindow : Window
             return;
         }
 
-        var existingIndex = _scannedLines.ToList().FindIndex(l => l.PresentationId == item.PresentationId);
-        var newQuantity = (existingIndex >= 0 ? _scannedLines[existingIndex].Quantity : 0m) + 1m;
-        var effectiveOn = DateOnly.FromDateTime(DateTime.UtcNow);
-
-        var outcome = await _pricingResolutionService.ResolveAsync(
-            item.PresentationId, newQuantity, discountPercentage: null, effectiveOn, CancellationToken.None);
-
-        if (outcome is not PriceResolutionOutcome.Resolved resolved)
-        {
-            ScanMessageText.Text = $"No hay precio vigente para {item.PresentationName} el {effectiveOn:yyyy-MM-dd}. Use venta manual o sincronice.";
-            ScanCodeTextBox.Focus();
-            return;
-        }
-
-        ScanMessageText.Text = string.Empty;
-        var line = new ScannedSaleLineViewModel(
-            item.PresentationId, item.IdentificationCode, item.ProductName, item.PresentationName,
-            newQuantity, resolved.UnitNetPrice, resolved.LineTotal);
-
-        if (existingIndex >= 0)
-        {
-            _scannedLines[existingIndex] = line;
-        }
-        else
-        {
-            _scannedLines.Add(line);
-        }
+        var added = await _cart.AddAsync(item);
+        ScanMessageText.Text = added.Succeeded ? string.Empty : added.Message;
 
         RefreshScannedTotal();
         ScanCodeTextBox.Focus();
@@ -316,8 +291,7 @@ public partial class MainWindow : Window
 
     private void RefreshScannedTotal()
     {
-        var total = _scannedLines.Sum(l => l.LineTotal);
-        ScannedTotalText.Text = total.ToString("C", CultureInfo.InvariantCulture);
+        ScannedTotalText.Text = _cart.Total.ToString("C", CultureInfo.InvariantCulture);
     }
 
     /// <summary>
@@ -328,14 +302,14 @@ public partial class MainWindow : Window
     /// </summary>
     private void CommitScannedSaleButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_scannedLines.Count == 0)
+        if (_cart.IsEmpty)
         {
             ScanMessageText.Text = "Escanee al menos un producto antes de cobrar.";
             return;
         }
 
         var saleId = Guid.NewGuid();
-        var lines = _scannedLines
+        var lines = _cart.Lines
             .Select((vm, index) => new SaleLine(
                 saleId, index + 1, vm.PresentationId, vm.IdentificationCode, vm.ProductName, vm.PresentationName,
                 vm.Quantity, vm.UnitPrice, vm.LineTotal))
@@ -356,7 +330,7 @@ public partial class MainWindow : Window
             ? $"Venta escaneada {result.Effect.SaleId} registrada por {result.Effect.TotalAmount:C} en branch.db."
             : $"La venta {result.Effect.SaleId} ya estaba registrada (reintento idempotente).";
 
-        _scannedLines.Clear();
+        _cart.Clear();
         RefreshScannedTotal();
         RefreshStatus();
         CustomerPickerComboBox.SelectedIndex = 0;
