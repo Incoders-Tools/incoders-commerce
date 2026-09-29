@@ -28,21 +28,21 @@ public partial class PosNavBar : UserControl
 
     public event RoutedEventHandler SwitchOperatorRequested { add => AddHandler(SwitchOperatorRequestedEvent, value); remove => RemoveHandler(SwitchOperatorRequestedEvent, value); }
 
-    public string OperatorDisplayText
+    public string OperatorLabel
     {
-        get => OperatorText.Text;
+        get => OperatorDisplayText.Text;
         set
         {
-            OperatorText.Text = value;
-            OperatorButton.ToolTip = $"Cambiar operador ({value})";
+            OperatorDisplayText.Text = value;
+            SwitchOperatorButton.ToolTip = $"Cambiar operador ({value})";
         }
     }
 
     /// <summary>Shows the customers and staff entries (operators with the ManageUsers permission).</summary>
     public bool AdminEntriesVisible
     {
-        get => CustomersButton.Visibility == Visibility.Visible;
-        set => CustomersButton.Visibility = StaffButton.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
+        get => ManageCustomersButton.Visibility == Visibility.Visible;
+        set => ManageCustomersButton.Visibility = ManageStaffButton.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private static RoutedEvent Register(string name) =>

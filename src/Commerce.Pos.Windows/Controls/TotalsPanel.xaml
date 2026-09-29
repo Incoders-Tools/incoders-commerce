@@ -26,9 +26,9 @@
                 </Grid.ColumnDefinitions>
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                     <TextBlock Text="TOTAL" FontSize="16" FontWeight="SemiBold" Style="{StaticResource MutedTextBlock}" VerticalAlignment="Center" Margin="0,0,10,0" />
-                    <TextBlock x:Name="TotalText" Text="$0.00" FontSize="32" FontWeight="Bold" VerticalAlignment="Center" />
+                    <TextBlock x:Name="ScannedTotalText" Text="$0.00" FontSize="32" FontWeight="Bold" VerticalAlignment="Center" />
                 </StackPanel>
-                <Button x:Name="CommitButton" Grid.Column="1" Content="Cobrar venta" MinWidth="150" MinHeight="46" FontSize="15" Click="CommitButton_Click" />
+                <Button x:Name="CommitScannedSaleButton" Grid.Column="1" Content="Cobrar venta" MinWidth="150" MinHeight="46" FontSize="15" Click="CommitButton_Click" />
             </Grid>
 
             <!-- Payment methods arrive in Phase 2; disabled with an explanatory tooltip until then. -->

@@ -38,13 +38,13 @@
                         <TextBlock Text="Productos" Style="{StaticResource NavLabel}" />
                     </StackPanel>
                 </Button>
-                <Button x:Name="CustomersButton" Style="{StaticResource NavEntry}" Visibility="Collapsed" Click="CustomersButton_Click" AutomationProperties.Name="Clientes">
+                <Button x:Name="ManageCustomersButton" Style="{StaticResource NavEntry}" Visibility="Collapsed" Click="CustomersButton_Click" AutomationProperties.Name="Clientes">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="{StaticResource IconCustomers}" Style="{StaticResource NavIcon}" />
                         <TextBlock Text="Clientes" Style="{StaticResource NavLabel}" />
                     </StackPanel>
                 </Button>
-                <Button x:Name="StaffButton" Style="{StaticResource NavEntry}" Visibility="Collapsed" Click="StaffButton_Click" AutomationProperties.Name="Personal">
+                <Button x:Name="ManageStaffButton" Style="{StaticResource NavEntry}" Visibility="Collapsed" Click="StaffButton_Click" AutomationProperties.Name="Personal">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="{StaticResource IconStaff}" Style="{StaticResource NavIcon}" />
                         <TextBlock Text="Personal" Style="{StaticResource NavLabel}" />
@@ -56,13 +56,13 @@
                         <TextBlock Text="Reportes" Style="{StaticResource NavLabel}" />
                     </StackPanel>
                 </Button>
-                <Button x:Name="SyncNavButton" Style="{StaticResource NavEntry}" Click="SyncButton_Click" AutomationProperties.Name="Sincronización">
+                <Button x:Name="SyncButton" Style="{StaticResource NavEntry}" Click="SyncButton_Click" AutomationProperties.Name="Sincronización">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="{StaticResource IconSync}" Style="{StaticResource NavIcon}" />
                         <TextBlock Text="Sincronización" Style="{StaticResource NavLabel}" />
                     </StackPanel>
                 </Button>
-                <Button x:Name="SettingsNavButton" Style="{StaticResource NavEntry}" Click="SettingsButton_Click" AutomationProperties.Name="Configuración">
+                <Button x:Name="RepairButton" Style="{StaticResource NavEntry}" Click="SettingsButton_Click" AutomationProperties.Name="Configuración">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="{StaticResource IconSettings}" Style="{StaticResource NavIcon}" />
                         <TextBlock Text="Configuración" Style="{StaticResource NavLabel}" />
@@ -77,11 +77,11 @@
             </StackPanel>
 
             <!-- The active operator doubles as the switch-operator action. -->
-            <Button x:Name="OperatorButton" Grid.Column="2" Style="{StaticResource NavButton}" Click="OperatorButton_Click"
+            <Button x:Name="SwitchOperatorButton" Grid.Column="2" Style="{StaticResource NavButton}" Click="OperatorButton_Click"
                     ToolTip="Cambiar operador" AutomationProperties.Name="Cambiar operador" MaxWidth="170">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="{StaticResource IconOperator}" Style="{StaticResource NavIcon}" />
-                    <TextBlock x:Name="OperatorText" Text="Sin operador activo" Style="{StaticResource NavLabel}" TextTrimming="CharacterEllipsis" MaxWidth="110" />
+                    <TextBlock x:Name="OperatorDisplayText" Text="Sin operador activo" Style="{StaticResource NavLabel}" TextTrimming="CharacterEllipsis" MaxWidth="110" />
                 </StackPanel>
             </Button>
         </Grid>

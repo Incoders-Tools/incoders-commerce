@@ -34,15 +34,15 @@ public partial class TotalsPanel : UserControl
     /// <summary>Enables the charge action (there is something to charge).</summary>
     public bool CanCommit
     {
-        get => CommitButton.IsEnabled;
-        set => CommitButton.IsEnabled = value;
+        get => CommitScannedSaleButton.IsEnabled;
+        set => CommitScannedSaleButton.IsEnabled = value;
     }
 
     private void Refresh()
     {
         var text = Total.ToString("C", CultureInfo.CurrentCulture);
         SubtotalText.Text = text;
-        TotalText.Text = text;
+        ScannedTotalText.Text = text;
     }
 
     private void CommitButton_Click(object sender, RoutedEventArgs e) => RaiseEvent(new RoutedEventArgs(CommitRequestedEvent, this));

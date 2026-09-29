@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
 using System.Reflection;
@@ -45,6 +46,7 @@ public partial class MainWindow : Window
     private UpdateCheckResult _updateCheckResult;
     private readonly Guid _installationId;
     private readonly SaleCart _cart;
+    private readonly ObservableCollection<ProductCardViewModel> _catalogCards = new();
     private readonly SyncRunner _syncRunner;
     private readonly SyncScheduler _syncScheduler;
     private DevicePairing _pairing;
@@ -95,7 +97,8 @@ public partial class MainWindow : Window
             ?? throw new InvalidOperationException("MainWindow requires an already-paired identity; App.xaml.cs must pair first.");
 
         _cart = new SaleCart(_pricingResolutionService);
-        ScannedLinesListView.ItemsSource = _cart.Lines;
+        SaleTable.ItemsSource = _cart.Lines;
+        CatalogCardsItemsControl.ItemsSource = _catalogCards;
 
         // Task 4.6: ONE SyncRunner shared by every trigger (startup, the
         // scheduler's 60s sweep, the post-sale nudge, and the manual
@@ -108,6 +111,7 @@ public partial class MainWindow : Window
         RefreshIdentityText();
         RefreshStatus();
         RefreshCustomerPicker();
+        RefreshCatalogCards();
         RefreshScannedTotal();
         RefreshCatalogFreshness();
 
@@ -118,7 +122,7 @@ public partial class MainWindow : Window
 
     private void RefreshIdentityText()
     {
-        OperatorDisplayText.Text = _currentOperator.Value is { } currentOperator
+        NavBar.OperatorLabel = _currentOperator.Value is { } currentOperator
             ? currentOperator.Email
             : "Sin operador activo";
 
@@ -128,11 +132,8 @@ public partial class MainWindow : Window
         // UX affordance only — the server re-checks ManageUsers on every
         // /customers call regardless (design.md "Desktop authorization for
         // customer create/edit").
-        ManageCustomersButton.Visibility =
-            _currentOperator.Value is { } current && ((Permission)current.Permissions).HasFlag(Permission.ManageUsers)
-                ? Visibility.Visible
-                : Visibility.Collapsed;
-        ManageStaffButton.Visibility = ManageCustomersButton.Visibility;
+        NavBar.AdminEntriesVisible =
+            _currentOperator.Value is { } current && ((Permission)current.Permissions).HasFlag(Permission.ManageUsers);
     }
 
     private string BuildStatusSummary()
@@ -186,6 +187,8 @@ public partial class MainWindow : Window
 
     private void CommitSaleButton_Click(object sender, RoutedEventArgs e)
     {
+        ManualSalePopup.IsOpen = false;
+
         // Task 7.5: mutual exclusion (design.md "POS: two explicit buttons,
         // not a mode toggle") — a mixed sale would need per-line provenance,
         // which is out of scope, so committing manually while scanned lines
@@ -289,9 +292,61 @@ public partial class MainWindow : Window
         ScanCodeTextBox.Focus();
     }
 
+    /// <summary>Rebuilds the product cards from the local catalog replica.</summary>
+    private void RefreshCatalogCards()
+    {
+        _catalogCards.Clear();
+        foreach (var item in _store.ListCatalogPriceReplica().OrderBy(i => i.ProductName).ThenBy(i => i.PresentationName))
+        {
+            _catalogCards.Add(new ProductCardViewModel(item));
+        }
+
+        CatalogEmptyText.Visibility = _catalogCards.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private async void ProductCard_IncrementRequested(object sender, RoutedEventArgs e)
+    {
+        if ((e.Source as FrameworkElement)?.DataContext is ProductCardViewModel card)
+        {
+            await ApplyCartChangeAsync(() => _cart.AddAsync(card.Item));
+        }
+    }
+
+    private async void ProductCard_DecrementRequested(object sender, RoutedEventArgs e)
+    {
+        if ((e.Source as FrameworkElement)?.DataContext is ProductCardViewModel card)
+        {
+            await ApplyCartChangeAsync(() => _cart.DecrementAsync(card.PresentationId));
+        }
+    }
+
+    private async void SaleTable_QuantityEdited(object? sender, Controls.SaleLineQuantityEventArgs e) =>
+        await ApplyCartChangeAsync(() => _cart.SetQuantityAsync(e.PresentationId, e.Quantity));
+
+    private async void SaleTable_LineRemoved(object? sender, Guid presentationId) =>
+        await ApplyCartChangeAsync(() => Task.FromResult(_cart.Remove(presentationId) ? SaleCartResult.Ok : SaleCartResult.Fail("El producto no está en la venta.")));
+
+    private async Task ApplyCartChangeAsync(Func<Task<SaleCartResult>> change)
+    {
+        var result = await change();
+        ScanMessageText.Text = result.Succeeded ? string.Empty : result.Message;
+        RefreshScannedTotal();
+    }
+
+    private void ManualSaleButton_Click(object sender, RoutedEventArgs e)
+    {
+        ManualSalePopup.IsOpen = true;
+        AmountTextBox.Focus();
+        AmountTextBox.SelectAll();
+    }
+
     private void RefreshScannedTotal()
     {
-        ScannedTotalText.Text = _cart.Total.ToString("C", CultureInfo.InvariantCulture);
+        TotalsPanelControl.Total = _cart.Total;
+        foreach (var card in _catalogCards)
+        {
+            card.ApplyLine(_cart.Lines.FirstOrDefault(l => l.PresentationId == card.PresentationId));
+        }
     }
 
     /// <summary>
@@ -389,6 +444,8 @@ public partial class MainWindow : Window
         }
 
         RefreshCustomerPicker();
+        RefreshCatalogCards();
+        RefreshScannedTotal();
         RefreshCatalogFreshness();
 
         if (result is null)
