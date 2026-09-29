@@ -103,6 +103,29 @@ structural tests; cart/search/category logic gets RED→GREEN tests.
       the vertical gap between the search box and the section titles.
       Route: delegated direct.
 
+### Phase 2a — Discounts (authorized 2026-09-29: "arrancá con los descuentos")
+Design defaults (owner decisions + parent defaults, revisit if the owner
+objects): percentage 0 < p <= 100 with up to 2 decimals; a line discount
+applies to that line's total; a sale discount applies to the subtotal after
+line discounts; amounts rounded to 2 decimals half away from zero per line
+and on the sale discount; every discount (add or change) prompts for the
+branch PIN; 5 failed attempts lock the prompt for 5 minutes on that
+terminal; the admin can only set/rotate the PIN, never read it back.
+- [ ] D1. Spec: discount requirement and scenarios in `pos-scan-sale`, and a
+      branch discount PIN requirement (set/rotate by admins, hash only,
+      offline verification on terminals, lockout, audit).
+- [ ] D2. Cloud: branch discount PIN (slow salted hash + version) with a
+      migration, admin set/rotate endpoint (branch settings permission,
+      sysadmin on a selected org), audit on rotate, exposed to paired
+      devices of that branch through the device sync.
+- [ ] D3. Web: "PIN de descuentos" set/rotate in the branch settings.
+- [ ] D4. POS: replicate the PIN hash; `SaleCart` line and sale discounts;
+      PIN prompt with lockout; discount actions in `SaleLinesTable` and a
+      "Descuento" row in `TotalsPanel`.
+- [ ] D5. Sale sync: payload carries line/sale discounts and "authorized by
+      branch PIN" with the operator; cloud ingestion persists and audits it.
+      Route for D1..D5: delegated direct (one writer, sequential units).
+
 ## Acceptance criteria
 - Sale screen matches the reference structure in all three themes, min size
   1120x700, no clipping.
@@ -269,6 +292,4 @@ in a throwaway worktree at task close.
   authorization.
 
 ## Next step
-Phase 2 spec work: discounts with the shared branch PIN in `pos-scan-sale`,
-then tender (Efectivo / Tarjeta / QR). Follow-ups from T4 are listed in the
-last Progress entry.
+D1..D5 with one writer. Then tender (Efectivo/Tarjeta/QR).
