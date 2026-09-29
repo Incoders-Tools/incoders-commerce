@@ -340,6 +340,29 @@ public static class DeviceEndpoints
             return Results.Ok(new CatalogSyncResponse(items, RemovedPresentationIds: [], serverTimeUtc));
         });
 
+        // Discount PIN verifier of THIS terminal branch (branch-discount-pin
+        // spec): the branch comes from the STORED device_credentials row via
+        // the minted claim, never from the request, so a terminal can only ever
+        // obtain its own branch verifier. Carries the salted hash and its
+        // parameters, never the PIN.
+        var branchGroup = group.MapGroup("/branch")
+            .RequireAuthorization("DeviceBearer")
+            .AddEndpointFilter<TenantScopeEndpointFilter>();
+
+        branchGroup.MapGet("/discount-pin", async (
+            HttpContext httpContext,
+            PostgresBranchDiscountPinStore pinStore,
+            CancellationToken ct) =>
+        {
+            var scope = TenantScopeEndpointFilter.GetScope(httpContext);
+            if (!DeviceIdentity.TryResolve(httpContext.User, out var deviceIdentity) || deviceIdentity is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            return Results.Ok(await pinStore.GetVerifierAsync(scope, deviceIdentity.BranchId, ct));
+        });
+
         return group;
     }
 }
