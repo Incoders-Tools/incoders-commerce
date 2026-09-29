@@ -80,14 +80,14 @@ structural tests; cart/search/category logic gets RED→GREEN tests.
       (nav, search/scan, cards grid + sale table, rail, totals) using T1;
       tender buttons shown disabled with "Próximamente" until Phase 2.
       Route: delegated direct (same writer as T1).
-- [ ] T3. Local name search (`BranchSyncStore` LIKE query) feeding the cards
+- [x] T3. Local name search (`BranchSyncStore` LIKE query) feeding the cards
       grid; scan keeps exact-code behavior. Route: delegated direct.
 - [ ] T4. Replicate category to the POS (sync DTO + `catalog_replica` column
       + migration of the local schema) and drive the rail/filter.
       Route: delegated direct.
-- [ ] T5. Pass the selected customer on scanned sales, with a regression
+- [x] T5. Pass the selected customer on scanned sales, with a regression
       test. Route: delegated direct.
-- [ ] T6. Theme the default WPF ScrollBar and ComboBox (and the popup) with
+- [x] T6. Theme the default WPF ScrollBar and ComboBox (and the popup) with
       the palette keys so Dark and Vaca Verde have no light defaults; tighten
       the vertical gap between the search box and the section titles.
       Route: delegated direct.
@@ -138,6 +138,35 @@ in a throwaway worktree at task close.
     (`slice_budget_reached`); owner DECLINED the review for this candidate.
     Parent spot check: `dotnet test --filter SaleCart` 10/10.
 
+- 2026-09-29: T3, T5, T6 done; T4 BLOCKED (route: delegated direct, strict TDD).
+  - `8a6ca81` feat(pos): search the local catalog by name as the operator
+    types. RED: `CatalogSearchTests` did not compile (`SearchCatalog` missing);
+    GREEN 9/9. `BranchSyncStore.SearchCatalog` folds case/accents through a
+    registered SQLite function, all tokens must match name or code prefix,
+    org scoped, capped at 120 with a `Truncated` flag (UI shows a hint);
+    200 ms debounce; the cards grid is capped instead of virtualized. Enter
+    with an exact code still scans.
+  - `00d7cd0` feat(pos): record the selected customer on scanned sales.
+    RED: `ScannedSaleCustomerTests` did not compile; GREEN 4/4. Additive
+    `SaleEffect.CustomerId` / `SalePayloadV1.CustomerId`, nullable
+    `sale_effects.customer_id` with an idempotent migration; spec requirement
+    added to `pos-scan-sale`. Finding: the MANUAL path does not record the
+    customer either (the brief assumed it did); left as is, follow-up.
+  - `e7e9897` feat(pos): theme scrollbars and combo boxes with the palette
+    keys (ScrollBar, ComboBox + popup + items, DynamicResource only); vertical
+    gap under the search box reduced. Verified by rendering.
+  - T4 blocker: Postgres has no categories table. `products.category_id` is a
+    bare uuid (no FK, no name anywhere, no endpoint or Web screen manages
+    categories), so a category name cannot be replicated. Needs an owner
+    decision: create categories (table, CRUD, admin UI, backfill of existing
+    products) as a cloud feature first, then replicate id+name. Note also that
+    the catalog sync cursor follows `presentations.updated_at_utc`, so a
+    product-only edit (name/category) is not re-sent today.
+  - Checks: `dotnet build src/Commerce.Pos.Windows` 0 errors; focused tests
+    green (293 for Scanned|Sale|Customer|Outbox|Sync|Payload; 39 for markup and
+    composition); full integration suite in a throwaway worktree 782/782, 0
+    skipped (Postgres and pgbouncer up). Re-rendered 1120x700 in Dark, Light,
+    Vaca Verde with sample categories and an open customer dropdown.
+
 ## Next step
-T3..T6 with one writer. Phase 2 blocked on owner decisions (first: is IVA
-included in list prices or added on top).
+Owner decision needed for T4 (categories: model, management, backfill). Phase 2 also awaits owner decisions (first: is IVA included in list prices or added on top).
