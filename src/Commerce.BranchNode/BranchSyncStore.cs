@@ -85,7 +85,7 @@ public sealed record CatalogSearchResult(IReadOnlyList<CatalogPriceReplicaItem> 
 /// Serialized writer, WAL, `synchronous=FULL` per design.md. Sale effect and
 /// outbox row are committed atomically, or neither is committed.
 /// </summary>
-public sealed class BranchSyncStore : IDisposable
+public sealed partial class BranchSyncStore : IDisposable
 {
     private readonly SqliteConnection _connection;
     private readonly object _writeGate = new();
@@ -243,6 +243,7 @@ public sealed class BranchSyncStore : IDisposable
         EnsureSaleKindColumnExists();
         EnsureSaleCustomerColumnExists();
         EnsureCatalogCategoryColumnsExist();
+        EnsureDiscountStorageExists();
     }
 
     /// <summary>
@@ -390,8 +391,11 @@ public sealed class BranchSyncStore : IDisposable
         using var insertSale = _connection.CreateCommand();
         insertSale.Transaction = transaction;
         insertSale.CommandText = """
-            INSERT INTO sale_effects (sale_id, branch_id, total_amount, occurred_at_utc, sale_kind, customer_id)
-            VALUES ($saleId, $branchId, $totalAmount, $occurredAt, $saleKind, $customerId);
+            INSERT INTO sale_effects
+                (sale_id, branch_id, total_amount, occurred_at_utc, sale_kind, customer_id,
+                 sale_discount_percent, sale_discount_amount, discount_auth_method, discount_operator_id, discount_pin_version)
+            VALUES ($saleId, $branchId, $totalAmount, $occurredAt, $saleKind, $customerId,
+                    $saleDiscountPercent, $saleDiscountAmount, $authMethod, $authOperatorId, $authPinVersion);
             """;
         insertSale.Parameters.AddWithValue("$saleId", effect.SaleId.ToString());
         insertSale.Parameters.AddWithValue("$branchId", effect.BranchId.ToString());
@@ -399,6 +403,11 @@ public sealed class BranchSyncStore : IDisposable
         insertSale.Parameters.AddWithValue("$occurredAt", effect.OccurredAtUtc.ToString("O"));
         insertSale.Parameters.AddWithValue("$saleKind", effect.SaleKind);
         insertSale.Parameters.AddWithValue("$customerId", effect.CustomerId is { } customerId ? customerId.ToString() : DBNull.Value);
+        insertSale.Parameters.AddWithValue("$saleDiscountPercent", DecimalOrNull(effect.SaleDiscountPercent));
+        insertSale.Parameters.AddWithValue("$saleDiscountAmount", DecimalOrNull(effect.SaleDiscountAmount));
+        insertSale.Parameters.AddWithValue("$authMethod", (object?)effect.DiscountAuthorization?.Method ?? DBNull.Value);
+        insertSale.Parameters.AddWithValue("$authOperatorId", effect.DiscountAuthorization is { } auth ? auth.OperatorId.ToString() : DBNull.Value);
+        insertSale.Parameters.AddWithValue("$authPinVersion", effect.DiscountAuthorization is { } pinAuth ? pinAuth.PinVersion : DBNull.Value);
         insertSale.ExecuteNonQuery();
     }
 
@@ -409,9 +418,9 @@ public sealed class BranchSyncStore : IDisposable
         insertLine.CommandText = """
             INSERT INTO sale_lines
                 (sale_id, line_number, presentation_id, identification_code, product_name,
-                 presentation_name, quantity, unit_price, line_total)
+                 presentation_name, quantity, unit_price, line_total, line_discount_percent, line_discount_amount)
             VALUES ($saleId, $lineNumber, $presentationId, $identificationCode, $productName,
-                    $presentationName, $quantity, $unitPrice, $lineTotal);
+                    $presentationName, $quantity, $unitPrice, $lineTotal, $lineDiscountPercent, $lineDiscountAmount);
             """;
         insertLine.Parameters.AddWithValue("$saleId", line.SaleId.ToString());
         insertLine.Parameters.AddWithValue("$lineNumber", line.LineNumber);
@@ -422,6 +431,8 @@ public sealed class BranchSyncStore : IDisposable
         insertLine.Parameters.AddWithValue("$quantity", line.Quantity.ToString(System.Globalization.CultureInfo.InvariantCulture));
         insertLine.Parameters.AddWithValue("$unitPrice", line.UnitPrice.ToString(System.Globalization.CultureInfo.InvariantCulture));
         insertLine.Parameters.AddWithValue("$lineTotal", line.LineTotal.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        insertLine.Parameters.AddWithValue("$lineDiscountPercent", DecimalOrNull(line.LineDiscountPercent));
+        insertLine.Parameters.AddWithValue("$lineDiscountAmount", DecimalOrNull(line.LineDiscountAmount));
         insertLine.ExecuteNonQuery();
     }
 
@@ -430,7 +441,7 @@ public sealed class BranchSyncStore : IDisposable
         using var command = _connection.CreateCommand();
         command.CommandText = """
             SELECT sale_id, line_number, presentation_id, identification_code, product_name,
-                   presentation_name, quantity, unit_price, line_total
+                   presentation_name, quantity, unit_price, line_total, line_discount_percent, line_discount_amount
             FROM sale_lines
             WHERE sale_id = $saleId
             ORDER BY line_number;
@@ -450,7 +461,9 @@ public sealed class BranchSyncStore : IDisposable
                 PresentationName: reader.GetString(5),
                 Quantity: decimal.Parse(reader.GetString(6), System.Globalization.CultureInfo.InvariantCulture),
                 UnitPrice: decimal.Parse(reader.GetString(7), System.Globalization.CultureInfo.InvariantCulture),
-                LineTotal: decimal.Parse(reader.GetString(8), System.Globalization.CultureInfo.InvariantCulture)));
+                LineTotal: decimal.Parse(reader.GetString(8), System.Globalization.CultureInfo.InvariantCulture),
+                LineDiscountPercent: ReadDecimalOrNull(reader, 9),
+                LineDiscountAmount: ReadDecimalOrNull(reader, 10)));
         }
         return results;
     }
@@ -1230,25 +1243,7 @@ public sealed class BranchSyncStore : IDisposable
         command.Parameters.AddWithValue("$operationId", operationId.ToString());
         var saleId = Guid.Parse((string)command.ExecuteScalar()!);
 
-        using var saleCommand = _connection.CreateCommand();
-        saleCommand.Transaction = transaction;
-        saleCommand.CommandText = """
-            SELECT total_amount, occurred_at_utc, sale_kind, customer_id FROM sale_effects WHERE sale_id = $saleId;
-            """;
-        saleCommand.Parameters.AddWithValue("$saleId", saleId.ToString());
-        using var reader = saleCommand.ExecuteReader();
-        if (!reader.Read())
-        {
-            return null;
-        }
-
-        return new SaleEffect(
-            saleId,
-            branchId,
-            decimal.Parse(reader.GetString(0), System.Globalization.CultureInfo.InvariantCulture),
-            DateTimeOffset.Parse(reader.GetString(1)),
-            reader.GetString(2),
-            reader.IsDBNull(3) ? null : Guid.Parse(reader.GetString(3)));
+        return ReadSaleEffect(saleId, branchId, transaction);
     }
 
     /// <summary>

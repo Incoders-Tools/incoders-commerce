@@ -7,7 +7,9 @@ namespace Commerce.Pos.Windows;
 /// design.md "POS: two explicit buttons, not a mode toggle"). Carries the
 /// already-resolved (<see cref="Commerce.Application.Pricing.PricingResolutionService"/>)
 /// unit-net price and line total — this view model never computes a price
-/// itself, only formats one that was already resolved.
+/// itself, only formats one that was already resolved. <see cref="LineTotal"/>
+/// is the UNDISCOUNTED amount; a discounted line also carries its percentage and
+/// rounded amount (both null otherwise) and nets <see cref="NetTotal"/>.
 /// </summary>
 public sealed record ScannedSaleLineViewModel(
     Guid PresentationId,
@@ -16,8 +18,20 @@ public sealed record ScannedSaleLineViewModel(
     string PresentationName,
     decimal Quantity,
     decimal UnitPrice,
-    decimal LineTotal)
+    decimal LineTotal,
+    decimal? LineDiscountPercent = null,
+    decimal? LineDiscountAmount = null)
 {
+    public bool HasDiscount => LineDiscountPercent is not null;
+
+    public decimal NetTotal => LineTotal - (LineDiscountAmount ?? 0m);
+
+    public string NetTotalText => NetTotal.ToString("C", CultureInfo.CurrentCulture);
+
+    public string DiscountText => LineDiscountPercent is { } percent
+        ? $"-{percent.ToString("0.##", CultureInfo.CurrentCulture)}% ({(-(LineDiscountAmount ?? 0m)).ToString("C", CultureInfo.CurrentCulture)})"
+        : string.Empty;
+
     public string DisplayName => $"{ProductName} — {PresentationName}";
 
     public string QuantityText => Quantity.ToString("0.##", CultureInfo.InvariantCulture);

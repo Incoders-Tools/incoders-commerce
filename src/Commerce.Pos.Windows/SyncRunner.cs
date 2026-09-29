@@ -35,6 +35,7 @@ public sealed class SyncRunner
     private readonly CustomerReplicaClient _customerReplicaClient;
     private readonly CatalogPriceReplicaClient _catalogPriceReplicaClient;
     private readonly OperatorProvisioningClient _operatorProvisioningClient;
+    private readonly DiscountPinReplicaClient? _discountPinReplicaClient;
     private readonly LocalOperatorStore _localOperatorStore;
     private readonly Func<DevicePairing> _pairingAccessor;
     private int _running;
@@ -47,8 +48,10 @@ public sealed class SyncRunner
         CatalogPriceReplicaClient catalogPriceReplicaClient,
         OperatorProvisioningClient operatorProvisioningClient,
         LocalOperatorStore localOperatorStore,
-        Func<DevicePairing> pairingAccessor)
+        Func<DevicePairing> pairingAccessor,
+        DiscountPinReplicaClient? discountPinReplicaClient = null)
     {
+        _discountPinReplicaClient = discountPinReplicaClient;
         _store = store;
         _branchNodeService = branchNodeService;
         _syncClient = syncClient;
@@ -83,6 +86,7 @@ public sealed class SyncRunner
             await ReconcileOperatorsAsync(pairing);
             await PullCustomersAsync(pairing);
             await PullCatalogPricesAsync(pairing);
+            await PullDiscountPinAsync(pairing);
 
             var pending = _store.GetPendingOutbox(pairing.BranchId);
             if (pending.Count == 0)
@@ -173,6 +177,25 @@ public sealed class SyncRunner
             .ToList();
 
         _store.ApplyCatalogPriceSync(replicaItems, outcome.RemovedPresentationIds, outcome.ServerTimeUtc.Value);
+    }
+
+    /// <summary>
+    /// Refreshes the cached branch discount PIN verifier. A failed pull leaves
+    /// the cache exactly as it was, so discounts keep verifying offline; a
+    /// successful answer replaces it (or clears it when the branch has none).
+    /// </summary>
+    private async Task PullDiscountPinAsync(DevicePairing pairing)
+    {
+        if (_discountPinReplicaClient is null)
+        {
+            return;
+        }
+
+        var outcome = await _discountPinReplicaClient.PullAsync(pairing.DeviceToken);
+        if (outcome.Success)
+        {
+            _store.ApplyDiscountPin(pairing.BranchId, outcome.ToReplica(pairing.BranchId));
+        }
     }
 
     private async Task ReconcileOperatorsAsync(DevicePairing pairing)

@@ -1,3 +1,5 @@
+using Commerce.Domain.Discounts;
+
 namespace Commerce.Domain.Sync.Payloads;
 
 /// <summary>
@@ -7,7 +9,11 @@ namespace Commerce.Domain.Sync.Payloads;
 /// <c>CompleteScannedSale</c> previously produced. Additive-evolution rule
 /// (Requirement: Payload-Kind Versioning): a field may be added later, never
 /// removed, renamed, or repurposed — a breaking change ships as a new
-/// <c>payload_kind</c> (for example <c>"sale.v2"</c>) instead.
+/// <c>payload_kind</c> (for example <c>"sale.v2"</c>) instead. Discounts follow that rule: the sale
+/// discount and its authorization marker are optional trailing fields (and each
+/// line carries its own optional discount), all null when nothing was
+/// discounted, so a payload written before discounts existed still reads.
+/// <see cref="TotalAmount"/> is the FINAL total, after every discount.
 /// </summary>
 public sealed record SalePayloadV1(
     Guid SaleId,
@@ -15,4 +21,7 @@ public sealed record SalePayloadV1(
     string SaleKind,
     DateTimeOffset OccurredAtUtc,
     IReadOnlyList<SaleLine> Lines,
-    Guid? CustomerId = null);
+    Guid? CustomerId = null,
+    decimal? SaleDiscountPercent = null,
+    decimal? SaleDiscountAmount = null,
+    DiscountAuthorization? DiscountAuthorization = null);

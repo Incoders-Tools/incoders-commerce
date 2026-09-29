@@ -115,11 +115,11 @@ discount MUST total exactly as before this requirement existed.
 
 #### Scenario: Sale discount applies after line discounts
 
-- GIVEN a sale whose lines total 1000.00 after a 10% line discount already
-  reduced one line by 100.00 from 1100.00
+- GIVEN a sale whose only line totals 1000.00 and carries a 10% line discount
+  (net 900.00)
 - WHEN an authorized 5% sale discount is applied
-- THEN the sale discount amount is 50.00 (5% of the 1000.00 subtotal) and the
-  total is 950.00
+- THEN the sale discount amount is 45.00 (5% of the 900.00 net subtotal) and
+  the total is 855.00
 
 #### Scenario: Discount amounts are rounded half away from zero
 

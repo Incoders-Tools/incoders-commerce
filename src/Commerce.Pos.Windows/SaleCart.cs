@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using Commerce.Application.Pricing;
 using Commerce.BranchNode;
+using Commerce.Domain.Discounts;
 
 namespace Commerce.Pos.Windows;
 
@@ -19,6 +20,13 @@ public sealed record SaleCartResult(bool Succeeded, string? Message = null)
 /// <see cref="PricingResolutionService"/> re-resolved at the new quantity —
 /// the cart never computes a price itself, and a line that cannot be priced is
 /// never added or changed (no zero-priced substitute).
+///
+/// Discounts (pos-scan-sale "Percentage Discounts on Lines and on the Whole
+/// Sale"): a line discount applies to that line total, a sale discount to the
+/// subtotal after line discounts, each amount rounded once half away from zero.
+/// Adding or changing one demands a <see cref="DiscountAuthorization"/>: the
+/// cart never verifies a PIN itself, it only refuses to record a discount
+/// without proof. Removing one needs none.
 /// </summary>
 public sealed class SaleCart : INotifyPropertyChanged
 {
@@ -33,7 +41,30 @@ public sealed class SaleCart : INotifyPropertyChanged
 
     public ObservableCollection<ScannedSaleLineViewModel> Lines { get; } = new();
 
-    public decimal Total => Lines.Sum(l => l.LineTotal);
+    /// <summary>Sum of the undiscounted line totals.</summary>
+    public decimal Subtotal => Lines.Sum(l => l.LineTotal);
+
+    /// <summary>Sum of the line totals after line discounts; the base of the sale discount.</summary>
+    public decimal NetSubtotal => Lines.Sum(l => l.NetTotal);
+
+    public decimal? SaleDiscountPercent { get; private set; }
+
+    /// <summary>The rounded whole-sale discount over <see cref="NetSubtotal"/>; zero when none.</summary>
+    public decimal SaleDiscountAmount => SaleDiscountPercent is { } percent ? DiscountMath.Amount(NetSubtotal, percent) : 0m;
+
+    /// <summary>Line discounts plus the sale discount.</summary>
+    public decimal DiscountTotal => Subtotal - NetSubtotal + SaleDiscountAmount;
+
+    /// <summary>The FINAL amount to charge, after every discount.</summary>
+    public decimal Total => NetSubtotal - SaleDiscountAmount;
+
+    public bool HasDiscount => SaleDiscountPercent is not null || Lines.Any(l => l.HasDiscount);
+
+    /// <summary>The latest authorization behind the discounts on this sale; null when there are none.</summary>
+    public DiscountAuthorization? Authorization { get; private set; }
+
+    /// <summary>The whole-sale discount as it is committed, or null.</summary>
+    public SaleDiscount? SaleDiscount => SaleDiscountPercent is { } percent ? new SaleDiscount(percent, SaleDiscountAmount) : null;
 
     public bool IsEmpty => Lines.Count == 0;
 
@@ -80,6 +111,7 @@ public sealed class SaleCart : INotifyPropertyChanged
         }
 
         Lines.RemoveAt(index);
+        NormalizeDiscounts();
         RaiseChanged();
         return true;
     }
@@ -87,7 +119,94 @@ public sealed class SaleCart : INotifyPropertyChanged
     public void Clear()
     {
         Lines.Clear();
+        SaleDiscountPercent = null;
+        Authorization = null;
         RaiseChanged();
+    }
+
+    /// <summary>Applies or changes a percentage discount on one line; needs an authorization.</summary>
+    public SaleCartResult SetLineDiscount(Guid presentationId, decimal percent, DiscountAuthorization authorization)
+    {
+        var index = IndexOf(presentationId);
+        if (index < 0)
+        {
+            return SaleCartResult.Fail("El producto no está en la venta.");
+        }
+
+        if (!DiscountMath.IsValidPercent(percent))
+        {
+            return SaleCartResult.Fail(InvalidPercentMessage);
+        }
+
+        var line = Lines[index];
+        Lines[index] = line with { LineDiscountPercent = percent, LineDiscountAmount = DiscountMath.Amount(line.LineTotal, percent) };
+        Authorization = authorization;
+        RaiseChanged();
+        return SaleCartResult.Ok;
+    }
+
+    /// <summary>Applies or changes the whole-sale percentage discount; needs an authorization.</summary>
+    public SaleCartResult SetSaleDiscount(decimal percent, DiscountAuthorization authorization)
+    {
+        if (IsEmpty)
+        {
+            return SaleCartResult.Fail("La venta está vacía.");
+        }
+
+        if (!DiscountMath.IsValidPercent(percent))
+        {
+            return SaleCartResult.Fail(InvalidPercentMessage);
+        }
+
+        SaleDiscountPercent = percent;
+        Authorization = authorization;
+        RaiseChanged();
+        return SaleCartResult.Ok;
+    }
+
+    /// <summary>Removes one line discount; no authorization needed. False when it had none.</summary>
+    public bool RemoveLineDiscount(Guid presentationId)
+    {
+        var index = IndexOf(presentationId);
+        if (index < 0 || !Lines[index].HasDiscount)
+        {
+            return false;
+        }
+
+        Lines[index] = Lines[index] with { LineDiscountPercent = null, LineDiscountAmount = null };
+        NormalizeDiscounts();
+        RaiseChanged();
+        return true;
+    }
+
+    /// <summary>Removes the whole-sale discount; no authorization needed. False when there was none.</summary>
+    public bool RemoveSaleDiscount()
+    {
+        if (SaleDiscountPercent is null)
+        {
+            return false;
+        }
+
+        SaleDiscountPercent = null;
+        NormalizeDiscounts();
+        RaiseChanged();
+        return true;
+    }
+
+    private const string InvalidPercentMessage = "El descuento debe ser mayor que 0 y hasta 100, con hasta 2 decimales.";
+
+    /// <summary>An empty sale keeps no sale discount, and a sale without discounts keeps no authorization marker.</summary>
+    private void NormalizeDiscounts()
+    {
+        if (IsEmpty)
+        {
+            SaleDiscountPercent = null;
+        }
+
+        if (!HasDiscount)
+        {
+            Authorization = null;
+        }
     }
 
     private async Task<SaleCartResult> ChangeByAsync(Guid presentationId, decimal delta)
@@ -109,11 +228,16 @@ public sealed class SaleCart : INotifyPropertyChanged
                 $"No hay precio vigente para {presentationName} el {effectiveOn:yyyy-MM-dd}. Use venta manual o sincronice.");
         }
 
-        var line = new ScannedSaleLineViewModel(
-            presentationId, code, productName, presentationName, quantity, resolved.UnitNetPrice, resolved.LineTotal);
-
         // Re-locate: an await separates the lookup from the write.
         existingIndex = IndexOf(presentationId);
+
+        // A quantity change keeps the line discount percentage (it is not a
+        // new or changed discount) and recomputes the amount over the new total.
+        var percent = existingIndex >= 0 ? Lines[existingIndex].LineDiscountPercent : null;
+        var line = new ScannedSaleLineViewModel(
+            presentationId, code, productName, presentationName, quantity, resolved.UnitNetPrice, resolved.LineTotal,
+            percent, percent is { } p ? DiscountMath.Amount(resolved.LineTotal, p) : null);
+
         if (existingIndex >= 0)
         {
             Lines[existingIndex] = line;
@@ -142,7 +266,9 @@ public sealed class SaleCart : INotifyPropertyChanged
 
     private void RaiseChanged()
     {
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Total)));
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsEmpty)));
+        foreach (var name in new[] { nameof(Total), nameof(Subtotal), nameof(DiscountTotal), nameof(HasDiscount), nameof(IsEmpty) })
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+        }
     }
 }

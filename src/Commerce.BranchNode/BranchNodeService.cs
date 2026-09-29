@@ -1,5 +1,6 @@
 using Commerce.Application.Access;
 using Commerce.Application.Audit;
+using Commerce.Domain.Discounts;
 using Commerce.Domain.Identity;
 using Commerce.Domain.Sync;
 using Commerce.Domain.Sync.Payloads;
@@ -72,7 +73,11 @@ public sealed class BranchNodeService
     /// row via <see cref="BranchSyncStore.CommitScannedSaleAtomically"/>.
     /// <paramref name="customerId"/> is the optional customer picked at the
     /// POS (null = walk-in); it is stored on the sale effect and carried in the
-    /// outbox payload.
+    /// outbox payload. <paramref name="totalAmount"/> is the FINAL total after
+    /// every discount; <paramref name="saleDiscount"/> is the whole-sale
+    /// discount and <paramref name="discountAuthorization"/> proves who
+    /// authorized the discounts (both null when nothing was discounted). Line
+    /// discounts travel on <paramref name="lines"/> themselves.
     /// </summary>
     public BranchOutboxCommitResult CompleteScannedSale(
         Guid organizationId,
@@ -83,10 +88,14 @@ public sealed class BranchNodeService
         decimal totalAmount,
         Guid operationId,
         Guid correlationId,
-        Guid? customerId = null)
+        Guid? customerId = null,
+        SaleDiscount? saleDiscount = null,
+        DiscountAuthorization? discountAuthorization = null)
     {
         var occurredAtUtc = _clock();
-        var payload = new SalePayloadV1(saleId, totalAmount, "Scanned", occurredAtUtc, lines, customerId);
+        var payload = new SalePayloadV1(
+            saleId, totalAmount, "Scanned", occurredAtUtc, lines, customerId,
+            saleDiscount?.Percent, saleDiscount?.Amount, discountAuthorization);
         var envelope = new SyncEnvelope(
             OperationId: operationId,
             ContractVersion: 1,
@@ -99,7 +108,10 @@ public sealed class BranchNodeService
             OccurredAtUtc: occurredAtUtc,
             PayloadKind: "sale",
             Payload: SyncPayloadCodec.Serialize(payload));
-        var effect = new SaleEffect(saleId, branchId, totalAmount, occurredAtUtc, CustomerId: customerId);
+        var effect = new SaleEffect(
+            saleId, branchId, totalAmount, occurredAtUtc, CustomerId: customerId,
+            SaleDiscountPercent: saleDiscount?.Percent, SaleDiscountAmount: saleDiscount?.Amount,
+            DiscountAuthorization: discountAuthorization);
 
         return _store.CommitScannedSaleAtomically(envelope, effect, lines);
     }

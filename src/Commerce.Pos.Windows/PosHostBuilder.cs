@@ -70,6 +70,10 @@ public static class PosHostBuilder
         {
             client.BaseAddress = new Uri(cloudApiBaseUrl);
         });
+        builder.Services.AddHttpClient<DiscountPinReplicaClient>(client =>
+        {
+            client.BaseAddress = new Uri(cloudApiBaseUrl);
+        });
 
         // TRANSIENT, not a shared typed HttpClient (design.md "Desktop
         // authorization for customer create/edit"): the admin cookie lives in

@@ -1,3 +1,4 @@
+using Commerce.Cloud.Api.Auditing;
 using Commerce.Cloud.Api.Tenancy;
 using Commerce.Domain.Sync;
 using Npgsql;
@@ -98,6 +99,13 @@ public sealed class PostgresCloudInboxStore : ICloudInboxStore
             insertCmd.Parameters.AddWithValue(envelope.PayloadKind);
             insertCmd.Parameters.AddWithValue(envelope.Payload);
             await insertCmd.ExecuteNonQueryAsync(ct);
+        }
+
+        // A discounted sale is audited in the SAME transaction as its inbox row;
+        // the duplicate check above returns first, so redelivery never repeats it.
+        if (SaleDiscountAudit.TryBuild(envelope) is { } discountAudit)
+        {
+            await AuditLogWriter.InsertAsync(connection, tx, discountAudit, ct);
         }
 
         await tx.CommitAsync(ct);
