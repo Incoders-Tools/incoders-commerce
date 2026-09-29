@@ -1,0 +1,63 @@
+<UserControl x:Class="Commerce.Pos.Windows.Controls.ProductCard"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Border x:Name="CardChrome" Width="164" Margin="0,0,10,10" MouseLeftButtonUp="CardChrome_MouseLeftButtonUp">
+        <Border.Style>
+            <Style TargetType="Border" BasedOn="{StaticResource ProductCardBorder}">
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding IsInSale}" Value="True">
+                        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryBrush}" />
+                        <Setter Property="BorderThickness" Value="2" />
+                    </DataTrigger>
+                    <Trigger Property="IsMouseOver" Value="True">
+                        <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+        </Border.Style>
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <StackPanel Grid.Row="0" MinHeight="46">
+                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextAlignment="Center" TextWrapping="Wrap"
+                           TextTrimming="CharacterEllipsis" MaxHeight="40" ToolTip="{Binding Name}" />
+                <TextBlock Text="{Binding PresentationName}" Style="{StaticResource MutedTextBlock}" FontSize="12"
+                           TextAlignment="Center" TextTrimming="CharacterEllipsis" />
+            </StackPanel>
+
+            <!-- No product images exist yet (Phase 2): initials keep the card scannable. -->
+            <Border Grid.Row="1" Height="60" Margin="0,6,0,8" CornerRadius="10" Background="{DynamicResource SurfaceSoftBrush}">
+                <TextBlock Text="{Binding Initials}" FontSize="24" FontWeight="Bold" Style="{StaticResource MutedTextBlock}"
+                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Border>
+
+            <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,8">
+                <Button x:Name="DecrementButton" Style="{StaticResource StepperButton}" Click="DecrementButton_Click"
+                        IsEnabled="{Binding IsInSale}" AutomationProperties.Name="Quitar una unidad">
+                    <TextBlock Text="{StaticResource IconRemove}" Style="{StaticResource IconTextBlock}" FontSize="12"
+                               Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+                </Button>
+                <TextBlock Text="{Binding QuantityText}" FontSize="16" FontWeight="SemiBold" MinWidth="34" TextAlignment="Center" VerticalAlignment="Center" />
+                <Button x:Name="IncrementButton" Style="{StaticResource StepperButton}" Click="IncrementButton_Click"
+                        IsEnabled="{Binding HasPrice}" AutomationProperties.Name="Agregar una unidad">
+                    <TextBlock Text="{StaticResource IconAdd}" Style="{StaticResource IconTextBlock}" FontSize="12"
+                               Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+                </Button>
+            </StackPanel>
+
+            <Grid Grid.Row="3">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="{Binding UnitPriceText}" Style="{StaticResource MutedTextBlock}" FontSize="13" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                <TextBlock Grid.Column="1" Text="{Binding LineTotalText}" FontWeight="Bold" FontSize="15" VerticalAlignment="Center" Margin="6,0,0,0" />
+            </Grid>
+        </Grid>
+    </Border>
+</UserControl>

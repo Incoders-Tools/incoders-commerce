@@ -1,0 +1,77 @@
+using System.ComponentModel;
+using System.Globalization;
+using Commerce.BranchNode;
+
+namespace Commerce.Pos.Windows;
+
+/// <summary>
+/// One catalog card. Shows the replicated catalog price until the
+/// presentation is in the sale; then it mirrors the cart line (quantity and the
+/// price the pricing service actually resolved). It never resolves a price.
+/// </summary>
+public sealed class ProductCardViewModel : INotifyPropertyChanged
+{
+    private ScannedSaleLineViewModel? _line;
+
+    public ProductCardViewModel(CatalogPriceReplicaItem item) => Item = item;
+
+    public CatalogPriceReplicaItem Item { get; }
+
+    public Guid PresentationId => Item.PresentationId;
+
+    public string Name => Item.ProductName;
+
+    public string PresentationName => Item.PresentationName;
+
+    public string? Code => Item.IdentificationCode;
+
+    public bool HasPrice => Item.UnitPrice is not null;
+
+    public string Initials => BuildInitials(Item.ProductName);
+
+    public decimal Quantity => _line?.Quantity ?? 0m;
+
+    public bool IsInSale => _line is not null;
+
+    public string QuantityText => Quantity.ToString("0.##", CultureInfo.InvariantCulture);
+
+    public string UnitPriceText => _line?.UnitPriceText
+        ?? (Item.UnitPrice is { } price ? price.ToString("C", CultureInfo.CurrentCulture) : "Sin precio");
+
+    public string LineTotalText => (_line?.LineTotal ?? 0m).ToString("C", CultureInfo.CurrentCulture);
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    public void ApplyLine(ScannedSaleLineViewModel? line)
+    {
+        if (Equals(_line, line))
+        {
+            return;
+        }
+
+        _line = line;
+        foreach (var name in new[]
+                 {
+                     nameof(Quantity), nameof(IsInSale), nameof(QuantityText), nameof(UnitPriceText), nameof(LineTotalText)
+                 })
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+        }
+    }
+
+    private static string BuildInitials(string name)
+    {
+        var letters = name
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Take(2)
+            .Select(word => char.ToUpper(word[0], CultureInfo.CurrentCulture))
+            .ToArray();
+        return letters.Length == 0 ? "?" : new string(letters);
+    }
+}
+
+/// <summary>An entry of the category rail. <see cref="Key"/> is null for the "all products" entry.</summary>
+public sealed record CategoryRailItem(string? Key, string Name, string Glyph)
+{
+    public static CategoryRailItem All { get; } = new(null, "Todos", "");
+}
