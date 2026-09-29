@@ -243,6 +243,13 @@ in a throwaway worktree at task close.
     customer picker shows "Walk-in (no customer)" in English; running app
     processes started before the change keep the old binaries until restarted.
 
+- 2026-09-29 (parent): T4 range `4491987..2259fe7` assessed HIGH (3163
+  lines, 58 files; evidence: process-starting code in
+  `CategoriesMigrationTests.cs`); owner DECLINED the review for this
+  candidate. Parent spot check in a throwaway worktree: `dotnet test --filter
+  Categor` 25/25 (main tree build blocked by the user's running POS locking
+  `Commerce.Updater.dll`).
+
 ## Owner decisions (2026-09-29)
 - Tax: the POS shows only the final-consumer total (tax included), no IVA
   line. Price composition is shown per product in the web products and price
