@@ -1,5 +1,7 @@
 import { apiFetch, apiFetchOutcome } from './client'
 import type {
+  CopyCatalogRequest,
+  CopyCatalogResponse,
   CreatePresentationRequest,
   CreateProductRequest,
   ManagementOutcome,
@@ -47,6 +49,14 @@ export function updatePresentation(
 ): Promise<PresentationRecord> {
   return apiFetch<PresentationRecord>(`/catalog/presentations/${presentationId}`, {
     method: 'PUT',
+    body: JSON.stringify(request),
+  })
+}
+
+// B7 U5b: `POST /catalog/copy` — the header-selected branch is the SOURCE.
+export function copyCatalog(request: CopyCatalogRequest): Promise<CopyCatalogResponse> {
+  return apiFetch<CopyCatalogResponse>('/catalog/copy', {
+    method: 'POST',
     body: JSON.stringify(request),
   })
 }

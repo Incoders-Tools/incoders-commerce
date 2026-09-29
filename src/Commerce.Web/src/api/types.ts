@@ -303,6 +303,31 @@ export interface UpdatePresentationRequest {
   identificationCode: string | null
 }
 
+// B7 U5b (catalog-item-identification spec "Copying Catalog Between
+// Branches"), `Endpoints/Catalog.cs` `CopyCatalogRequest`/`CopyCatalogResponse`/
+// `SkippedPresentationDto`, mirrored exactly. `sourceBranchId` MUST equal the
+// caller's currently selected branch (`X-Branch-Id`) — the server rejects a
+// mismatch with 400, so the UI never lets the operator pick it independently.
+export interface CopyCatalogRequest {
+  sourceBranchId: string
+  targetBranchId: string
+  productIds?: string[]
+}
+
+export interface SkippedPresentation {
+  presentationId: string
+  identificationCode: string | null
+  reason: string
+}
+
+export interface CopyCatalogResponse {
+  productsCopied: number
+  presentationsCopied: number
+  skipped: SkippedPresentation[]
+  priceListId: string | null
+  priceEntriesCopied: number
+}
+
 // commerce-pricing-engine Endpoints/Pricing.cs `PriceListRecord` /
 // `CreatePriceListRequest`, mirrored exactly. `organizationId` is never a
 // request field — it comes from the tenant scope.

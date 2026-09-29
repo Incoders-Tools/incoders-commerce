@@ -10,7 +10,10 @@ import { useViewPreference } from '@/components/data/useViewPreference'
 import { FormPage } from '@/components/layout/FormPage'
 import { listPresentations, updatePresentation } from '@/api/catalog'
 import { ApiError } from '@/api/client'
-import { QuantityBehavior, type PresentationRecord } from '@/api/types'
+import { hasPermission, useOptionalAuth } from '@/auth/AuthContext'
+import { useOptionalBranchContext } from '@/branch/BranchContext'
+import { CatalogCopyForm } from './CatalogCopyForm'
+import { Permission, QuantityBehavior, type PresentationRecord } from '@/api/types'
 
 const QUANTITY_BEHAVIOR_KEYS: Record<QuantityBehavior, 'fixedQuantity' | 'weighted' | 'bulk'> = {
   [QuantityBehavior.FixedQuantity]: 'fixedQuantity',
@@ -53,6 +56,19 @@ export function CatalogScreen() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [view, setView] = useViewPreference('catalog')
+  const [copying, setCopying] = useState(false)
+
+  // B7 U5b: admin-only copy to another branch of the same organization. The
+  // server is the authority (`ManageCatalog`, same-organization targets); the
+  // action is only offered when there is another branch to copy to.
+  const user = useOptionalAuth()?.user ?? null
+  const branchContext = useOptionalBranchContext()
+  const sourceBranch = branchContext?.selectedBranch ?? null
+  const targetBranches = (branchContext?.selectableBranches ?? []).filter((branch) => branch.id !== sourceBranch?.id)
+  const canCopy =
+    sourceBranch !== null &&
+    targetBranches.length > 0 &&
+    (hasPermission(user, Permission.ManageCatalog) || Boolean(user?.isSystemAdmin))
 
   useEffect(() => {
     let cancelled = false
@@ -99,6 +115,12 @@ export function CatalogScreen() {
   // ordering `CustomersScreen.tsx` uses for its own create/edit swap.
   const editingPresentation = presentations.find((presentation) => presentation.id === editingId) ?? null
 
+  if (copying && canCopy && sourceBranch) {
+    return (
+      <CatalogCopyForm sourceBranch={sourceBranch} targetBranches={targetBranches} onBack={() => setCopying(false)} />
+    )
+  }
+
   if (editingPresentation) {
     return (
       <IdentificationCodeForm
@@ -134,7 +156,17 @@ export function CatalogScreen() {
 
   return (
     <section className="flex w-full flex-col gap-6">
-      <PageHeader title={t('title')} description={t('description')} />
+      <PageHeader
+        title={t('title')}
+        description={t('description')}
+        actions={
+          canCopy ? (
+            <Button type="button" variant="outline" onClick={() => setCopying(true)}>
+              {t('copy.action')}
+            </Button>
+          ) : undefined
+        }
+      />
 
       {error && (
         <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">

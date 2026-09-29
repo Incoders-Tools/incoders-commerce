@@ -36,5 +36,33 @@
     "saving": "Saving…",
     "save": "Save",
     "cancel": "Cancel"
+  },
+  "copy": {
+    "action": "Copy catalog",
+    "title": "Copy catalog",
+    "description": "Copy products from \"{{source}}\" to another branch of your organization.",
+    "target": "Target branch",
+    "targetPlaceholder": "Choose a branch",
+    "scope": "What to copy",
+    "whole": "Whole catalog",
+    "selected": "Selected products",
+    "loadingProducts": "Loading products…",
+    "noProducts": "This branch has no products yet.",
+    "pricesNote": "The latest price list is copied too, with only the prices of what is copied. Products whose code already exists in the target branch are skipped.",
+    "submit": "Copy",
+    "copying": "Copying…",
+    "errors": {
+      "failed": "The catalog could not be copied. Check the target branch and try again.",
+      "products": "Products could not be loaded."
+    },
+    "result": {
+      "title": "Copy finished",
+      "products": "Products copied: {{count}}",
+      "presentations": "Presentations copied: {{count}}",
+      "prices": "Prices copied: {{count}}",
+      "noPriceList": "No price list was copied.",
+      "skipped": "Presentations skipped: {{count}}",
+      "skippedNote": "Their identification code already exists in the target branch:"
+    }
   }
 }
