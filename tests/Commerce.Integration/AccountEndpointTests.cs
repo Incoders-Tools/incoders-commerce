@@ -563,7 +563,7 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
             Commerce.Cloud.Api.Tenancy.TenantScopeEndpointFilter.BranchSelectorHeader, bootstrapBody!.BranchId.ToString());
 
         var createProductResponse = await client.PostAsJsonAsync(
-            "/catalog/products", new { name = "Original", categoryId = Guid.NewGuid(), defaultUnitId = Guid.NewGuid() });
+            "/catalog/products", new { name = "Original", defaultUnitId = Guid.NewGuid() });
         Assert.Equal(HttpStatusCode.Created, createProductResponse.StatusCode);
         var createdProduct = await createProductResponse.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
         var productId = createdProduct.GetProperty("id").GetGuid();

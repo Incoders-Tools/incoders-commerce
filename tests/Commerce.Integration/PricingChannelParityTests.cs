@@ -136,7 +136,7 @@ public sealed class PricingChannelParityTests : IDisposable
 
         var catalogStore = new PostgresCatalogStore(_dataSource!);
         var product = await catalogStore.CreateProductAsync(
-            scope, new NewProduct(Guid.NewGuid(), "Product", Guid.NewGuid(), Guid.NewGuid(), actorId),
+            scope, new NewProduct(Guid.NewGuid(), "Product", CategoryFixture.Create(scope), Guid.NewGuid(), actorId),
             "org-user", actorId, CancellationToken.None);
         var presentation = await catalogStore.CreatePresentationAsync(
             scope, new NewPresentation(Guid.NewGuid(), product.Id, "Presentation", QuantityBehavior.FixedQuantity, Guid.NewGuid(), null, actorId),
@@ -193,7 +193,7 @@ public sealed class PricingChannelParityTests : IDisposable
 
         var catalogStore = new PostgresCatalogStore(_dataSource!);
         var product = await catalogStore.CreateProductAsync(
-            scope, new NewProduct(Guid.NewGuid(), "Asado completo", Guid.NewGuid(), Guid.NewGuid(), actorId),
+            scope, new NewProduct(Guid.NewGuid(), "Asado completo", CategoryFixture.Create(scope), Guid.NewGuid(), actorId),
             "org-user", actorId, CancellationToken.None);
         var presentation = await catalogStore.CreatePresentationAsync(
             scope, new NewPresentation(Guid.NewGuid(), product.Id, "Kg", QuantityBehavior.FixedQuantity, Guid.NewGuid(), null, actorId),

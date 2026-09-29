@@ -128,7 +128,7 @@ public sealed class CatalogPriceSyncTests : IClassFixture<WebApplicationFactory<
         var actorId = Guid.NewGuid();
 
         var product = await catalogStore.CreateProductAsync(
-            tenantScope, new NewProduct(Guid.NewGuid(), "Flour", Guid.NewGuid(), Guid.NewGuid(), actorId),
+            tenantScope, new NewProduct(Guid.NewGuid(), "Flour", CategoryFixture.Create(tenantScope), Guid.NewGuid(), actorId),
             "org-user", actorId, CancellationToken.None);
 
         var presentation = await catalogStore.CreatePresentationAsync(

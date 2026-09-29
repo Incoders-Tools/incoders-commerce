@@ -134,7 +134,7 @@ public sealed class PostgresCatalogStoreTests : IDisposable
         var actorId = Guid.NewGuid();
 
         var created = await store.CreateProductAsync(
-            scope, new NewProduct(Guid.NewGuid(), "Yerba Mate 1kg", Guid.NewGuid(), Guid.NewGuid(), actorId),
+            scope, new NewProduct(Guid.NewGuid(), "Yerba Mate 1kg", CategoryFixture.Create(scope), Guid.NewGuid(), actorId),
             "org-user", actorId, CancellationToken.None);
 
         var found = await store.FindProductAsync(scope, created.Id, CancellationToken.None);
@@ -159,7 +159,7 @@ public sealed class PostgresCatalogStoreTests : IDisposable
         var actorId = Guid.NewGuid();
 
         var created = await store.CreateProductAsync(
-            new CloudTenantScope(orgAId, BranchId: branchAId), new NewProduct(Guid.NewGuid(), "Org A Product", Guid.NewGuid(), Guid.NewGuid(), actorId),
+            new CloudTenantScope(orgAId, BranchId: branchAId), new NewProduct(Guid.NewGuid(), "Org A Product", CategoryFixture.Create(new CloudTenantScope(orgAId, BranchId: branchAId)), Guid.NewGuid(), actorId),
             "org-user", actorId, CancellationToken.None);
 
         var updated = await store.UpdateProductAsync(
@@ -182,7 +182,7 @@ public sealed class PostgresCatalogStoreTests : IDisposable
         var actorId = Guid.NewGuid();
 
         var product = await store.CreateProductAsync(
-            scope, new NewProduct(Guid.NewGuid(), "Yerba Mate", Guid.NewGuid(), Guid.NewGuid(), actorId),
+            scope, new NewProduct(Guid.NewGuid(), "Yerba Mate", CategoryFixture.Create(scope), Guid.NewGuid(), actorId),
             "org-user", actorId, CancellationToken.None);
 
         var presentation = await store.CreatePresentationAsync(
@@ -214,7 +214,7 @@ public sealed class PostgresCatalogStoreTests : IDisposable
         var actorId = Guid.NewGuid();
 
         var product = await store.CreateProductAsync(
-            scope, new NewProduct(Guid.NewGuid(), "Product A", Guid.NewGuid(), Guid.NewGuid(), actorId),
+            scope, new NewProduct(Guid.NewGuid(), "Product A", CategoryFixture.Create(scope), Guid.NewGuid(), actorId),
             "org-user", actorId, CancellationToken.None);
 
         await store.CreatePresentationAsync(
@@ -245,10 +245,10 @@ public sealed class PostgresCatalogStoreTests : IDisposable
         var actorId = Guid.NewGuid();
 
         var productA = await store.CreateProductAsync(
-            new CloudTenantScope(orgAId, BranchId: branchAId), new NewProduct(Guid.NewGuid(), "Product A", Guid.NewGuid(), Guid.NewGuid(), actorId),
+            new CloudTenantScope(orgAId, BranchId: branchAId), new NewProduct(Guid.NewGuid(), "Product A", CategoryFixture.Create(new CloudTenantScope(orgAId, BranchId: branchAId)), Guid.NewGuid(), actorId),
             "org-user", actorId, CancellationToken.None);
         var productB = await store.CreateProductAsync(
-            new CloudTenantScope(orgBId, BranchId: branchBId), new NewProduct(Guid.NewGuid(), "Product B", Guid.NewGuid(), Guid.NewGuid(), actorId),
+            new CloudTenantScope(orgBId, BranchId: branchBId), new NewProduct(Guid.NewGuid(), "Product B", CategoryFixture.Create(new CloudTenantScope(orgBId, BranchId: branchBId)), Guid.NewGuid(), actorId),
             "org-user", actorId, CancellationToken.None);
 
         await store.CreatePresentationAsync(
@@ -285,10 +285,10 @@ public sealed class PostgresCatalogStoreTests : IDisposable
         var scopeB = new CloudTenantScope(organizationId, BranchId: branchBId);
 
         var productA = await store.CreateProductAsync(
-            scopeA, new NewProduct(Guid.NewGuid(), "Product A", Guid.NewGuid(), Guid.NewGuid(), actorId),
+            scopeA, new NewProduct(Guid.NewGuid(), "Product A", CategoryFixture.Create(scopeA), Guid.NewGuid(), actorId),
             "org-user", actorId, CancellationToken.None);
         var productB = await store.CreateProductAsync(
-            scopeB, new NewProduct(Guid.NewGuid(), "Product B", Guid.NewGuid(), Guid.NewGuid(), actorId),
+            scopeB, new NewProduct(Guid.NewGuid(), "Product B", CategoryFixture.Create(scopeB), Guid.NewGuid(), actorId),
             "org-user", actorId, CancellationToken.None);
 
         await store.CreatePresentationAsync(
@@ -320,7 +320,7 @@ public sealed class PostgresCatalogStoreTests : IDisposable
         var actorId = Guid.NewGuid();
 
         var product = await store.CreateProductAsync(
-            scope, new NewProduct(Guid.NewGuid(), "Product", Guid.NewGuid(), Guid.NewGuid(), actorId),
+            scope, new NewProduct(Guid.NewGuid(), "Product", CategoryFixture.Create(scope), Guid.NewGuid(), actorId),
             "org-user", actorId, CancellationToken.None);
 
         var cursor = DateTimeOffset.UtcNow;

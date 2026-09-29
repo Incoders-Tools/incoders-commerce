@@ -118,7 +118,7 @@ public sealed class SupplierImportTests : IClassFixture<WebApplicationFactory<Pr
         var actorId = Guid.NewGuid();
 
         var product = await catalogStore.CreateProductAsync(
-            tenantScope, new NewProduct(Guid.NewGuid(), "Seed Product", Guid.NewGuid(), Guid.NewGuid(), actorId),
+            tenantScope, new NewProduct(Guid.NewGuid(), "Seed Product", CategoryFixture.Create(tenantScope), Guid.NewGuid(), actorId),
             "org-user", actorId, CancellationToken.None);
 
         var presentation = await catalogStore.CreatePresentationAsync(

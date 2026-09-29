@@ -179,7 +179,7 @@ public sealed class CatalogCopyEndpointTests : IClassFixture<WebApplicationFacto
 
     private static async Task<Guid> CreateProductAsync(HttpClient client, string name)
     {
-        var response = await client.PostAsJsonAsync("/catalog/products", new { name, categoryId = Guid.NewGuid(), defaultUnitId = Guid.NewGuid() });
+        var response = await client.PostAsJsonAsync("/catalog/products", new { name, defaultUnitId = Guid.NewGuid() });
         response.EnsureSuccessStatusCode();
         var body = await response.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
         return body.GetProperty("id").GetGuid();

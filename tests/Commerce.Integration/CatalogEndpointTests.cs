@@ -147,7 +147,6 @@ public sealed class CatalogEndpointTests : IClassFixture<WebApplicationFactory<P
         var response = await client.PostAsJsonAsync("/catalog/products", new
         {
             name = "Seed Product",
-            categoryId = Guid.NewGuid(),
             defaultUnitId = Guid.NewGuid(),
         });
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);

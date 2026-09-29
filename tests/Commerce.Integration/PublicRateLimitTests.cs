@@ -134,7 +134,7 @@ public sealed class PublicRateLimitTests : IDisposable
     {
         var catalogStore = new PostgresCatalogStore(_dataSource!);
         var product = await catalogStore.CreateProductAsync(
-            scope, new NewProduct(Guid.NewGuid(), "Product", Guid.NewGuid(), Guid.NewGuid(), actorId),
+            scope, new NewProduct(Guid.NewGuid(), "Product", CategoryFixture.Create(scope), Guid.NewGuid(), actorId),
             "org-user", actorId, CancellationToken.None);
         var presentation = await catalogStore.CreatePresentationAsync(
             scope,

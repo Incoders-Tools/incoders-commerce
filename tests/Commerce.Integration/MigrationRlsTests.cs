@@ -2434,12 +2434,13 @@ public sealed class MigrationRlsTests
             using var insertProductCmd = new NpgsqlCommand(
                 """
                 INSERT INTO products (id, organization_id, branch_id, name, category_id, default_unit_id, created_by_user_id)
-                VALUES ($1, $2, $3, 'Product A', $4, $4, $4)
+                VALUES ($1, $2, $3, 'Product A', $5, $4, $4)
                 """, ownerConnection);
             insertProductCmd.Parameters.AddWithValue(productId);
             insertProductCmd.Parameters.AddWithValue(orgAId);
             insertProductCmd.Parameters.AddWithValue(branchAId);
             insertProductCmd.Parameters.AddWithValue(actorId);
+            insertProductCmd.Parameters.AddWithValue(CategoryFixture.Create(orgAId));
             insertProductCmd.ExecuteNonQuery();
         }
 
@@ -2504,12 +2505,13 @@ public sealed class MigrationRlsTests
         using var insertCmd = new NpgsqlCommand(
             """
             INSERT INTO products (id, organization_id, branch_id, name, category_id, default_unit_id, created_by_user_id)
-            VALUES ($1, $2, $3, 'Rogue Product', $4, $4, $4)
+            VALUES ($1, $2, $3, 'Rogue Product', $5, $4, $4)
             """, writeConnection, tx);
         insertCmd.Parameters.AddWithValue(Guid.NewGuid());
         insertCmd.Parameters.AddWithValue(orgAId);
         insertCmd.Parameters.AddWithValue(branchAId);
         insertCmd.Parameters.AddWithValue(Guid.NewGuid());
+        insertCmd.Parameters.AddWithValue(CategoryFixture.Create(orgAId));
 
         Assert.Throws<PostgresException>(() => insertCmd.ExecuteNonQuery());
         tx.Rollback();
@@ -2561,13 +2563,14 @@ public sealed class MigrationRlsTests
         using (var insertProductCmd = new NpgsqlCommand(
             """
             INSERT INTO products (id, organization_id, branch_id, name, category_id, default_unit_id, created_by_user_id)
-            VALUES ($1, $2, $3, 'Product A', $4, $4, $4)
+            VALUES ($1, $2, $3, 'Product A', $5, $4, $4)
             """, ownerConnection))
         {
             insertProductCmd.Parameters.AddWithValue(productId);
             insertProductCmd.Parameters.AddWithValue(orgAId);
             insertProductCmd.Parameters.AddWithValue(branchAId);
             insertProductCmd.Parameters.AddWithValue(actorId);
+            insertProductCmd.Parameters.AddWithValue(CategoryFixture.Create(orgAId));
             insertProductCmd.ExecuteNonQuery();
         }
 
@@ -2649,13 +2652,14 @@ public sealed class MigrationRlsTests
         Exec(
             """
             INSERT INTO products (id, organization_id, branch_id, name, category_id, default_unit_id, created_by_user_id)
-            VALUES ($1, $2, $3, 'Product A', $4, $4, $4)
+            VALUES ($1, $2, $3, 'Product A', $5, $4, $4)
             """, c =>
             {
                 c.Parameters.AddWithValue(productId);
                 c.Parameters.AddWithValue(orgAId);
                 c.Parameters.AddWithValue(branchAId);
                 c.Parameters.AddWithValue(actorId);
+                c.Parameters.AddWithValue(CategoryFixture.Create(orgAId));
             });
         Exec(
             """
@@ -2768,13 +2772,14 @@ public sealed class MigrationRlsTests
         Exec(
             """
             INSERT INTO products (id, organization_id, branch_id, name, category_id, default_unit_id, created_by_user_id)
-            VALUES ($1, $2, $3, 'Product A', $4, $4, $4)
+            VALUES ($1, $2, $3, 'Product A', $5, $4, $4)
             """, c =>
             {
                 c.Parameters.AddWithValue(productId);
                 c.Parameters.AddWithValue(orgAId);
                 c.Parameters.AddWithValue(branchAId);
                 c.Parameters.AddWithValue(actorId);
+                c.Parameters.AddWithValue(CategoryFixture.Create(orgAId));
             });
         Exec(
             """
@@ -2934,13 +2939,14 @@ public sealed class MigrationRlsTests
             Exec(
                 """
                 INSERT INTO products (id, organization_id, branch_id, name, category_id, default_unit_id, created_by_user_id)
-                VALUES ($1, $2, $3, 'Product A', $4, $4, $4)
+                VALUES ($1, $2, $3, 'Product A', $5, $4, $4)
                 """, c =>
                 {
                     c.Parameters.AddWithValue(productId);
                     c.Parameters.AddWithValue(orgAId);
                     c.Parameters.AddWithValue(branchAId);
                     c.Parameters.AddWithValue(actorId);
+                    c.Parameters.AddWithValue(CategoryFixture.Create(orgAId));
                 });
             Exec(
                 """

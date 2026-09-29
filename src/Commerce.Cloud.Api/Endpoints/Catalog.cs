@@ -87,6 +87,7 @@ public static class CatalogEndpoints
             HttpContext httpContext,
             PostgresUserAccountStore userStore,
             PostgresCatalogStore catalogStore,
+            PostgresCategoryStore categoryStore,
             CancellationToken ct) =>
         {
             var branchFailure = BranchSelectionRequirement.Enforce(httpContext);
@@ -110,12 +111,72 @@ public static class CatalogEndpoints
                 });
             }
 
+            // catalog-categories spec: a product references exactly one
+            // category of ITS organization. No category id means the
+            // organization's default "Sin categoría" (created on demand); a
+            // foreign or unknown id is a validation failure, never a 500 from
+            // the composite foreign key.
+            Guid categoryId;
+            if (request.CategoryId is null || request.CategoryId == Guid.Empty)
+            {
+                categoryId = await categoryStore.EnsureDefaultAsync(scope, ct);
+            }
+            else if (await categoryStore.FindAsync(scope, request.CategoryId.Value, ct) is not null)
+            {
+                categoryId = request.CategoryId.Value;
+            }
+            else
+            {
+                return CategoryNotFound();
+            }
+
             var product = await catalogStore.CreateProductAsync(
                 scope,
-                new NewProduct(Guid.NewGuid(), request.Name.Trim(), request.CategoryId, request.DefaultUnitId, caller.Id),
+                new NewProduct(Guid.NewGuid(), request.Name.Trim(), categoryId, request.DefaultUnitId, caller.Id),
                 "org-user", caller.Id, ct);
 
             return Results.Created($"/catalog/products/{product.Id}", product);
+        });
+
+        group.MapPut("/products/{productId:guid}/category", async (
+            Guid productId,
+            ChangeProductCategoryRequest request,
+            HttpContext httpContext,
+            PostgresUserAccountStore userStore,
+            PostgresCatalogStore catalogStore,
+            PostgresCategoryStore categoryStore,
+            CancellationToken ct) =>
+        {
+            var branchFailure = BranchSelectionRequirement.Enforce(httpContext);
+            if (branchFailure is not null)
+            {
+                return branchFailure;
+            }
+
+            var auth = await AuthorizeCallerAsync(httpContext, userStore, ct);
+            if (auth is null)
+            {
+                return Results.Forbid();
+            }
+            var (scope, caller) = auth.Value;
+
+            var existing = await catalogStore.FindProductAsync(scope, productId, ct);
+            if (existing is null)
+            {
+                return Results.NotFound();
+            }
+
+            if (await categoryStore.FindAsync(scope, request.CategoryId, ct) is null)
+            {
+                return CategoryNotFound();
+            }
+
+            var updated = await catalogStore.UpdateProductAsync(
+                scope, productId,
+                new UpdateProduct(existing.Name, request.CategoryId, existing.DefaultUnitId),
+                "org-user", caller.Id, ct);
+
+            return updated is null ? Results.NotFound() : Results.Ok(updated);
         });
 
         group.MapPost("/products/{productId:guid}/rename", async (
@@ -379,6 +440,12 @@ public static class CatalogEndpoints
         return group;
     }
 
+    private static IResult CategoryNotFound() =>
+        Results.ValidationProblem(new Dictionary<string, string[]>
+        {
+            ["categoryId"] = ["categoryId does not match a category of this organization."],
+        });
+
     /// <summary>
     /// The <c>CustomerEndpoints.AuthorizeCallerAsync</c> shape, reused
     /// verbatim for this file's routes: caller id from the NameIdentifier
@@ -408,7 +475,10 @@ public static class CatalogEndpoints
     }
 }
 
-public sealed record CreateProductRequest(string Name, Guid CategoryId, Guid DefaultUnitId);
+/// <summary>`CategoryId` is optional: omitted (or empty) means the organization's default "Sin categoría".</summary>
+public sealed record CreateProductRequest(string Name, Guid? CategoryId, Guid DefaultUnitId);
+
+public sealed record ChangeProductCategoryRequest(Guid CategoryId);
 
 /// <summary>
 /// `CurrentName`/`CategoryId`/`DefaultUnitId` were removed from this shape
