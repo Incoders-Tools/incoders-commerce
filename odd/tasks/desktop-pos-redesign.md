@@ -82,15 +82,15 @@ structural tests; cart/search/category logic gets RED→GREEN tests.
       Route: delegated direct (same writer as T1).
 - [x] T3. Local name search (`BranchSyncStore` LIKE query) feeding the cards
       grid; scan keeps exact-code behavior. Route: delegated direct.
-- [ ] T4. Categories, organization-scoped (owner decision 2026-09-29).
+- [x] T4. Categories, organization-scoped (owner decision 2026-09-29).
       Split after verifying no categories table exists:
-  - [ ] T4a. Cloud: spec requirement, `categories` table (organization-owned,
+  - [x] T4a. Cloud: spec requirement, `categories` table (organization-owned,
         name unique per org, icon key from a fixed set), RLS, backfill every
         existing `products.category_id` into a "Sin categoría" row per org,
         FK from products, admin CRUD endpoints, integration tests.
-  - [ ] T4b. Web: categories management screen (admins, Spanish i18n, icon
+  - [x] T4b. Web: categories management screen (admins, Spanish i18n, icon
         picker from the fixed set) and a category select in the product form.
-  - [ ] T4c. Sync + POS: category id/name/icon in the device catalog sync
+  - [x] T4c. Sync + POS: category id/name/icon in the device catalog sync
         and `catalog_replica` (idempotent local migration), re-send on product
         or category edits (the cursor today follows only
         `presentations.updated_at_utc`), `CategoryRail` driven by real data
@@ -188,6 +188,61 @@ in a throwaway worktree at task close.
   edits (name, category) are not re-sent by the catalog sync cursor
   (`presentations.updated_at_utc`).
 
+- 2026-09-29: T4a, T4b, T4c done (route: delegated direct, one writer, strict
+  TDD, three sequential work units). Owner decision: categories are
+  organization-scoped, managed by admins, name + icon key from a fixed set.
+  - `94e41ff` feat(catalog): add organization-scoped product categories.
+    Spec `openspec/specs/catalog-categories` (new). Migration
+    `0018_catalog_categories.sql` (mirrored in `init-rls.sql`): `categories`
+    with org-only fail-closed RLS, unique lower(btrim(name)) per org, icon CHECK
+    over 12 keys, backfill of one "Sin categoría" per org that owns products,
+    same-org composite FK from `products` (RESTRICT), all in one re-runnable
+    transaction that also bumps `products.updated_at_utc`. Endpoints
+    `/catalog/categories` (list for any member with a permission; create,
+    rename/icon, delete for ManageCatalog incl. acting sysadmin; delete refused
+    with 409 `category-in-use`), product create defaults to / validates the
+    category, new `PUT /catalog/products/{id}/category`. RED: the migration
+    tests failed for the missing 0018 file; the endpoint tests failed 10/10
+    with the routes unmapped, then 10/10 green. Existing tests that persisted
+    products with random category ids were moved to a real category
+    (`CategoryFixture`).
+  - `7623f09` feat(web): manage categories and assign them to products.
+    `CategoriesScreen` (admin route `/app/categories`, sidebar link, icon
+    picker, delete confirmation, Spanish explanations for 409s), category
+    select on the catalog edit page (there is no product-creation form on the
+    web today, so the select lives in the presentation edit page). RED: vitest
+    failed on the missing screen/route/select; GREEN 293/293. `e2e/`
+    product seeding no longer sends a random category id; e2e typechecked with a
+    standalone `npx tsc --noEmit --ignoreConfig ...` (clean); e2e not run (CI only).
+  - `55852e8` feat(pos): sync product categories and filter the sale grid by
+    them. Sync projection carries category id/name/icon (nullable), the cursor
+    now re-sends a presentation when its presentation, product OR category
+    changed. RED: `CatalogPriceSyncTests` product-only and category-rename
+    cases failed on the old cursor; `CatalogCategoryReplicaTests` did not
+    compile before the store/rail changes; GREEN. POS: nullable category
+    columns with idempotent `ALTER` for existing `branch.db`,
+    `ListCatalogCategories`, `SearchCatalog(categoryId)`,
+    `CategoryRailItem.Build`, `CategoryGlyphs` (Segoe UI Emoji glyphs, chosen
+    over Segoe MDL2 because MDL2 has no food/drink symbols; WPF renders them
+    monochrome so they follow the palette), rail filters the cards combined with
+    the name search and falls back to Todos when its category disappears.
+  - Checks: `dotnet build` (solution) 0 errors; focused `dotnet test` for
+    Categor|Catalog|Migration|Pricing|Import|GuestOrdering|PublicRateLimit|
+    AccountEndpoint 261/262 (the one failure is the known launcher wwwroot
+    test, the dev stack was running); full integration suite in a throwaway
+    worktree 808/808, 0 skipped; `npm run test` 293/293, `npm run build` ok.
+    Re-rendered `MainWindow` at 1120x700 in Dark, Light and Vaca Verde with real
+    icon keys (throwaway harness, PNGs not committed; the real app was not
+    launched).
+  - Decisions/deviations: default category is created on demand when a product
+    is created without a category; delete is refused (no reassignment); the
+    sync row's `updated_at_utc` stays the presentation's own; the dev database
+    `commerce_dev` and the shared `commerce_test` were migrated to 0018 by hand.
+  - Follow-ups: no web product create/edit form exists (products come from the
+    API/import); the manual sale path still does not record the customer; the
+    customer picker shows "Walk-in (no customer)" in English; running app
+    processes started before the change keep the old binaries until restarted.
+
 ## Owner decisions (2026-09-29)
 - Tax: the POS shows only the final-consumer total (tax included), no IVA
   line. Price composition is shown per product in the web products and price
@@ -207,5 +262,6 @@ in a throwaway worktree at task close.
   authorization.
 
 ## Next step
-T4a..T4c with one writer. Then Phase 2 spec work
-(discounts in `pos-scan-sale`, tender).
+Phase 2 spec work: discounts with the shared branch PIN in `pos-scan-sale`,
+then tender (Efectivo / Tarjeta / QR). Follow-ups from T4 are listed in the
+last Progress entry.
