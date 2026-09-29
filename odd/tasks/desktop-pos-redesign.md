@@ -87,6 +87,10 @@ structural tests; cart/search/category logic gets RED→GREEN tests.
       Route: delegated direct.
 - [ ] T5. Pass the selected customer on scanned sales, with a regression
       test. Route: delegated direct.
+- [ ] T6. Theme the default WPF ScrollBar and ComboBox (and the popup) with
+      the palette keys so Dark and Vaca Verde have no light defaults; tighten
+      the vertical gap between the search box and the section titles.
+      Route: delegated direct.
 
 ## Acceptance criteria
 - Sale screen matches the reference structure in all three themes, min size
@@ -130,6 +134,10 @@ in a throwaway worktree at task close.
   - Known gaps: cards render the whole catalog without virtualization (T3 adds
     search filtering); default WPF scrollbars and ComboBox are not themed;
     search placeholder says "Escanear código" until T3 adds name search.
+  - Review: RDD assess `afbb8b5..87c1fcf` medium, 1792 lines, review due
+    (`slice_budget_reached`); owner DECLINED the review for this candidate.
+    Parent spot check: `dotnet test --filter SaleCart` 10/10.
 
 ## Next step
-T3: local name search (`BranchSyncStore` LIKE query) feeding the cards grid.
+T3..T6 with one writer. Phase 2 blocked on owner decisions (first: is IVA
+included in list prices or added on top).
