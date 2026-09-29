@@ -295,6 +295,87 @@ public static class CatalogEndpoints
             return updated is null ? Results.NotFound() : Results.Ok(updated);
         });
 
+        group.MapPost("/copy", async (
+            CopyCatalogRequest request,
+            HttpContext httpContext,
+            PostgresUserAccountStore userStore,
+            PostgresOrganizationStore organizationStore,
+            CatalogCopyStore copyStore,
+            CancellationToken ct) =>
+        {
+            var branchFailure = BranchSelectionRequirement.Enforce(httpContext);
+            if (branchFailure is not null)
+            {
+                return branchFailure;
+            }
+
+            var auth = await AuthorizeCallerAsync(httpContext, userStore, ct);
+            if (auth is null)
+            {
+                return Results.Forbid();
+            }
+            var (scope, caller) = auth.Value;
+
+            // B7 U5b design decision: the header-selected branch
+            // (`TenantScopeEndpointFilter.BranchSelectorHeader`, already
+            // validated against the caller's own scope above the same way
+            // every other `/catalog/*` route validates it) MUST be the
+            // SOURCE branch, never the target — this mirrors the Catalog
+            // screen's own navigation model (an admin looking at ONE
+            // branch's catalog copies it somewhere else), keeps the existing
+            // header-authorization machinery as the single source-branch
+            // gate, and leaves the target branch as the one value this
+            // route validates for itself below (a business-admin's own
+            // BranchScope for a plain caller, or ANY branch of the selected
+            // organization for a sysadmin acting on it).
+            if (request.SourceBranchId != scope.BranchId)
+            {
+                return Results.BadRequest(new { error = "source-branch-must-be-the-selected-branch" });
+            }
+
+            if (request.TargetBranchId == request.SourceBranchId)
+            {
+                return Results.BadRequest(new { error = "target-branch-must-differ-from-source" });
+            }
+
+            // Same identical-403 shape `TenantScopeEndpointFilter` uses for
+            // `X-Branch-Id` (tenant-access-foundation spec: "without
+            // revealing whether that branch exists") — an unknown,
+            // cross-organization, or out-of-scope target branch all deny the
+            // same way.
+            var targetMatches = await organizationStore.ListBranchesAsync(scope, [request.TargetBranchId], ct);
+            var targetExistsInOrganization = targetMatches.Count > 0;
+            var callerMayActOnTarget = scope.IsActingOnSelectedOrganization && caller.IsSystemAdmin
+                ? targetExistsInOrganization
+                : caller.BranchScope.Contains(request.TargetBranchId);
+
+            if (!targetExistsInOrganization || !callerMayActOnTarget)
+            {
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+
+            CatalogCopyOutcome outcome;
+            try
+            {
+                outcome = await copyStore.CopyCatalogAsync(
+                    scope, request.SourceBranchId, request.TargetBranchId, request.ProductIds,
+                    "org-user", caller.Id, ct);
+            }
+            catch (CatalogCopyProductNotFoundException)
+            {
+                return Results.NotFound(new { error = "product-not-found-in-source-branch" });
+            }
+
+            return Results.Ok(new CopyCatalogResponse(
+                outcome.ProductsCopied,
+                outcome.PresentationsCopied,
+                outcome.Skipped
+                    .Select(s => new SkippedPresentationDto(s.PresentationId, s.IdentificationCode, s.Reason))
+                    .ToList(),
+                outcome.PriceListId,
+                outcome.PriceEntriesCopied));
+        });
+
         return group;
     }
 
@@ -348,5 +429,23 @@ public sealed record CreatePresentationRequest(
 
 public sealed record UpdatePresentationRequest(
     string Name, QuantityBehavior QuantityBehavior, Guid UnitId, string? IdentificationCode);
+
+/// <summary>
+/// `SourceBranchId` MUST equal the request's own selected branch (see
+/// `CatalogEndpoints.MapCatalogEndpoints`'s `/copy` handler) — carried as an
+/// explicit field anyway (rather than implied silently) so a client that
+/// gets it wrong sees a named 400, not a mismatched no-op. `ProductIds`
+/// null/empty means "the whole catalog".
+/// </summary>
+public sealed record CopyCatalogRequest(Guid SourceBranchId, Guid TargetBranchId, IReadOnlyList<Guid>? ProductIds);
+
+public sealed record SkippedPresentationDto(Guid PresentationId, string? IdentificationCode, string Reason);
+
+public sealed record CopyCatalogResponse(
+    int ProductsCopied,
+    int PresentationsCopied,
+    IReadOnlyList<SkippedPresentationDto> Skipped,
+    Guid? PriceListId,
+    int PriceEntriesCopied);
 
 public sealed record RoleDto(string Name, Permission Permissions);

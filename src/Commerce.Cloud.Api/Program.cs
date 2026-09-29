@@ -43,6 +43,7 @@ builder.Services.AddSingleton<PostgresDeviceCredentialStore>();
 builder.Services.AddSingleton<PostgresPasswordRecoveryStore>();
 builder.Services.AddSingleton<PostgresCustomerStore>();
 builder.Services.AddSingleton<PostgresCatalogStore>();
+builder.Services.AddSingleton<CatalogCopyStore>();
 builder.Services.AddSingleton<PostgresPriceListStore>();
 builder.Services.AddSingleton<PostgresPaymentStore>();
 builder.Services.AddSingleton<IPaymentLedgerStore>(sp => sp.GetRequiredService<PostgresPaymentStore>());
