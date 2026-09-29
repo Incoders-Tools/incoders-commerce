@@ -111,18 +111,18 @@ line discounts; amounts rounded to 2 decimals half away from zero per line
 and on the sale discount; every discount (add or change) prompts for the
 branch PIN; 5 failed attempts lock the prompt for 5 minutes on that
 terminal; the admin can only set/rotate the PIN, never read it back.
-- [ ] D1. Spec: discount requirement and scenarios in `pos-scan-sale`, and a
+- [x] D1. Spec: discount requirement and scenarios in `pos-scan-sale`, and a
       branch discount PIN requirement (set/rotate by admins, hash only,
       offline verification on terminals, lockout, audit).
-- [ ] D2. Cloud: branch discount PIN (slow salted hash + version) with a
+- [x] D2. Cloud: branch discount PIN (slow salted hash + version) with a
       migration, admin set/rotate endpoint (branch settings permission,
       sysadmin on a selected org), audit on rotate, exposed to paired
       devices of that branch through the device sync.
-- [ ] D3. Web: "PIN de descuentos" set/rotate in the branch settings.
-- [ ] D4. POS: replicate the PIN hash; `SaleCart` line and sale discounts;
+- [x] D3. Web: "PIN de descuentos" set/rotate in the branch settings.
+- [x] D4. POS: replicate the PIN hash; `SaleCart` line and sale discounts;
       PIN prompt with lockout; discount actions in `SaleLinesTable` and a
       "Descuento" row in `TotalsPanel`.
-- [ ] D5. Sale sync: payload carries line/sale discounts and "authorized by
+- [x] D5. Sale sync: payload carries line/sale discounts and "authorized by
       branch PIN" with the operator; cloud ingestion persists and audits it.
       Route for D1..D5: delegated direct (one writer, sequential units).
 
@@ -273,6 +273,73 @@ in a throwaway worktree at task close.
   Categor` 25/25 (main tree build blocked by the user's running POS locking
   `Commerce.Updater.dll`).
 
+- 2026-09-29: D1..D5 done (route: delegated direct, one writer, strict TDD,
+  throwaway worktree branch fast-forwarded into `dev`).
+  - `29fa951` docs(spec): `pos-scan-sale` gains "Percentage Discounts on Lines
+    and on the Whole Sale" and "Discounts Recorded and Synchronized With Their
+    Authorization"; new `openspec/specs/branch-discount-pin` (set/rotate, hash
+    only, replication, prompt with lockout).
+  - `4f5a615` feat(cloud) D2: migration `0019_branch_discount_pin.sql`
+    (`branch_discount_pins`, PBKDF2-SHA256 210k iterations, 128-bit salt, 256-bit
+    hash, version, rotated_at/by; org AND branch RLS, fail-closed; tenant
+    composite FK to branches; mirrored into `init-rls.sql`).
+    `Commerce.Domain.Discounts.BranchDiscountPin` derives/verifies (same
+    primitive as `OperatorPinCredential`). `PUT|GET
+    /account/branches/{id}/discount-pin` gated like `/account/branches`
+    (ManageBranchSettings, sysadmin acting on a selected org), 404 for a foreign
+    branch, PIN 4 to 12 digits, audit `branch.discount-pin.set|rotated` with
+    versions only. `GET /device/branch/discount-pin` (device bearer, branch
+    from the stored credential) returns hash+salt+params+version. RED: tests did
+    not compile (`BranchDiscountPin` / DTOs missing); GREEN 27 pin tests plus 78
+    migration/categories tests.
+  - `8c639a7` feat(web) D3: "PIN de descuentos" panel per branch in
+    `BranchesScreen` (opens from a row action, shows only set/unset and the last
+    change, write-only field). RED: 5 new vitest cases failed; GREEN 298/298;
+    `npm run build` ok. No DOM moved (a row action was added), `e2e/` selectors
+    (`Nombre de la sucursal`, branch name text) untouched, so no e2e edit.
+  - `07d7d25` feat(pos) D4 logic + D5 sync: `DiscountMath`, `PinLockout`,
+    `SaleCart` line/sale discounts (`SetLineDiscount`, `SetSaleDiscount`,
+    `Remove*`, `BuildSaleLines`), `BranchPinDiscountAuthorizer` behind
+    `IDiscountAuthorizer`, `DiscountPinReplicaClient` + `SyncRunner` pull,
+    `branch.db` tables `discount_pin_replica` / `discount_pin_lockout` and
+    additive nullable columns on `sale_effects` / `sale_lines` (idempotent, an
+    older db opens), `SaleLine`/`SaleEffect`/`SalePayloadV1` extended additively,
+    `BranchNodeService.CompleteScannedSale(saleDiscount, discountAuthorization)`,
+    cloud `SaleDiscountAudit` writes one `sale.discount.authorized` audit row in
+    the inbox transaction (duplicates return before it). RED: compile failures
+    for every new type, then the ingestion cases failed (no audit row) before
+    the hook; GREEN.
+  - `4313bc1` feat(pos) D4 UI: `DiscountWindow` (percentage + PIN in one themed
+    prompt, remove without PIN, unavailable message when no PIN / locked),
+    per-line "%" action and discount text in `SaleLinesTable`, "Descuento" row
+    and sale-discount button in `TotalsPanel`, `MainWindow` wiring and commit
+    with the cart discounts. RED: 4 structural markup tests failed, then GREEN.
+  - Checks: `dotnet build Commerce.sln` 0 errors; full integration suite in the
+    throwaway worktree 917/917, 0 skipped (Postgres and pgbouncer up); `npm run
+    test` 298/298, `npm run build` ok. Re-rendered `MainWindow` at 1120x700 in
+    Dark, Light, Vaca Verde with a discounted line and a sale discount, plus the
+    PIN prompt in each theme (throwaway harness, PNGs not committed; the real
+    app was not launched).
+  - Decisions/deviations: (1) the cloud has no sales table, so "persists" means
+    the full payload stays in `sync_inbox.payload` (jsonb) plus the audit row.
+    (2) `SaleLine.LineTotal` stays the UNDISCOUNTED amount; the payload total is
+    the FINAL total; discount fields are null when unused. (3) A discount with no
+    authorization marker still ingests and is audited as
+    `sale.discount.unauthorized`. (4) The line/sale discount and the PIN share one
+    prompt (percentage + PIN), asked on every add or change; a quantity change
+    keeps the percentage and recomputes the amount without a new PIN. (5) The
+    spec scenario for the sale discount used 1100/1000 arithmetic that did not
+    add up (10% of 1100 is 110); corrected to 1000 -> 900 -> 855 in the same
+    unit. (6) Web shows status per branch on demand (row action) instead of
+    listing status for every branch, to avoid one request per branch. (7)
+    `commerce_dev` and the shared `commerce_test` were migrated to 0019.
+  - Follow-ups: the operator who authorized is the signed-in operator
+    (`ResolveActorId`, the installation id when nobody is signed in); card
+    reading is a future `IDiscountAuthorizer`; no cloud read/report of the
+    discount audit exists yet (audit_log has no SELECT grant); the sale table
+    shows about one row fewer at 1120x700 because the totals panel gained the
+    Descuento row; running app processes keep the old binaries until restarted.
+
 ## Owner decisions (2026-09-29)
 - Tax: the POS shows only the final-consumer total (tax included), no IVA
   line. Price composition is shown per product in the web products and price
@@ -292,4 +359,5 @@ in a throwaway worktree at task close.
   authorization.
 
 ## Next step
-D1..D5 with one writer. Then tender (Efectivo/Tarjeta/QR).
+Tender (Efectivo/Tarjeta/QR): needs the owner decisions on `QR` in
+`PaymentMethod` and on how tender interacts with the discounted final total.
