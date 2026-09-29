@@ -26,13 +26,14 @@
   "editCode": "Editar código",
   "errors": {
     "unexpectedLoad": "Error inesperado: el servicio de catálogo no está disponible.",
-    "unexpectedUpdate": "Error inesperado al actualizar el código de identificación."
+    "unexpectedUpdate": "Error inesperado al actualizar la presentación."
   },
   "form": {
-    "title": "Editar código",
-    "description": "Código de identificación para \"{{name}}\".",
+    "title": "Editar presentación",
+    "description": "Código de identificación y categoría de \"{{name}}\".",
     "backLabel": "Volver al catálogo",
     "label": "Código de identificación",
+    "category": "Categoría",
     "saving": "Guardando…",
     "save": "Guardar",
     "cancel": "Cancelar"

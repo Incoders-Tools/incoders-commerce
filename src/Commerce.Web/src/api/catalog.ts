@@ -32,6 +32,15 @@ export function createProduct(request: CreateProductRequest): Promise<ProductRec
   })
 }
 
+// catalog-categories: `PUT /catalog/products/{id}/category` — the server
+// refuses a category that does not belong to the caller's organization.
+export function changeProductCategory(productId: string, categoryId: string): Promise<ProductRecord> {
+  return apiFetch<ProductRecord>(`/catalog/products/${productId}/category`, {
+    method: 'PUT',
+    body: JSON.stringify({ categoryId }),
+  })
+}
+
 export function listPresentations(): Promise<PresentationRecord[]> {
   return apiFetch<PresentationRecord[]>('/catalog/presentations')
 }

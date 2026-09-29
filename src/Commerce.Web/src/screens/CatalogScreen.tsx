@@ -3,17 +3,19 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Select } from '@/components/ui/select'
 import { DataToolbar } from '@/components/data/DataToolbar'
 import { DataView, type DataViewColumn } from '@/components/data/DataView'
 import { PageHeader } from '@/components/data/PageHeader'
 import { useViewPreference } from '@/components/data/useViewPreference'
 import { FormPage } from '@/components/layout/FormPage'
-import { listPresentations, updatePresentation } from '@/api/catalog'
+import { changeProductCategory, listPresentations, listProducts, updatePresentation } from '@/api/catalog'
+import { listCategories } from '@/api/categories'
 import { ApiError } from '@/api/client'
 import { hasPermission, useOptionalAuth } from '@/auth/AuthContext'
 import { useOptionalBranchContext } from '@/branch/BranchContext'
 import { CatalogCopyForm } from './CatalogCopyForm'
-import { Permission, QuantityBehavior, type PresentationRecord } from '@/api/types'
+import { Permission, QuantityBehavior, type CategoryRecord, type PresentationRecord, type ProductRecord } from '@/api/types'
 
 const QUANTITY_BEHAVIOR_KEYS: Record<QuantityBehavior, 'fixedQuantity' | 'weighted' | 'bulk'> = {
   [QuantityBehavior.FixedQuantity]: 'fixedQuantity',
@@ -220,6 +222,34 @@ function IdentificationCodeForm({
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
+  // catalog-categories: the presentation's PRODUCT carries the category. It is
+  // loaded alongside the form and is strictly optional — when the products or
+  // categories cannot be read the select is simply not offered, and the
+  // identification code can still be saved (that edit predates categories).
+  const [categories, setCategories] = useState<CategoryRecord[]>([])
+  const [product, setProduct] = useState<ProductRecord | null>(null)
+  const [categoryId, setCategoryId] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    Promise.all([listProducts(), listCategories()])
+      .then(([products, loadedCategories]) => {
+        if (cancelled) return
+        const owner = products.find((item) => item.id === presentation.productId) ?? null
+        setProduct(owner)
+        setCategories(loadedCategories)
+        setCategoryId(owner?.categoryId ?? '')
+      })
+      .catch(() => {
+        // Category editing is unavailable; the code form keeps working.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [presentation.productId])
+
+  const canEditCategory = product !== null && categories.some((category) => category.id === categoryId)
+
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault()
     setError(null)
@@ -231,6 +261,9 @@ function IdentificationCodeForm({
         unitId: presentation.unitId,
         identificationCode: identificationCode.trim() === '' ? null : identificationCode.trim(),
       })
+      if (product !== null && canEditCategory && categoryId !== product.categoryId) {
+        await changeProductCategory(product.id, categoryId)
+      }
       onUpdated(updated)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : t('errors.unexpectedUpdate'))
@@ -255,6 +288,18 @@ function IdentificationCodeForm({
             onChange={(e) => setIdentificationCode(e.target.value)}
           />
         </div>
+        {canEditCategory && (
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="productCategory">{t('form.category')}</Label>
+            <Select id="productCategory" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+              {categories.map((category) => (
+                <option key={category.id} value={category.id}>
+                  {category.name}
+                </option>
+              ))}
+            </Select>
+          </div>
+        )}
         {error && (
           <p role="alert" className="text-sm text-destructive">
             {error}

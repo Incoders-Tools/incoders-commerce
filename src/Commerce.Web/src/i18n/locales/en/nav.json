@@ -3,6 +3,7 @@
   "toggleNavigation": "Toggle navigation",
   "items": {
     "catalog": "Catalog",
+    "categories": "Categories",
     "orders": "Orders",
     "customers": "Customers",
     "users": "Users",

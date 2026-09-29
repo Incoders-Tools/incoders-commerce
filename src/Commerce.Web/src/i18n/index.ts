@@ -4,6 +4,7 @@ import commonEs from './locales/es/common.json'
 import navEs from './locales/es/nav.json'
 import authEs from './locales/es/auth.json'
 import catalogEs from './locales/es/catalog.json'
+import categoriesEs from './locales/es/categories.json'
 import ordersEs from './locales/es/orders.json'
 import customersEs from './locales/es/customers.json'
 import usersEs from './locales/es/users.json'
@@ -16,6 +17,7 @@ import commonEn from './locales/en/common.json'
 import navEn from './locales/en/nav.json'
 import authEn from './locales/en/auth.json'
 import catalogEn from './locales/en/catalog.json'
+import categoriesEn from './locales/en/categories.json'
 import ordersEn from './locales/en/orders.json'
 import customersEn from './locales/en/customers.json'
 import usersEn from './locales/en/users.json'
@@ -32,6 +34,7 @@ export const namespaces = [
   'nav',
   'auth',
   'catalog',
+  'categories',
   'orders',
   'customers',
   'users',
@@ -55,6 +58,7 @@ export const resources = {
     nav: navEs,
     auth: authEs,
     catalog: catalogEs,
+    categories: categoriesEs,
     orders: ordersEs,
     customers: customersEs,
     users: usersEs,
@@ -69,6 +73,7 @@ export const resources = {
     nav: navEn,
     auth: authEn,
     catalog: catalogEn,
+    categories: categoriesEn,
     orders: ordersEn,
     customers: customersEn,
     users: usersEn,

@@ -37,7 +37,7 @@ test.describe('catalog screen', () => {
 
     const otherProduct = await otherPage.request.post('/catalog/products', {
       headers: { 'X-Branch-Id': otherOrgUser.branchId },
-      data: { name: 'Other Org Product', categoryId: crypto.randomUUID(), defaultUnitId: crypto.randomUUID() },
+      data: { name: 'Other Org Product', defaultUnitId: crypto.randomUUID() },
     })
     expect(otherProduct.ok()).toBeTruthy()
     const otherProductBody = await otherProduct.json()
@@ -79,7 +79,7 @@ test.describe('catalog screen', () => {
     // endpoints CatalogScreen itself calls, using this admin's own session.
     const product = await page.request.post('/catalog/products', {
       headers: { 'X-Branch-Id': user.branchId },
-      data: { name: 'E2E Product', categoryId: crypto.randomUUID(), defaultUnitId: crypto.randomUUID() },
+      data: { name: 'E2E Product', defaultUnitId: crypto.randomUUID() },
     })
     expect(product.ok()).toBeTruthy()
     const productBody = await product.json()

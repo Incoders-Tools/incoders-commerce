@@ -12,6 +12,7 @@ import { ForgotPasswordRoute } from '@/routes/ForgotPasswordRoute'
 import { ResetPasswordRoute } from '@/routes/ResetPasswordRoute'
 import { HomeScreen } from '@/screens/HomeScreen'
 import { CatalogScreen } from '@/screens/CatalogScreen'
+import { CategoriesScreen } from '@/screens/CategoriesScreen'
 import { OrderScreen } from '@/screens/OrderScreen'
 import { StaffOrderScreen } from '@/screens/StaffOrderScreen'
 import { RenewPasswordScreen } from '@/screens/RenewPasswordScreen'
@@ -87,6 +88,7 @@ function App() {
                         Requires Admin Review Before Commit") without any reachable
                         surface. `src/App.test.tsx` guards the mount itself. */}
                     <Route path="price-lists" element={<PriceListsScreen />} />
+                    <Route path="categories" element={<CategoriesScreen />} />
                   </Route>
                   <Route element={<RequireSystemAdmin />}>
                     <Route path="organizations" element={<OrganizationsScreen />} />

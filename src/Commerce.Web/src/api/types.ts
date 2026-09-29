@@ -265,8 +265,26 @@ export interface ProductRecord {
 
 export interface CreateProductRequest {
   name: string
-  categoryId: string
+  // Optional: omitted means the organization's default "Sin categoría".
+  categoryId?: string
   defaultUnitId: string
+}
+
+// Endpoints/Categories.cs `CategoryRecord` / `CategoryRequest`, mirrored
+// exactly (catalog-categories spec). Categories belong to the organization and
+// are shared by every branch.
+export interface CategoryRecord {
+  id: string
+  organizationId: string
+  name: string
+  iconKey: string
+  createdAtUtc: string
+  updatedAtUtc: string
+}
+
+export interface CategoryRequest {
+  name: string
+  iconKey: string
 }
 
 // Endpoints/Catalog.cs `PresentationRecord` / `CreatePresentationRequest` /

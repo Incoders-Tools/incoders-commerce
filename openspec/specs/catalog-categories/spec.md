@@ -135,3 +135,25 @@ presentation row changed.
 - GIVEN a device has already synced a presentation
 - WHEN an admin changes only the product's name or category
 - THEN the next sync from the previous cursor includes that presentation
+
+### Requirement: Web Category Management
+
+The web app MUST give administrators a categories screen to list, create,
+rename, change the icon of and delete categories, choosing the icon from the
+fixed set, in Spanish. A refused duplicate name or a refused deletion of a
+category in use MUST be explained to the operator. The catalog edit page MUST
+let an administrator change the category of a presentation's product, offering
+only the organization's categories, and MUST still allow saving the
+identification code when the categories cannot be loaded.
+
+#### Scenario: Administrator renames a category and changes its icon
+
+- GIVEN an administrator opens the categories screen
+- WHEN they edit a category, change its name and pick another icon, and save
+- THEN the category is listed with the new name and icon
+
+#### Scenario: Deleting a category in use explains why
+
+- GIVEN a category is used by at least one product
+- WHEN an administrator confirms its deletion
+- THEN the screen states that products still use it and the category stays listed

@@ -1,0 +1,56 @@
+{
+  "title": "Categorías",
+  "description": "Agrupan los productos de todas las sucursales y se usan como filtros en la caja.",
+  "columns": {
+    "name": "Nombre",
+    "icon": "Ícono"
+  },
+  "actions": {
+    "create": "Nueva categoría",
+    "edit": "Editar",
+    "delete": "Eliminar",
+    "confirmDelete": "Confirmar eliminación",
+    "cancel": "Cancelar"
+  },
+  "search": {
+    "label": "Buscar categorías",
+    "placeholder": "Buscar por nombre…"
+  },
+  "empty": {
+    "none": "Todavía no hay categorías.",
+    "noMatch": "Ninguna categoría coincide con esta búsqueda.",
+    "loadError": "No se pudieron cargar las categorías."
+  },
+  "form": {
+    "createTitle": "Nueva categoría",
+    "editTitle": "Editar categoría",
+    "description": "Nombre e ícono con los que se muestra en la caja.",
+    "backLabel": "Volver a las categorías",
+    "name": "Nombre",
+    "icon": "Ícono",
+    "save": "Guardar",
+    "saving": "Guardando…",
+    "cancel": "Cancelar"
+  },
+  "icons": {
+    "meat": "Carne",
+    "poultry": "Pollo",
+    "fish": "Pescado",
+    "wine": "Vino",
+    "drinks": "Bebidas",
+    "charcoal": "Carbón",
+    "grocery": "Almacén",
+    "cleaning": "Limpieza",
+    "bakery": "Panadería",
+    "dairy": "Lácteos",
+    "produce": "Verdulería",
+    "generic": "Genérico"
+  },
+  "errors": {
+    "unableToLoad": "No se pudieron cargar las categorías.",
+    "unableToSave": "No se pudo guardar la categoría.",
+    "unableToDelete": "No se pudo eliminar la categoría.",
+    "nameInUse": "Ya existe una categoría con ese nombre.",
+    "inUse": "No se puede eliminar: hay productos que usan esta categoría."
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "title": "Categories",
+  "description": "They group the products of every branch and are used as filters at the register.",
+  "columns": {
+    "name": "Name",
+    "icon": "Icon"
+  },
+  "actions": {
+    "create": "New category",
+    "edit": "Edit",
+    "delete": "Delete",
+    "confirmDelete": "Confirm deletion",
+    "cancel": "Cancel"
+  },
+  "search": {
+    "label": "Search categories",
+    "placeholder": "Search by name…"
+  },
+  "empty": {
+    "none": "There are no categories yet.",
+    "noMatch": "No category matches this search.",
+    "loadError": "The categories could not be loaded."
+  },
+  "form": {
+    "createTitle": "New category",
+    "editTitle": "Edit category",
+    "description": "The name and icon it is shown with at the register.",
+    "backLabel": "Back to categories",
+    "name": "Name",
+    "icon": "Icon",
+    "save": "Save",
+    "saving": "Saving…",
+    "cancel": "Cancel"
+  },
+  "icons": {
+    "meat": "Meat",
+    "poultry": "Poultry",
+    "fish": "Fish",
+    "wine": "Wine",
+    "drinks": "Drinks",
+    "charcoal": "Charcoal",
+    "grocery": "Grocery",
+    "cleaning": "Cleaning",
+    "bakery": "Bakery",
+    "dairy": "Dairy",
+    "produce": "Produce",
+    "generic": "Generic"
+  },
+  "errors": {
+    "unableToLoad": "The categories could not be loaded.",
+    "unableToSave": "The category could not be saved.",
+    "unableToDelete": "The category could not be deleted.",
+    "nameInUse": "A category with that name already exists.",
+    "inUse": "It cannot be deleted: products still use this category."
+  }
+}

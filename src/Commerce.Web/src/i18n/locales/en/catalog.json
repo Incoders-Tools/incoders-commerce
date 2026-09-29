@@ -26,13 +26,14 @@
   "editCode": "Edit code",
   "errors": {
     "unexpectedLoad": "Unexpected error: the catalog service is unreachable.",
-    "unexpectedUpdate": "Unexpected error updating the identification code."
+    "unexpectedUpdate": "Unexpected error updating the presentation."
   },
   "form": {
-    "title": "Edit code",
-    "description": "Identification code for \"{{name}}\".",
+    "title": "Edit presentation",
+    "description": "Identification code and category of \"{{name}}\".",
     "backLabel": "Back to catalog",
     "label": "Identification code",
+    "category": "Category",
     "saving": "Saving…",
     "save": "Save",
     "cancel": "Cancel"

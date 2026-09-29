@@ -3,6 +3,7 @@
   "toggleNavigation": "Alternar navegación",
   "items": {
     "catalog": "Catálogo",
+    "categories": "Categorías",
     "orders": "Pedidos",
     "customers": "Clientes",
     "users": "Usuarios",

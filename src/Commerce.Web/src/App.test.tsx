@@ -87,6 +87,23 @@ describe('App route table', () => {
     expect(links[0]).toHaveAttribute('href', '/app/price-lists')
   })
 
+  it('mounts the categories screen at /app/categories for an admin and links it from the sidebar', async () => {
+    renderAppAt('/app/categories', buildUser({ permissions: Permission.ManageUsers }))
+
+    expect(await screen.findByRole('heading', { name: 'Categorías' })).toBeInTheDocument()
+    const nav = within(screen.getByRole('navigation', { name: 'Principal' }))
+    const links = nav.getAllByRole('link', { name: /categorías/i })
+    expect(links).toHaveLength(1)
+    expect(links[0]).toHaveAttribute('href', '/app/categories')
+  })
+
+  it('redirects a non-admin away from /app/categories to the catalog', async () => {
+    renderAppAt('/app/categories', buildUser({ permissions: Permission.ViewSales }))
+
+    expect(await screen.findByRole('heading', { name: 'Catálogo' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Categorías' })).not.toBeInTheDocument()
+  })
+
   it('redirects a non-admin away from /app/price-lists to the catalog', async () => {
     renderAppAt('/app/price-lists', buildUser({ permissions: Permission.ViewSales }))
 

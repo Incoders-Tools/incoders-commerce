@@ -1,9 +1,9 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CatalogScreen } from './CatalogScreen'
 import { QuantityBehavior } from '@/api/types'
-import type { PresentationRecord } from '@/api/types'
+import type { CategoryRecord, PresentationRecord, ProductRecord } from '@/api/types'
 
 /**
  * design.md "Web: CatalogScreen rework": real presentation list +
@@ -35,6 +35,43 @@ describe('CatalogScreen', () => {
     identificationCode: '7790000000001',
   }
 
+  // catalog-categories: the edit form also reads the product and the
+  // organization's categories, so the edit tests route by method + URL
+  // instead of relying on call order.
+  const product: ProductRecord = {
+    id: unlabelled.productId,
+    organizationId: 'org-1',
+    branchId: 'branch-1',
+    name: 'Soda',
+    categoryId: 'cat-1',
+    defaultUnitId: unlabelled.unitId,
+    createdAtUtc: '2024-01-01T00:00:00Z',
+    createdByUserId: 'user-1',
+    updatedAtUtc: '2024-01-01T00:00:00Z',
+  }
+  const meat: CategoryRecord = {
+    id: 'cat-1',
+    organizationId: 'org-1',
+    name: 'Carnes',
+    iconKey: 'meat',
+    createdAtUtc: '2024-01-01T00:00:00Z',
+    updatedAtUtc: '2024-01-01T00:00:00Z',
+  }
+  const wine: CategoryRecord = { ...meat, id: 'cat-2', name: 'Vinos', iconKey: 'wine' }
+
+  const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status })
+
+  function routeFetch(routes: Record<string, () => Response>) {
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      const handler = routes[`${init?.method ?? 'GET'} ${url}`]
+      if (!handler) throw new TypeError(`unrouted ${init?.method ?? 'GET'} ${url}`)
+      return handler()
+    })
+  }
+
+  const callsTo = (key: string) =>
+    fetchMock.mock.calls.filter(([url, init]) => `${init?.method ?? 'GET'} ${url}` === key)
+
   beforeEach(() => {
     vi.stubGlobal('fetch', fetchMock)
   })
@@ -56,11 +93,13 @@ describe('CatalogScreen', () => {
   })
 
   it("lets an admin set a Presentation's identification code via PUT", async () => {
-    fetchMock
-      .mockResolvedValueOnce(new Response(JSON.stringify([unlabelled]), { status: 200 })) // GET
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ ...unlabelled, identificationCode: '7791234567890' }), { status: 200 }),
-      ) // PUT
+    routeFetch({
+      'GET /catalog/presentations': () => json([unlabelled]),
+      'GET /catalog/products': () => json([product]),
+      'GET /catalog/categories': () => json([meat, wine]),
+      [`PUT /catalog/presentations/${unlabelled.id}`]: () =>
+        json({ ...unlabelled, identificationCode: '7791234567890' }),
+    })
 
     const user = userEvent.setup()
     render(<CatalogScreen />)
@@ -70,10 +109,10 @@ describe('CatalogScreen', () => {
     await user.type(screen.getByLabelText(/código de identificación/i), '7791234567890')
     await user.click(screen.getByRole('button', { name: /^guardar$/i }))
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
-    const [url, init] = fetchMock.mock.calls[1]
-    expect(url).toBe(`/catalog/presentations/${unlabelled.id}`)
-    expect(init.method).toBe('PUT')
+    await waitFor(() => expect(callsTo(`PUT /catalog/presentations/${unlabelled.id}`)).toHaveLength(1))
+    // The category was not touched, so the product is left alone.
+    expect(callsTo(`PUT /catalog/products/${product.id}/category`)).toHaveLength(0)
+    const init = callsTo(`PUT /catalog/presentations/${unlabelled.id}`)[0][1]
     expect(JSON.parse(init.body as string)).toMatchObject({
       name: unlabelled.name,
       quantityBehavior: unlabelled.quantityBehavior,
@@ -83,6 +122,52 @@ describe('CatalogScreen', () => {
 
     await screen.findByText('7791234567890')
     expect(screen.queryByText('Sin código')).not.toBeInTheDocument()
+  })
+
+  it("edits the product's category from the same page, preselecting the current one", async () => {
+    routeFetch({
+      'GET /catalog/presentations': () => json([unlabelled]),
+      'GET /catalog/products': () => json([product]),
+      'GET /catalog/categories': () => json([meat, wine]),
+      [`PUT /catalog/presentations/${unlabelled.id}`]: () => json(unlabelled),
+      [`PUT /catalog/products/${product.id}/category`]: () => json({ ...product, categoryId: 'cat-2' }),
+    })
+
+    const user = userEvent.setup()
+    render(<CatalogScreen />)
+
+    await screen.findByText('1.5L bottle')
+    await user.click(screen.getByRole('button', { name: /editar código/i }))
+
+    const select = await screen.findByLabelText('Categoría')
+    await waitFor(() => expect(select).toHaveValue('cat-1'))
+    expect(within(select).getAllByRole('option').map((option) => option.textContent)).toEqual(['Carnes', 'Vinos'])
+
+    await user.selectOptions(select, 'cat-2')
+    await user.click(screen.getByRole('button', { name: /^guardar$/i }))
+
+    await waitFor(() => expect(callsTo(`PUT /catalog/products/${product.id}/category`)).toHaveLength(1))
+    const init = callsTo(`PUT /catalog/products/${product.id}/category`)[0][1]
+    expect(JSON.parse(init.body as string)).toEqual({ categoryId: 'cat-2' })
+  })
+
+  it('still saves the identification code when the categories cannot be loaded', async () => {
+    routeFetch({
+      'GET /catalog/presentations': () => json([unlabelled]),
+      [`PUT /catalog/presentations/${unlabelled.id}`]: () =>
+        json({ ...unlabelled, identificationCode: '7791234567890' }),
+    })
+
+    const user = userEvent.setup()
+    render(<CatalogScreen />)
+
+    await screen.findByText('1.5L bottle')
+    await user.click(screen.getByRole('button', { name: /editar código/i }))
+    await user.type(screen.getByLabelText(/código de identificación/i), '7791234567890')
+    await user.click(screen.getByRole('button', { name: /^guardar$/i }))
+
+    await screen.findByText('7791234567890')
+    expect(screen.queryByLabelText('Categoría')).not.toBeInTheDocument()
   })
 
   it('surfaces a visible error state when the API is unreachable, never stale/mock data', async () => {
@@ -175,11 +260,13 @@ describe('CatalogScreen', () => {
 
   it('still edits the identification code from the card view', async () => {
     window.localStorage.setItem('view:catalog', 'cards')
-    fetchMock
-      .mockResolvedValueOnce(new Response(JSON.stringify([unlabelled]), { status: 200 })) // GET
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ ...unlabelled, identificationCode: '7791234567890' }), { status: 200 }),
-      ) // PUT
+    routeFetch({
+      'GET /catalog/presentations': () => json([unlabelled]),
+      'GET /catalog/products': () => json([product]),
+      'GET /catalog/categories': () => json([meat, wine]),
+      [`PUT /catalog/presentations/${unlabelled.id}`]: () =>
+        json({ ...unlabelled, identificationCode: '7791234567890' }),
+    })
 
     const user = userEvent.setup()
     render(<CatalogScreen />)
@@ -205,7 +292,7 @@ describe('CatalogScreen', () => {
     // appended under this row.
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
     expect(screen.queryByText('330ml can')).not.toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Editar código' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Editar presentación' })).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /volver al catálogo/i }))
 

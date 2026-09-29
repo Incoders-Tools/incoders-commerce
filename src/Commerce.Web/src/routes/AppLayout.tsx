@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import {
   Building2,
   ClipboardList,
+  LayoutGrid,
   Menu,
   Package,
   Store,
@@ -121,6 +122,7 @@ export function AppLayout() {
                     `RequireAdmin` is the routing boundary, and Pricing.cs's
                     own permission check is the real one. */}
                 <NavItem to="/app/price-lists" icon={Tags} onNavigate={closeMobileNav}>{t('items.priceLists')}</NavItem>
+                <NavItem to="/app/categories" icon={LayoutGrid} onNavigate={closeMobileNav}>{t('items.categories')}</NavItem>
               </NavSection>
             )}
             {user?.isSystemAdmin && (
