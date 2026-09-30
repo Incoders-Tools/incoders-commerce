@@ -455,4 +455,65 @@ public sealed class PosLockScreenModelTests : IDisposable
         Assert.Null(model.SelectedTile);
         Assert.False(model.ResetPin);
     }
+
+    // ---- unexpected errors share the one Status ---------------------------------------
+
+    [Fact]
+    public void ReportUnexpected_ShowsTheMessage_ThroughTheOneStatus()
+    {
+        var model = Model();
+        model.Refresh();
+
+        model.ReportUnexpected(PosMessages.Unexpected);
+
+        Assert.Equal(PosMessages.Unexpected, model.Status);
+    }
+
+    [Fact]
+    public void ReportUnexpected_DoesNotOutliveAModeChange_OrARefresh()
+    {
+        var ana = Cache("ana@x.test");
+        var model = Model();
+        model.Refresh();
+
+        model.ReportUnexpected(PosMessages.Unexpected);
+        model.SelectTile(ana.UserId);
+        Assert.Null(model.Status);
+
+        model.ReportUnexpected(PosMessages.Unexpected);
+        model.Back();
+        Assert.Null(model.Status);
+
+        model.ReportUnexpected(PosMessages.Unexpected);
+        model.ChooseCredentials();
+        Assert.Null(model.Status);
+
+        model.ReportUnexpected(PosMessages.Unexpected);
+        model.Refresh();
+        Assert.Null(model.Status);
+    }
+
+    [Fact]
+    public async Task SubmitCredentials_ClearsAnOldStatusBeforeCallingTheVerifier()
+    {
+        LockScreenModel? model = null;
+        string? statusSeenByTheVerifier = "not called";
+        var verifier = new CallbackVerifier(() => statusSeenByTheVerifier = model!.Status);
+        model = new LockScreenModel(verifier, Store, () => "device-token", () => Now);
+        model.Refresh();
+        model.ReportUnexpected(PosMessages.Unexpected);
+
+        await model.SubmitCredentialsAsync("ana@x.test", "secret");
+
+        Assert.Null(statusSeenByTheVerifier);
+    }
+
+    private sealed class CallbackVerifier(Action observe) : IOperatorVerifier
+    {
+        public Task<OperatorVerifyOutcome> VerifyAsync(string email, string password, string deviceToken, CancellationToken ct = default)
+        {
+            observe();
+            return Task.FromResult(OperatorVerifyOutcome.InvalidCredentials());
+        }
+    }
 }

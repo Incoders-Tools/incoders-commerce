@@ -15,14 +15,13 @@ public partial class LockScreenView : UserControl
 {
     private readonly Func<string> _branchName;
     private readonly BusyController _busy;
-    private string? _unexpected;
 
     public LockScreenView(LockScreenModel model, Func<string> branchName)
     {
         InitializeComponent();
         Model = model;
         _branchName = branchName;
-        _busy = new BusyController(ApplyBusy, nameof(LockScreenView), message => _unexpected = message);
+        _busy = new BusyController(ApplyBusy, nameof(LockScreenView), Model.ReportUnexpected);
 
         Model.SignedIn += operatorRecord =>
         {
@@ -83,7 +82,7 @@ public partial class LockScreenView : UserControl
                 : "Es la primera vez en esta terminal. Ingresá con tu correo y contraseña y después vas a crear un PIN."),
         };
 
-        ShowStatus(Model.Status ?? _unexpected);
+        ShowStatus(Model.Status);
         FocusForMode();
     }
 
@@ -236,7 +235,6 @@ public partial class LockScreenView : UserControl
 
     private async void SignInButton_Click(object sender, RoutedEventArgs e)
     {
-        _unexpected = null;
         var email = EmailTextBox.Text;
         var password = PasswordBox.Password;
         await _busy.RunAsync(PosMessages.Verifying, async () =>

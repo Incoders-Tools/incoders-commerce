@@ -151,4 +151,14 @@ public sealed class PosLockScreenMarkupTests
         Assert.DoesNotContain("Operator Sign-Out Keeps the Cash Session", spec);
         Assert.Contains("Sign-Out Keeps The Cash Session And The Cart", spec);
     }
+
+    [Fact]
+    public void LockScreenView_KeepsNoStatusOfItsOwn_TheModelIsTheOnlySource()
+    {
+        var code = Src("LockScreenView.xaml.cs");
+
+        Assert.DoesNotContain("_unexpected", code);
+        Assert.Contains("Model.ReportUnexpected", code);
+        Assert.Contains("ShowStatus(Model.Status)", code);
+    }
 }

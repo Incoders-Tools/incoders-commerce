@@ -98,6 +98,9 @@ public sealed class LockScreenModel(
         Mode = LockScreenMode.PinEntry;
     }
 
+    /// <summary>An error nobody planned for (logged by the caller): shown inline through the one <see cref="Status"/>.</summary>
+    public void ReportUnexpected(string message) => Status = message;
+
     /// <summary>"Ingresar con usuario y contraseña".</summary>
     public void ChooseCredentials()
     {
@@ -170,6 +173,7 @@ public sealed class LockScreenModel(
     /// </summary>
     public async Task<bool> SubmitCredentialsAsync(string email, string password, CancellationToken ct = default)
     {
+        Status = null;
         email = email.Trim();
         if (email.Length == 0 || password.Length == 0)
         {
