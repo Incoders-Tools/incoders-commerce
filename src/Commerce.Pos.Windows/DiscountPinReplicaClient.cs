@@ -17,31 +17,36 @@ namespace Commerce.Pos.Windows;
 /// </summary>
 public sealed class DiscountPinReplicaClient
 {
+    private const string Path = "/device/branch/discount-pin";
+
     private readonly HttpClient _httpClient;
 
     public DiscountPinReplicaClient(HttpClient httpClient) => _httpClient = httpClient;
 
     public async Task<DiscountPinPullOutcome> PullAsync(string deviceToken, CancellationToken ct = default)
     {
+        var endpoint = PosHttp.Endpoint(HttpMethod.Get, Path);
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, "/device/branch/discount-pin");
+            using var request = new HttpRequestMessage(HttpMethod.Get, Path);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", deviceToken);
 
             using var response = await _httpClient.SendAsync(request, ct);
             if (!response.IsSuccessStatusCode)
             {
+                PosHttp.LogFailure(endpoint, response, "discount PIN pull failed");
                 return DiscountPinPullOutcome.Failed($"HTTP {(int)response.StatusCode}");
             }
 
-            var body = await response.Content.ReadFromJsonAsync<DeviceDiscountPinDto>(ct);
+            var body = await PosHttp.TryReadJsonAsync<DeviceDiscountPinDto>(response, endpoint, ct);
             return body is null
-                ? DiscountPinPullOutcome.Failed("Empty response from server.")
+                ? DiscountPinPullOutcome.Failed(PosMessages.UnexpectedResponse)
                 : DiscountPinPullOutcome.Succeeded(body);
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
+        catch (Exception ex) when (PosHttp.IsTransportFailure(ex, ct))
         {
-            return DiscountPinPullOutcome.Failed($"Unreachable: {ex.Message}");
+            PosHttp.LogTransportFailure(endpoint, ex);
+            return DiscountPinPullOutcome.Failed(PosMessages.ServerUnreachable);
         }
     }
 }

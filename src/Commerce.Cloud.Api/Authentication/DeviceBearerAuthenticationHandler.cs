@@ -93,4 +93,18 @@ public sealed class DeviceBearerAuthenticationHandler : AuthenticationHandler<De
         var ticket = new AuthenticationTicket(new ClaimsPrincipal(identity), Scheme.Name);
         return AuthenticateResult.Success(ticket);
     }
+
+    /// <summary>
+    /// Answers an unauthenticated device request with 401 AND a
+    /// `WWW-Authenticate` challenge. Endpoint-level credential failures (wrong
+    /// email or password on `/device/operators/verify`) return a bare 401
+    /// without it, which is how the POS tells "this terminal is not recognized,
+    /// pair it again" apart from "wrong credentials" without a body.
+    /// </summary>
+    protected override Task HandleChallengeAsync(AuthenticationProperties properties)
+    {
+        Response.Headers.WWWAuthenticate = "Bearer realm=\"device\"";
+        Response.StatusCode = StatusCodes.Status401Unauthorized;
+        return Task.CompletedTask;
+    }
 }

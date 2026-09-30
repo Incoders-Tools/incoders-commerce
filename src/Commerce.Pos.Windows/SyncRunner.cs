@@ -131,7 +131,7 @@ public sealed class SyncRunner
 
             if (credentialRejected)
             {
-                summary += "\n\nDevice credential rejected — click \"Re-pair terminal\" to continue syncing.";
+                summary += $"\n\n{PosMessages.TerminalNotRecognized}";
             }
 
             return new SyncRunResult(summary, credentialRejected);

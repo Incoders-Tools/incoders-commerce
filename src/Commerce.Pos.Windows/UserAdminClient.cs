@@ -21,42 +21,91 @@ public sealed class UserAdminClient : IDisposable
 
     public async Task<AdminSignInOutcome> SignInAsync(string email, string password, CancellationToken ct = default)
     {
+        const string path = "/account/sign-in";
+        var endpoint = PosHttp.Endpoint(HttpMethod.Post, path);
         try
         {
-            using var response = await _httpClient.PostAsJsonAsync("/account/sign-in", new AdminSignInRequestDto(email, password), ct);
-            if (response.StatusCode == HttpStatusCode.Unauthorized) return AdminSignInOutcome.InvalidCredentials();
-            if (!response.IsSuccessStatusCode) return AdminSignInOutcome.Failed($"HTTP {(int)response.StatusCode}");
-            var body = await response.Content.ReadFromJsonAsync<AdminSignedInResponseDto>(ct);
-            return body is null ? AdminSignInOutcome.Failed("Empty response from server.") : AdminSignInOutcome.SignedIn(body.Permissions);
+            using var response = await _httpClient.PostAsJsonAsync(path, new AdminSignInRequestDto(email, password), ct);
+            return await AdminSignInOutcome.FromResponseAsync(response, endpoint, ct);
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException) { return AdminSignInOutcome.Failed($"Staff management requires connectivity: {ex.Message}"); }
+        catch (Exception ex) when (PosHttp.IsTransportFailure(ex, ct))
+        {
+            PosHttp.LogTransportFailure(endpoint, ex);
+            return AdminSignInOutcome.Failed(PosMessages.ServerUnreachable);
+        }
     }
 
     public async Task<IReadOnlyList<UserAdminRecordDto>?> ListUsersAsync(CancellationToken ct = default)
     {
+        const string path = "/account/users";
+        var endpoint = PosHttp.Endpoint(HttpMethod.Get, path);
         try
         {
-            using var response = await _httpClient.GetAsync("/account/users", ct);
-            return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<List<UserAdminRecordDto>>(ct) : null;
+            using var response = await _httpClient.GetAsync(path, ct);
+            if (!response.IsSuccessStatusCode)
+            {
+                await PosHttp.LogFailureWithBodyAsync(endpoint, response, ct);
+                return null;
+            }
+
+            return await PosHttp.TryReadJsonAsync<List<UserAdminRecordDto>>(response, endpoint, ct);
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException) { return null; }
+        catch (Exception ex) when (PosHttp.IsTransportFailure(ex, ct))
+        {
+            PosHttp.LogTransportFailure(endpoint, ex);
+            return null;
+        }
     }
 
-    public Task<UserAdminMutationOutcome> CreateUserAsync(CreateUserAdminRequestDto request, CancellationToken ct = default) => SendAsync(() => _httpClient.PostAsJsonAsync("/account/users", request, ct), ct);
-    public Task<UserAdminMutationOutcome> ReplaceRolesAsync(Guid id, AssignRolesAdminRequestDto request, CancellationToken ct = default) => SendAsync(() => _httpClient.PutAsJsonAsync($"/account/users/{id}/roles", request, ct), ct);
-    public Task<UserAdminMutationOutcome> ResetPasswordAsync(Guid id, AdminResetPasswordRequestDto request, CancellationToken ct = default) => SendAsync(() => _httpClient.PostAsJsonAsync($"/account/users/{id}/reset-password", request, ct), ct);
+    public Task<UserAdminMutationOutcome> CreateUserAsync(CreateUserAdminRequestDto request, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Post, "/account/users", () => _httpClient.PostAsJsonAsync("/account/users", request, ct), ct);
 
-    private async Task<UserAdminMutationOutcome> SendAsync(Func<Task<HttpResponseMessage>> send, CancellationToken ct)
+    public Task<UserAdminMutationOutcome> ReplaceRolesAsync(Guid id, AssignRolesAdminRequestDto request, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Put, $"/account/users/{id}/roles", () => _httpClient.PutAsJsonAsync($"/account/users/{id}/roles", request, ct), ct);
+
+    public Task<UserAdminMutationOutcome> ResetPasswordAsync(Guid id, AdminResetPasswordRequestDto request, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Post, $"/account/users/{id}/reset-password", () => _httpClient.PostAsJsonAsync($"/account/users/{id}/reset-password", request, ct), ct);
+
+    private static async Task<UserAdminMutationOutcome> SendAsync(
+        HttpMethod method, string path, Func<Task<HttpResponseMessage>> send, CancellationToken ct)
     {
+        var endpoint = PosHttp.Endpoint(method, path);
         try
         {
             using var response = await send();
-            if (response.StatusCode == HttpStatusCode.Forbidden) return UserAdminMutationOutcome.Forbidden();
-            if (response.StatusCode == HttpStatusCode.NotFound) return UserAdminMutationOutcome.NotFound();
-            return response.IsSuccessStatusCode ? UserAdminMutationOutcome.Succeeded() : UserAdminMutationOutcome.Failed($"HTTP {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync(ct)}");
+            if (response.IsSuccessStatusCode)
+            {
+                return UserAdminMutationOutcome.Succeeded();
+            }
+
+            await PosHttp.LogFailureWithBodyAsync(endpoint, response, ct);
+            switch (response.StatusCode)
+            {
+                case HttpStatusCode.Unauthorized:
+                    return UserAdminMutationOutcome.Failed(PosMessages.SessionExpired);
+                case HttpStatusCode.Forbidden:
+                    return UserAdminMutationOutcome.Forbidden();
+                case HttpStatusCode.NotFound:
+                    return UserAdminMutationOutcome.NotFound();
+                case HttpStatusCode.BadRequest:
+                    return UserAdminMutationOutcome.Failed(
+                        await PosHttp.ReadErrorCodeAsync(response, endpoint, ct) switch
+                        {
+                            "branch-required" => PosMessages.BranchRequired,
+                            "branch-not-in-organization" => PosMessages.BranchNotInOrganization,
+                            _ => PosMessages.InvalidData,
+                        });
+                default:
+                    return UserAdminMutationOutcome.Failed(PosHttp.MessageFor(response));
+            }
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException) { return UserAdminMutationOutcome.Failed($"Staff management requires connectivity: {ex.Message}"); }
+        catch (Exception ex) when (PosHttp.IsTransportFailure(ex, ct))
+        {
+            PosHttp.LogTransportFailure(endpoint, ex);
+            return UserAdminMutationOutcome.Failed(PosMessages.ServerUnreachable);
+        }
     }
+
     public void Dispose() => _httpClient.Dispose();
 }
 
@@ -67,8 +116,8 @@ public sealed record AdminResetPasswordRequestDto(string NewPassword);
 public sealed record UserAdminMutationOutcome(UserAdminMutationKind Kind, string? ErrorMessage)
 {
     public static UserAdminMutationOutcome Succeeded() => new(UserAdminMutationKind.Succeeded, null);
-    public static UserAdminMutationOutcome Forbidden() => new(UserAdminMutationKind.Forbidden, "You do not have permission to manage staff.");
-    public static UserAdminMutationOutcome NotFound() => new(UserAdminMutationKind.NotFound, "Staff user not found.");
+    public static UserAdminMutationOutcome Forbidden() => new(UserAdminMutationKind.Forbidden, PosMessages.NoPermissionToManageStaff);
+    public static UserAdminMutationOutcome NotFound() => new(UserAdminMutationKind.NotFound, PosMessages.StaffUserNotFound);
     public static UserAdminMutationOutcome Failed(string message) => new(UserAdminMutationKind.Failed, message);
 }
 public enum UserAdminMutationKind { Succeeded, Forbidden, NotFound, Failed }

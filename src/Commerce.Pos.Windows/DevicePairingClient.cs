@@ -6,13 +6,12 @@ namespace Commerce.Pos.Windows;
 
 /// <summary>
 /// Typed anonymous `HttpClient` for `POST /device/pair` (design.md "File
-/// Changes"). Separate from <see cref="CloudSyncClient"/> â€” pairing is
+/// Changes"). Separate from <see cref="CloudSyncClient"/> — pairing is
 /// anonymous, sync is bearer-authenticated.
 /// </summary>
 public sealed class DevicePairingClient
 {
-    internal const string OperatorNotPermittedMessage =
-        "Este usuario no tiene permiso para operar el punto de venta. Pedí a un administrador que le asigne el rol Cajero.";
+    private const string PairPath = "/device/pair";
 
     private readonly HttpClient _httpClient;
 
@@ -24,38 +23,51 @@ public sealed class DevicePairingClient
     public async Task<PairingOutcome> PairAsync(
         string email, string password, Guid installationId, Guid? branchId, CancellationToken ct = default)
     {
+        var endpoint = PosHttp.Endpoint(HttpMethod.Post, PairPath);
         try
         {
-            var response = await _httpClient.PostAsJsonAsync(
-                "/device/pair",
+            using var response = await _httpClient.PostAsJsonAsync(
+                PairPath,
                 new DevicePairRequestDto(email, password, installationId, branchId),
                 ct);
 
             if (response.StatusCode is HttpStatusCode.Unauthorized)
             {
+                PosHttp.LogFailure(endpoint, response, "email or password rejected");
                 return PairingOutcome.InvalidCredentials();
             }
 
-            var body = await response.Content.ReadFromJsonAsync<DevicePairResponseDto>(ct);
+            var body = await PosHttp.TryReadJsonAsync<DevicePairResponseDto>(response, endpoint, ct);
             if (body is null)
             {
-                return PairingOutcome.Failed("Empty response from server.");
+                PosHttp.LogFailure(endpoint, response, "no usable response body");
+                return PairingOutcome.Failed(PosHttp.MessageFor(response));
             }
 
-            return body.Status switch
+            switch (body.Status)
             {
-                "paired" => PairingOutcome.Paired(
-                    body.OrganizationId!.Value, body.BranchId!.Value, body.BranchName!, email, body.DeviceToken!),
-                "branch-selection-required" => PairingOutcome.BranchSelectionRequired(body.Branches ?? []),
-                "no-branches-assigned" => PairingOutcome.Failed("This operator has no branches assigned."),
-                "branch-not-in-scope" => PairingOutcome.Failed("The selected branch is not assigned to this operator."),
-                "operator-not-permitted" => PairingOutcome.Failed(OperatorNotPermittedMessage),
-                _ => PairingOutcome.Failed($"Unrecognized pairing status: {body.Status}"),
-            };
+                case "paired" when response.IsSuccessStatusCode
+                    && body.OrganizationId is not null && body.BranchId is not null
+                    && body.BranchName is not null && body.DeviceToken is not null:
+                    return PairingOutcome.Paired(
+                        body.OrganizationId.Value, body.BranchId.Value, body.BranchName, email, body.DeviceToken);
+                case "branch-selection-required":
+                    return PairingOutcome.BranchSelectionRequired(body.Branches ?? []);
+                case "no-branches-assigned":
+                    return PairingOutcome.Failed(PosMessages.NoBranchesAssigned);
+                case "branch-not-in-scope":
+                    return PairingOutcome.Failed(PosMessages.SelectedBranchNotInScope);
+                case "operator-not-permitted":
+                    return PairingOutcome.Failed(PosMessages.OperatorNotPermitted);
+                default:
+                    PosHttp.LogFailure(endpoint, response, $"unrecognized pairing status '{body.Status}'");
+                    return PairingOutcome.Failed(PosMessages.UnexpectedResponse);
+            }
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        catch (Exception ex) when (PosHttp.IsTransportFailure(ex, ct))
         {
-            return PairingOutcome.Failed($"Unreachable: {ex.Message}");
+            PosHttp.LogTransportFailure(endpoint, ex);
+            return PairingOutcome.Failed(PosMessages.ServerUnreachable);
         }
     }
 }
@@ -74,7 +86,7 @@ public sealed record DevicePairResponseDto(
     string? DeviceToken);
 
 /// <summary>
-/// Discriminated pairing result (design.md "Interfaces / Contracts") â€” the
+/// Discriminated pairing result (design.md "Interfaces / Contracts") — the
 /// UI branches on <see cref="Kind"/> rather than parsing HTTP status codes
 /// itself.
 /// </summary>
@@ -93,7 +105,7 @@ public sealed record PairingOutcome(
         new(PairingOutcomeKind.BranchSelectionRequired, null, branches, null);
 
     public static PairingOutcome InvalidCredentials() =>
-        new(PairingOutcomeKind.InvalidCredentials, null, null, "Invalid email or password.");
+        new(PairingOutcomeKind.InvalidCredentials, null, null, PosMessages.InvalidCredentials);
 
     public static PairingOutcome Failed(string message) =>
         new(PairingOutcomeKind.Failed, null, null, message);

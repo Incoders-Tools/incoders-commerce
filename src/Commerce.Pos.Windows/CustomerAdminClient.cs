@@ -31,101 +31,87 @@ public sealed class CustomerAdminClient : IDisposable
         _httpClient = new HttpClient(handler) { BaseAddress = new Uri(baseUrl) };
     }
 
+    /// <summary>Injects a caller-owned client for focused request-contract tests.</summary>
+    public CustomerAdminClient(HttpClient httpClient)
+    {
+        _httpClient = httpClient;
+    }
+
     public async Task<AdminSignInOutcome> SignInAsync(string email, string password, CancellationToken ct = default)
     {
+        const string path = "/account/sign-in";
+        var endpoint = PosHttp.Endpoint(HttpMethod.Post, path);
         try
         {
-            var response = await _httpClient.PostAsJsonAsync(
-                "/account/sign-in", new AdminSignInRequestDto(email, password), ct);
-
-            if (response.StatusCode is HttpStatusCode.Unauthorized)
-            {
-                return AdminSignInOutcome.InvalidCredentials();
-            }
-
-            if (!response.IsSuccessStatusCode)
-            {
-                return AdminSignInOutcome.Failed($"HTTP {(int)response.StatusCode}");
-            }
-
-            var body = await response.Content.ReadFromJsonAsync<AdminSignedInResponseDto>(ct);
-            if (body is null)
-            {
-                return AdminSignInOutcome.Failed("Empty response from server.");
-            }
-
+            using var response = await _httpClient.PostAsJsonAsync(path, new AdminSignInRequestDto(email, password), ct);
             // UX-only: a signed-in caller lacking ManageUsers simply sees every
             // subsequent call 403; the server re-checks regardless of this bit.
-            return AdminSignInOutcome.SignedIn(body.Permissions);
+            return await AdminSignInOutcome.FromResponseAsync(response, endpoint, ct);
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        catch (Exception ex) when (PosHttp.IsTransportFailure(ex, ct))
         {
-            return AdminSignInOutcome.Failed($"Customer management requires connectivity: {ex.Message}");
+            PosHttp.LogTransportFailure(endpoint, ex);
+            return AdminSignInOutcome.Failed(PosMessages.ServerUnreachable);
         }
     }
 
     public async Task<IReadOnlyList<CustomerAdminRecordDto>?> ListCustomersAsync(CancellationToken ct = default)
     {
+        const string path = "/customers";
+        var endpoint = PosHttp.Endpoint(HttpMethod.Get, path);
         try
         {
-            var response = await _httpClient.GetAsync("/customers", ct);
-            return response.IsSuccessStatusCode
-                ? await response.Content.ReadFromJsonAsync<List<CustomerAdminRecordDto>>(ct)
-                : null;
+            using var response = await _httpClient.GetAsync(path, ct);
+            if (!response.IsSuccessStatusCode)
+            {
+                await PosHttp.LogFailureWithBodyAsync(endpoint, response, ct);
+                return null;
+            }
+
+            return await PosHttp.TryReadJsonAsync<List<CustomerAdminRecordDto>>(response, endpoint, ct);
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        catch (Exception ex) when (PosHttp.IsTransportFailure(ex, ct))
         {
+            PosHttp.LogTransportFailure(endpoint, ex);
             return null;
         }
     }
 
-    public async Task<CustomerAdminMutationOutcome> CreateCustomerAsync(
-        CreateCustomerAdminRequestDto request, CancellationToken ct = default)
+    public Task<CustomerAdminMutationOutcome> CreateCustomerAsync(
+        CreateCustomerAdminRequestDto request, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Post, "/customers", () => _httpClient.PostAsJsonAsync("/customers", request, ct), ct);
+
+    public Task<CustomerAdminMutationOutcome> UpdateCustomerAsync(
+        Guid id, UpdateCustomerAdminRequestDto request, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Put, $"/customers/{id}", () => _httpClient.PutAsJsonAsync($"/customers/{id}", request, ct), ct);
+
+    private static async Task<CustomerAdminMutationOutcome> SendAsync(
+        HttpMethod method, string path, Func<Task<HttpResponseMessage>> send, CancellationToken ct)
     {
+        var endpoint = PosHttp.Endpoint(method, path);
         try
         {
-            var response = await _httpClient.PostAsJsonAsync("/customers", request, ct);
-            return await ToMutationOutcomeAsync(response, ct);
-        }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
-        {
-            return CustomerAdminMutationOutcome.Failed($"Customer management requires connectivity: {ex.Message}");
-        }
-    }
+            using var response = await send();
+            if (response.IsSuccessStatusCode)
+            {
+                return CustomerAdminMutationOutcome.Succeeded();
+            }
 
-    public async Task<CustomerAdminMutationOutcome> UpdateCustomerAsync(
-        Guid id, UpdateCustomerAdminRequestDto request, CancellationToken ct = default)
-    {
-        try
-        {
-            var response = await _httpClient.PutAsJsonAsync($"/customers/{id}", request, ct);
-            return await ToMutationOutcomeAsync(response, ct);
+            await PosHttp.LogFailureWithBodyAsync(endpoint, response, ct);
+            return response.StatusCode switch
+            {
+                HttpStatusCode.Unauthorized => CustomerAdminMutationOutcome.Failed(PosMessages.SessionExpired),
+                HttpStatusCode.Forbidden => CustomerAdminMutationOutcome.Forbidden(),
+                HttpStatusCode.NotFound => CustomerAdminMutationOutcome.NotFound(),
+                HttpStatusCode.BadRequest => CustomerAdminMutationOutcome.Failed(PosMessages.InvalidData),
+                _ => CustomerAdminMutationOutcome.Failed(PosHttp.MessageFor(response)),
+            };
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        catch (Exception ex) when (PosHttp.IsTransportFailure(ex, ct))
         {
-            return CustomerAdminMutationOutcome.Failed($"Customer management requires connectivity: {ex.Message}");
+            PosHttp.LogTransportFailure(endpoint, ex);
+            return CustomerAdminMutationOutcome.Failed(PosMessages.ServerUnreachable);
         }
-    }
-
-    private static async Task<CustomerAdminMutationOutcome> ToMutationOutcomeAsync(HttpResponseMessage response, CancellationToken ct)
-    {
-        if (response.StatusCode is HttpStatusCode.Forbidden)
-        {
-            return CustomerAdminMutationOutcome.Forbidden();
-        }
-
-        if (response.StatusCode is HttpStatusCode.NotFound)
-        {
-            return CustomerAdminMutationOutcome.NotFound();
-        }
-
-        if (!response.IsSuccessStatusCode)
-        {
-            var body = await response.Content.ReadAsStringAsync(ct);
-            return CustomerAdminMutationOutcome.Failed($"HTTP {(int)response.StatusCode}: {body}");
-        }
-
-        return CustomerAdminMutationOutcome.Succeeded();
     }
 
     public void Dispose() => _httpClient.Dispose();
@@ -140,9 +126,34 @@ public sealed record AdminSignInOutcome(AdminSignInOutcomeKind Kind, int Permiss
     public static AdminSignInOutcome SignedIn(int permissions) => new(AdminSignInOutcomeKind.SignedIn, permissions, null);
 
     public static AdminSignInOutcome InvalidCredentials() =>
-        new(AdminSignInOutcomeKind.InvalidCredentials, 0, "Invalid email or password.");
+        new(AdminSignInOutcomeKind.InvalidCredentials, 0, PosMessages.InvalidCredentials);
 
     public static AdminSignInOutcome Failed(string message) => new(AdminSignInOutcomeKind.Failed, 0, message);
+
+    /// <summary>Shared by both cookie-session admin clients: status first, JSON only when it is there.</summary>
+    internal static async Task<AdminSignInOutcome> FromResponseAsync(HttpResponseMessage response, string endpoint, CancellationToken ct)
+    {
+        if (response.StatusCode is HttpStatusCode.Unauthorized)
+        {
+            PosHttp.LogFailure(endpoint, response, "email or password rejected");
+            return InvalidCredentials();
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            await PosHttp.LogFailureWithBodyAsync(endpoint, response, ct);
+            return Failed(PosHttp.MessageFor(response));
+        }
+
+        var body = await PosHttp.TryReadJsonAsync<AdminSignedInResponseDto>(response, endpoint, ct);
+        if (body is null)
+        {
+            PosHttp.LogFailure(endpoint, response, "no usable response body");
+            return Failed(PosMessages.UnexpectedResponse);
+        }
+
+        return SignedIn(body.Permissions);
+    }
 }
 
 public enum AdminSignInOutcomeKind
@@ -185,10 +196,10 @@ public sealed record CustomerAdminMutationOutcome(CustomerAdminMutationKind Kind
     public static CustomerAdminMutationOutcome Succeeded() => new(CustomerAdminMutationKind.Succeeded, null);
 
     public static CustomerAdminMutationOutcome Forbidden() =>
-        new(CustomerAdminMutationKind.Forbidden, "You do not have permission to manage customers.");
+        new(CustomerAdminMutationKind.Forbidden, PosMessages.NoPermissionToManageCustomers);
 
     public static CustomerAdminMutationOutcome NotFound() =>
-        new(CustomerAdminMutationKind.NotFound, "Customer not found.");
+        new(CustomerAdminMutationKind.NotFound, PosMessages.CustomerNotFound);
 
     public static CustomerAdminMutationOutcome Failed(string message) => new(CustomerAdminMutationKind.Failed, message);
 }

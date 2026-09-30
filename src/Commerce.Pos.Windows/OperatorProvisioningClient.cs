@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -23,53 +24,92 @@ public sealed class OperatorProvisioningClient
     public async Task<OperatorVerifyOutcome> VerifyAsync(
         string email, string password, string deviceToken, CancellationToken ct = default)
     {
+        const string path = "/device/operators/verify";
+        var endpoint = PosHttp.Endpoint(HttpMethod.Post, path);
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Post, "/device/operators/verify")
+            using var request = new HttpRequestMessage(HttpMethod.Post, path)
             {
                 Content = JsonContent.Create(new OperatorVerifyRequestDto(email, password)),
             };
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", deviceToken);
 
-            var response = await _httpClient.SendAsync(request, ct);
-            var body = await response.Content.ReadFromJsonAsync<OperatorVerifyResponseDto>(ct);
-            if (body is null)
+            using var response = await _httpClient.SendAsync(request, ct);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
-                return OperatorVerifyOutcome.Failed("Empty response from server.");
+                if (PosHttp.IsTerminalNotRecognized(response))
+                {
+                    PosHttp.LogFailure(endpoint, response, "device credential not recognized; the terminal must be paired again");
+                    return OperatorVerifyOutcome.TerminalNotRecognized();
+                }
+
+                PosHttp.LogFailure(endpoint, response, "email or password rejected");
+                return OperatorVerifyOutcome.InvalidCredentials();
             }
 
-            return body.Status switch
+            var body = await PosHttp.TryReadJsonAsync<OperatorVerifyResponseDto>(response, endpoint, ct);
+            if (body is null)
             {
-                "verified" => OperatorVerifyOutcome.Verified(body.UserId!.Value, body.Email!, body.OrganizationId!.Value, body.Permissions),
-                "branch-not-in-scope" => OperatorVerifyOutcome.Failed("This operator is not assigned to this terminal's branch."),
-                "operator-not-permitted" => OperatorVerifyOutcome.Failed(DevicePairingClient.OperatorNotPermittedMessage),
-                _ => OperatorVerifyOutcome.InvalidCredentials(),
-            };
+                PosHttp.LogFailure(endpoint, response, "no usable response body");
+                return OperatorVerifyOutcome.Failed(PosHttp.MessageFor(response));
+            }
+
+            switch (body.Status)
+            {
+                case "verified" when response.IsSuccessStatusCode && body.UserId is not null && body.Email is not null && body.OrganizationId is not null:
+                    return OperatorVerifyOutcome.Verified(body.UserId.Value, body.Email, body.OrganizationId.Value, body.Permissions);
+                case "branch-not-in-scope":
+                    return OperatorVerifyOutcome.Failed(PosMessages.BranchNotInScope);
+                case "no-branches-assigned":
+                    return OperatorVerifyOutcome.Failed(PosMessages.NoBranchesAssigned);
+                case "operator-not-permitted":
+                    return OperatorVerifyOutcome.Failed(PosMessages.OperatorNotPermitted);
+                default:
+                    PosHttp.LogFailure(endpoint, response, $"unrecognized status '{body.Status}'");
+                    return OperatorVerifyOutcome.Failed(PosHttp.MessageFor(response));
+            }
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        catch (Exception ex) when (PosHttp.IsTransportFailure(ex, ct))
         {
-            return OperatorVerifyOutcome.Failed($"Unreachable: {ex.Message}");
+            PosHttp.LogTransportFailure(endpoint, ex);
+            return OperatorVerifyOutcome.Failed(PosMessages.ServerUnreachable);
         }
     }
 
     public async Task<OperatorStatusOutcome> GetStatusAsync(Guid userId, string deviceToken, CancellationToken ct = default)
     {
+        var path = $"/device/operators/{userId}/status";
+        var endpoint = PosHttp.Endpoint(HttpMethod.Get, path);
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, $"/device/operators/{userId}/status");
+            using var request = new HttpRequestMessage(HttpMethod.Get, path);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", deviceToken);
 
-            var response = await _httpClient.SendAsync(request, ct);
-            var body = await response.Content.ReadFromJsonAsync<OperatorStatusResponseDto>(ct);
+            using var response = await _httpClient.SendAsync(request, ct);
+
+            if (PosHttp.IsTerminalNotRecognized(response))
+            {
+                PosHttp.LogFailure(endpoint, response, "device credential not recognized; the terminal must be paired again");
+                return OperatorStatusOutcome.TerminalNotRecognized;
+            }
+
+            // Anything but a typed answer leaves the cached operator alone: an
+            // ambiguous reply must never deprovision anyone.
+            var body = response.IsSuccessStatusCode
+                ? await PosHttp.TryReadJsonAsync<OperatorStatusResponseDto>(response, endpoint, ct)
+                : null;
             if (body is null)
             {
+                PosHttp.LogFailure(endpoint, response, "no usable status answer");
                 return OperatorStatusOutcome.Unreachable;
             }
 
             return body.Status == "active" ? OperatorStatusOutcome.Active : OperatorStatusOutcome.Inactive;
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        catch (Exception ex) when (PosHttp.IsTransportFailure(ex, ct))
         {
+            PosHttp.LogTransportFailure(endpoint, ex);
             return OperatorStatusOutcome.Unreachable;
         }
     }
@@ -94,7 +134,10 @@ public sealed record OperatorVerifyOutcome(
         new(OperatorVerifyOutcomeKind.Verified, userId, email, organizationId, permissions, null);
 
     public static OperatorVerifyOutcome InvalidCredentials() =>
-        new(OperatorVerifyOutcomeKind.InvalidCredentials, null, null, null, 0, "Invalid email or password.");
+        new(OperatorVerifyOutcomeKind.InvalidCredentials, null, null, null, 0, PosMessages.InvalidCredentials);
+
+    public static OperatorVerifyOutcome TerminalNotRecognized() =>
+        new(OperatorVerifyOutcomeKind.TerminalNotRecognized, null, null, null, 0, PosMessages.TerminalNotRecognized);
 
     public static OperatorVerifyOutcome Failed(string message) =>
         new(OperatorVerifyOutcomeKind.Failed, null, null, null, 0, message);
@@ -104,6 +147,8 @@ public enum OperatorVerifyOutcomeKind
 {
     Verified,
     InvalidCredentials,
+    /// <summary>The server does not know this terminal's device credential: pair it again.</summary>
+    TerminalNotRecognized,
     Failed,
 }
 
@@ -112,4 +157,6 @@ public enum OperatorStatusOutcome
     Active,
     Inactive,
     Unreachable,
+    /// <summary>The server does not know this terminal's device credential: pair it again.</summary>
+    TerminalNotRecognized,
 }

@@ -456,4 +456,38 @@ public sealed class OperatorProvisioningTests : IClassFixture<WebApplicationFact
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
+
+    // --- Device 401 vs credential 401 ---------------------------------------
+    // The POS must tell "this terminal is not recognized" (re-pair) apart from
+    // "wrong email or password". Only the device-bearer challenge carries a
+    // WWW-Authenticate header; the endpoint's own credential 401 never does.
+
+    [Fact]
+    public async Task Verify_UnknownDeviceToken_Returns401_WithABearerChallenge()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var response = await _factory.CreateClient().SendAsync(BuildRequest(
+            HttpMethod.Post, "/device/operators/verify", "not-a-known-device-token",
+            new OperatorVerifyRequest("someone@example.com", "whatever")));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.NotEmpty(response.Headers.WwwAuthenticate);
+    }
+
+    [Fact]
+    public async Task Verify_WrongPassword_Returns401_WithoutABearerChallenge()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var (orgId, branchId, _) = await SeedOperatorAsync("verify-nochallenge@example.com", "correct-password");
+        var deviceToken = await IssueDeviceTokenAsync(orgId, branchId);
+
+        var response = await _factory.CreateClient().SendAsync(BuildRequest(
+            HttpMethod.Post, "/device/operators/verify", deviceToken,
+            new OperatorVerifyRequest("verify-nochallenge@example.com", "incorrect-password")));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Empty(response.Headers.WwwAuthenticate);
+    }
 }
