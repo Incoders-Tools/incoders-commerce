@@ -146,6 +146,26 @@ offline like any sale.
       tender; the customer picker walk-in text in Spanish.
       Route for P1..P4: delegated direct (one writer, sequential units).
 
+### Phase 2c — Cash session / "Cerrar Caja" (authorized 2026-09-30)
+Parent defaults (revisit if the owner objects): one open session per
+terminal; opening requires a signed-in operator and an opening cash float;
+sales (scanned and manual) require an open session; closing shows expected
+cash (float + cash tenders - change), card and QR totals and the sale count,
+asks for the counted cash, records the difference, and prints nothing yet;
+works offline and syncs the opened/closed session like sales; cash
+withdrawals/deposits during the session are a follow-up.
+- [ ] C1. Spec: new `pos-cash-session` requirements and scenarios.
+- [ ] C2. Local model + storage: session open/close in `branch.db`
+      (idempotent migration), sales linked to the session, totals computed
+      from recorded tenders; sale commit refuses without an open session.
+- [ ] C3. Sync + cloud: session opened/closed payloads, ingestion and audit.
+- [ ] C4. POS UI: open-session prompt, "Cerrar Caja" enabled in the nav bar
+      with a close dialog (expected, counted, difference), session state
+      visible in the header.
+- [ ] C5. Reclaim vertical space on the sale screen (owner: "the footer is
+      huge"; parent to confirm whether it means the totals panel).
+      Route for C1..C5: delegated direct (one writer, sequential units).
+
 ## Acceptance criteria
 - Sale screen matches the reference structure in all three themes, min size
   1120x700, no clipping.
@@ -442,6 +462,4 @@ in a throwaway worktree at task close.
   authorization.
 
 ## Next step
-Owner to choose the next Phase 2 item: cash session / "Cerrar Caja" (would
-consume the recorded tenders), reports, product images, split tender, or the
-printed/fiscal ticket.
+C1..C4 with one writer; C5 after the owner confirms the target.
