@@ -16,7 +16,6 @@ public sealed class PosBusyMarkupTests
     [Theory]
     [InlineData("PairingWindow")]
     [InlineData("ProvisionOperatorWindow")]
-    [InlineData("UsersWindow")]
     public void Window_HasProgressBarBusyTextAndAGuardedInputHost(string window)
     {
         var xaml = Src(window + ".xaml");
@@ -33,6 +32,26 @@ public sealed class PosBusyMarkupTests
     }
 
     [Theory]
+    [InlineData("CustomersView")]
+    [InlineData("StaffView")]
+    public void SectionView_HasProgressBarBusyTextAndAGuardedInputHost_AndRoutesThroughTheBusyController(string view)
+    {
+        var xaml = Src(view + ".xaml");
+        var code = Src(view + ".xaml.cs");
+
+        Assert.Contains("x:Name=\"BusyProgressBar\"", xaml);
+        Assert.Contains("IsIndeterminate=\"True\"", xaml);
+        Assert.Contains("x:Name=\"BusyText\"", xaml);
+        Assert.Contains("x:Name=\"BusyPanel\"", xaml);
+        Assert.Contains("x:Name=\"FormPanel\"", xaml);
+        Assert.Contains("{DynamicResource PrimaryBrush}", xaml);
+        Assert.Contains("BusyController", code);
+        Assert.Contains("FormPanel.IsEnabled", code);
+        Assert.Contains("_busy.RunAsync", code);
+        Assert.DoesNotContain("\"Sign in failed.\"", code);
+    }
+
+    [Theory]
     [InlineData("PairingWindow")]
     [InlineData("ProvisionOperatorWindow")]
     public void ThemedWindows_ColorTheProgressBarFromPaletteKeys(string window)
@@ -46,7 +65,6 @@ public sealed class PosBusyMarkupTests
     [Theory]
     [InlineData("PairingWindow")]
     [InlineData("ProvisionOperatorWindow")]
-    [InlineData("UsersWindow")]
     public void Window_RoutesItsRequestsThroughTheBusyController_WithoutEnglishLiterals(string window)
     {
         var code = Src(window + ".xaml.cs");

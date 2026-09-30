@@ -983,6 +983,13 @@ public partial class MainWindow : Window
             _sectionView = view;
             SectionHost.Content = view;
         }
+        else if (section == ShellSection.Staff && _currentOperator.Value is { } admin)
+        {
+            var view = new StaffView(_userAdminClientFactory(), _localOperatorStore, _pairing.BranchId, admin.UserId, admin.Email);
+            view.OperatorsChanged += StaffView_OperatorsChanged;
+            _sectionView = view;
+            SectionHost.Content = view;
+        }
 
         var isSale = section == ShellSection.Sale;
         SaleScreen.Visibility = isSale ? Visibility.Visible : Visibility.Collapsed;
@@ -1004,23 +1011,15 @@ public partial class MainWindow : Window
         }
     }
 
-    private void ManageStaffButton_Click(object sender, RoutedEventArgs e)
-    {
-        using var adminClient = _userAdminClientFactory();
-        UsersWindow? usersWindow = null;
-        usersWindow = new UsersWindow(adminClient, _pairing.BranchId, _branding, () => OpenTerminalOperators(usersWindow!)) { Owner = this };
-        usersWindow.ShowDialog();
-    }
+    /// <summary>Shows Personal inside the shell: admin staff management plus removal of this terminal's operators (no provisioning).</summary>
+    private void ManageStaffButton_Click(object sender, RoutedEventArgs e) => ShowSection(ShellSection.Staff);
 
     /// <summary>
-    /// Personal > "Operadores de esta terminal": add or remove the operators that
-    /// can sign in here. Afterwards the active operator is reconciled with what is
-    /// stored (removed: signed out; re-provisioned: fresh permissions).
+    /// An operator was removed from this terminal in Personal: the active operator is
+    /// reconciled with what is stored (removed: signed out, which also leaves Personal).
     /// </summary>
-    private void OpenTerminalOperators(Window owner)
+    private void StaffView_OperatorsChanged(object? sender, EventArgs e)
     {
-        var window = new TerminalOperatorsWindow(_localOperatorStore, _operatorProvisioningClient, _pairing.DeviceToken) { Owner = owner };
-        window.ShowDialog();
         _operatorSession.Reconcile(_localOperatorStore.Load());
         RefreshIdentityText();
     }

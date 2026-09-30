@@ -292,31 +292,81 @@ terminal with no active operator.
 - WHEN the first signs out and the second enters their PIN
 - THEN the second is the current operator and the same cash session stays open
 
-### Requirement: Operator Provisioning Lives in Personal
+### Requirement: Personal Is Admin Staff Management, Not Operator Sign-In
 
-Adding an operator to a terminal (email, password and a new PIN, verified online
-once) MUST be done from the "Personal" area, in "Operadores de esta terminal",
-which also lists the operators cached on the terminal and MUST let an
-administrator remove one from the terminal. Removing an operator forgets only
-the local PIN credential, never the cloud account, and signs the operator out
-when they were active. The provisioning form MUST be shown at startup, and from
-"Iniciar sesión", only when the terminal has no non-stale cached operator
-(first run), so a new terminal can always be set up.
+The "Personal" section of the POS MUST be reachable only by an operator holding
+`ManageUsers` and MUST be administrator staff management: create a staff user
+(email, initial password, role among Cajero, Vendedor and Administrador, and the
+terminal's branch), list staff with role, branch membership and status, deactivate
+and reactivate staff, reset a password, and manage the operators cached on this
+terminal. It MUST NOT provide a way to add an operator to the terminal or to sign
+an operator in: a new staff member signs in through the sign-in flow after the
+current operator signs out. Removing an operator from the terminal forgets only
+the local PIN credential, never the cloud account, and signs the operator out when
+they were active.
 
-#### Scenario: Adding an operator from Personal
+#### Scenario: Personal offers no operator provisioning
 
-- GIVEN an administrator opens Personal > "Operadores de esta terminal"
-- WHEN they add an operator with valid credentials and a PIN
-- THEN the operator is cached on the terminal and can sign in with the PIN
+- GIVEN an administrator opens Personal
+- WHEN the section renders
+- THEN "Operadores de esta terminal" lists the cached operators with "Quitar de
+  esta terminal", and there is no action to add or provision an operator
 
 #### Scenario: Removing the active operator
 
-- GIVEN an operator is signed in and is removed from the terminal in Personal
-- WHEN the window closes
-- THEN that operator is signed out and no longer appears in the PIN picker
+- GIVEN an operator is signed in and removes themselves from the terminal in
+  Personal
+- WHEN the removal is confirmed
+- THEN that operator is signed out, the shell returns to the sale, and they no
+  longer appear in the PIN picker
+
+#### Scenario: A new staff member is added through sign-in
+
+- GIVEN an administrator created a staff user in Personal
+- WHEN the current operator signs out and the new staff member signs in with
+  email and password
+- THEN they are provisioned on the terminal through the sign-in flow, not through
+  Personal
 
 #### Scenario: First run still provisions at startup
 
 - GIVEN a paired terminal has no cached operator
 - WHEN the application starts
 - THEN the provisioning form is shown, with "Continuar sin operador" available
+  (the lock screen requirement replaces this flow)
+
+### Requirement: Clientes And Personal Are Sections Of The Main Window
+
+The POS main window MUST be a shell whose content area shows one section at a
+time: Venta (the sale), Clientes and Personal. Clientes and Personal MUST open
+inside the main window, never as modal windows, and the navigation MUST show the
+active section and offer a "Venta" entry that returns to the sale. Switching
+sections MUST NOT lose the current sale: the cart, the scan box and the cash
+session survive a visit to another section. Clientes and Personal MUST be offered
+only to an operator holding `ManageUsers`; when the operator changes and loses
+that permission while one of them is open, the shell MUST return to the sale.
+Each section MUST scroll when its content exceeds the window, MUST show statuses
+and errors inline above the scroll area (no message boxes for expected errors),
+and MUST lock its inputs and show progress while a network action runs.
+
+The administrator server authorization (a cookie sign-in as the signed-in
+administrator) MUST be asked inline in the section ("Confirmá tu contraseña"), kept
+only while the section is open, and the password MUST never be stored.
+
+#### Scenario: Visiting Clientes keeps the sale
+
+- GIVEN a sale with lines is in progress
+- WHEN the administrator opens Clientes and then returns with "Venta"
+- THEN the same lines are still in the cart
+
+#### Scenario: Losing ManageUsers closes the section
+
+- GIVEN an administrator has Personal open
+- WHEN they sign out
+- THEN the shell shows the sale
+
+#### Scenario: An error stays visible
+
+- GIVEN a section form is scrolled to its last field
+- WHEN a request fails
+- THEN the error is shown above the scroll area and is visible without scrolling

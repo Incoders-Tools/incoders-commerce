@@ -8,13 +8,13 @@
         </Style>
         <Style x:Key="FieldBox" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
             <Setter Property="Margin" Value="0,0,0,10" />
-            <Setter Property="MaxWidth" Value="520" />
-            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="Width" Value="520" />
+            <Setter Property="HorizontalAlignment" Value="Left" />
         </Style>
         <Style x:Key="FieldCombo" TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
             <Setter Property="Margin" Value="0,0,0,10" />
-            <Setter Property="MaxWidth" Value="520" />
-            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="Width" Value="520" />
+            <Setter Property="HorizontalAlignment" Value="Left" />
             <Setter Property="DisplayMemberPath" Value="Label" />
             <Setter Property="SelectedValuePath" Value="Value" />
         </Style>

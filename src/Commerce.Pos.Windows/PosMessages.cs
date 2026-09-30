@@ -124,6 +124,35 @@ public static class PosMessages
     public const string ConfirmPasswordForCustomers =
         "Para gestionar clientes, confirmá tu contraseña de administrador. Hace falta conexión a internet.";
 
+    public const string ConfirmPasswordForStaff =
+        "Para gestionar el personal, confirmá tu contraseña de administrador. Hace falta conexión a internet.";
+
+    public const string CannotDeactivateSelf = "No podés darte de baja a vos mismo.";
+
+    public const string NotAStaffUser = "Esta cuenta es de un cliente, no de personal, y no se puede dar de baja desde acá.";
+
+    public const string PermissionsExceedCaller =
+        "No tenés permiso para hacer eso con este usuario: tiene más permisos que vos.";
+
+    public const string StaffBranchNotInScope =
+        "No tenés permiso para gestionar a este usuario: pertenece a una sucursal que no administrás.";
+
+    public const string StaffCreated = "Usuario creado. Entregale el correo y la contraseña: creará su PIN la primera vez que ingrese en una terminal.";
+
+    public const string StaffDeactivated = "Usuario dado de baja.";
+
+    public const string StaffReactivated = "Usuario reactivado.";
+
+    public const string StaffDeactivateFailed = "No se pudo cambiar el estado del usuario.";
+
+    public const string EmailAndPasswordRequired = "Ingresá el correo y la contraseña inicial del nuevo usuario.";
+
+    public const string NewPasswordRequired = "Ingresá la nueva contraseña.";
+
+    public const string UpdatingStatus = "Actualizando…";
+
+    public const string OperatorRemoved = "Operador quitado de esta terminal.";
+
     public const string DisplayNameRequired = "El nombre para mostrar es obligatorio.";
 
     public const string DiscountMustBeNumber = "El porcentaje de descuento debe ser un número.";

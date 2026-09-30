@@ -90,21 +90,18 @@ public sealed class PosOperatorMenuMarkupTests
     }
 
     [Fact]
-    public void Personal_OffersTheTerminalOperators_WithAddAndRemove()
+    public void Personal_OffersTheTerminalOperators_WithRemoveOnly_NoProvisioning()
     {
-        var users = Src("UsersWindow.xaml");
-        var terminal = Src("TerminalOperatorsWindow.xaml");
-        var terminalCode = Src("TerminalOperatorsWindow.xaml.cs");
+        var staff = Src("StaffView.xaml");
+        var staffCode = Src("StaffView.xaml.cs");
 
-        Assert.Contains("x:Name=\"TerminalOperatorsButton\"", users);
-        Assert.Contains("Operadores de esta terminal", users);
-        Assert.Contains("x:Name=\"AddOperatorButton\"", terminal);
-        Assert.Contains("Agregar operador", terminal);
-        Assert.Contains("x:Name=\"RemoveOperatorButton\"", terminal);
-        Assert.Contains("Quitar de esta terminal", terminal);
-        Assert.Contains("ProvisionOperatorWindow", terminalCode);
-        Assert.Contains("_operatorStore.Remove", terminalCode);
-        Assert.Empty(Regex.Matches(terminal, @"\{StaticResource\s+\w*Brush\w*\}"));
+        Assert.Contains("x:Name=\"OperatorsItemsControl\"", staff);
+        Assert.Contains("Operadores de esta terminal", staff);
+        Assert.Contains("Quitar de esta terminal", staff);
+        Assert.Contains("_operatorStore.Remove", staffCode);
+        Assert.DoesNotContain("Agregar operador", staff);
+        Assert.DoesNotContain("ProvisionOperatorWindow", staffCode);
+        Assert.Empty(Regex.Matches(staff, @"{StaticResources+w*Brushw*}"));
     }
 
     [Fact]

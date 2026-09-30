@@ -63,6 +63,10 @@ public sealed class UserAdminClient : IDisposable
     public Task<UserAdminMutationOutcome> ReplaceRolesAsync(Guid id, AssignRolesAdminRequestDto request, CancellationToken ct = default) =>
         SendAsync(HttpMethod.Put, $"/account/users/{id}/roles", () => _httpClient.PutAsJsonAsync($"/account/users/{id}/roles", request, ct), ct);
 
+    /// <summary>Deactivates (<paramref name="revoked"/> true) or reactivates a staff user: <c>PUT /account/users/{id}/status</c>.</summary>
+    public Task<UserAdminMutationOutcome> SetStatusAsync(Guid id, bool revoked, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Put, $"/account/users/{id}/status", () => _httpClient.PutAsJsonAsync($"/account/users/{id}/status", new UserStatusAdminRequestDto(revoked), ct), ct);
+
     public Task<UserAdminMutationOutcome> ResetPasswordAsync(Guid id, AdminResetPasswordRequestDto request, CancellationToken ct = default) =>
         SendAsync(HttpMethod.Post, $"/account/users/{id}/reset-password", () => _httpClient.PostAsJsonAsync($"/account/users/{id}/reset-password", request, ct), ct);
 
@@ -84,7 +88,12 @@ public sealed class UserAdminClient : IDisposable
                 case HttpStatusCode.Unauthorized:
                     return UserAdminMutationOutcome.Failed(PosMessages.SessionExpired);
                 case HttpStatusCode.Forbidden:
-                    return UserAdminMutationOutcome.Forbidden();
+                    return PosHttp.ParseErrorCode(body) switch
+                    {
+                        "permissions-exceed-caller" => UserAdminMutationOutcome.Forbidden(PosMessages.PermissionsExceedCaller),
+                        "branch-not-in-scope" => UserAdminMutationOutcome.Forbidden(PosMessages.StaffBranchNotInScope),
+                        _ => UserAdminMutationOutcome.Forbidden(),
+                    };
                 case HttpStatusCode.NotFound:
                     return UserAdminMutationOutcome.NotFound();
                 case HttpStatusCode.BadRequest:
@@ -93,6 +102,8 @@ public sealed class UserAdminClient : IDisposable
                         {
                             "branch-required" => PosMessages.BranchRequired,
                             "branch-not-in-organization" => PosMessages.BranchNotInOrganization,
+                            "cannot-revoke-self" => PosMessages.CannotDeactivateSelf,
+                            "not-a-staff-user" => PosMessages.NotAStaffUser,
                             _ => PosMessages.InvalidData,
                         });
                 default:
@@ -109,14 +120,17 @@ public sealed class UserAdminClient : IDisposable
     public void Dispose() => _httpClient.Dispose();
 }
 
-public sealed record UserAdminRecordDto(Guid UserId, string Email, IReadOnlyList<string> RoleNames, bool IsRevoked);
+public sealed record UserAdminRecordDto(
+    Guid UserId, string Email, IReadOnlyList<string> RoleNames, bool IsRevoked, IReadOnlyList<Guid>? BranchIds = null);
+public sealed record UserStatusAdminRequestDto(bool Revoked);
 public sealed record CreateUserAdminRequestDto(string Email, string Password, string[] RoleNames, Guid[] BranchIds);
 public sealed record AssignRolesAdminRequestDto(string[] RoleNames);
 public sealed record AdminResetPasswordRequestDto(string NewPassword);
 public sealed record UserAdminMutationOutcome(UserAdminMutationKind Kind, string? ErrorMessage)
 {
     public static UserAdminMutationOutcome Succeeded() => new(UserAdminMutationKind.Succeeded, null);
-    public static UserAdminMutationOutcome Forbidden() => new(UserAdminMutationKind.Forbidden, PosMessages.NoPermissionToManageStaff);
+    public static UserAdminMutationOutcome Forbidden(string? message = null) =>
+        new(UserAdminMutationKind.Forbidden, message ?? PosMessages.NoPermissionToManageStaff);
     public static UserAdminMutationOutcome NotFound() => new(UserAdminMutationKind.NotFound, PosMessages.StaffUserNotFound);
     public static UserAdminMutationOutcome Failed(string message) => new(UserAdminMutationKind.Failed, message);
 }

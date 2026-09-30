@@ -28,16 +28,17 @@ public sealed class PosStaffManagementTests : IDisposable
     }
 
     [Fact]
-    public void StaffWindow_AndMainWindowMarkup_ExposeManageUsersFlow()
+    public void StaffView_AndMainWindowMarkup_ExposeManageUsersFlow()
     {
-        Assert.NotNull(typeof(UsersWindow));
+        Assert.NotNull(typeof(StaffView));
         var root = FindRepositoryRoot();
         var mainMarkup = File.ReadAllText(Path.Combine(root, "src", "Commerce.Pos.Windows", "MainWindow.xaml"));
-        var usersMarkup = File.ReadAllText(Path.Combine(root, "src", "Commerce.Pos.Windows", "UsersWindow.xaml"));
+        var staffMarkup = File.ReadAllText(Path.Combine(root, "src", "Commerce.Pos.Windows", "StaffView.xaml"));
         Assert.Contains("ManageStaffButton", mainMarkup);
         Assert.Contains("ManageStaffButton_Click", mainMarkup);
-        Assert.Contains("RolesItemsControl", usersMarkup);
-        Assert.Contains("Reset password", usersMarkup);
+        Assert.Contains("RoleComboBox", staffMarkup);
+        Assert.Contains("Restablecer contraseña", staffMarkup);
+        Assert.DoesNotContain("Reset password", staffMarkup);
     }
 
     private static string FindRepositoryRoot()

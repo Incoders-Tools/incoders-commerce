@@ -6,7 +6,7 @@ Give staff and cross-org sysadmins the UI to drive administrative
 capability that already exists server-side but has no interface today:
 staff/role management, branch management, and organization onboarding.
 Reuses the existing `CustomersScreen`/`RequireAdmin` (Web) and
-`CustomersWindow` (POS.Windows) precedents rather than introducing a new
+`CustomersView` (POS.Windows) precedents rather than introducing a new
 UI architecture, and exposes exactly one sign-in surface whose rendered
 capability is driven entirely by the signed-in identity's permissions.
 
@@ -105,30 +105,27 @@ The Users screen's role-reassignment control MUST NOT offer
 - WHEN the list of assignable roles renders
 - THEN `platform-admin` is not among the offered options
 
-### Requirement: POS Staff/Role Management Window
+### Requirement: POS Staff Management Section
 
-`Commerce.Pos.Windows` MUST expose a new modal window, following the
-`CustomersWindow` precedent exactly, that provides the same staff
-list/create/role-reassign/reset-password capability as the Web Users
-screen, scoped to the POS device's paired organization and branch. The
-window's entry point on `MainWindow` MUST be visible only when the
-current operator holds `Permission.ManageUsers`, MUST open via
-`ShowDialog()`, and MUST use a fresh per-window HTTP client whose cookie
-is discarded on close.
+`Commerce.Pos.Windows` MUST expose a "Personal" section inside the main window
+(not a modal window) that provides staff list, create, deactivate, reactivate and
+reset-password for the POS device's paired organization and branch, through the
+same API as the Web Users screen. Role reassignment stays on the Web Users screen.
+The section's navigation entry MUST be visible only when the current operator
+holds `Permission.ManageUsers`, and the section MUST use a fresh per-section HTTP
+client whose cookie is discarded when the operator leaves the section.
 
 #### Scenario: Operator without ManageUsers does not see the entry point
 
 - GIVEN a signed-in POS operator without `Permission.ManageUsers`
 - WHEN `MainWindow` renders
-- THEN no menu entry for the staff/role window is visible
+- THEN no navigation entry for Personal is visible
 
-#### Scenario: Staff window follows the CustomersWindow lifecycle
+#### Scenario: Staff section follows the Clientes lifecycle
 
-- GIVEN an operator with `Permission.ManageUsers` opens the staff/role
-  window
-- WHEN the window closes
-- THEN its per-window HTTP client and cookie are discarded, matching
-  `CustomersWindow`'s existing lifecycle
+- GIVEN an operator with `Permission.ManageUsers` opens Personal
+- WHEN they return to another section
+- THEN the section's HTTP client and cookie are discarded, matching Clientes
 
 ### Requirement: POS Application Branding Is Configurable Per Installation
 
