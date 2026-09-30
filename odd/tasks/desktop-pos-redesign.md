@@ -510,6 +510,12 @@ in a throwaway worktree at task close.
     of the app does not exist, so the first run after upgrading shows the open
     prompt.
 
+- 2026-09-30 (parent): cash session range `9300b0e..f115123` assessed
+  medium (2347 lines, 34 files); owner DECLINED the review for this
+  candidate. Parent spot check in a throwaway worktree: `dotnet test --filter
+  CashSession` 55/55. Close render checked: 5000 + 38450.50 = 43450.50
+  expected, 43000 counted, 450.50 short.
+
 ## Owner decisions (2026-09-29)
 - Tax: the POS shows only the final-consumer total (tax included), no IVA
   line. Price composition is shown per product in the web products and price
