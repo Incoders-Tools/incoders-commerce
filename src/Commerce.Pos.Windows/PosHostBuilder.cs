@@ -69,7 +69,16 @@ public static class PosHostBuilder
             updateStagingDirectory = Path.Combine(dataDirectory, "updates");
         }
 
-        builder.Services.AddHttpClient<PackageDownloader>();
+        // Optional pin (SHA-256 of the signing certificate, printed by
+        // deploy/release/new-dev-signing-cert.ps1). With it the wizard accepts
+        // only that exact signer, which is what lets the interim self-signed
+        // certificate work (ADR-013); without it only a fully trusted signature
+        // from the trusted publisher is accepted.
+        var trustedThumbprint = builder.Configuration["Commerce:UpdateTrustedThumbprint"];
+
+        // The downloader enforces its own inactivity timeout, so the client's
+        // fixed 100 s total budget must not cut a large package on a slow link.
+        builder.Services.AddHttpClient<PackageDownloader>(client => client.Timeout = Timeout.InfiniteTimeSpan);
         builder.Services.AddSingleton<IPackageSignatureVerifier, WindowsPackageSignatureVerifier>();
         builder.Services.AddSingleton<IUpgradeBackup, SqliteUpgradeBackup>();
         builder.Services.AddSingleton<IBranchNodeQuiescence, InProcessBranchNodeQuiescence>();
@@ -82,7 +91,8 @@ public static class PosHostBuilder
             DatabasePath: databasePath,
             BackupDirectory: Path.Combine(dataDirectory, "upgrade-backups"),
             TrustedPublisher: trustedPublisher,
-            QuiesceTimeout: TimeSpan.FromSeconds(5)));
+            QuiesceTimeout: TimeSpan.FromSeconds(5),
+            TrustedThumbprint: string.IsNullOrWhiteSpace(trustedThumbprint) ? null : trustedThumbprint));
         builder.Services.AddSingleton<UpdateInstallWorkflowFactory>();
 
         // Task 7.2: the POS half of the shared IEffectivePriceSource port

@@ -27,6 +27,9 @@ public partial class UpdateWizardWindow : Window
     private readonly Dictionary<UpdateInstallStage, (TextBlock Glyph, TextBlock Label)> _rows = new();
     private CancellationTokenSource? _cancellation;
     private bool _running;
+    // The last stage reported by the workflow: an exception that escapes it is
+    // shown at the stage that was actually running, not at a guessed one.
+    private UpdateInstallStage _lastStage = UpdateInstallStage.Preflight;
 
     public UpdateWizardWindow(
         UpdateCheckResult check,
@@ -68,6 +71,7 @@ public partial class UpdateWizardWindow : Window
     /// <summary>Shows a stage as running (also used to preview mid-progress states).</summary>
     public void ShowProgress(UpdateInstallStage stage, double? fraction, string message)
     {
+        _lastStage = stage;
         foreach (var visible in UpdateWizardText.VisibleStages)
         {
             SetStage(visible, visible < stage ? StageState.Done : visible == stage ? StageState.Active : StageState.Pending);
@@ -125,6 +129,7 @@ public partial class UpdateWizardWindow : Window
         CloseButton.Content = "Cancelar";
         ResultBorder.Visibility = Visibility.Collapsed;
         _cancellation = new CancellationTokenSource();
+        _lastStage = UpdateInstallStage.Preflight;
 
         UpdateInstallOutcome outcome;
         try
@@ -135,7 +140,9 @@ public partial class UpdateWizardWindow : Window
         }
         catch (Exception ex)
         {
-            outcome = new UpdateInstallOutcome(false, UpdateFailureReason.InstallFailed, UpdateInstallStage.Install,
+            // The workflow types its own failures; this only covers an exception
+            // that escaped it (for example while creating the workflow).
+            outcome = new UpdateInstallOutcome(false, UpdateFailureReason.UnexpectedError, _lastStage,
                 $"Error inesperado: {ex.Message}");
         }
         finally

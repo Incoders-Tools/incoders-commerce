@@ -66,6 +66,8 @@ public static class UpdateWizardText
         UpdateFailureReason.DownloadFailed => "No se pudo descargar",
         UpdateFailureReason.BackupFailed => "No se pudo respaldar la base local",
         UpdateFailureReason.InstallFailed => "La instalación falló",
+        UpdateFailureReason.PendingMarkerFailed => "No se pudo preparar la instalación",
+        UpdateFailureReason.UnexpectedError => "Error inesperado",
         UpdateFailureReason.UnsupportedPackage => "Paquete no compatible",
         UpdateFailureReason.Cancelled => "Actualización cancelada",
         _ => "No se pudo actualizar"

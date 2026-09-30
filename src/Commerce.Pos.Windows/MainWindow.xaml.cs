@@ -50,7 +50,7 @@ public partial class MainWindow : Window
     private readonly PendingUpgradeReport _upgradeReport;
     private readonly Version _localVersion;
     private UpdateCheckResult _updateCheckResult;
-    private bool _updateCheckInFlight;
+    private readonly SingleFlight _updateCheckFlight = new();
     private readonly Guid _installationId;
     private readonly SaleCart _cart;
     private readonly ObservableCollection<ProductCardViewModel> _catalogCards = new();
@@ -166,14 +166,13 @@ public partial class MainWindow : Window
     /// it completes. It can never throw into the UI and never blocks startup
     /// or a sale: any failure is the typed "could not check" status.
     /// </summary>
-    private async Task RunUpdateCheckAsync()
-    {
-        if (_updateCheckInFlight)
-        {
-            return;
-        }
+    private Task RunUpdateCheckAsync() =>
+        // A manual check during the startup check awaits that check and then
+        // shows its result, instead of returning while "Comprobando..." stays.
+        _updateCheckFlight.RunAsync(RunUpdateCheckCoreAsync);
 
-        _updateCheckInFlight = true;
+    private async Task RunUpdateCheckCoreAsync()
+    {
         _updateCheckResult = new UpdateCheckResult(UpdateCheckStatus.Checking, _localVersion);
         RefreshStatus();
         try
@@ -183,10 +182,6 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             _updateCheckResult = new UpdateCheckResult(UpdateCheckStatus.CheckFailedInvalid, _localVersion, Detail: ex.Message);
-        }
-        finally
-        {
-            _updateCheckInFlight = false;
         }
 
         RefreshStatus();

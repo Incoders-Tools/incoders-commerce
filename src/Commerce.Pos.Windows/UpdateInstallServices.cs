@@ -107,6 +107,8 @@ public sealed class UpdateInstallWorkflowFactory(
 {
     public string TrustedPublisher => options.TrustedPublisher;
 
+    public string? TrustedThumbprint => options.TrustedThumbprint;
+
     public bool IsPackaged => packagedApp.IsPackaged;
 
     public UpdateInstallWorkflow Create(Func<bool> isSaleInProgress) => new(

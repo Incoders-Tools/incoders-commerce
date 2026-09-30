@@ -75,6 +75,8 @@ public sealed class UpdateWizardTextTests : IDisposable
     [InlineData(UpdateFailureReason.SaleInProgress, "Venta en curso")]
     [InlineData(UpdateFailureReason.NotPackaged, "No se puede instalar en esta ejecución")]
     [InlineData(UpdateFailureReason.InstallFailed, "La instalación falló")]
+    [InlineData(UpdateFailureReason.PendingMarkerFailed, "No se pudo preparar la instalación")]
+    [InlineData(UpdateFailureReason.UnexpectedError, "Error inesperado")]
     public void FailureTitle_IsTypedPerReason(UpdateFailureReason reason, string expected)
     {
         Assert.Equal(expected, UpdateWizardText.FailureTitle(reason));
@@ -107,6 +109,39 @@ public sealed class UpdateWizardTextTests : IDisposable
         {
             Environment.SetEnvironmentVariable(variable, previous);
         }
+    }
+
+    [Fact]
+    public void Composition_TrustedThumbprintIsUnsetByDefault_AndComesFromConfiguration()
+    {
+        using (var host = PosHostBuilder.Build(_dataDirectory))
+        {
+            Assert.Null(host.Services.GetRequiredService<UpdateInstallWorkflowFactory>().TrustedThumbprint);
+        }
+
+        const string variable = "Commerce__UpdateTrustedThumbprint";
+        var previous = Environment.GetEnvironmentVariable(variable);
+        Environment.SetEnvironmentVariable(variable, new string('A', 64));
+        try
+        {
+            using var host = PosHostBuilder.Build(_dataDirectory);
+
+            Assert.Equal(new string('A', 64), host.Services.GetRequiredService<UpdateInstallWorkflowFactory>().TrustedThumbprint);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(variable, previous);
+        }
+    }
+
+    [Fact]
+    public void Composition_ResolvesTheDownloader_WithItsOptionalStallTimeout()
+    {
+        using var host = PosHostBuilder.Build(_dataDirectory);
+
+        var downloader = host.Services.GetRequiredService<PackageDownloader>();
+
+        Assert.NotNull(downloader);
     }
 
     [Fact]
