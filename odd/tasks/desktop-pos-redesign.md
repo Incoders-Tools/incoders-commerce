@@ -442,6 +442,6 @@ in a throwaway worktree at task close.
   authorization.
 
 ## Next step
-Parent: assess the tender range (`512cfa1..HEAD`) for review due, spot check
-`dotnet test --filter Tender`, then decide on the next Phase 2 item (cash
-session, reports, product images).
+Owner to choose the next Phase 2 item: cash session / "Cerrar Caja" (would
+consume the recorded tenders), reports, product images, split tender, or the
+printed/fiscal ticket.
