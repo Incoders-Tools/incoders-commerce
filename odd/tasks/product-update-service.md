@@ -243,3 +243,11 @@ Route: R1..R3 one writer, then R4..R5 one writer (delegated direct; work units i
   one matched by the SignerIdentifier), SUGGESTION
   `R2-unexplained-signature-magic-in-test` (name the SPC OID and PKCX prefix).
 
+## Release status (owner, 2026-09-30)
+First release ON HOLD: no release is cut until the product reaches beta
+readiness; development continues. The update path is code-complete for a
+first internal release; pending when the owner decides to cut it: the owner
+actions above (PFX + SHA-256 pin, the two secrets, `publication_authorized`
+for `internal`, the `v0.2.0-internal.1` tag, terminal certificate and pin
+config) and R6 installed VM validation.
+

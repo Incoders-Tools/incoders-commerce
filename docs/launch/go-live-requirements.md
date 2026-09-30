@@ -47,3 +47,10 @@ link) rather than deleting them.
 ## Done
 
 Nothing yet.
+
+## Status
+
+2026-09-30: no release has been published. The owner put the first internal
+release on hold until the product reaches beta readiness; this checklist
+stays open until then.
+
