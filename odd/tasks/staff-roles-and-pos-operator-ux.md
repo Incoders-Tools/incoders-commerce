@@ -145,6 +145,15 @@ the web after T3), release/versioning work.
     ignores the extra `branchIds` field); no POS change.
   - Spec: new "Mandatory Staff Branch Scope" requirement and `branchIds` on
     the listing in `openspec/specs/user-credentials/spec.md`.
+  - Review: RDD assess `dd105b4..bdc3095` medium, 664 lines, due
+    (`slice_budget_reached`); owner GRANTED; one lens (reliability) approved,
+    acknowledged (lineage `review-e81f699502f8ae3c`, authority burned). Next
+    boundary `bdc3095`. Advisory, non-blocking: WARNING
+    `CustomerRegistryTests.cs:732` customer-target PUT test is not
+    discriminating (random branch id also yields 400); SUGGESTION
+    `ReplaceBranchScopeAsync` ignores affected rows and still audits;
+    SUGGESTION sysadmin PUT branches path uncovered. Folded into T2 as test
+    hardening.
 
 ## Next step
 T2 (Domain/API: `OperatePos` permission and `cashier` role).
