@@ -298,7 +298,7 @@ the web after T3), release/versioning work.
     `SyncRunner` summaries stay English (`RunSyncAsyncTests` locks them);
     `OperatorLoginWindow` height 700 -> 740 for the progress row.
 
-- 2026-09-30: T4 review. RDD assess `b9c9374..145a9d3`-range of T4 (commits
+- 2026-09-30: T4 review. RDD review of T4 (commits
   `a0375ec`, `f530283`) approved and acknowledged (lineage
   `review-d772955f7b3f2fee`). Next boundary `145a9d3`. Advisories fixed in
   `f2fd4be` (route: direct, one writer, TDD):
