@@ -255,6 +255,33 @@ public sealed class PosCompositionRootTests : IDisposable
         Assert.NotNull(resolutionService);
     }
 
+    [Fact]
+    public void Build_UsesGitHubReleases_AsTheDefaultUpdateSource()
+    {
+        using var host = PosHostBuilder.Build(_dataDirectory);
+
+        Assert.IsType<Commerce.Updater.GitHubReleaseManifestSource>(host.Services.GetRequiredService<Commerce.Updater.IUpdateManifestSource>());
+        Assert.NotNull(host.Services.GetRequiredService<Commerce.Updater.UpdateChecker>());
+    }
+
+    [Fact]
+    public void Build_LocalManifestPathOverride_WinsOverGitHub()
+    {
+        const string variable = "Commerce__UpdateManifestPath";
+        var previous = Environment.GetEnvironmentVariable(variable);
+        Environment.SetEnvironmentVariable(variable, Path.Combine(_dataDirectory, "m.json"));
+        try
+        {
+            using var host = PosHostBuilder.Build(_dataDirectory);
+
+            Assert.IsType<Commerce.Updater.LocalFileManifestSource>(host.Services.GetRequiredService<Commerce.Updater.IUpdateManifestSource>());
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(variable, previous);
+        }
+    }
+
     public void Dispose()
     {
         // BranchSyncStore holds a SQLite connection that pools the file handle

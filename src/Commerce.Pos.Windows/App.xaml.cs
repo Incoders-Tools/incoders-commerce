@@ -80,8 +80,7 @@ public partial class App : System.Windows.Application
             _host.Services.GetRequiredService<Func<CustomerAdminClient>>(),
             _host.Services.GetRequiredService<Func<UserAdminClient>>(),
             branding,
-            _host.Services.GetRequiredService<ReleaseDiscovery>(),
-            _host.Services.GetRequiredService<LocalUpdateManifestSource>(),
+            _host.Services.GetRequiredService<UpdateChecker>(),
             identity);
 
         // ShutdownMode is OnExplicitShutdown (App.xaml) specifically so that

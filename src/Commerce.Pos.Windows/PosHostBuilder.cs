@@ -1,4 +1,5 @@
 using System.IO;
+using System.Net.Http;
 using Commerce.Application.Access;
 using Commerce.Application.Audit;
 using Commerce.Application.Pricing;
@@ -29,8 +30,11 @@ public static class PosHostBuilder
         var databasePath = Path.Combine(dataDirectory, "branch.db");
 
         var cloudApiBaseUrl = builder.Configuration["Commerce:CloudApiBaseUrl"] ?? "http://localhost:8080";
-        var updateManifestPath = builder.Configuration["Commerce:UpdateManifestPath"]
-            ?? Path.Combine(dataDirectory, "update-manifest.json");
+        // Update source: GitHub Releases per channel by default; an explicit
+        // Commerce:UpdateManifestPath (VM testing) wins when set.
+        var updateManifestPath = builder.Configuration["Commerce:UpdateManifestPath"];
+        var updateChannel = builder.Configuration["Commerce:UpdateChannel"] ?? "stable";
+        var updateRepository = builder.Configuration["Commerce:UpdateRepository"] ?? "Incoders-Tools/incoders-commerce";
 
         builder.Services.AddSingleton(_ => new BranchSyncStore($"Data Source={databasePath}"));
         builder.Services.AddSingleton<IAuditSink, InMemoryAuditSink>();
@@ -40,8 +44,13 @@ public static class PosHostBuilder
         builder.Services.AddSingleton(_ => new LocalOperatorStore(Path.Combine(dataDirectory, "operators.json")));
         builder.Services.AddSingleton<CurrentOperator>();
         builder.Services.AddSingleton(_ => ApplicationBranding.Load(dataDirectory));
-        builder.Services.AddSingleton(new LocalUpdateManifestSource(updateManifestPath));
+        builder.Services.AddHttpClient("update-releases");
+        builder.Services.AddSingleton<IUpdateManifestSource>(sp => string.IsNullOrWhiteSpace(updateManifestPath)
+            ? new GitHubReleaseManifestSource(
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient("update-releases"), updateRepository, updateChannel)
+            : new LocalFileManifestSource(updateManifestPath));
         builder.Services.AddSingleton<ReleaseDiscovery>();
+        builder.Services.AddSingleton<UpdateChecker>();
 
         // Task 7.2: the POS half of the shared IEffectivePriceSource port
         // (design.md "PricingResolutionService contract and location") — the

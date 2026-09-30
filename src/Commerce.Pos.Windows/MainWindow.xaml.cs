@@ -45,10 +45,10 @@ public partial class MainWindow : Window
     private readonly Func<CustomerAdminClient> _customerAdminClientFactory;
     private readonly Func<UserAdminClient> _userAdminClientFactory;
     private readonly ApplicationBranding _branding;
-    private readonly ReleaseDiscovery _releaseDiscovery;
-    private readonly LocalUpdateManifestSource _updateManifestSource;
+    private readonly UpdateChecker _updateChecker;
     private readonly Version _localVersion;
     private UpdateCheckResult _updateCheckResult;
+    private bool _updateCheckInFlight;
     private readonly Guid _installationId;
     private readonly SaleCart _cart;
     private readonly ObservableCollection<ProductCardViewModel> _catalogCards = new();
@@ -78,8 +78,7 @@ public partial class MainWindow : Window
         Func<CustomerAdminClient> customerAdminClientFactory,
         Func<UserAdminClient> userAdminClientFactory,
         ApplicationBranding branding,
-        ReleaseDiscovery releaseDiscovery,
-        LocalUpdateManifestSource updateManifestSource,
+        UpdateChecker updateChecker,
         LocalInstallationRecord identity)
     {
         InitializeComponent();
@@ -98,10 +97,9 @@ public partial class MainWindow : Window
         _customerAdminClientFactory = customerAdminClientFactory;
         _userAdminClientFactory = userAdminClientFactory;
         _branding = branding;
-        _releaseDiscovery = releaseDiscovery;
-        _updateManifestSource = updateManifestSource;
+        _updateChecker = updateChecker;
         _localVersion = ReadLocalVersion();
-        _updateCheckResult = _releaseDiscovery.CheckForUpdates(_localVersion, _updateManifestSource);
+        _updateCheckResult = new UpdateCheckResult(UpdateCheckStatus.Checking, _localVersion);
         Title = branding.MainWindowTitle;
         _installationId = identity.InstallationId;
         _pairing = identity.Pairing
@@ -153,6 +151,38 @@ public partial class MainWindow : Window
         // Fire-and-forget: never awaited by the constructor (design.md Data
         // Flow — the sale path, and window startup, never await a sync).
         _ = _syncScheduler.StartAsync();
+        _ = RunUpdateCheckAsync();
+    }
+
+    /// <summary>
+    /// Runs the release check off the UI thread and refreshes the footer when
+    /// it completes. It can never throw into the UI and never blocks startup
+    /// or a sale: any failure is the typed "could not check" status.
+    /// </summary>
+    private async Task RunUpdateCheckAsync()
+    {
+        if (_updateCheckInFlight)
+        {
+            return;
+        }
+
+        _updateCheckInFlight = true;
+        _updateCheckResult = new UpdateCheckResult(UpdateCheckStatus.Checking, _localVersion);
+        RefreshStatus();
+        try
+        {
+            _updateCheckResult = await Task.Run(() => _updateChecker.CheckAsync(_localVersion));
+        }
+        catch (Exception ex)
+        {
+            _updateCheckResult = new UpdateCheckResult(UpdateCheckStatus.CheckFailedInvalid, _localVersion, Detail: ex.Message);
+        }
+        finally
+        {
+            _updateCheckInFlight = false;
+        }
+
+        RefreshStatus();
     }
 
     /// <summary>
