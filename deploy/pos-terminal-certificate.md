@@ -55,3 +55,16 @@ certificate is in the machine's **Trusted People** store (Trusted Root also
 works but grants far more trust and is not recommended). The Microsoft
 documentation could not be fetched while this runbook was written; confirm the
 behavior during installed VM validation (go-live requirements).
+
+## What the POS update wizard requires
+
+The wizard verifies the downloaded package with the OS (`WinVerifyTrust`, the
+same engine as `Get-AuthenticodeSignature`) and installs only when the status is
+`Valid` and the signer subject equals `Commerce:UpdateTrustedPublisher`
+(default `CN=Incoders Commerce (Interim)`). With the certificate missing the
+wizard stops at verification with "Verificación fallida"; it never installs an
+untrusted package. Not yet validated on a terminal: that a certificate present
+only in `LocalMachine\TrustedPeople` yields `Valid` (see the go-live
+requirements); the build in `deploy/release` was checked to yield
+`UntrustedRoot` when the certificate is absent and `Invalid` for a tampered
+package.

@@ -44,8 +44,8 @@ The swap must be a configuration change, not a code change:
   package. The build script derives it from the PFX so the two cannot drift.
 - **Updater publisher check is configuration-driven.** The updater compares the
   Authenticode signer subject of a downloaded package with the manifest
-  `publisherId` and with the terminal's trusted-publisher setting (to be
-  implemented in the install wizard as configuration, not a constant). Changing
+  `publisherId` and with the terminal's trusted-publisher setting
+  (`Commerce:UpdateTrustedPublisher`, implemented in the install wizard as configuration, not a constant). Changing
   certificates changes that value, not code.
 - **Publisher change is a package-identity change.** Windows treats a different
   publisher as a different package family, so an in-place upgrade from the

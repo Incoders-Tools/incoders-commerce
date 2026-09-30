@@ -84,16 +84,16 @@ Tasks:
       schema, and creates the GitHub Release with the assets (prerelease for
       the internal channel). Adding the secret and pushing tags are owner
       actions.
-- [ ] R4. HTTP manifest source for GitHub Releases per channel, local-file
+- [x] R4. HTTP manifest source for GitHub Releases per channel, local-file
       override kept, timeouts, offline-safe, tests.
-- [ ] R5. POS install wizard: footer indicator opens it; details,
+- [x] R5. POS install wizard: footer indicator opens it; details,
       download to a staging dir, verify SHA256 + Authenticode publisher,
       quiesce (no sale in progress), back up `branch.db`, install through the
       Windows package deployment API, restart, typed failures; tests for the
       pure steps.
 - [ ] R6. Installed VM validation per `docs/pos-product-updates.md` (owner
       or parent with an authorized VM; not runnable in CI).
-Route: R1..R3 one writer, then R4..R5 (delegated direct).
+Route: R1..R3 one writer, then R4..R5 one writer (delegated direct; work units in the Progress entries).
 
 ### Progress (R1..R3, delegated direct, one writer)
 
@@ -106,6 +106,15 @@ Route: R1..R3 one writer, then R4..R5 (delegated direct).
 - Finding: a publisher change (interim to commercial certificate) is a new MSIX package family, so the swap needs a one-time reinstall per terminal (documented in ADR-013).
 - Risk for R6: MSIX file virtualization may redirect `%LocalAppData%` writes (`branch.db`, `update-manifest.json`).
 
+### Progress (R4..R5, delegated direct, one writer)
+
+- R4 commit 1b02eef `feat(updater): check GitHub Releases per channel for POS updates`: `GitHubReleaseManifestSource` (public REST API, User-Agent, no auth, 10 s budget, newest by mapped version, `stable` = non-prerelease, `internal` = prereleases too), `LocalFileManifestSource` (override via `Commerce:UpdateManifestPath`), `UpdateChecker` (never throws; failure = `CheckFailedInvalid`, no release/asset = `ManifestNotConfigured`), `ReleaseDiscovery.Evaluate`, `Checking` status; the POS runs the check off the UI thread and refreshes the footer.
+- R5 services commit da4fcec `feat(updater): add testable POS install stages for package updates`: `PackageDownloader`, `UpdateInstallWorkflow` (preflight, download, SHA256 + `WinVerifyTrust` signature + configured publisher via the existing `PackageVerifier`, sale-in-progress refusal, `IBranchNodeQuiescence`, unpackaged refusal, `SqliteUpgradeBackup`, restart registration, `PackageManager.AddPackageAsync` with `ForceApplicationShutdown`), `PendingUpgradeStore` (next-start report), `WindowsPackageSignatureVerifier`; POS TFM moved to `net10.0-windows10.0.19041.0` (Integration tests too); MSIX manifest template declares `packageManagement`.
+- R5 wizard commit aff6180 `feat(pos): add the update install wizard and footer entry point`: link-styled footer button, themed `UpdateWizardWindow`, Settings "Buscar actualizaciones", startup report of a pending upgrade.
+- Decisions: the crash journal phases (database migration) and `UpgradeOutcome` do not fit a package swap, so the pending install is a separate `pending-upgrade.json` marker; only MSIX is installable (MSI and packages that require attestation are refused); `Valid` is the only accepted signature status; HTTP range resume is not implemented (retry restarts, staged file reused when its hash matches); the default staging dir is `<LocalAppData>/Incoders/Commerce/updates`.
+- Checks observed: see the final report of the writer in the parent thread (commands and counts): `dotnet build Commerce.sln` 0 errors; `dotnet test tests/Commerce.Upgrade` 84/84 (34 before); focused (Pos composition + wizard text, 39/39) and full `dotnet test tests/Commerce.Integration` 1051/1051 in a throwaway worktree; TDD RED = compile failure on missing types before each implementation, then GREEN; `WinVerifyTrust` P/Invoke smoke on a real MSIX built with a throwaway PFX (no certificate installed): `UntrustedRoot` with signer `CN=Incoders Commerce (Interim)` (matches `Get-AuthenticodeSignature`), `Invalid` (0x80096010) after flipping one byte; one unauthenticated GET to the GitHub releases endpoint returned HTTP 200 `[]`.
+- Not observed: a real install (`AddPackageAsync`), restart registration and the next-start report on an installed terminal; `Valid` with the certificate in `LocalMachine\TrustedPeople`; anything against a published release.
+
 ### Owner actions
 
 1. Create the PFX: `$env:POS_SIGNING_PFX_PASSWORD='...'; pwsh deploy/release/new-dev-signing-cert.ps1 -OutputDir <secure dir>`; keep the PFX private.
@@ -113,6 +122,18 @@ Route: R1..R3 one writer, then R4..R5 (delegated direct).
 3. Set `publication_authorized: true` for the channel in `.github/release-authorization.yml`.
 4. Push a first tag (for example `v0.2.0-internal.1`) or run the `POS Release` workflow manually.
 5. Install the `.cer` on each terminal per `deploy/pos-terminal-certificate.md`.
+6. Terminals that should follow prereleases set `Commerce:UpdateChannel=internal` (environment variable `Commerce__UpdateChannel`); the default is `stable`. `Commerce:UpdateTrustedPublisher` only changes when the commercial certificate replaces the interim one.
+7. Cutting a first release is required before any terminal can see an update (the repository has no releases yet; the check reports "Manifest de updates no configurado").
+
+### R6 installed-VM checklist (added by R4..R5)
+
+- Install the baseline MSIX (interim `.cer` in `LocalMachine\TrustedPeople`), pair, sell once, then publish a newer release.
+- The wizard verification returns `Valid` for the interim certificate in `TrustedPeople` only (not yet observed); otherwise the wizard refuses with "Verificación fallida".
+- MSIX file virtualization: the staged package under `%LocalAppData%\Incoders\Commerce\updates` must be readable by the deployment service (`AddPackageAsync`), and `branch.db`, `upgrade-backups` and `pending-upgrade.json` must land where the next start reads them. If not, set `Commerce:UpdateStagingDirectory` outside AppData.
+- `AddPackageAsync` with `ForceApplicationShutdown` from a standard (non-admin) user: does it succeed, and does the POS relaunch through `RegisterApplicationRestart`? Confirm the footer reports "Actualización a la versión X completada" and `branch.db` (pending operations, cash session) survived.
+- The `packageManagement` restricted capability is accepted for a package signed by the interim certificate.
+- A sale in progress refuses the wizard; a tampered package, wrong publisher and offline check are refused or reported without blocking sales.
+- Publisher change (interim to commercial certificate) still needs the one-time reinstall (ADR-013).
 
 ## References
 
