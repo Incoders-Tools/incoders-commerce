@@ -154,12 +154,12 @@ cash (float + cash tenders - change), card and QR totals and the sale count,
 asks for the counted cash, records the difference, and prints nothing yet;
 works offline and syncs the opened/closed session like sales; cash
 withdrawals/deposits during the session are a follow-up.
-- [ ] C1. Spec: new `pos-cash-session` requirements and scenarios.
-- [ ] C2. Local model + storage: session open/close in `branch.db`
+- [x] C1. Spec: new `pos-cash-session` requirements and scenarios.
+- [x] C2. Local model + storage: session open/close in `branch.db`
       (idempotent migration), sales linked to the session, totals computed
       from recorded tenders; sale commit refuses without an open session.
-- [ ] C3. Sync + cloud: session opened/closed payloads, ingestion and audit.
-- [ ] C4. POS UI: open-session prompt, "Cerrar Caja" enabled in the nav bar
+- [x] C3. Sync + cloud: session opened/closed payloads, ingestion and audit.
+- [x] C4. POS UI: open-session prompt, "Cerrar Caja" enabled in the nav bar
       with a close dialog (expected, counted, difference), session state
       visible in the header.
 - [ ] C5. Reclaim vertical space on the sale screen (owner: "the footer is
@@ -443,6 +443,73 @@ in a throwaway worktree at task close.
   Parent spot check in a throwaway worktree: `dotnet test --filter Tender`
   56/56. Cash render checked: 9409.75 total, 10000 received, 590.25 change.
 
+- 2026-09-30: C1..C4 done (route: delegated direct, one writer, strict TDD,
+  throwaway worktree branch fast-forwarded into `dev`; not pushed). C5 waits
+  for the owner's confirmation.
+  - `08351de` docs(spec): new `openspec/specs/pos-cash-session` (open with
+    operator + float, one open session per terminal, sales belong to it, close
+    computes expected cash / card / QR / count / difference, restart resumes,
+    UI, sync + audit); `pos-scan-sale` gains "Sales Require an Open Cash
+    Session", `pos-operator-session` gains "Operator Switching Keeps the Cash
+    Session".
+  - `035746f` feat(sales) C2: pure `Commerce.Domain.CashSessions`
+    (`CashSession`, `CashSessionSummary`, `CashSessionMath`, typed results,
+    `SaleCommitRefusal.NoOpenCashSession`), payloads
+    `CashSessionOpenedPayloadV1` / `CashSessionClosedPayloadV1`, additive
+    `SaleEffect.CashSessionId` / `SalePayloadV1.CashSessionId`. `branch.db`:
+    `cash_sessions` table with a partial unique index (one open session, enforced
+    by the database), `sale_effects.cash_session_id` via idempotent
+    `EnsureColumns`. `BranchNodeService.OpenCashSession/CloseCashSession/
+    GetOpenCashSession/GetCashSessionSummary`; both sale commits pass
+    `requireOpenCashSession: true` and the store checks the session is still open
+    INSIDE the sale transaction (a replay of an already committed sale still
+    returns it). RED: compile failure (`Commerce.Domain.CashSessions` missing),
+    then 21 existing sale tests failed at runtime once the rule existed
+    (fixtures now open a session through `CashSessionTestSupport.WithOpenSession`);
+    GREEN 28 new tests + 490 in the focused sale/sync set.
+  - `2772eb9` feat(sync) C3: `CashSessionAudit.TryBuild` writes one
+    `cash-session.opened` / `cash-session.closed` audit row (the close carries
+    expected, counted and difference) in the inbox transaction; sale payloads with
+    or without a session id and unreadable session payloads still ingest. No
+    cloud migration was needed (`sync_inbox.payload_kind` has no CHECK). RED:
+    compile failure (`CashSessionAudit` missing); GREEN 51 focused tests against
+    the real Postgres (row content checked in `commerce_test`).
+  - `b0481d1` feat(pos) C4: `CashSessionInput` (pure: decimal comma, live
+    difference, Spanish labels, header text), `OpenCashWindow` ("Abrir caja",
+    offers operator sign-in when nobody is signed in), `CloseCashWindow`
+    (expected cash, card, QR, count, counted input, live difference),
+    `PosNavBar` "Cerrar Caja" enabled only with an open session and the state
+    "Caja abierta · 08:15" shown under the operator, `MainWindow` locks the sale
+    screen behind an "Abrir caja" overlay and handles the commit refusal.
+    RED: `CashSessionInputTests` did not compile; the markup tests were written
+    first but not observed failing separately (the project did not compile).
+  - Checks: `dotnet build Commerce.sln` 0 errors; focused `dotnet test
+    --filter "Sale|Scanned|Tender|Discount|Sync|Outbox|Customer|BranchPayment|
+    Regression|CashSession"` 490/490; full integration suite in the throwaway
+    worktree 1028/1028, 0 skipped (Postgres and pgbouncer up); web not touched, so
+    no npm run; `tests/Commerce.Upgrade` not run. Re-rendered `MainWindow` at
+    1120x700 in Dark, Light, Vaca Verde with an open session, the "caja cerrada"
+    overlay, the "Abrir caja" prompt (with and without operator) and the close
+    dialog with a non-zero difference (throwaway harness, PNGs not committed; the
+    real app was not launched).
+  - Decisions/deviations: (1) session state sits under the operator name in the
+    nav bar, not as its own pill: at 1120 px there was no room for a separate
+    element. (2) Expected cash counts cash as received minus change; a sale with
+    no tender (older or store-level callers) counts in the sale count and in
+    `UntenderedTotal`, never in a method total. (3) Closing is refused while a
+    sale is still being built (the cart is not silently discarded). (4) "Ahora
+    no" in the open prompt leaves the sale screen locked behind the overlay
+    button. (5) Store-level `CommitSaleAtomically` keeps working without a session
+    (the rule lives in `BranchNodeService`, atomic in the store) so store tests
+    and the upgrade tests are unchanged. (6) The session's org/branch are not
+    compared with the sale's (a terminal is one branch).
+  - Follow-ups: cash withdrawals/deposits during the session; printed close
+    report; no cloud read/report of sessions or differences yet (audit_log has no
+    SELECT grant); the close does not require a manager; running app processes
+    keep the old binaries until restarted; a session opened by a previous version
+    of the app does not exist, so the first run after upgrading shows the open
+    prompt.
+
 ## Owner decisions (2026-09-29)
 - Tax: the POS shows only the final-consumer total (tax included), no IVA
   line. Price composition is shown per product in the web products and price
@@ -462,4 +529,4 @@ in a throwaway worktree at task close.
   authorization.
 
 ## Next step
-C1..C4 with one writer; C5 after the owner confirms the target.
+C5 (reclaim vertical space on the sale screen) after the owner confirms what "footer" means; Phase 2c C1..C4 are done and unpushed on `dev`.
