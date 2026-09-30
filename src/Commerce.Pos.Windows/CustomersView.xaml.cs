@@ -52,7 +52,13 @@ public partial class CustomersView : UserControl, ISectionView
         remove => _busy.Idle -= value;
     }
 
-    public void Dispose() => _adminClient.Dispose();
+    public void CancelPending() => _busy.Cancel();
+
+    public void Dispose()
+    {
+        _busy.Cancel();
+        _adminClient.Dispose();
+    }
 
     private void ApplyBusy(bool busy, string? text)
     {
@@ -79,7 +85,7 @@ public partial class CustomersView : UserControl, ISectionView
             AdminSignInOutcome outcome;
             try
             {
-                outcome = await _adminClient.SignInAsync(email, password);
+                outcome = await _adminClient.SignInAsync(email, password, _busy.Token);
             }
             finally
             {
@@ -101,7 +107,7 @@ public partial class CustomersView : UserControl, ISectionView
 
     private async Task LoadCustomersAsync()
     {
-        var customers = await _adminClient.ListCustomersAsync();
+        var customers = await _adminClient.ListCustomersAsync(_busy.Token);
         if (customers is null)
         {
             ShowStatus(PosMessages.CustomersLoadFailed, isError: true);
@@ -194,14 +200,14 @@ public partial class CustomersView : UserControl, ISectionView
                 outcome = await _adminClient.UpdateCustomerAsync(id, new UpdateCustomerAdminRequestDto(
                     form.DisplayName, form.LegalName, taxIdType, form.TaxId, taxCondition, form.Phone, form.Email,
                     form.AddressStreet, form.AddressNumber, form.Neighborhood, form.Locality, form.Province, form.PostalCode,
-                    form.DeliveryNotes, discountPercentage, form.PaymentTerms, form.Notes, isEnabled));
+                    form.DeliveryNotes, discountPercentage, form.PaymentTerms, form.Notes, isEnabled), _busy.Token);
             }
             else
             {
                 outcome = await _adminClient.CreateCustomerAsync(new CreateCustomerAdminRequestDto(
                     customerKind, form.DisplayName, form.LegalName, taxIdType, form.TaxId, taxCondition, form.Phone, form.Email,
                     form.AddressStreet, form.AddressNumber, form.Neighborhood, form.Locality, form.Province, form.PostalCode,
-                    form.DeliveryNotes, discountPercentage, form.PaymentTerms, form.Notes));
+                    form.DeliveryNotes, discountPercentage, form.PaymentTerms, form.Notes), _busy.Token);
             }
 
             if (outcome.Kind == CustomerAdminMutationKind.Succeeded)

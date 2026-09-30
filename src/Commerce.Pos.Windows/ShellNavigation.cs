@@ -17,6 +17,19 @@ public enum ShellSection
 /// </summary>
 public sealed class ShellNavigation
 {
+    /// <summary>How long a detached section may keep the shell waiting before navigation is allowed again.</summary>
+    public static readonly TimeSpan DefaultTeardownTimeout = TimeSpan.FromSeconds(10);
+
+    private readonly TimeProvider _clock;
+    private readonly TimeSpan _teardownTimeout;
+    private DateTimeOffset? _teardownStartedAt;
+
+    public ShellNavigation(TimeProvider? clock = null, TimeSpan? teardownTimeout = null)
+    {
+        _clock = clock ?? TimeProvider.System;
+        _teardownTimeout = teardownTimeout ?? DefaultTeardownTimeout;
+    }
+
     public ShellSection Current { get; private set; } = ShellSection.Sale;
 
     /// <summary>The sale is always reachable; Clientes and Personal need ManageUsers.</summary>
@@ -25,7 +38,8 @@ public sealed class ShellNavigation
             ? [ShellSection.Sale, ShellSection.Customers, ShellSection.Staff]
             : [ShellSection.Sale];
 
-    /// <summary>Switches to <paramref name="target"/>; false when it is not allowed, already current, or the old section is still being torn down.</summary>
+    /// <summary>Switches to <paramref name="target"/>; false when it is not allowed, already current, or the old section is still being torn down
+    /// (<see cref="TeardownPending"/>; a teardown that outlives the timeout no longer blocks).</summary>
     public bool Navigate(ShellSection target, int? permissions)
     {
         if (TeardownPending || target == Current || !Allowed(permissions).Contains(target))
@@ -44,7 +58,16 @@ public sealed class ShellNavigation
     /// The section the operator lost was busy, so the window still holds it (hidden) until its
     /// request ends; <see cref="Current"/> is already the sale. <see cref="CompleteTeardown"/> releases it.
     /// </summary>
-    public bool TeardownPending { get; private set; }
+    public bool TeardownPending =>
+        _teardownStartedAt is { } started && _clock.GetUtcNow() - started < _teardownTimeout;
+
+    /// <summary>
+    /// The deferred section outlived the timeout without going idle: it no longer blocks navigation and
+    /// the host must force its release (<see cref="CompleteTeardown"/> once it did). Navigation is never
+    /// blocked for good by a hung request.
+    /// </summary>
+    public bool TeardownExpired =>
+        _teardownStartedAt is { } started && _clock.GetUtcNow() - started >= _teardownTimeout;
 
     /// <summary>
     /// Like <see cref="Reconcile(int?)"/>, but a section with a request in flight is never torn
@@ -62,7 +85,7 @@ public sealed class ShellNavigation
         Current = ShellSection.Sale;
         if (sectionBusy)
         {
-            TeardownPending = true;
+            _teardownStartedAt = _clock.GetUtcNow();
             return ReconcileOutcome.Deferred;
         }
 
@@ -72,8 +95,8 @@ public sealed class ShellNavigation
     /// <summary>The deferred section went idle: true when there was one to release.</summary>
     public bool CompleteTeardown()
     {
-        var pending = TeardownPending;
-        TeardownPending = false;
+        var pending = _teardownStartedAt is not null;
+        _teardownStartedAt = null;
         return pending;
     }
 }
@@ -96,6 +119,63 @@ public interface ISectionView : IDisposable
     /// <summary>A network action is in flight: the shell keeps the section until it ends.</summary>
     bool IsBusy { get; }
 
+    /// <summary>Cancels the request in flight (the section is being torn down); it still ends and raises <see cref="Idle"/>.</summary>
+    void CancelPending();
+
     /// <summary>Raised when a network action ends and the section is no longer busy.</summary>
     event Action? Idle;
+}
+
+/// <summary>
+/// Owns the section views of the main window: the active one and, after an operator change while a
+/// request was in flight, the detached one awaiting teardown. UI-free (the window mirrors it into
+/// <c>SectionHost</c>), so disposal is provable: every view is disposed exactly once and a release
+/// never clears a host that already shows a new section.
+/// </summary>
+public sealed class SectionLifecycle
+{
+    public ISectionView? Active { get; private set; }
+
+    public ISectionView? Detached { get; private set; }
+
+    /// <summary>The detached section ended (idle) and was disposed; the argument says whether the host content must be cleared (no new section shown).</summary>
+    public event Action<bool>? DetachedReleased;
+
+    /// <summary>Replaces the active view (disposing the old one); null leaves the host empty.</summary>
+    public void Show(ISectionView? next)
+    {
+        var previous = Active;
+        Active = next;
+        previous?.Dispose();
+    }
+
+    /// <summary>Takes the busy active view out of the shell: hidden, its request cancelled, disposed once idle or forced.</summary>
+    public void DetachActive()
+    {
+        if (Active is not { } view)
+        {
+            return;
+        }
+
+        Active = null;
+        Detached = view;
+        view.Idle += OnDetachedIdle;
+        view.CancelPending();
+    }
+
+    /// <summary>Disposes the detached view now (idle, or the teardown timed out). True when the host content should be cleared.</summary>
+    public bool ReleaseDetached()
+    {
+        if (Detached is not { } view)
+        {
+            return false;
+        }
+
+        view.Idle -= OnDetachedIdle;
+        Detached = null;
+        view.Dispose();
+        return Active is null;
+    }
+
+    private void OnDetachedIdle() => DetachedReleased?.Invoke(ReleaseDetached());
 }

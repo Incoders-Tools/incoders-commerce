@@ -102,4 +102,38 @@ public sealed class PosBusyControllerTests
             try { Directory.Delete(dir, recursive: true); } catch (IOException) { }
         }
     }
+
+    [Fact]
+    public async Task Cancel_EndsTheWorkQuietly_AndStillRaisesIdle()
+    {
+        var controller = Controller();
+        var idle = 0;
+        controller.Idle += () => idle++;
+
+        var run = controller.RunAsync("a", async () => await Task.Delay(Timeout.Infinite, controller.Token));
+        Assert.True(controller.IsBusy);
+        controller.Cancel();
+        await run;
+
+        Assert.False(controller.IsBusy);
+        Assert.Equal(1, idle);
+        Assert.DoesNotContain(_events, e => e.StartsWith("error:", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Idle_IsRaised_WhenTheWorkThrows_AndWhenShowingTheErrorThrowsToo()
+    {
+        var idle = 0;
+        var controller = new BusyController(
+            (busy, _) => { if (!busy) throw new InvalidOperationException("render"); },
+            "TestWindow",
+            _ => throw new InvalidOperationException("show"));
+        controller.Idle += () => idle++;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            controller.RunAsync("a", () => throw new InvalidOperationException("kaput")));
+
+        Assert.Equal(1, idle);
+        Assert.False(controller.IsBusy);
+    }
 }

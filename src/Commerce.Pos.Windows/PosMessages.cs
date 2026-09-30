@@ -30,6 +30,10 @@ public static class PosMessages
     public const string SessionExpired =
         "La sesión de administrador venció. Salí de esta sección y volvé a entrar para confirmar tu contraseña.";
 
+    /// <summary>A section change was refused because the previous section is still finishing a request.</summary>
+    public const string PreviousOperationRunning =
+        "Esperá a que termine la operación anterior para abrir otra sección.";
+
     /// <summary>Last resort for an exception nobody anticipated (global handler and busy guard).</summary>
     public const string Unexpected =
         "Ocurrió un error inesperado. El detalle quedó registrado para soporte técnico.";

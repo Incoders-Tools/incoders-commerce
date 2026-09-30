@@ -47,12 +47,12 @@ public sealed class PosShellMarkupTests
         var reconcile = Regex.Match(code, @"void ReconcileShell\(\)[\s\S]*?\n    }");
 
         Assert.True(reconcile.Success);
-        Assert.Contains("_sectionView?.IsBusy == true", reconcile.Value);
+        Assert.Contains("_sections.Active?.IsBusy == true", reconcile.Value);
         Assert.Contains("ReconcileOutcome.Deferred", reconcile.Value);
-        Assert.Contains("OnSectionIdle", reconcile.Value);
+        Assert.Contains("_sections.DetachActive()", reconcile.Value);
 
         // The window never shows a section the model has left: the idle handler only tears down.
-        var idle = Regex.Match(code, @"void OnSectionIdle\(\)[\s\S]*?\n    }");
+        var idle = Regex.Match(code, @"void OnDetachedSectionReleased\(bool clearHost\)[\s\S]*?\n    }");
         Assert.True(idle.Success);
         Assert.Contains("CompleteTeardown", idle.Value);
         Assert.DoesNotContain("SectionHost.Visibility = Visibility.Visible", idle.Value);

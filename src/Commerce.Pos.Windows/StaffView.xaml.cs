@@ -62,7 +62,13 @@ public partial class StaffView : UserControl, ISectionView
         remove => _busy.Idle -= value;
     }
 
-    public void Dispose() => _client.Dispose();
+    public void CancelPending() => _busy.Cancel();
+
+    public void Dispose()
+    {
+        _busy.Cancel();
+        _client.Dispose();
+    }
 
     private void ApplyBusy(bool busy, string? text)
     {
@@ -91,7 +97,7 @@ public partial class StaffView : UserControl, ISectionView
             AdminSignInOutcome outcome;
             try
             {
-                outcome = await _client.SignInAsync(email, password);
+                outcome = await _client.SignInAsync(email, password, _busy.Token);
             }
             finally
             {
@@ -112,7 +118,7 @@ public partial class StaffView : UserControl, ISectionView
 
     private async Task LoadUsersAsync()
     {
-        var users = await _client.ListUsersAsync();
+        var users = await _client.ListUsersAsync(_busy.Token);
         if (users is null)
         {
             ShowStatus(PosMessages.UsersLoadFailed, isError: true);
@@ -146,7 +152,7 @@ public partial class StaffView : UserControl, ISectionView
         await _busy.RunAsync(PosMessages.Saving, async () =>
         {
             ShowStatus(string.Empty, isError: false);
-            var outcome = await _client.CreateUserAsync(new CreateUserAdminRequestDto(email, password, [role], [_branchId]));
+            var outcome = await _client.CreateUserAsync(new CreateUserAdminRequestDto(email, password, [role], [_branchId]), _busy.Token);
             if (outcome.Kind != UserAdminMutationKind.Succeeded)
             {
                 ShowStatus(outcome.ErrorMessage ?? PosMessages.SaveFailed, isError: true);
@@ -191,7 +197,7 @@ public partial class StaffView : UserControl, ISectionView
         await _busy.RunAsync(PosMessages.UpdatingStatus, async () =>
         {
             ShowStatus(string.Empty, isError: false);
-            var outcome = await _client.SetStatusAsync(id, revoke);
+            var outcome = await _client.SetStatusAsync(id, revoke, _busy.Token);
             if (outcome.Kind != UserAdminMutationKind.Succeeded)
             {
                 ShowStatus(outcome.ErrorMessage ?? PosMessages.StaffDeactivateFailed, isError: true);
@@ -244,7 +250,7 @@ public partial class StaffView : UserControl, ISectionView
         await _busy.RunAsync(PosMessages.ResettingPassword, async () =>
         {
             ShowStatus(string.Empty, isError: false);
-            var outcome = await _client.ResetPasswordAsync(id, new AdminResetPasswordRequestDto(newPassword));
+            var outcome = await _client.ResetPasswordAsync(id, new AdminResetPasswordRequestDto(newPassword), _busy.Token);
             if (outcome.Kind != UserAdminMutationKind.Succeeded)
             {
                 ShowStatus(outcome.ErrorMessage ?? PosMessages.PasswordResetFailed, isError: true);

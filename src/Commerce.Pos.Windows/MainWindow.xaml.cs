@@ -65,10 +65,7 @@ public partial class MainWindow : Window
     private CashSession? _cashSession;
     private bool _openCashPrompted;
     private readonly ShellNavigation _shell = new();
-    private ISectionView? _sectionView;
-
-    /// <summary>A section the operator lost while its request was in flight: hidden, disposed once idle.</summary>
-    private ISectionView? _tearingDownView;
+    private readonly SectionLifecycle _sections = new();
     private readonly LockScreenView _lockScreen;
     private bool _locked;
 
@@ -94,6 +91,7 @@ public partial class MainWindow : Window
         LocalInstallationRecord identity)
     {
         InitializeComponent();
+        _sections.DetachedReleased += OnDetachedSectionReleased;
 
         _store = store;
         _branchNodeService = branchNodeService;
@@ -1006,7 +1004,20 @@ public partial class MainWindow : Window
     /// </summary>
     private void ShowSection(ShellSection target)
     {
-        if (_sectionView?.IsBusy == true)
+        if (_shell.TeardownPending)
+        {
+            // The previous operator's section is still finishing a request: say so instead of ignoring the click.
+            SaleResultText.Text = PosMessages.PreviousOperationRunning;
+            return;
+        }
+
+        if (_shell.TeardownExpired)
+        {
+            // It never went idle in time: its request was cancelled, release it so the shell is never stuck.
+            ReleaseDetachedSection();
+        }
+
+        if (_sections.Active?.IsBusy == true)
         {
             return;
         }
@@ -1020,22 +1031,21 @@ public partial class MainWindow : Window
     /// <summary>Mirrors <see cref="_shell"/> in the window: disposes the section being left and builds the one being entered.</summary>
     private void ApplySection()
     {
-        _sectionView?.Dispose();
-        _sectionView = null;
+        _sections.Show(null);
         SectionHost.Content = null;
 
         var section = _shell.Current;
         if (section == ShellSection.Customers)
         {
             var view = new CustomersView(_customerAdminClientFactory(), _currentOperator.Value?.Email);
-            _sectionView = view;
+            _sections.Show(view);
             SectionHost.Content = view;
         }
         else if (section == ShellSection.Staff && _currentOperator.Value is { } admin)
         {
             var view = new StaffView(_userAdminClientFactory(), _localOperatorStore, _pairing.BranchId, admin.UserId, admin.Email);
             view.OperatorsChanged += StaffView_OperatorsChanged;
-            _sectionView = view;
+            _sections.Show(view);
             SectionHost.Content = view;
         }
 
@@ -1054,11 +1064,11 @@ public partial class MainWindow : Window
     /// After the operator changed (sign-out, switch, removal): a section they may not open gives
     /// way to the sale. The model moves to the sale at once, so the screen always follows it. A
     /// section with a request in flight is never disposed under it: it is detached and hidden, and
-    /// torn down when its request ends (<see cref="OnSectionIdle"/>).
+    /// torn down when its request ends, or when the teardown timed out (<see cref="ShellNavigation.TeardownExpired"/>).
     /// </summary>
     private void ReconcileShell()
     {
-        switch (_shell.Reconcile(_currentOperator.Value?.Permissions, _sectionView?.IsBusy == true))
+        switch (_shell.Reconcile(_currentOperator.Value?.Permissions, _sections.Active?.IsBusy == true))
         {
             case ReconcileOutcome.Switched:
                 ApplySection();
@@ -1067,34 +1077,23 @@ public partial class MainWindow : Window
                 SectionHost.Visibility = Visibility.Collapsed;
                 SaleScreen.Visibility = Visibility.Visible;
                 NavBar.SetActiveSection(ShellSection.Sale);
-                if (_sectionView is { } busyView)
-                {
-                    _tearingDownView = busyView;
-                    _sectionView = null;
-                    busyView.Idle += OnSectionIdle;
-                }
+                _sections.DetachActive();
                 RefreshCashSession();
                 break;
         }
     }
 
-    private void OnSectionIdle()
+    private void OnDetachedSectionReleased(bool clearHost)
     {
-        if (_tearingDownView is not { } view)
-        {
-            return;
-        }
-
-        view.Idle -= OnSectionIdle;
-        _tearingDownView = null;
-        view.Dispose();
-        if (_sectionView is null)
+        if (clearHost)
         {
             SectionHost.Content = null;
         }
 
         _shell.CompleteTeardown();
     }
+
+    private void ReleaseDetachedSection() => OnDetachedSectionReleased(_sections.ReleaseDetached());
 
     /// <summary>Shows Personal inside the shell: admin staff management plus removal of this terminal's operators (no provisioning).</summary>
     private void ManageStaffButton_Click(object sender, RoutedEventArgs e) => ShowSection(ShellSection.Staff);

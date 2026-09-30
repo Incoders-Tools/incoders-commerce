@@ -146,4 +146,166 @@ public sealed class PosShellNavigationTests
         Assert.False(shell.Reconcile(Admin));
         Assert.Equal(ShellSection.Staff, shell.Current);
     }
+
+    // ---- a hung teardown never blocks navigation for good ------------------------------------
+
+    private sealed class FakeClock : TimeProvider
+    {
+        private DateTimeOffset _now = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+
+        public override DateTimeOffset GetUtcNow() => _now;
+
+        public void Advance(TimeSpan by) => _now += by;
+    }
+
+    private static (ShellNavigation Shell, FakeClock Clock) PendingTeardown()
+    {
+        var clock = new FakeClock();
+        var shell = new ShellNavigation(clock, TimeSpan.FromSeconds(5));
+        shell.Navigate(ShellSection.Staff, Admin);
+        shell.Reconcile(null, sectionBusy: true);
+        return (shell, clock);
+    }
+
+    [Fact]
+    public void Navigate_WhileTheTeardownIsPendingAndWithinTheTimeout_IsRefused()
+    {
+        var (shell, clock) = PendingTeardown();
+        clock.Advance(TimeSpan.FromSeconds(4));
+
+        Assert.True(shell.TeardownPending);
+        Assert.False(shell.TeardownExpired);
+        Assert.False(shell.Navigate(ShellSection.Customers, Admin));
+    }
+
+    [Fact]
+    public void Navigate_AfterTheTeardownTimedOut_IsAllowed_SoAHungRequestNeverBlocksForGood()
+    {
+        var (shell, clock) = PendingTeardown();
+        clock.Advance(TimeSpan.FromSeconds(5));
+
+        Assert.False(shell.TeardownPending);
+        Assert.True(shell.TeardownExpired);
+        Assert.True(shell.Navigate(ShellSection.Customers, Admin));
+        Assert.Equal(ShellSection.Customers, shell.Current);
+        Assert.True(shell.CompleteTeardown());
+        Assert.False(shell.TeardownExpired);
+    }
+
+    [Fact]
+    public void TheDefaultTeardownTimeout_IsBounded()
+    {
+        Assert.InRange(ShellNavigation.DefaultTeardownTimeout, TimeSpan.FromSeconds(1), TimeSpan.FromMinutes(1));
+    }
+
+    // ---- section lifecycle: disposal is exactly once ----------------------------------------------
+
+    private sealed class FakeSection : ISectionView
+    {
+        public bool IsBusy { get; set; }
+
+        public int Disposed { get; private set; }
+
+        public int Cancelled { get; private set; }
+
+        public event Action? Idle;
+
+        public void CancelPending() => Cancelled++;
+
+        public void Dispose() => Disposed++;
+
+        public void EndRequest()
+        {
+            IsBusy = false;
+            Idle?.Invoke();
+        }
+    }
+
+    [Fact]
+    public void Show_ANewSection_DisposesThePreviousOneOnce()
+    {
+        var lifecycle = new SectionLifecycle();
+        var first = new FakeSection();
+        lifecycle.Show(first);
+
+        lifecycle.Show(new FakeSection());
+        lifecycle.Show(null);
+
+        Assert.Equal(1, first.Disposed);
+    }
+
+    [Fact]
+    public void DetachActive_CancelsTheRequest_AndDisposesTheViewExactlyOnce_WhenItGoesIdle()
+    {
+        var lifecycle = new SectionLifecycle();
+        var view = new FakeSection { IsBusy = true };
+        lifecycle.Show(view);
+        var released = new List<bool>();
+        lifecycle.DetachedReleased += released.Add;
+
+        lifecycle.DetachActive();
+        Assert.Null(lifecycle.Active);
+        Assert.Equal(1, view.Cancelled);
+        Assert.Equal(0, view.Disposed);
+
+        view.EndRequest();
+        view.EndRequest();
+        lifecycle.ReleaseDetached();
+
+        Assert.Equal(1, view.Disposed);
+        Assert.Equal([true], released);
+    }
+
+    [Fact]
+    public void ReleasingTheDetachedView_WhileANewSectionIsShown_DoesNotAskToClearTheHost()
+    {
+        var lifecycle = new SectionLifecycle();
+        var old = new FakeSection { IsBusy = true };
+        lifecycle.Show(old);
+        var released = new List<bool>();
+        lifecycle.DetachedReleased += released.Add;
+        lifecycle.DetachActive();
+
+        var next = new FakeSection();
+        lifecycle.Show(next);
+        old.EndRequest();
+
+        Assert.Equal([false], released);
+        Assert.Equal(1, old.Disposed);
+        Assert.Equal(0, next.Disposed);
+        Assert.Same(next, lifecycle.Active);
+    }
+
+    [Fact]
+    public void ForcedRelease_OfAHungDetachedView_DisposesItOnce_AndALateIdleDoesNothing()
+    {
+        var lifecycle = new SectionLifecycle();
+        var hung = new FakeSection { IsBusy = true };
+        lifecycle.Show(hung);
+        lifecycle.DetachActive();
+
+        Assert.True(lifecycle.ReleaseDetached());
+        hung.EndRequest();
+
+        Assert.Equal(1, hung.Disposed);
+        Assert.False(lifecycle.ReleaseDetached());
+    }
+
+    [Fact]
+    public void TheWindow_ExplainsARefusedNavigation_AndReleasesAnExpiredTeardown()
+    {
+        var code = File.ReadAllText(Path.Combine(PosDir(), "MainWindow.xaml.cs"));
+
+        Assert.Contains("PosMessages.PreviousOperationRunning", code);
+        Assert.Contains("TeardownExpired", code);
+        Assert.Contains("_sections.DetachActive()", code);
+        Assert.False(string.IsNullOrWhiteSpace(Commerce.Pos.Windows.PosMessages.PreviousOperationRunning));
+    }
+
+    private static string PosDir()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Commerce.sln"))) dir = dir.Parent;
+        return Path.Combine(dir!.FullName, "src", "Commerce.Pos.Windows");
+    }
 }

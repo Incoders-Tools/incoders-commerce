@@ -21,7 +21,15 @@ public sealed class BusyController
         _showError = showError;
     }
 
+    private readonly CancellationTokenSource _cancellation = new();
+
     public bool IsBusy { get; private set; }
+
+    /// <summary>Cancelled by <see cref="Cancel"/>; pass it to the requests so a torn-down window stops waiting on them.</summary>
+    public CancellationToken Token => _cancellation.Token;
+
+    /// <summary>Cancels the work in flight (the window is going away). The work still ends through the normal finally path.</summary>
+    public void Cancel() => _cancellation.Cancel();
 
     /// <summary>Raised once the work ended and the busy state was restored (never for an ignored re-entrant call).</summary>
     public event Action? Idle;
@@ -39,6 +47,10 @@ public sealed class BusyController
         {
             await work();
         }
+        catch (OperationCanceledException) when (_cancellation.IsCancellationRequested)
+        {
+            // The window was torn down under the request: nobody is looking at the result.
+        }
         catch (Exception ex)
         {
             PosLog.Error(_category, "Unhandled error while running a window action.", ex);
@@ -47,8 +59,15 @@ public sealed class BusyController
         finally
         {
             IsBusy = false;
-            _render(false, null);
-            Idle?.Invoke();
+            try
+            {
+                _render(false, null);
+            }
+            finally
+            {
+                // Always raised, even when rendering failed: the shell waits for it to release a detached section.
+                Idle?.Invoke();
+            }
         }
     }
 }
