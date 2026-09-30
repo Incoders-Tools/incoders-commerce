@@ -218,3 +218,17 @@ Route: R1..R3 one writer, then R4..R5 one writer (delegated direct; work units i
     `R2-test-name-overclaims` / `R3-infinite-timeout-unproved`,
     `R3-singleflight-reentrancy`.
 
+- 2026-09-30 (parent, direct inline): fixed WARNING
+  `R1-pin-not-bound-to-verified-signer` and `R2-signer-record-steals-class-doc`.
+  `ReadSigner` now calls `SignerInfo.CheckSignature(verifySignatureOnly: true)`,
+  so the pinned certificate must be the one whose key produced the signature;
+  otherwise the package reads as unsigned and is refused. TDD: new test
+  `Signer_WhoseKeyDidNotProduceTheSignature_IsNotReported` failed at runtime
+  (`Assert.Null() Failure: Value is not null`), then GREEN;
+  `dotnet test tests/Commerce.Upgrade` 123/123. Real signed MSIX probes
+  (0.2.0.1 and 0.2.0.7 from the scratchpad) still yield signer
+  `CN=Incoders Commerce (Interim)` and status `UntrustedRoot`. Remaining
+  advisory follow-ups: cancel-after-apply marker, unguarded `Clear()`,
+  duplicate summary tag, malformed-pin reason, test-name overclaim,
+  `SingleFlight` reentrancy.
+
