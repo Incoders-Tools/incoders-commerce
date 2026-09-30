@@ -39,4 +39,8 @@ public sealed class SaleCustomerPickerTests
         Assert.Equal(acme.CustomerId, items[1].CustomerId);
         Assert.Equal(zebra.CustomerId, items[2].CustomerId);
     }
+
+    [Fact]
+    public void WalkInEntry_IsLabelledInSpanish() =>
+        Assert.Equal("Consumidor final", SaleCustomerPicker.WalkInLabel);
 }

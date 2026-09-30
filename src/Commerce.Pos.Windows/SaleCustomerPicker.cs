@@ -21,7 +21,7 @@ public sealed record SaleCustomerPickerItem(Guid? CustomerId, string Label);
 /// </summary>
 public static class SaleCustomerPicker
 {
-    public const string WalkInLabel = "Walk-in (no customer)";
+    public const string WalkInLabel = "Consumidor final";
 
     public static IReadOnlyList<SaleCustomerPickerItem> BuildItems(IReadOnlyList<CustomerReplica> customers)
     {
