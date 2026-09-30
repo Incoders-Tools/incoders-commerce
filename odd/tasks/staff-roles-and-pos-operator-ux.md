@@ -84,7 +84,7 @@ the web after T3), release/versioning work.
   branches outside the org; new `PUT /account/users/{id}/branches` (ManageUsers,
   same validation, grant cap consistent with roles); `GET /account/users`
   returns branch ids. Integration tests. Route: delegated direct.
-- [ ] T2 Domain/API: `Permission.OperatePos`, `cashier` role
+- [x] T2 Domain/API: `Permission.OperatePos`, `cashier` role
   (`OperatePos`), `business-admin` gains `OperatePos`, sysadmin full set;
   `/device/pair` and `/device/operators/verify` require `OperatePos` (typed
   403), operator status reports inactive without it; upgrade persisted role
@@ -154,6 +154,49 @@ the web after T3), release/versioning work.
     `ReplaceBranchScopeAsync` ignores affected rows and still audits;
     SUGGESTION sysadmin PUT branches path uncovered. Folded into T2 as test
     hardening.
+- 2026-09-30: T2 done, commits `9a43ee1` (test hardening) and `a38e044`
+  (feature) (route: delegated direct, one writer).
+  - RED: domain tests failed to compile (no `OperatePos`/`Cashier`); then 6
+    behavioral failures against unchanged endpoints/migration (seller verify
+    and pair answered 200, status `active`, migration file absent, client
+    status unmapped); bootstrap-admin test failed against the old 15 literal.
+    GREEN after implementation. Test hardening was added alongside already
+    shipped T1 behavior (zero-row store test is new behavior).
+  - Decisions: `OperatePos = 1 << 4`; `cashier = OperatePos` only (nothing in
+    the API or POS checks `ViewSales`; the POS gates only `ManageUsers` for
+    the customer screen); `business-admin` gains `OperatePos`; `seller`
+    unchanged; `RoleCatalog.BusinessAdminPermissions` constant is now used by
+    the catalog and by both bootstrap paths (`POST /account/organizations`,
+    self-bootstrap) and the E2E seed, so a new organization's admin is not
+    locked out. Grant cap needed no change (subset math handles cashier).
+    `/device/pair` also requires `OperatePos` (pairing is done with an
+    operator account and the issued credential authorizes the terminal; no
+    spec reason otherwise), checked after the password is proven and before
+    the branch checks; 403 `operator-not-permitted`. `/device/operators/verify`
+    same 403 after credentials, before the branch check. Status reports
+    `inactive` without the bit. Sysadmins never reach device endpoints in
+    practice (no roles, empty branch scope) and are not elevated there.
+  - Migration `deploy/db/migrations/0020_operate_pos_permission.sql`
+    (bitwise OR 16 on every persisted `business-admin` entry, FORCE RLS
+    toggled off inside the transaction like 0006, post-condition assert,
+    idempotent); test fixtures glob all migrations so it is picked up.
+  - POS: both clients map `operator-not-permitted` to Failed with the Spanish
+    message ("...asigne el rol Cajero."); T4 does the broad rework.
+  - Spec: `pos-operator-session` "No Permission Gating Introduced" replaced by
+    "Operating The POS Requires OperatePos" (sale commit still unchecked);
+    `user-credentials` catalog gains cashier/OperatePos scenarios.
+  - Hardening: `ReplaceBranchScopeAsync` returns the affected count (no audit
+    on zero, endpoint 404); customer-target PUT test uses a real in-scope
+    branch and asserts body and no audit row; sysadmin-acting PUT branches
+    covered.
+  - Checks: focused run 182 passed, 0 skipped; full `Commerce.Integration`
+    from a throwaway worktree 1083 passed, 0 failed, 0 skipped;
+    `Commerce.Upgrade` 123 passed; `Commerce.Bootstrap.Tests` 1 passed;
+    `npm test` 298 passed (web untouched); `dotnet build Commerce.sln` 0
+    errors.
+  - Note for T3: role list must include `cashier` (label "Cajero"); a seller
+    or cashier cannot be told apart by permissions int alone: cashier=16,
+    seller=1, business-admin=31.
 
 ## Next step
-T2 (Domain/API: `OperatePos` permission and `cashier` role).
+T3 (Web: Users screen branch picker, branch editing, `cashier` role, Spanish role labels).
