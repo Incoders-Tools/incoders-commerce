@@ -5,6 +5,10 @@ using System.Security.Cryptography.Pkcs;
 
 namespace Commerce.Updater;
 
+/// <summary>The certificate that signed a package, as read from its signature block.</summary>
+/// <param name="Sha256Thumbprint">SHA-256 of the certificate DER, uppercase hex.</param>
+public sealed record PackageSigner(string Subject, string Sha256Thumbprint);
+
 /// <summary>
 /// Windows implementation of <see cref="IPackageSignatureVerifier"/>. Trust is
 /// decided by the OS (<c>WinVerifyTrust</c>, the same engine behind
@@ -14,10 +18,6 @@ namespace Commerce.Updater;
 /// Revocation is not checked: terminals may be offline, and the interim
 /// certificate has no revocation endpoint.
 /// </summary>
-/// <summary>The certificate that signed a package, as read from its signature block.</summary>
-/// <param name="Sha256Thumbprint">SHA-256 of the certificate DER, uppercase hex.</param>
-public sealed record PackageSigner(string Subject, string Sha256Thumbprint);
-
 public sealed class WindowsPackageSignatureVerifier : IPackageSignatureVerifier
 {
     private const string SignatureEntry = "AppxSignature.p7x";
@@ -97,6 +97,12 @@ public sealed class WindowsPackageSignatureVerifier : IPackageSignatureVerifier
             {
                 return null;
             }
+
+            // The thumbprint pin trusts this certificate, so prove its key
+            // produced the signature; a certificate that only rides along in
+            // the block must not pass as the signer. Throws
+            // CryptographicException (handled below) when it did not.
+            cms.SignerInfos[0].CheckSignature(verifySignatureOnly: true);
 
             return new PackageSigner(certificate.Subject, Convert.ToHexString(SHA256.HashData(certificate.RawData)));
         }

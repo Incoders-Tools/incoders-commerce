@@ -125,6 +125,34 @@ public sealed class WindowsPackageSignatureVerifierTests : IDisposable
         Assert.Equal(expected, signer.Sha256Thumbprint);
     }
 
+    [Fact]
+    public void Signer_WhoseKeyDidNotProduceTheSignature_IsNotReported()
+    {
+        // The pin compares this certificate's thumbprint, so a certificate that
+        // merely rides along in the signature block must never be reported as
+        // the signer: its key has to verify the signature value.
+        var path = Path.Combine(_dir, "forged.msix");
+        using (var archive = ZipFile.Open(path, ZipArchiveMode.Create))
+        {
+            archive.CreateEntry("AppxManifest.xml");
+            using var key = RSA.Create(2048);
+            var request = new CertificateRequest("CN=Incoders Commerce (Interim)", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+            using var certificate = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(30));
+            var cms = new SignedCms(new ContentInfo(new Oid("1.3.6.1.4.1.311.2.1.4"), [1, 2, 3]));
+            cms.ComputeSignature(new CmsSigner(certificate) { IncludeOption = X509IncludeOption.EndCertOnly });
+            var encoded = cms.Encode();
+            var signatureValue = cms.SignerInfos[0].GetSignature();
+            var offset = encoded.AsSpan().IndexOf(signatureValue);
+            Assert.True(offset >= 0);
+            encoded[offset + signatureValue.Length - 1] ^= 0xFF;
+            using var stream = archive.CreateEntry("AppxSignature.p7x").Open();
+            stream.Write("PKCX"u8);
+            stream.Write(encoded);
+        }
+
+        Assert.Null(WindowsPackageSignatureVerifier.ReadSigner(path));
+    }
+
     [Theory]
     [InlineData(0u, PackageSignatureStatus.Valid)]
     [InlineData(0x800B0100u, PackageSignatureStatus.NotSigned)]
