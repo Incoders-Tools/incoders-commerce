@@ -23,7 +23,8 @@ public static class ActingPermissions
     /// role never silently changes what a sysadmin gets for free.
     /// </summary>
     public const Permission FullStaffPermissions =
-        Permission.ViewSales | Permission.ManageCatalog | Permission.ManageUsers | Permission.ManageBranchSettings;
+        Permission.ViewSales | Permission.ManageCatalog | Permission.ManageUsers | Permission.ManageBranchSettings
+        | Permission.OperatePos;
 
     /// <summary>
     /// The permission set to authorize a request against: the caller's own

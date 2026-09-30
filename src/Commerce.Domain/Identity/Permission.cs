@@ -7,5 +7,8 @@ public enum Permission
     ViewSales = 1 << 0,
     ManageCatalog = 1 << 1,
     ManageUsers = 1 << 2,
-    ManageBranchSettings = 1 << 3
+    ManageBranchSettings = 1 << 3,
+
+    /// <summary>Signs into and operates the point-of-sale terminal (cashier, business-admin).</summary>
+    OperatePos = 1 << 4
 }

@@ -102,7 +102,7 @@ public sealed class DeviceEndpointTests : IClassFixture<WebApplicationFactory<Pr
             new CloudTenantScope(orgId),
             new NewOrganization(orgId, "Single Branch Co"),
             new NewBranch(branchId, "Main"),
-            new NewUserAccount(userId, email, passwordHash, [branchId], [new RoleDto("cashier", Permission.ViewSales)]),
+            new NewUserAccount(userId, email, passwordHash, [branchId], [new RoleDto("cashier", Permission.OperatePos)]),
             CancellationToken.None);
         Assert.Equal(BootstrapOutcome.Created, outcome);
 
@@ -126,7 +126,7 @@ public sealed class DeviceEndpointTests : IClassFixture<WebApplicationFactory<Pr
             new CloudTenantScope(orgId),
             new NewOrganization(orgId, "Multi Branch Co"),
             new NewBranch(branchAId, "Downtown"),
-            new NewUserAccount(userId, email, passwordHash, [branchAId, branchBId], [new RoleDto("cashier", Permission.ViewSales)]),
+            new NewUserAccount(userId, email, passwordHash, [branchAId, branchBId], [new RoleDto("cashier", Permission.OperatePos)]),
             CancellationToken.None);
         Assert.Equal(BootstrapOutcome.Created, outcome);
 
@@ -163,11 +163,58 @@ public sealed class DeviceEndpointTests : IClassFixture<WebApplicationFactory<Pr
 
         var created = await userStore.TryCreateAsync(
             new CloudTenantScope(orgId),
-            new NewUserAccount(userId, email, passwordHash, [], [new RoleDto("cashier", Permission.ViewSales)]),
+            new NewUserAccount(userId, email, passwordHash, [], [new RoleDto("cashier", Permission.OperatePos)]),
             CancellationToken.None);
         Assert.True(created);
 
         return (orgId, userId);
+    }
+
+    private async Task SeedSellerAsync(string email, string password)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var orgStore = scope.ServiceProvider.GetRequiredService<PostgresOrganizationStore>();
+        var hasher = scope.ServiceProvider.GetRequiredService<PasswordHasher<UserAccount>>();
+        var orgId = Guid.NewGuid();
+        var branchId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        Assert.True(RoleCatalog.TryResolve(RoleCatalog.Seller, out var seller));
+        var outcome = await orgStore.TryCreateBootstrapAsync(
+            new CloudTenantScope(orgId),
+            new NewOrganization(orgId, "Seller Co"),
+            new NewBranch(branchId, "Main"),
+            new NewUserAccount(userId, email, hasher.HashPassword(new UserAccount(userId, orgId, [], []), password), [branchId], [new RoleDto(seller!.Name, seller.Permissions)]),
+            CancellationToken.None);
+        Assert.Equal(BootstrapOutcome.Created, outcome);
+    }
+
+    [Fact]
+    public async Task Pair_Seller_Returns403_OperatorNotPermitted_AndIssuesNoCredential()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        await SeedSellerAsync("seller-pair@example.com", "correct-password");
+
+        var response = await _factory.CreateClient().PostAsJsonAsync("/device/pair",
+            new DevicePairRequest("seller-pair@example.com", "correct-password", Guid.NewGuid(), null));
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<DevicePairResponse>();
+        Assert.Equal("operator-not-permitted", body!.Status);
+        Assert.Null(body.DeviceToken);
+    }
+
+    [Fact]
+    public async Task Pair_SellerWrongPassword_Returns401_NotTheRoleVerdict()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        await SeedSellerAsync("seller-pair-wp@example.com", "correct-password");
+
+        var response = await _factory.CreateClient().PostAsJsonAsync("/device/pair",
+            new DevicePairRequest("seller-pair-wp@example.com", "incorrect-password", Guid.NewGuid(), null));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
     [Fact]

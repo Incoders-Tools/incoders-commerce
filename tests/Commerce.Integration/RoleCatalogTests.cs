@@ -12,8 +12,9 @@ public sealed class RoleCatalogTests
     [Theory]
     [InlineData(
         RoleCatalog.BusinessAdmin,
-        Permission.ViewSales | Permission.ManageCatalog | Permission.ManageUsers | Permission.ManageBranchSettings)]
+        Permission.ViewSales | Permission.ManageCatalog | Permission.ManageUsers | Permission.ManageBranchSettings | Permission.OperatePos)]
     [InlineData(RoleCatalog.Seller, Permission.ViewSales)]
+    [InlineData(RoleCatalog.Cashier, Permission.OperatePos)]
     [InlineData(RoleCatalog.Provider, Permission.None)]
     [InlineData(RoleCatalog.PlatformAdmin, Permission.None)]
     public void TryResolve_CanonicalName_ResolvesExactPermissionSet(string name, Permission expected)
@@ -23,6 +24,21 @@ public sealed class RoleCatalogTests
         Assert.True(resolved);
         Assert.Equal(name, role!.Name);
         Assert.Equal(expected, role.Permissions);
+    }
+
+    [Fact]
+    public void OperatePos_IsTheSixteenBit_AndOnlyBusinessAdminAndCashierHoldIt()
+    {
+        Assert.Equal(16, (int)Permission.OperatePos);
+        Assert.False(RoleCatalog.TryResolve(RoleCatalog.Seller, out var seller) && seller!.Permissions.HasFlag(Permission.OperatePos));
+        Assert.True(RoleCatalog.TryResolve(RoleCatalog.Cashier, out var cashier) && cashier!.Permissions.HasFlag(Permission.OperatePos));
+        Assert.True(RoleCatalog.TryResolve(RoleCatalog.BusinessAdmin, out var admin) && admin!.Permissions.HasFlag(Permission.OperatePos));
+    }
+
+    [Fact]
+    public void FullStaffPermissions_IncludesOperatePos()
+    {
+        Assert.True(Commerce.Cloud.Api.Tenancy.ActingPermissions.FullStaffPermissions.HasFlag(Permission.OperatePos));
     }
 
     [Fact]
@@ -49,6 +65,7 @@ public sealed class RoleCatalogTests
         Assert.DoesNotContain(RoleCatalog.PlatformAdmin, RoleCatalog.OrgAssignable);
         Assert.Contains(RoleCatalog.BusinessAdmin, RoleCatalog.OrgAssignable);
         Assert.Contains(RoleCatalog.Seller, RoleCatalog.OrgAssignable);
+        Assert.Contains(RoleCatalog.Cashier, RoleCatalog.OrgAssignable);
         Assert.Contains(RoleCatalog.Provider, RoleCatalog.OrgAssignable);
     }
 }

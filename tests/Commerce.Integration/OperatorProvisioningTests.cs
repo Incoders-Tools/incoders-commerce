@@ -86,7 +86,7 @@ public sealed class OperatorProvisioningTests : IClassFixture<WebApplicationFact
     }
 
     private async Task<(Guid OrgId, Guid BranchId, Guid UserId)> SeedOperatorAsync(
-        string email, string password, bool includeBranchInScope = true)
+        string email, string password, bool includeBranchInScope = true, string roleName = RoleCatalog.Cashier)
     {
         using var scope = _factory.Services.CreateScope();
         var orgStore = scope.ServiceProvider.GetRequiredService<PostgresOrganizationStore>();
@@ -101,11 +101,17 @@ public sealed class OperatorProvisioningTests : IClassFixture<WebApplicationFact
             new CloudTenantScope(orgId),
             new NewOrganization(orgId, "Operator Provisioning Co"),
             new NewBranch(branchId, "Main"),
-            new NewUserAccount(userId, email, passwordHash, includeBranchInScope ? [branchId] : [], [new RoleDto("cashier", Permission.ViewSales)]),
+            new NewUserAccount(userId, email, passwordHash, includeBranchInScope ? [branchId] : [], [CatalogRole(roleName)]),
             CancellationToken.None);
         Assert.Equal(BootstrapOutcome.Created, outcome);
 
         return (orgId, branchId, userId);
+    }
+
+    private static RoleDto CatalogRole(string name)
+    {
+        Assert.True(RoleCatalog.TryResolve(name, out var role));
+        return new RoleDto(role!.Name, role.Permissions);
     }
 
     private async Task RevokeUserAsync(Guid userId)
@@ -174,8 +180,70 @@ public sealed class OperatorProvisioningTests : IClassFixture<WebApplicationFact
         Assert.Equal(orgId, body.OrganizationId);
         // commerce-customer-identity task 4.3: server-derived permissions,
         // never a caller-supplied value — SeedOperatorAsync grants "cashier"
-        // = Permission.ViewSales.
-        Assert.Equal((int)Permission.ViewSales, body.Permissions);
+        // = Permission.OperatePos (the catalog cashier).
+        Assert.Equal((int)Permission.OperatePos, body.Permissions);
+    }
+
+    [Fact]
+    public async Task Verify_Seller_Returns403_OperatorNotPermitted()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var (orgId, branchId, _) = await SeedOperatorAsync("verify-seller@example.com", "correct-password", roleName: RoleCatalog.Seller);
+        var deviceToken = await IssueDeviceTokenAsync(orgId, branchId);
+
+        var response = await _factory.CreateClient().SendAsync(BuildRequest(HttpMethod.Post, "/device/operators/verify", deviceToken,
+            new OperatorVerifyRequest("verify-seller@example.com", "correct-password")));
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<OperatorVerifyResponse>();
+        Assert.Equal("operator-not-permitted", body!.Status);
+        Assert.Null(body.UserId);
+    }
+
+    [Fact]
+    public async Task Verify_SellerWrongPassword_Returns401_NotTheRoleVerdict()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var (orgId, branchId, _) = await SeedOperatorAsync("verify-seller-wp@example.com", "correct-password", roleName: RoleCatalog.Seller);
+        var deviceToken = await IssueDeviceTokenAsync(orgId, branchId);
+
+        var response = await _factory.CreateClient().SendAsync(BuildRequest(HttpMethod.Post, "/device/operators/verify", deviceToken,
+            new OperatorVerifyRequest("verify-seller-wp@example.com", "incorrect-password")));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Verify_BusinessAdmin_ReturnsVerified()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var (orgId, branchId, userId) = await SeedOperatorAsync("verify-admin@example.com", "correct-password", roleName: RoleCatalog.BusinessAdmin);
+        var deviceToken = await IssueDeviceTokenAsync(orgId, branchId);
+
+        var response = await _factory.CreateClient().SendAsync(BuildRequest(HttpMethod.Post, "/device/operators/verify", deviceToken,
+            new OperatorVerifyRequest("verify-admin@example.com", "correct-password")));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<OperatorVerifyResponse>();
+        Assert.Equal("verified", body!.Status);
+        Assert.Equal(userId, body.UserId);
+    }
+
+    [Fact]
+    public async Task Status_Seller_ReturnsInactive()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var (orgId, branchId, userId) = await SeedOperatorAsync("status-seller@example.com", "correct-password", roleName: RoleCatalog.Seller);
+        var deviceToken = await IssueDeviceTokenAsync(orgId, branchId);
+
+        var response = await _factory.CreateClient().SendAsync(BuildRequest(HttpMethod.Get, $"/device/operators/{userId}/status", deviceToken));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("inactive", (await response.Content.ReadFromJsonAsync<OperatorStatusResponse>())!.Status);
     }
 
     [Fact]

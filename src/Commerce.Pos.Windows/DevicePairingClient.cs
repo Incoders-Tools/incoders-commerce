@@ -11,6 +11,9 @@ namespace Commerce.Pos.Windows;
 /// </summary>
 public sealed class DevicePairingClient
 {
+    internal const string OperatorNotPermittedMessage =
+        "Este usuario no tiene permiso para operar el punto de venta. Pedí a un administrador que le asigne el rol Cajero.";
+
     private readonly HttpClient _httpClient;
 
     public DevicePairingClient(HttpClient httpClient)
@@ -46,6 +49,7 @@ public sealed class DevicePairingClient
                 "branch-selection-required" => PairingOutcome.BranchSelectionRequired(body.Branches ?? []),
                 "no-branches-assigned" => PairingOutcome.Failed("This operator has no branches assigned."),
                 "branch-not-in-scope" => PairingOutcome.Failed("The selected branch is not assigned to this operator."),
+                "operator-not-permitted" => PairingOutcome.Failed(OperatorNotPermittedMessage),
                 _ => PairingOutcome.Failed($"Unrecognized pairing status: {body.Status}"),
             };
         }

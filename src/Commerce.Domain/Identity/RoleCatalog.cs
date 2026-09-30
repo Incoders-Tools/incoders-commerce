@@ -19,17 +19,28 @@ public static class RoleCatalog
 {
     public const string BusinessAdmin = "business-admin";
     public const string Seller = "seller";
+    public const string Cashier = "cashier";
     public const string Provider = "provider";
     public const string PlatformAdmin = "platform-admin";
+
+    /// <summary>
+    /// The permission set every `business-admin` row is created with. Endpoints
+    /// that bootstrap an admin persist THIS constant so a new organization's
+    /// admin can never drift from the catalog (e.g. miss `OperatePos`).
+    /// </summary>
+    public const Permission BusinessAdminPermissions =
+        Identity.Permission.ViewSales
+        | Identity.Permission.ManageCatalog
+        | Identity.Permission.ManageUsers
+        | Identity.Permission.ManageBranchSettings
+        | Identity.Permission.OperatePos;
 
     private static readonly FrozenDictionary<string, Permission> Permissions =
         new Dictionary<string, Permission>(StringComparer.OrdinalIgnoreCase)
         {
-            [BusinessAdmin] = Identity.Permission.ViewSales
-                | Identity.Permission.ManageCatalog
-                | Identity.Permission.ManageUsers
-                | Identity.Permission.ManageBranchSettings,
+            [BusinessAdmin] = BusinessAdminPermissions,
             [Seller] = Identity.Permission.ViewSales,
+            [Cashier] = Identity.Permission.OperatePos,
             [Provider] = Identity.Permission.None,
             [PlatformAdmin] = Identity.Permission.None,
         }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);

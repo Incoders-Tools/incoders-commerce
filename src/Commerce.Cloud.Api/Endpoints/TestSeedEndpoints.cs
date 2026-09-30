@@ -67,7 +67,7 @@ public static class TestSeedEndpoints
                 {
                     new RoleDto(
                         RoleCatalog.BusinessAdmin,
-                        Permission.ViewSales | Permission.ManageCatalog | Permission.ManageUsers | Permission.ManageBranchSettings),
+                        RoleCatalog.BusinessAdminPermissions),
                 };
             var branchScope = request.SystemAdmin ? Array.Empty<Guid>() : new[] { branchId };
             var organizationName = request.SystemAdmin ? "Platform System Administrator" : "E2E Test Organization";

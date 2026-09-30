@@ -42,6 +42,7 @@ public sealed class OperatorProvisioningClient
             {
                 "verified" => OperatorVerifyOutcome.Verified(body.UserId!.Value, body.Email!, body.OrganizationId!.Value, body.Permissions),
                 "branch-not-in-scope" => OperatorVerifyOutcome.Failed("This operator is not assigned to this terminal's branch."),
+                "operator-not-permitted" => OperatorVerifyOutcome.Failed(DevicePairingClient.OperatorNotPermittedMessage),
                 _ => OperatorVerifyOutcome.InvalidCredentials(),
             };
         }

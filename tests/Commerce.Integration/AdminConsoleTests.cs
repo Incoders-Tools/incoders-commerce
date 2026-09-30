@@ -211,6 +211,10 @@ public sealed class AdminConsoleTests : IClassFixture<WebApplicationFactory<Prog
 Assert.Equal(created!.OrganizationId, (await (await SignInAsync("new-admin@example.com", password)).GetFromJsonAsync<SignedInResponse>("/account/me"))!.OrganizationId);
         using var auditOwner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
         auditOwner.Open();
+        // The new organization's admin is created with the full catalog set, OperatePos included.
+        using var rolesCmd = new NpgsqlCommand("SELECT roles::text FROM users WHERE email = 'new-admin@example.com' AND organization_id = $1", auditOwner);
+        rolesCmd.Parameters.AddWithValue(created.OrganizationId);
+        Assert.Contains($"\"permissions\": {(int)RoleCatalog.BusinessAdminPermissions}", (string)rolesCmd.ExecuteScalar()!);
         using var audit = new NpgsqlCommand("SELECT count(*) FROM audit_log WHERE actor_id = $1 AND organization_id = $2 AND action = 'organization.bootstrapped'", auditOwner);
         audit.Parameters.AddWithValue(userId);
         audit.Parameters.AddWithValue(created.OrganizationId);

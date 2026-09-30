@@ -95,7 +95,7 @@ public sealed class BranchDiscountPinEndpointTests : IClassFixture<WebApplicatio
         var hash = hasher.HashPassword(new UserAccount(userId, organizationId, [], []), Password);
         var outcome = await store.CreateStaffUserAsync(
             new CloudTenantScope(organizationId),
-            new NewUserAccount(userId, email, hash, [branchId], [new RoleDto("cashier", Permission.ViewSales)]),
+            new NewUserAccount(userId, email, hash, [branchId], [new RoleDto("cashier", Permission.OperatePos)]),
             new UserManagementAuditEntry("org-user", Guid.NewGuid(), organizationId, "user", userId, "user.created", null, null),
             CancellationToken.None);
         Assert.Equal(CreateStaffUserOutcome.Created, outcome);

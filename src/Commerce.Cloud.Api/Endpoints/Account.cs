@@ -366,7 +366,7 @@ public static class AccountEndpoints
             if (actor is null || !actor.IsSystemAdmin) return Results.StatusCode(StatusCodes.Status403Forbidden);
             var organizationId=Guid.NewGuid(); var branchId=Guid.NewGuid(); var userId=Guid.NewGuid(); var target=new CloudTenantScope(organizationId);
             var hash=hasher.HashPassword(new UserAccount(userId, organizationId, [], []),request.AdminPassword);
-            var outcome=await organizationStore.TryCreateBootstrapAsync(target,new NewOrganization(organizationId,request.OrganizationName.Trim()),new NewBranch(branchId,string.IsNullOrWhiteSpace(request.BranchName)?"Main":request.BranchName.Trim()),new NewUserAccount(userId,request.AdminEmail,hash,[branchId],[new RoleDto(RoleCatalog.BusinessAdmin,Permission.ViewSales|Permission.ManageCatalog|Permission.ManageUsers|Permission.ManageBranchSettings)]),new UserManagementAuditEntry("org-user",actorId,organizationId,"organization",organizationId,"organization.bootstrapped",null,JsonSerializer.Serialize(new { organizationName=request.OrganizationName.Trim(),adminEmail=request.AdminEmail.Trim().ToLowerInvariant()})),ct);
+            var outcome=await organizationStore.TryCreateBootstrapAsync(target,new NewOrganization(organizationId,request.OrganizationName.Trim()),new NewBranch(branchId,string.IsNullOrWhiteSpace(request.BranchName)?"Main":request.BranchName.Trim()),new NewUserAccount(userId,request.AdminEmail,hash,[branchId],[new RoleDto(RoleCatalog.BusinessAdmin,RoleCatalog.BusinessAdminPermissions)]),new UserManagementAuditEntry("org-user",actorId,organizationId,"organization",organizationId,"organization.bootstrapped",null,JsonSerializer.Serialize(new { organizationName=request.OrganizationName.Trim(),adminEmail=request.AdminEmail.Trim().ToLowerInvariant()})),ct);
             return outcome==BootstrapOutcome.Created ? Results.Created($"/account/organizations/{organizationId}",new CreateOrganizationResponse(organizationId,branchId,userId)) : Results.Conflict();
         });
 
@@ -795,9 +795,9 @@ public static class AccountEndpoints
                 return branchDenial;
             }
 
-            await userStore.ReplaceBranchScopeAsync(scope, userId, branchIds, "org-user", callerId, ct);
+            var updated = await userStore.ReplaceBranchScopeAsync(scope, userId, branchIds, "org-user", callerId, ct);
 
-            return Results.NoContent();
+            return updated == 0 ? Results.NotFound() : Results.NoContent();
         });
 
         group.MapPost("/sign-out", async (HttpContext httpContext) =>
@@ -922,7 +922,7 @@ public static class AccountEndpoints
                     request.Email,
                     passwordHash,
                     [branchId],
-                    [new RoleDto(RoleCatalog.BusinessAdmin, Permission.ViewSales | Permission.ManageCatalog | Permission.ManageUsers | Permission.ManageBranchSettings)]),
+                    [new RoleDto(RoleCatalog.BusinessAdmin, RoleCatalog.BusinessAdminPermissions)]),
                 ct);
 
             if (outcome != BootstrapOutcome.Created)

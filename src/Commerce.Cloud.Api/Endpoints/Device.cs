@@ -89,6 +89,17 @@ public static class DeviceEndpoints
                 return Results.Unauthorized();
             }
 
+            // Only after the password is proven: a user without OperatePos (a
+            // seller) must never obtain a device credential. The verdict is
+            // typed so the terminal can explain it; it is safe to reveal here
+            // because the caller already holds the correct password.
+            if (!actor.EffectivePermissions.HasFlag(Permission.OperatePos))
+            {
+                return Results.Json(
+                    new DevicePairResponse("operator-not-permitted", null, null, null, null, null, null),
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+
             var branchScope = actor.BranchScope.ToArray();
             if (branchScope.Length == 0)
             {
@@ -194,6 +205,16 @@ public static class DeviceEndpoints
                 return Results.Unauthorized();
             }
 
+            // Operating the till requires OperatePos (pos-operator-session
+            // "Operating The POS Requires OperatePos"); a seller is a web
+            // order-taker, not a cashier. Checked after credentials are proven.
+            if (!actor.EffectivePermissions.HasFlag(Permission.OperatePos))
+            {
+                return Results.Json(
+                    new OperatorVerifyResponse("operator-not-permitted", null, null, null, 0),
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+
             // Server-side assertion the design calls out: the operator's
             // BranchScope must contain THIS terminal's branch, read from the
             // stored device row via the claim, never the request body.
@@ -230,7 +251,10 @@ public static class DeviceEndpoints
             // the response is "inactive" — 200, never 404, so this route
             // cannot be used to probe cross-tenant account existence.
             var actor = await userStore.LoadActorAsync(scope, userId, ct);
-            var isActive = actor is not null && !actor.IsRevoked && actor.BranchScope.Contains(deviceIdentity.BranchId);
+            var isActive = actor is not null
+                && !actor.IsRevoked
+                && actor.EffectivePermissions.HasFlag(Permission.OperatePos)
+                && actor.BranchScope.Contains(deviceIdentity.BranchId);
 
             return Results.Ok(new OperatorStatusResponse(isActive ? "active" : "inactive"));
         });
@@ -372,7 +396,7 @@ public sealed record DevicePairRequest(string Email, string Password, Guid Insta
 public sealed record DeviceBranchOption(Guid Id, string Name);
 
 /// <summary>
-/// status: "paired" | "branch-selection-required" | "no-branches-assigned" | "branch-not-in-scope".
+/// status: "paired" | "branch-selection-required" | "no-branches-assigned" | "branch-not-in-scope" | "operator-not-permitted".
 /// `DeviceToken` is the plaintext secret, returned in exactly this one
 /// response and never again — the server never stores it.
 /// </summary>
@@ -388,7 +412,7 @@ public sealed record DevicePairResponse(
 public sealed record OperatorVerifyRequest(string Email, string Password);
 
 /// <summary>
-/// status: "verified" (200) | "branch-not-in-scope" (403); every credential
+/// status: "verified" (200) | "branch-not-in-scope" (403) | "operator-not-permitted" (403, no OperatePos); every credential
 /// failure is a bare 401 with no body shape of its own. `Permissions` is the
 /// server-derived `int` from `actor.EffectivePermissions` (commerce-customer-
 /// identity design.md "Desktop authorization for customer create/edit") —

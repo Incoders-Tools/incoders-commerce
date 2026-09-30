@@ -237,7 +237,7 @@ permission evaluation, not by convention or by omitting role assignment.
 ### Requirement: Canonical Role Catalog
 
 The system MUST maintain a server-owned role catalog mapping fixed English
-technical identifiers (`business-admin`, `seller`, `provider`,
+technical identifiers (`business-admin`, `seller`, `cashier`, `provider`,
 `platform-admin`) to a `Permission` set. Role assignment MUST reference a
 catalog name; the system MUST NOT accept or persist a `Permission` set
 supplied directly in a request body, and MUST reject a role name that is not
@@ -251,6 +251,30 @@ form.
   permission set
 - THEN the user is assigned exactly the catalog's `seller` permissions
   (`ViewSales` only), and the body-supplied permissions are ignored
+
+#### Scenario: Cashier is a distinct role from seller
+
+- GIVEN the role catalog
+- WHEN the permission sets of `seller` and `cashier` are compared
+- THEN `seller` (a field salesperson taking orders on the web) holds
+  `ViewSales` only, `cashier` (a point-of-sale till operator) holds
+  `OperatePos` only, and `business-admin` holds every staff permission
+  including `OperatePos`
+
+#### Scenario: A caller cannot grant cashier without holding OperatePos
+
+- GIVEN a caller whose effective permissions lack `OperatePos`
+- WHEN they create or update a user with the `cashier` role
+- THEN the request is denied by the grant cap and nothing is persisted
+
+#### Scenario: Persisted business-admin roles gain OperatePos on upgrade
+
+- GIVEN a persisted `business-admin` role entry created before `OperatePos`
+  existed
+- WHEN the `0020_operate_pos_permission.sql` migration runs (any number of
+  times)
+- THEN that entry carries `OperatePos` in addition to its previous
+  permissions, and other role entries are unchanged
 
 #### Scenario: Unknown role name is rejected
 

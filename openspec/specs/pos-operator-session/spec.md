@@ -135,19 +135,65 @@ to the installation. Operator identification MUST NOT gate
 - THEN `CompleteOfflineSale`'s `actorId` is the current operator's user
   id rather than the installation id
 
-### Requirement: No Permission Gating Introduced
+### Requirement: Operating The POS Requires OperatePos
 
-This capability MUST NOT introduce any permission check on
-`CommitSaleButton_Click`. `Permission.Seller` remains `ViewSales`-only;
-no `RecordSales` permission is introduced by this capability.
+Signing an operator into a terminal MUST require the `OperatePos`
+permission, held by the `cashier` and `business-admin` roles. A `seller` (a
+field salesperson who takes orders on the web) MUST NOT be able to pair a
+terminal or be provisioned as an operator. The server MUST verify the
+permission only after the credentials are proven (a wrong password is still
+the generic 401), and MUST answer a permitted-credentials user lacking
+`OperatePos` with HTTP 403 and the typed status `operator-not-permitted` on
+both `POST /device/pair` and `POST /device/operators/verify`; no device
+credential is issued and no operator is provisioned. `GET
+/device/operators/{userId}/status` MUST report `inactive` for a user
+without `OperatePos`, so a previously provisioned operator whose role was
+changed is deprovisioned on the next reconciliation. The terminal MUST show
+a friendly Spanish message asking for a `cashier` role assignment.
 
-#### Scenario: Sale button behavior is unchanged apart from attribution
+Sale completion itself (`CommitSaleButton_Click`) is unchanged: it adds no
+permission check beyond the existing operator session (an operator can only
+exist after the sign-in above), and no `RecordSales` permission is
+introduced.
+
+#### Scenario: Seller cannot pair a terminal
+
+- GIVEN a `seller` with the correct password and a branch in scope
+- WHEN they call `POST /device/pair`
+- THEN the response is 403 with status `operator-not-permitted` and no
+  device credential is issued
+
+#### Scenario: Seller cannot be provisioned as an operator
+
+- GIVEN a paired terminal and a `seller` with the correct password
+- WHEN the terminal calls `POST /device/operators/verify`
+- THEN the response is 403 with status `operator-not-permitted`
+
+#### Scenario: Cashier and business-admin can operate
+
+- GIVEN a `cashier` (or `business-admin`) with the correct password and the
+  terminal's branch in scope
+- WHEN the terminal calls `POST /device/operators/verify`
+- THEN the response is `verified`
+
+#### Scenario: Wrong password is not disclosed as a role verdict
+
+- GIVEN a `seller` and an incorrect password
+- WHEN they call `POST /device/pair` or `POST /device/operators/verify`
+- THEN the response is the generic 401, not `operator-not-permitted`
+
+#### Scenario: Status is inactive without OperatePos
+
+- GIVEN a provisioned operator whose user no longer holds `OperatePos`
+- WHEN the terminal calls `GET /device/operators/{userId}/status`
+- THEN the status is `inactive`
+
+#### Scenario: Sale completion adds no permission check
 
 - GIVEN an operator session capability is present on a terminal
-- WHEN a sale is completed regardless of whether an operator is
-  identified
-- THEN no permission check runs beyond what existed before this change,
-  and the only observable difference is the `actorId` attributed
+- WHEN a sale is completed regardless of whether an operator is identified
+- THEN no permission check runs beyond what existed before, and the only
+  observable difference is the `actorId` attributed
 
 ### Requirement: Admin-Only Customer Management Screen Gated by Current Operator Role
 
