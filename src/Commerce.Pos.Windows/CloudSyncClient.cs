@@ -55,9 +55,18 @@ public sealed class CloudSyncClient
                 return SyncPushResult.Failed($"HTTP {(int)response.StatusCode}: {PosHttp.MessageFor(response)}");
             }
 
-            // The server accepted the operation; a body that is not the expected
-            // JSON must not turn an applied push into a failure.
+            // A push is acknowledged only by the server's own ack for THIS operation.
+            // A 2xx with any other body (captive portal, proxy page, truncated JSON)
+            // never reaches the server's inbox, so the outbox row must stay pending.
             var result = await PosHttp.TryReadJsonAsync<InboundApplyResult>(response, endpoint, ct);
+            if (result is null
+                || result.OperationId != envelope.OperationId
+                || !Enum.IsDefined(result.Outcome))
+            {
+                PosLog.Error("Sync", $"{endpoint} -> {(int)response.StatusCode}: reply is not an acknowledgement of operation {envelope.OperationId}; the operation stays pending.");
+                return SyncPushResult.Failed(PosMessages.UnexpectedResponse);
+            }
+
             return SyncPushResult.Succeeded(result);
         }
         catch (Exception ex) when (PosHttp.IsTransportFailure(ex, ct))

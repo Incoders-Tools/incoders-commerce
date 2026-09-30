@@ -14,6 +14,7 @@ namespace Commerce.Integration;
 /// `/device/operators/verify` used to throw a JsonException out of an
 /// `async void` click handler and kill the app.
 /// </summary>
+[Collection("PosLog")]
 public sealed class PosClientResilienceTests
 {
     private sealed class StubHandler(Func<HttpResponseMessage> respond) : HttpMessageHandler
@@ -332,18 +333,103 @@ public sealed class PosClientResilienceTests
         Assert.False((await new DiscountPinReplicaClient(Respond(HttpStatusCode.Unauthorized)).PullAsync("t")).Success);
     }
 
+    private static SyncEnvelope Envelope() =>
+        new(Guid.NewGuid(), 1, Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), 1, Guid.NewGuid(), Guid.NewGuid(), DateTimeOffset.UtcNow, "sale", """{"a":1}""");
+
     [Fact]
-    public async Task CloudSync_Push_RejectedCredential_ReportsRepairHintInSpanish_AndNonJsonOkStillSucceeds()
+    public async Task CloudSync_Push_RejectedCredential_ReportsRepairHintInSpanish_AndTimeoutFails()
     {
-        var envelope = new SyncEnvelope(Guid.NewGuid(), 1, Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), 1, Guid.NewGuid(), Guid.NewGuid(), DateTimeOffset.UtcNow, "sale", """{"a":1}""");
+        var envelope = Envelope();
 
         var rejected = await new CloudSyncClient(Respond(HttpStatusCode.Unauthorized)).PushAsync(envelope, "t");
-        var okHtml = await new CloudSyncClient(Respond(HttpStatusCode.OK, Html, "text/html")).PushAsync(envelope, "t");
         var timeout = await new CloudSyncClient(Client(new ThrowingHandler(new TaskCanceledException()))).PushAsync(envelope, "t");
 
         Assert.True(rejected.CredentialWasRejected);
         Assert.Contains(PosMessages.TerminalNotRecognized, rejected.Error);
-        Assert.True(okHtml.Success);
         Assert.False(timeout.Success);
+    }
+
+    [Theory]
+    [InlineData("text/html", Html)]
+    [InlineData("application/json", "{}")]
+    [InlineData("application/json", "not json")]
+    [InlineData("application/json", "")]
+    public async Task CloudSync_Push_2xxWithoutTheExpectedAck_IsNotAcknowledged(string contentType, string body)
+    {
+        var envelope = Envelope();
+
+        var result = await new CloudSyncClient(Respond(HttpStatusCode.OK, body, contentType)).PushAsync(envelope, "t");
+
+        Assert.False(result.Success);
+        Assert.False(result.CredentialWasRejected);
+        Assert.Equal(PosMessages.UnexpectedResponse, result.Error);
+    }
+
+    [Fact]
+    public async Task CloudSync_Push_AckForAnotherOperation_IsNotAcknowledged()
+    {
+        var body = $$"""{"outcome":0,"operationId":"{{Guid.NewGuid()}}"}""";
+
+        var result = await new CloudSyncClient(Respond(HttpStatusCode.OK, body)).PushAsync(Envelope(), "t");
+
+        Assert.False(result.Success);
+    }
+
+    [Fact]
+    public async Task CloudSync_Push_ExpectedAck_IsAcknowledged()
+    {
+        var envelope = Envelope();
+        var body = $$"""{"outcome":0,"operationId":"{{envelope.OperationId}}"}""";
+
+        var result = await new CloudSyncClient(Respond(HttpStatusCode.OK, body)).PushAsync(envelope, "t");
+
+        Assert.True(result.Success);
+        Assert.Equal(InboundApplyOutcome.Applied, result.Result!.Outcome);
+    }
+
+    // ---- UserAdminClient 400 mapping -----------------------------------------
+
+    private static Task<UserAdminMutationOutcome> CreateUser(HttpClient http) =>
+        new UserAdminClient(http).CreateUserAsync(new CreateUserAdminRequestDto("a@b.c", "pw", ["cashier"], [Guid.NewGuid()]));
+
+    [Theory]
+    [InlineData("""{"error":"branch-required"}""", "BranchRequired")]
+    [InlineData("""{"error":"branch-not-in-organization"}""", "BranchNotInOrganization")]
+    [InlineData("""{"error":"something-new"}""", "InvalidData")]
+    [InlineData("<html>oops</html>", "InvalidData")]
+    public async Task UserAdmin_BadRequest_MapsTheTypedCodeToAFriendlyMessage(string body, string expectedMessage)
+    {
+        var contentType = body.StartsWith('<') ? "text/html" : "application/json";
+
+        var outcome = await CreateUser(Respond(HttpStatusCode.BadRequest, body, contentType));
+
+        var expected = expectedMessage switch
+        {
+            "BranchRequired" => PosMessages.BranchRequired,
+            "BranchNotInOrganization" => PosMessages.BranchNotInOrganization,
+            _ => PosMessages.InvalidData,
+        };
+        Assert.Equal(UserAdminMutationKind.Failed, outcome.Kind);
+        Assert.Equal(expected, outcome.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task UserAdmin_BadRequest_LogsTheBody_AndStillMapsTheTypedCode()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "pos-useradmin-" + Guid.NewGuid().ToString("N"));
+        PosLog.Configure(new PosFileLogger(dir));
+        try
+        {
+            var outcome = await CreateUser(Respond(HttpStatusCode.BadRequest, """{"error":"branch-required"}"""));
+
+            Assert.Equal(PosMessages.BranchRequired, outcome.ErrorMessage);
+            var text = string.Concat(Directory.GetFiles(dir, "pos-*.log").Select(File.ReadAllText));
+            Assert.Contains("branch-required", text);
+        }
+        finally
+        {
+            PosLog.Configure(null);
+            try { Directory.Delete(dir, recursive: true); } catch (IOException) { }
+        }
     }
 }

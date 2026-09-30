@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Commerce.Integration;
 
+[Collection("PosLog")]
 public sealed class PosStaffManagementTests : IDisposable
 {
     private readonly string _dataDirectory = Path.Combine(Path.GetTempPath(), "commerce-pos-staff", Guid.NewGuid().ToString());

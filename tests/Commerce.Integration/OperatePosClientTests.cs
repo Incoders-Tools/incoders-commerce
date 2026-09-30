@@ -9,6 +9,7 @@ namespace Commerce.Integration;
 /// verdict (a user without `OperatePos`, e.g. a seller) into a Failed
 /// outcome carrying a Spanish, actionable message.
 /// </summary>
+[Collection("PosLog")]
 public sealed class OperatePosClientTests
 {
     private const string ExpectedMessage =

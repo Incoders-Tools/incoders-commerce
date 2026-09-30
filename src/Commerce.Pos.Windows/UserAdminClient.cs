@@ -78,7 +78,7 @@ public sealed class UserAdminClient : IDisposable
                 return UserAdminMutationOutcome.Succeeded();
             }
 
-            await PosHttp.LogFailureWithBodyAsync(endpoint, response, ct);
+            var body = await PosHttp.LogFailureWithBodyAsync(endpoint, response, ct);
             switch (response.StatusCode)
             {
                 case HttpStatusCode.Unauthorized:
@@ -89,7 +89,7 @@ public sealed class UserAdminClient : IDisposable
                     return UserAdminMutationOutcome.NotFound();
                 case HttpStatusCode.BadRequest:
                     return UserAdminMutationOutcome.Failed(
-                        await PosHttp.ReadErrorCodeAsync(response, endpoint, ct) switch
+                        PosHttp.ParseErrorCode(body) switch
                         {
                             "branch-required" => PosMessages.BranchRequired,
                             "branch-not-in-organization" => PosMessages.BranchNotInOrganization,

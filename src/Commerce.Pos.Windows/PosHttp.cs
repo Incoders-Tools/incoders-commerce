@@ -16,6 +16,7 @@ namespace Commerce.Pos.Windows;
 internal static class PosHttp
 {
     private const string Category = "Http";
+    private static readonly JsonSerializerOptions WebOptions = new(JsonSerializerDefaults.Web);
 
     /// <summary>
     /// A 401 carrying a `WWW-Authenticate` challenge comes from the device-bearer
@@ -71,28 +72,41 @@ internal static class PosHttp
 
     /// <summary>
     /// Logs a non-success answer together with the start of its body (server error
-    /// pages and typed `{ "error": ... }` codes are what support needs to see).
-    /// The logger redacts credential-shaped text regardless.
+    /// pages and typed `{ "error": ... }` codes are what support needs to see) and
+    /// returns the body text, so the caller can interpret it without reading the
+    /// response a second time. The logger redacts credential-shaped text regardless.
     /// </summary>
-    public static async Task LogFailureWithBodyAsync(string endpoint, HttpResponseMessage response, CancellationToken ct)
+    public static async Task<string> LogFailureWithBodyAsync(string endpoint, HttpResponseMessage response, CancellationToken ct)
     {
+        string text;
         string snippet;
         try
         {
-            var text = await response.Content.ReadAsStringAsync(ct);
+            text = await response.Content.ReadAsStringAsync(ct);
             snippet = text.Length > 500 ? text[..500] + "..." : text;
         }
         catch (Exception ex) when (ex is HttpRequestException or IOException or OperationCanceledException)
         {
+            text = string.Empty;
             snippet = "(body unreadable)";
         }
 
         LogFailure(endpoint, response, $"body: {snippet}");
+        return text;
     }
 
-    /// <summary>The typed `{ "error": "code" }` of a failed Catalog/Account-style answer, or null.</summary>
-    public static async Task<string?> ReadErrorCodeAsync(HttpResponseMessage response, string endpoint, CancellationToken ct) =>
-        (await TryReadJsonAsync<ErrorBodyDto>(response, endpoint, ct))?.Error;
+    /// <summary>The typed `{ "error": "code" }` inside an already-read body, or null.</summary>
+    public static string? ParseErrorCode(string body)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<ErrorBodyDto>(body, WebOptions)?.Error;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
 
     public static void LogTransportFailure(string endpoint, Exception exception) =>
         PosLog.Error(Category, $"{endpoint} -> transport failure ({exception.GetType().Name}).", exception);

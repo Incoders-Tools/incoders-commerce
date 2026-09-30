@@ -69,7 +69,7 @@ public sealed class PosBusyControllerTests
         finally
         {
             PosLog.Configure(null);
-            Directory.Delete(dir, recursive: true);
+            try { Directory.Delete(dir, recursive: true); } catch (IOException) { }
         }
     }
 }
