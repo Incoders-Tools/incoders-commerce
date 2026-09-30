@@ -623,6 +623,21 @@ describe('UsersScreen', () => {
       expect(await screen.findByRole('button', { name: 'Dar de baja' })).toBeInTheDocument()
     })
 
+    it('does not claim the change failed when it succeeded but the reload failed', async () => {
+      listOnce([seller]).mockResolvedValueOnce(new Response(null, { status: 204 }))
+      fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+
+      const user = userEvent.setup()
+      renderAs('someone-else')
+
+      await screen.findByText('staff@example.com')
+      await user.click(screen.getByRole('button', { name: 'Dar de baja' }))
+      await user.click(screen.getByRole('button', { name: 'Confirmar' }))
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(/no se pudieron cargar los usuarios/i)
+      expect(screen.queryByText(/no se pudo cambiar el estado/i)).not.toBeInTheDocument()
+    })
+
     it('offers no deactivation on the signed-in user\'s own row', async () => {
       listOnce([seller, revokedProvider])
 
