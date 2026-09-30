@@ -10,6 +10,8 @@ namespace Commerce.Integration;
 /// </summary>
 public sealed class PosOperatorMenuMarkupTests
 {
+    private const string StaticBrushReference = @"\{StaticResource\s+\w*Brush\w*\}";
+
     private static string Src(params string[] path)
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
@@ -35,7 +37,15 @@ public sealed class PosOperatorMenuMarkupTests
         Assert.Contains("Iniciar sesión", xaml);
         Assert.Contains("OperatorMenuRequested", code);
         Assert.Contains("SignOutRequested", code);
-        Assert.Empty(Regex.Matches(xaml, @"\{StaticResource\s+\w*Brush\w*\}"));
+        Assert.Empty(Regex.Matches(xaml, StaticBrushReference));
+    }
+
+    [Fact]
+    public void StaticBrushReferencePattern_CanFail_OnARealStaticResourceBrush()
+    {
+        // Guards the guard: the pattern must match what it forbids, or the Assert.Empty checks are vacuous.
+        Assert.Matches(StaticBrushReference, "<Border Background=\"{StaticResource SomeBrush}\" />");
+        Assert.DoesNotMatch(StaticBrushReference, "<Border Background=\"{DynamicResource SomeBrush}\" />");
     }
 
     [Fact]
@@ -101,7 +111,7 @@ public sealed class PosOperatorMenuMarkupTests
         Assert.Contains("_operatorStore.Remove", staffCode);
         Assert.DoesNotContain("Agregar operador", staff);
         Assert.DoesNotContain("ProvisionOperatorWindow", staffCode);
-        Assert.Empty(Regex.Matches(staff, @"{StaticResources+w*Brushw*}"));
+        Assert.Empty(Regex.Matches(staff, StaticBrushReference));
     }
 
     [Fact]
