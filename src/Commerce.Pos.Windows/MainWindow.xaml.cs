@@ -46,6 +46,8 @@ public partial class MainWindow : Window
     private readonly Func<UserAdminClient> _userAdminClientFactory;
     private readonly ApplicationBranding _branding;
     private readonly UpdateChecker _updateChecker;
+    private readonly UpdateInstallWorkflowFactory _updateWizardFactory;
+    private readonly PendingUpgradeReport _upgradeReport;
     private readonly Version _localVersion;
     private UpdateCheckResult _updateCheckResult;
     private bool _updateCheckInFlight;
@@ -79,6 +81,8 @@ public partial class MainWindow : Window
         Func<UserAdminClient> userAdminClientFactory,
         ApplicationBranding branding,
         UpdateChecker updateChecker,
+        UpdateInstallWorkflowFactory updateWizardFactory,
+        PendingUpgradeStore pendingUpgradeStore,
         LocalInstallationRecord identity)
     {
         InitializeComponent();
@@ -98,8 +102,11 @@ public partial class MainWindow : Window
         _userAdminClientFactory = userAdminClientFactory;
         _branding = branding;
         _updateChecker = updateChecker;
+        _updateWizardFactory = updateWizardFactory;
         _localVersion = ReadLocalVersion();
         _updateCheckResult = new UpdateCheckResult(UpdateCheckStatus.Checking, _localVersion);
+        // The previous run may have handed an update to Windows: report how it ended.
+        _upgradeReport = pendingUpgradeStore.ResolveOnStartup(_localVersion);
         Title = branding.MainWindowTitle;
         _installationId = identity.InstallationId;
         _pairing = identity.Pairing
@@ -333,14 +340,43 @@ public partial class MainWindow : Window
     private void RefreshStatus()
     {
         BottomSyncStatusText.Text = BuildCompactSyncStatus();
-        // The footer stays informational: the full update status lives in
-        // Settings, the footer only flags an available release.
+        // The footer stays compact: the full update status lives in Settings;
+        // the footer only offers the wizard when a compatible release exists.
         BottomVersionStatusText.Text = $"v{_localVersion}";
         BottomVersionStatusText.ToolTip = BuildVersionStatus();
-        BottomUpdateAvailableText.Text = $"Actualización {_updateCheckResult.AvailableVersion} disponible";
-        BottomUpdateAvailableText.Visibility = _updateCheckResult.IsUpdateAvailable
+        BottomUpdateAvailableButton.Content = $"Actualización {_updateCheckResult.AvailableVersion} disponible";
+        BottomUpdateAvailableButton.Visibility = _updateCheckResult.IsUpdateAvailable
             ? Visibility.Visible
             : Visibility.Collapsed;
+        BottomUpgradeReportText.Text = _upgradeReport.Message;
+        BottomUpgradeReportText.Visibility = _upgradeReport.Status == PendingUpgradeStatus.None
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+    }
+
+    /// <summary>
+    /// Opens the install wizard. Never installs by itself: the operator starts
+    /// it inside the wizard, and the workflow refuses while a sale is being built.
+    /// </summary>
+    private void UpdateAvailableButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_updateCheckResult.IsUpdateAvailable)
+        {
+            return;
+        }
+
+        var wizard = new UpdateWizardWindow(
+            _updateCheckResult,
+            UpdateEnvironment.Current(),
+            _updateWizardFactory.TrustedPublisher,
+            _updateWizardFactory.IsPackaged,
+            () => _updateWizardFactory.Create(() => _cart.Lines.Count > 0))
+        {
+            Owner = this
+        };
+
+        wizard.ShowDialog();
+        RefreshStatus();
     }
 
     private string BuildCompactSyncStatus()
@@ -836,7 +872,12 @@ public partial class MainWindow : Window
                 await RunSyncAsync(SyncTrigger.Button);
                 return _lastSyncResult;
             },
-            ReconfigureTerminal)
+            ReconfigureTerminal,
+            async () =>
+            {
+                await RunUpdateCheckAsync();
+                return BuildVersionStatus();
+            })
         {
             Owner = this
         };

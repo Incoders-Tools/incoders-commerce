@@ -147,7 +147,7 @@ public sealed class UpdateInstallWorkflow(
         {
             if (!packagedApp.IsPackaged)
             {
-                return Refuse(UpdateFailureReason.NotPackaged, UpdateInstallStage.Install,
+                return Refuse(UpdateFailureReason.NotPackaged, UpdateInstallStage.Quiesce,
                     "Esta terminal no está instalada como aplicación empaquetada (modo desarrollo), por lo que no puede actualizarse a sí misma. " +
                     "La descarga y la verificación se completaron; no se instaló nada.");
             }

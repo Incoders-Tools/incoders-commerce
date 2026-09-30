@@ -81,6 +81,8 @@ public partial class App : System.Windows.Application
             _host.Services.GetRequiredService<Func<UserAdminClient>>(),
             branding,
             _host.Services.GetRequiredService<UpdateChecker>(),
+            _host.Services.GetRequiredService<UpdateInstallWorkflowFactory>(),
+            _host.Services.GetRequiredService<PendingUpgradeStore>(),
             identity);
 
         // ShutdownMode is OnExplicitShutdown (App.xaml) specifically so that
