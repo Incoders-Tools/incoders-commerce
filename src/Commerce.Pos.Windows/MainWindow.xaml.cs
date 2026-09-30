@@ -303,7 +303,14 @@ public partial class MainWindow : Window
     private void RefreshStatus()
     {
         BottomSyncStatusText.Text = BuildCompactSyncStatus();
-        BottomVersionStatusText.Text = BuildVersionStatus();
+        // The footer stays informational: the full update status lives in
+        // Settings, the footer only flags an available release.
+        BottomVersionStatusText.Text = $"v{_localVersion}";
+        BottomVersionStatusText.ToolTip = BuildVersionStatus();
+        BottomUpdateAvailableText.Text = $"Actualización {_updateCheckResult.AvailableVersion} disponible";
+        BottomUpdateAvailableText.Visibility = _updateCheckResult.IsUpdateAvailable
+            ? Visibility.Visible
+            : Visibility.Collapsed;
     }
 
     private string BuildCompactSyncStatus()

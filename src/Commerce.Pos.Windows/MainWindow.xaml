@@ -163,14 +163,16 @@
             </Border>
         </Border>
 
-        <Border Grid.Row="2" Background="{DynamicResource ShellElevatedBrush}" BorderBrush="{DynamicResource BorderBrushMuted}" BorderThickness="0,1,0,0" Padding="16,4">
-            <Grid MinHeight="24">
+        <Border Grid.Row="2" Background="{DynamicResource ShellElevatedBrush}" BorderBrush="{DynamicResource BorderBrushMuted}" BorderThickness="0,1,0,0" Padding="12,1">
+            <Grid Height="18">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-                <TextBlock x:Name="BottomSyncStatusText" Grid.Column="0" Style="{StaticResource MutedTextBlock}" FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                <TextBlock x:Name="BottomVersionStatusText" Grid.Column="1" Style="{StaticResource MutedTextBlock}" FontSize="12" VerticalAlignment="Center" Margin="18,0,0,0" />
+                <TextBlock x:Name="BottomSyncStatusText" Grid.Column="0" Style="{StaticResource MutedTextBlock}" FontSize="11" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                <TextBlock x:Name="BottomUpdateAvailableText" Grid.Column="1" Foreground="{DynamicResource AccentBrush}" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" Margin="12,0,0,0" Visibility="Collapsed" />
+                <TextBlock x:Name="BottomVersionStatusText" Grid.Column="2" Style="{StaticResource MutedTextBlock}" FontSize="11" VerticalAlignment="Center" Margin="12,0,0,0" />
             </Grid>
         </Border>
     </Grid>
