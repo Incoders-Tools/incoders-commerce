@@ -51,7 +51,10 @@ export function adminResetPassword(userId: string, request: AdminResetPasswordRe
   })
 }
 import type { BranchDiscountPinStatus, BranchSummary, CreateBranchRequest, CreateBranchResponse, CreateOrganizationRequest, CreateOrganizationResponse, CreateUserRequest, CreateUserResponse, OrganizationBranding, OrganizationSummary, UpdateOrganizationBrandingRequest, UserSummary } from './types'
-export const listUsers = () => apiFetch<UserSummary[]>('/account/users')
+export const listUsers = async () => {
+  const users = await apiFetch<UserSummary[]>('/account/users')
+  return users.map((user) => ({ ...user, branchIds: user.branchIds ?? [] }))
+}
 export const createUser = (request: CreateUserRequest) => apiFetch<CreateUserResponse>('/account/users', { method: 'POST', body: JSON.stringify(request) })
 export const updateUserRoles = (userId: string, roleNames: string[]) => apiFetch<void>(`/account/users/${userId}/roles`, { method: 'PUT', body: JSON.stringify({ roleNames }) })
 export const updateUserBranches = (userId: string, branchIds: string[]) => apiFetch<void>(`/account/users/${userId}/branches`, { method: 'PUT', body: JSON.stringify({ branchIds }) })
