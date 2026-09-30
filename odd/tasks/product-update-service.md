@@ -120,3 +120,13 @@ Route: R1..R3 one writer, then R4..R5 (delegated direct).
 - `docs/pos-product-updates.md`
 - `docs/architecture/decisions/ADR-004-release-signing-and-upgrades.md`
 - `docs/architecture/decisions/ADR-005-signing-and-windows-fleet.md`
+
+- 2026-09-30 (parent): range `c1cf3be..b5c2381` (includes the POS C5 footer
+  commit and R1..R3) assessed HIGH (963 lines, 16 files: update path,
+  process-starting tests, workflow shell); owner DECLINED the review for
+  this candidate. Parent spot check in a throwaway worktree: `dotnet test
+  tests/Commerce.Upgrade` 34/34. Surfaced to the owner: switching to the
+  commercial certificate changes the MSIX publisher (new package family),
+  so every terminal installed with the interim certificate needs a one-time
+  backup/uninstall/reinstall/restore (ADR-013).
+
