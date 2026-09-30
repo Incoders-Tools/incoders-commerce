@@ -108,6 +108,13 @@ public sealed class PostgresCloudInboxStore : ICloudInboxStore
             await AuditLogWriter.InsertAsync(connection, tx, discountAudit, ct);
         }
 
+        // Same rule for a cash session event: one audit row per opened or closed
+        // session, in the inbox transaction, so redelivery never repeats it.
+        if (CashSessionAudit.TryBuild(envelope) is { } sessionAudit)
+        {
+            await AuditLogWriter.InsertAsync(connection, tx, sessionAudit, ct);
+        }
+
         await tx.CommitAsync(ct);
         return new InboundApplyResult(InboundApplyOutcome.Applied, envelope.OperationId);
     }
