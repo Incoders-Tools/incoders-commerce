@@ -36,5 +36,7 @@
 
   <Capabilities>
     <rescap:Capability Name="runFullTrust" />
+    <!-- Lets the POS update itself through PackageManager.AddPackageAsync (install wizard). -->
+    <rescap:Capability Name="packageManagement" />
   </Capabilities>
 </Package>

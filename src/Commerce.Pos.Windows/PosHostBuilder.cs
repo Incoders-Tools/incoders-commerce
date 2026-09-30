@@ -21,6 +21,9 @@ namespace Commerce.Pos.Windows;
 /// </summary>
 public static class PosHostBuilder
 {
+    /// <summary>Interim self-signed publisher (ADR-013); swap via <c>Commerce:UpdateTrustedPublisher</c>.</summary>
+    public const string DefaultTrustedPublisher = "CN=Incoders Commerce (Interim)";
+
     public static IHost Build(string? branchDataDirectory = null)
     {
         var builder = Host.CreateApplicationBuilder();
@@ -51,6 +54,36 @@ public static class PosHostBuilder
             : new LocalFileManifestSource(updateManifestPath));
         builder.Services.AddSingleton<ReleaseDiscovery>();
         builder.Services.AddSingleton<UpdateChecker>();
+
+        // Install wizard services (R5). Every seam is an injectable service so
+        // the wizard window only orchestrates.
+        var trustedPublisher = builder.Configuration["Commerce:UpdateTrustedPublisher"];
+        if (string.IsNullOrWhiteSpace(trustedPublisher))
+        {
+            trustedPublisher = DefaultTrustedPublisher;
+        }
+
+        var updateStagingDirectory = builder.Configuration["Commerce:UpdateStagingDirectory"];
+        if (string.IsNullOrWhiteSpace(updateStagingDirectory))
+        {
+            updateStagingDirectory = Path.Combine(dataDirectory, "updates");
+        }
+
+        builder.Services.AddHttpClient<PackageDownloader>();
+        builder.Services.AddSingleton<IPackageSignatureVerifier, WindowsPackageSignatureVerifier>();
+        builder.Services.AddSingleton<IUpgradeBackup, SqliteUpgradeBackup>();
+        builder.Services.AddSingleton<IBranchNodeQuiescence, InProcessBranchNodeQuiescence>();
+        builder.Services.AddSingleton<IPackagedAppInfo, PackagedAppInfo>();
+        builder.Services.AddSingleton<IApplicationRestartRegistrar, ApplicationRestartRegistrar>();
+        builder.Services.AddSingleton<IUpdateInstaller, PackageManagerUpdateInstaller>();
+        builder.Services.AddSingleton(new PendingUpgradeStore(Path.Combine(dataDirectory, "pending-upgrade.json")));
+        builder.Services.AddSingleton(new UpdateInstallOptions(
+            StagingDirectory: updateStagingDirectory,
+            DatabasePath: databasePath,
+            BackupDirectory: Path.Combine(dataDirectory, "upgrade-backups"),
+            TrustedPublisher: trustedPublisher,
+            QuiesceTimeout: TimeSpan.FromSeconds(5)));
+        builder.Services.AddSingleton<UpdateInstallWorkflowFactory>();
 
         // Task 7.2: the POS half of the shared IEffectivePriceSource port
         // (design.md "PricingResolutionService contract and location") — the
