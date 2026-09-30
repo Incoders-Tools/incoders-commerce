@@ -340,6 +340,12 @@ in a throwaway worktree at task close.
     shows about one row fewer at 1120x700 because the totals panel gained the
     Descuento row; running app processes keep the old binaries until restarted.
 
+- 2026-09-29 (parent): discounts range `8f2a3fe..205edb2` assessed HIGH
+  (3828 lines, 51 files); owner DECLINED the review for this candidate.
+  Parent spot check in a throwaway worktree: `dotnet test --filter Discount`
+  110/110. Renders checked: line -10% and sale discount totals consistent
+  (10000 - 95 - 5% of 9905 = 9409.75); PIN prompt shows remaining attempts.
+
 ## Owner decisions (2026-09-29)
 - Tax: the POS shows only the final-consumer total (tax included), no IVA
   line. Price composition is shown per product in the web products and price
