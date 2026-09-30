@@ -134,15 +134,15 @@ follow-up); Efectivo asks for the amount received (must be >= total), shows
 the change, offers "Exacto" quick fill; Tarjeta and QR need one confirmation;
 the tender buttons replace "Cobrar venta" as the way to complete a sale; works
 offline like any sale.
-- [ ] P1. Spec: tender requirement and scenarios in `pos-scan-sale`
+- [x] P1. Spec: tender requirement and scenarios in `pos-scan-sale`
       (methods, cash change, offline, recorded and synced).
-- [ ] P2. Domain/payload: a QR method (house-consistent with
+- [x] P2. Domain/payload: a QR method (house-consistent with
       `PaymentMethod`, without breaking existing order payments), tender
       method + amount received + change in the sale record and payload; cloud
       ingestion keeps accepting older payloads.
-- [ ] P3. POS: enable Efectivo/Tarjeta/QR in `TotalsPanel`, cash dialog with
+- [x] P3. POS: enable Efectivo/Tarjeta/QR in `TotalsPanel`, cash dialog with
       change, confirmation for card/QR, commit with the tender.
-- [ ] P4. Cleanups: the manual sale records the selected customer and a
+- [x] P4. Cleanups: the manual sale records the selected customer and a
       tender; the customer picker walk-in text in Spanish.
       Route for P1..P4: delegated direct (one writer, sequential units).
 
@@ -366,6 +366,58 @@ in a throwaway worktree at task close.
   110/110. Renders checked: line -10% and sale discount totals consistent
   (10000 - 95 - 5% of 9905 = 9409.75); PIN prompt shows remaining attempts.
 
+- 2026-09-29: P1..P4 done (route: delegated direct, one writer, strict TDD,
+  throwaway worktree branch fast-forwarded into `dev`; not pushed).
+  - `9e344e0` docs(spec): `pos-scan-sale` gains "Tender Recorded at the Moment
+    of Sale", "Tender Recorded and Synchronized With the Sale" and "Walk-in
+    Customer Label and Customer on Manual Sales".
+  - `e3b9862` feat(sales) P2: `Commerce.Domain.Sales.SaleTender` (method
+    `cash|card|qr`, amount received and change for cash only) and
+    `SaleTenderRules.TryCash/Card/Qr`; additive `Tender` on `SaleEffect` and
+    `SalePayloadV1`; `sale_effects.tender_method|tender_amount_received|
+    tender_change` via idempotent `EnsureColumns` (`BranchSyncStore.Tender.cs`);
+    `CompleteScannedSale(tender)` and `CompleteOfflineSale(customerId, tender)`.
+    RED: the new tests did not compile (`Commerce.Domain.Sales` missing); GREEN
+    28/28 (rules, commit incl. older-db upgrade and replay, cloud ingestion).
+    The cloud ingestion tests are characterization tests: the cloud already keeps
+    the sale payload as received in `sync_inbox.payload`, so no cloud code changed.
+  - `f649b03` fix(pos) P4: walk-in entry reads "Consumidor final" (test first).
+  - `4299722` feat(pos) P3+P4: `TenderInput` (parse cash with decimal comma,
+    change, "Exacto", Spanish labels), `TenderWindow` (cash prompt with live
+    change, card/QR single confirmation, DynamicResource only), `TotalsPanel`
+    Efectivo/Tarjeta/QR enabled and raising `TenderRequested` (the "Cobrar venta"
+    button and the "Próximamente" state are gone), `MainWindow` commits both
+    paths with the tender; the manual popup now has Efectivo/Tarjeta/QR
+    (`CommitSaleButton` is the Efectivo one), records the selected customer and
+    rejects amounts <= 0. Neither commit path reads `DeviceToken` (guarded by a
+    markup test). RED: `TenderInput` tests did not compile, markup/label tests
+    failed; GREEN 118/118 for `TenderInput|SaleCustomerPicker|PosComponentMarkup|
+    SaleTender|PosStaff|PosComposition|ScannedSale|SaleCart`.
+  - Checks: `dotnet build Commerce.sln` 0 errors; full integration suite in the
+    throwaway worktree 973/973, 0 skipped (Postgres and pgbouncer up); web not
+    touched, so no npm run. Re-rendered `MainWindow` at 1120x700 in Dark, Light,
+    Vaca Verde with enabled tender buttons, plus the cash prompt (with change and
+    with insufficient amount), card and QR confirmations in all three themes
+    (throwaway harness, PNGs not committed; the real app was not launched).
+  - Decisions: (1) QR is NOT added to `PaymentMethod`: that enum types order
+    payment attempts (persisted with a DB CHECK in `0011_payments.sql`, served by
+    the payment endpoints and taxonomy spec), a sale tender is a POS record in the
+    sale payload, so a separate `SaleTender` avoids a migration and touching order
+    payments. If the tender is later reconciled with `PaymentLedger`, map
+    `cash->Cash`, `card->Card`, and add QR to the taxonomy then. (2) The
+    unused `payment_effects` / `CommitPaymentAtomically` path is not used: it has
+    its own outbox and a `PaymentEffect` aggregate with approval semantics, which
+    would make one sale two outbox rows and two sync kinds with no consumer; the
+    tender rides the single atomic sale commit and payload. (3) No cloud audit row
+    per sale tender (it would write one row per sale); the payload in `sync_inbox`
+    is the record. (4) Old/new payloads both ingest; a tender with an unknown
+    method is not rejected by the cloud (it only stores). (5) The manual sale now
+    refuses amounts <= 0.
+  - Follow-ups: split tender; no cloud read/report of tenders yet; cash change is
+    shown in the prompt and the result line only (no printed ticket); if the
+    tender should feed the payment ledger or cash-session totals, that needs its
+    own decision; running app processes keep the old binaries until restarted.
+
 ## Owner decisions (2026-09-29)
 - Tax: the POS shows only the final-consumer total (tax included), no IVA
   line. Price composition is shown per product in the web products and price
@@ -385,4 +437,6 @@ in a throwaway worktree at task close.
   authorization.
 
 ## Next step
-P1..P4 with one writer.
+Parent: assess the tender range (`512cfa1..HEAD`) for review due, spot check
+`dotnet test --filter Tender`, then decide on the next Phase 2 item (cash
+session, reports, product images).
