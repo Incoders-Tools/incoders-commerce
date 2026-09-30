@@ -518,7 +518,7 @@ export interface CustomerSignedInResponse {
 
 
 
-export interface UserSummary { userId: string; email: string; roleNames: string[]; isRevoked: boolean }
+export interface UserSummary { userId: string; email: string; roleNames: string[]; isRevoked: boolean; branchIds: string[] }
 export interface CreateUserRequest { email: string; password: string; roleNames: string[]; branchIds: string[]; customerId?: string | null }
 export interface CreateUserResponse { userId: string }
 export interface BranchSummary { branchId: string; branchName: string }

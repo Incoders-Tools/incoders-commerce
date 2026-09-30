@@ -17,11 +17,14 @@ function t(key: 'apiUnreachable' | 'requestFailedWithStatus', options?: Record<s
  */
 export class ApiError extends Error {
   readonly status: number
+  /** Machine code from a typed `{ "error": "<code>" }` body, when the server sent one. */
+  readonly code?: string
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, code?: string) {
     super(message)
     this.name = 'ApiError'
     this.status = status
+    this.code = code
   }
 }
 
@@ -67,13 +70,15 @@ export async function apiFetch<TResponse>(
 
   if (!response.ok) {
     let detail = response.statusText
+    let code: string | undefined
     try {
       const body = await response.json()
       detail = body?.title ?? body?.detail ?? JSON.stringify(body)
+      if (typeof body?.error === 'string') code = body.error
     } catch {
       // Non-JSON error body; fall back to statusText.
     }
-    throw new ApiError(detail || t('requestFailedWithStatus', { status: response.status }), response.status)
+    throw new ApiError(detail || t('requestFailedWithStatus', { status: response.status }), response.status, code)
   }
 
   if (response.status === 204) {

@@ -54,6 +54,7 @@ import type { BranchDiscountPinStatus, BranchSummary, CreateBranchRequest, Creat
 export const listUsers = () => apiFetch<UserSummary[]>('/account/users')
 export const createUser = (request: CreateUserRequest) => apiFetch<CreateUserResponse>('/account/users', { method: 'POST', body: JSON.stringify(request) })
 export const updateUserRoles = (userId: string, roleNames: string[]) => apiFetch<void>(`/account/users/${userId}/roles`, { method: 'PUT', body: JSON.stringify({ roleNames }) })
+export const updateUserBranches = (userId: string, branchIds: string[]) => apiFetch<void>(`/account/users/${userId}/branches`, { method: 'PUT', body: JSON.stringify({ branchIds }) })
 export const listBranches = () => apiFetch<BranchSummary[]>('/account/branches')
 export const createBranch = (request: CreateBranchRequest) => apiFetch<CreateBranchResponse>('/account/branches', { method: 'POST', body: JSON.stringify(request) })
 export const listOrganizations = () => apiFetch<OrganizationSummary[]>('/account/organizations')

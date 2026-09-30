@@ -7,7 +7,11 @@
     "unableToSaveRolesWithDetail": "No se pudieron guardar los roles de {{email}}: {{detail}}",
     "unableToSaveRoles": "No se pudieron guardar los roles de {{email}}.",
     "enterReplacementPassword": "Ingrese una contraseña de reemplazo.",
-    "unableToResetPassword": "No se pudo restablecer la contraseña."
+    "unableToResetPassword": "No se pudo restablecer la contraseña.",
+    "branchRequired": "Elegí al menos una sucursal para el usuario.",
+    "branchNotInOrganization": "Una de las sucursales elegidas no pertenece a la organización.",
+    "forbidden": "No tenés permiso para asignar esa sucursal o rol.",
+    "unableToSaveBranches": "No se pudieron guardar las sucursales de {{email}}."
   },
   "createForm": {
     "emailAriaLabel": "Correo electrónico del usuario",
@@ -15,7 +19,10 @@
     "passwordAriaLabel": "Contraseña del usuario",
     "passwordPlaceholder": "Contraseña",
     "roleForNewUser": "{{role}} para nuevo usuario",
-    "submit": "Crear usuario"
+    "submit": "Crear usuario",
+    "branchForNewUser": "Sucursal {{branch}} para nuevo usuario",
+    "branchesLegend": "Sucursales",
+    "noBranchesAvailable": "No hay sucursales disponibles."
   },
   "search": {
     "label": "Buscar usuarios",
@@ -30,7 +37,10 @@
     "email": "Correo electrónico",
     "roles": "Roles",
     "noRoles": "Sin roles",
-    "status": "Estado"
+    "status": "Estado",
+    "branches": "Sucursales",
+    "noBranches": "Sin sucursales",
+    "unknownBranch": "Otra sucursal"
   },
   "statusOptions": {
     "active": "Activo",
@@ -41,6 +51,26 @@
     "saveRoles": "Guardar roles",
     "replacementPasswordAriaLabel": "Contraseña de reemplazo para {{email}}",
     "newPasswordPlaceholder": "Nueva contraseña",
-    "forceReset": "Forzar restablecimiento"
+    "forceReset": "Forzar restablecimiento",
+    "branchForUser": "Sucursal {{branch}} para {{email}}",
+    "saveBranches": "Guardar sucursales"
+  },
+  "roles": {
+    "business-admin": {
+      "label": "Administrador",
+      "description": "Gestiona la organización"
+    },
+    "seller": {
+      "label": "Vendedor",
+      "description": "Toma pedidos desde la web"
+    },
+    "cashier": {
+      "label": "Cajero",
+      "description": "Opera el punto de venta"
+    },
+    "provider": {
+      "label": "Proveedor",
+      "description": "Cuenta de proveedor"
+    }
   }
 }
