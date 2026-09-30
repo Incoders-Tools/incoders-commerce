@@ -1,6 +1,7 @@
 <UserControl x:Class="Commerce.Pos.Windows.Controls.SaleLinesTable"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Foreground="{DynamicResource TextBrush}">
     <Border Style="{StaticResource CardBorder}" Padding="0" CornerRadius="12">
         <Grid>
             <Grid.RowDefinitions>
@@ -82,7 +83,7 @@
                                         </ToggleButton>
                                         <Popup IsOpen="{Binding IsChecked, ElementName=EditToggle, Mode=TwoWay}" PlacementTarget="{Binding ElementName=EditToggle}"
                                                Placement="Bottom" StaysOpen="False" AllowsTransparency="True" Opened="EditPopup_Opened">
-                                            <Border Style="{StaticResource CardBorder}" Padding="12" CornerRadius="10" Margin="6">
+                                            <Border Style="{StaticResource CardBorder}" Padding="12" CornerRadius="10" Margin="6" TextElement.Foreground="{DynamicResource TextBrush}">
                                                 <StackPanel Width="150">
                                                     <TextBlock Text="Cantidad" Style="{StaticResource MutedTextBlock}" FontSize="12" Margin="0,0,0,6" />
                                                     <TextBox x:Name="QuantityEditBox" Text="{Binding QuantityText, Mode=OneWay}" KeyDown="QuantityEditBox_KeyDown" />

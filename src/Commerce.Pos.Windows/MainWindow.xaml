@@ -76,7 +76,7 @@
                 </Button>
                 <Popup x:Name="ManualSalePopup" PlacementTarget="{Binding ElementName=ManualSaleButton}" Placement="Bottom" HorizontalOffset="-160"
                        StaysOpen="False" AllowsTransparency="True">
-                    <Border Style="{StaticResource CardBorder}" Padding="16" CornerRadius="12" Margin="8">
+                    <Border Style="{StaticResource CardBorder}" Padding="16" CornerRadius="12" Margin="8" TextElement.Foreground="{DynamicResource TextBrush}">
                         <StackPanel Width="300">
                             <TextBlock Text="Venta manual" FontSize="16" FontWeight="SemiBold" />
                             <TextBlock Text="Para artículos sin código en el catálogo local. No se puede combinar con productos de la venta actual."

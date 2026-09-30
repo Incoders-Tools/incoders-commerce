@@ -1,6 +1,7 @@
 <UserControl x:Class="Commerce.Pos.Windows.Controls.PosNavBar"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Foreground="{DynamicResource TextBrush}">
     <UserControl.Resources>
         <!-- Icon and label take the button's foreground so the active and disabled states tint both. -->
         <Style x:Key="NavIcon" TargetType="TextBlock" BasedOn="{StaticResource IconTextBlock}">
@@ -94,7 +95,7 @@
             </Button>
             <Popup x:Name="OperatorMenuPopup" Grid.Column="2" PlacementTarget="{Binding ElementName=SwitchOperatorButton}" Placement="Bottom"
                    HorizontalOffset="0" StaysOpen="False" Closed="OperatorMenuPopup_Closed" AllowsTransparency="True" PopupAnimation="Fade">
-                <Border Style="{StaticResource CardBorder}" Padding="12" CornerRadius="10" Margin="6">
+                <Border Style="{StaticResource CardBorder}" Padding="12" CornerRadius="10" Margin="6" TextElement.Foreground="{DynamicResource TextBrush}">
                     <StackPanel Width="230">
                         <TextBlock x:Name="OperatorMenuTitle" FontWeight="SemiBold" FontSize="14" TextTrimming="CharacterEllipsis" />
                         <TextBlock x:Name="OperatorMenuSubtitle" Style="{StaticResource MutedTextBlock}" FontSize="12" Margin="0,2,0,10" />

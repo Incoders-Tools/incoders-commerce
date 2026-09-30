@@ -1,6 +1,7 @@
 <UserControl x:Class="Commerce.Pos.Windows.Controls.AdminSignInPanel"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Foreground="{DynamicResource TextBrush}">
     <Border Style="{StaticResource CardBorder}" MaxWidth="460" HorizontalAlignment="Left">
         <StackPanel>
             <TextBlock x:Name="PromptTitle" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap" />

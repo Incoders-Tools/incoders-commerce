@@ -1,6 +1,7 @@
 <UserControl x:Class="Commerce.Pos.Windows.Controls.CategoryRail"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Foreground="{DynamicResource TextBrush}">
     <ListBox x:Name="RailList" BorderThickness="0" Background="Transparent" Padding="0"
              ScrollViewer.HorizontalScrollBarVisibility="Disabled" SelectionChanged="RailList_SelectionChanged"
              AutomationProperties.Name="Categorías">

@@ -1,6 +1,7 @@
 <UserControl x:Class="Commerce.Pos.Windows.Controls.ProductCard"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Foreground="{DynamicResource TextBrush}">
     <Border x:Name="CardChrome" Width="164" Margin="0,0,10,10" MouseLeftButtonUp="CardChrome_MouseLeftButtonUp">
         <Border.Style>
             <Style TargetType="Border" BasedOn="{StaticResource ProductCardBorder}">

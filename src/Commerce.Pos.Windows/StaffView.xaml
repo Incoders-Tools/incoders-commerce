@@ -1,7 +1,8 @@
 <UserControl x:Class="Commerce.Pos.Windows.StaffView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:controls="clr-namespace:Commerce.Pos.Windows.Controls">
+             xmlns:controls="clr-namespace:Commerce.Pos.Windows.Controls"
+             Foreground="{DynamicResource TextBrush}">
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
         <Style x:Key="FieldLabel" TargetType="TextBlock" BasedOn="{StaticResource MutedTextBlock}">

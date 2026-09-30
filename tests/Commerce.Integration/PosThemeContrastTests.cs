@@ -99,16 +99,82 @@ public sealed class PosThemeContrastTests
         Assert.DoesNotContain("Foreground", setters);
     }
 
-    [Fact]
-    public void EveryWindowSetsItsForeground_BecauseTextInheritsIt()
+    private static IEnumerable<string> ProjectXaml()
     {
-        var windows = Directory.GetFiles(PosDir(), "*Window.xaml");
-        Assert.NotEmpty(windows);
-        foreach (var file in windows)
+        var sep = Path.DirectorySeparatorChar;
+        return Directory.GetFiles(PosDir(), "*.xaml", SearchOption.AllDirectories)
+            .Where(f => !f.Contains($"{sep}obj{sep}") && !f.Contains($"{sep}bin{sep}") && !f.Contains($"{sep}Themes{sep}"));
+    }
+
+    [Fact]
+    public void EveryXamlRoot_WindowOrUserControl_SetsItsForeground_BecauseTextInheritsIt()
+    {
+        var roots = ProjectXaml().Select(f => (File: Path.GetFileName(f), Root: XDocument.Load(f).Root!))
+            .Where(x => x.Root.Name.LocalName is "Window" or "UserControl").ToList();
+        Assert.Contains(roots, x => x.Root.Name.LocalName == "Window");
+        Assert.Contains(roots, x => x.Root.Name.LocalName == "UserControl");
+        foreach (var (file, root) in roots)
         {
-            var root = XDocument.Load(file).Root!;
-            Assert.True(Attr(root, "Foreground") is not null, $"{Path.GetFileName(file)} must set Foreground on its root");
+            Assert.True(Attr(root, "Foreground") is not null, $"{file} must set Foreground on its {root.Name.LocalName} root");
         }
+    }
+
+    [Fact]
+    public void EveryPopupChild_SetsItsOwnForeground_BecausePopupsAreSeparateVisualTrees()
+    {
+        var popups = ProjectXaml().SelectMany(f => XDocument.Load(f).Descendants().Where(e => e.Name.LocalName == "Popup")
+            .Select(p => (File: Path.GetFileName(f), Child: p.Elements().First()))).ToList();
+        Assert.NotEmpty(popups);
+        foreach (var (file, child) in popups)
+        {
+            Assert.True(Attr(child, "TextElement.Foreground") is not null || Attr(child, "Foreground") is not null,
+                $"{file}: the content root of a Popup must set TextElement.Foreground");
+        }
+    }
+
+    public static IEnumerable<object[]> ThemedPopupStyleCases() =>
+        from theme in Themes from target in new[] { "ToolTip", "ContextMenu", "MenuItem" } select new object[] { theme, target };
+
+    [Theory]
+    [MemberData(nameof(ThemedPopupStyleCases))]
+    public void ImplicitStyleForSeparateVisualTrees_PairsPaletteForegroundAndBackground_WithAaContrast(string theme, string target)
+    {
+        var desktop = XDocument.Parse(Src("Themes", "DesktopTheme.xaml"));
+        var style = desktop.Descendants().SingleOrDefault(e =>
+            e.Name.LocalName == "Style" && Attr(e, "TargetType") == target && Attr(e, "Key") is null);
+        Assert.True(style is not null, $"DesktopTheme.xaml needs an implicit {target} style (its own visual tree ignores the window Foreground)");
+
+        string? SetterValue(XElement owner, string property) => owner.Elements()
+            .Where(e => e.Name.LocalName == "Setter" && Attr(e, "Property") == property)
+            .Select(e => Attr(e, "Value")).FirstOrDefault();
+
+        var foreground = SetterValue(style!, "Foreground");
+        Assert.True(foreground is not null, $"implicit {target} style must set Foreground from the palette");
+        var backgrounds = style!.Descendants()
+            .Where(e => e.Name.LocalName == "Setter" && Attr(e, "Property") == "Background")
+            .Select(e => Attr(e, "Value")!).Distinct().ToList();
+        Assert.NotEmpty(backgrounds);
+
+        var palette = Palette(theme);
+        foreach (var background in backgrounds)
+        {
+            AssertContrastBetween(theme, palette, ColorKey(foreground!), ColorKey(background), 4.5);
+        }
+    }
+
+    // {DynamicResource TextBrush} -> the palette key behind that brush (ColorText).
+    private static string ColorKey(string brushReference)
+    {
+        var brush = Regex.Match(brushReference, @"\{(?:Dynamic|Static)Resource (\w+)\}").Groups[1].Value;
+        var desktop = XDocument.Parse(Src("Themes", "DesktopTheme.xaml"));
+        var element = desktop.Descendants().Single(e => e.Name.LocalName == "SolidColorBrush" && Attr(e, "Key") == brush);
+        return Regex.Match(Attr(element, "Color")!, @"\{DynamicResource (\w+)\}").Groups[1].Value;
+    }
+
+    private static void AssertContrastBetween(string theme, Dictionary<string, (double R, double G, double B)> palette, string fg, string bg, double minimum)
+    {
+        var ratio = Ratio(palette[fg], palette[bg]);
+        Assert.True(ratio >= minimum, $"{theme}: {fg} on {bg} is {ratio:0.00}:1, below the required {minimum}:1");
     }
 
     [Fact]
