@@ -27,6 +27,13 @@ link) rather than deleting them.
   Why: without the certificate in `LocalMachine\TrustedPeople`, the MSIX will not
   install. Runbook: [terminal certificate](../../deploy/pos-terminal-certificate.md).
   Not needed once the commercial certificate is in place.
+- [ ] **Terminals pin the signing certificate.**
+  Why: the update wizard accepts an interim-signed package only when
+  `Commerce__UpdateTrustedThumbprint` (SHA-256 printed by
+  `new-dev-signing-cert.ps1`) is set on the terminal; without it every interim
+  update is refused. Replace or clear the pin together with
+  `Commerce:UpdateTrustedPublisher` when the commercial certificate arrives
+  ([ADR-013](../architecture/decisions/ADR-013-interim-self-signed-code-signing.md)).
 
 ## Decide before go-live
 

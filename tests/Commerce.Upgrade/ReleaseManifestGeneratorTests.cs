@@ -12,6 +12,9 @@ public sealed class ReleaseManifestGeneratorTests : IDisposable
     private readonly string _dir = Path.Combine(Path.GetTempPath(), $"release-manifest-{Guid.NewGuid():N}");
     private readonly ReleaseDiscovery _discovery = new();
 
+    private UpdateCheckResult CheckLocal(Version local, string manifestPath, UpdateEnvironment environment) =>
+        new UpdateChecker(new LocalFileManifestSource(manifestPath), _discovery).CheckAsync(local, environment).GetAwaiter().GetResult();
+
     public ReleaseManifestGeneratorTests() => Directory.CreateDirectory(_dir);
 
     public void Dispose() => Directory.Delete(_dir, recursive: true);
@@ -22,8 +25,7 @@ public sealed class ReleaseManifestGeneratorTests : IDisposable
         var manifestPath = Generate("1.4.0", "stable", "1.4.0", "CN=Incoders Commerce (Interim)");
         if (manifestPath is null) return; // no PowerShell on this host
 
-        var result = _discovery.CheckForUpdates(
-            new Version(1, 3, 0), new LocalUpdateManifestSource(manifestPath), new UpdateEnvironment(19045, "x64"));
+        var result = CheckLocal(new Version(1, 3, 0), manifestPath, new UpdateEnvironment(19045, "x64"));
 
         Assert.Equal(UpdateCheckStatus.Available, result.Status);
         Assert.Equal(new Version(1, 4, 0), result.AvailableVersion);
@@ -44,8 +46,7 @@ public sealed class ReleaseManifestGeneratorTests : IDisposable
         var manifestPath = Generate("1.4.0-internal.3", "internal", "1.4.0.3", "CN=Incoders Commerce (Interim)");
         if (manifestPath is null) return;
 
-        var result = _discovery.CheckForUpdates(
-            new Version(1, 4, 0), new LocalUpdateManifestSource(manifestPath), new UpdateEnvironment(19045, "x64"));
+        var result = CheckLocal(new Version(1, 4, 0), manifestPath, new UpdateEnvironment(19045, "x64"));
 
         Assert.Equal(UpdateCheckStatus.Available, result.Status);
         Assert.Equal(new Version(1, 4, 0, 3), result.AvailableVersion);
@@ -58,8 +59,7 @@ public sealed class ReleaseManifestGeneratorTests : IDisposable
         var manifestPath = Generate("1.4.0", "stable", "1.4.0", "CN=Incoders Commerce (Interim)");
         if (manifestPath is null) return;
 
-        var result = _discovery.CheckForUpdates(
-            new Version(1, 3, 0), new LocalUpdateManifestSource(manifestPath), new UpdateEnvironment(18363, "x64"));
+        var result = CheckLocal(new Version(1, 3, 0), manifestPath, new UpdateEnvironment(18363, "x64"));
 
         Assert.Equal(UpdateCheckStatus.IncompatibleWindows, result.Status);
     }

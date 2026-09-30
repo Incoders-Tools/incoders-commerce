@@ -158,15 +158,21 @@ progress and the typed result.
 
 1. Show current version, target version, package format, size, and compatibility.
 2. Download to a controlled staging directory (`<data>/updates`, override
-   `Commerce:UpdateStagingDirectory`). Stale partial downloads and other staged
-   packages are removed first; a staged file that already matches the manifest
-   hash is reused. HTTP range resume is not implemented (a retry restarts the
-   download).
+   `Commerce:UpdateStagingDirectory`). Only files the downloader owns
+   (`Commerce.Pos.Windows-*.msix` and `.msix.partial`) are removed first; any
+   other file in the directory is left alone. A staged file that already
+   matches the manifest hash is reused. HTTP range resume is not implemented
+   (a retry restarts the download). A connection that delivers no bytes for 60
+   seconds fails as a typed download failure (not a cancel); the operator's
+   cancel is reported at the stage where it happened.
 3. Verify: SHA256 against the manifest, then the package signature (OS
    `WinVerifyTrust`) and the signer subject against the CONFIGURED trusted
    publisher (`Commerce:UpdateTrustedPublisher`, default the interim
    `CN=Incoders Commerce (Interim)`; the manifest `publisherId` must match it
-   too). Only a `Valid` signature passes. Attestation is not verifiable yet, so
+   too). With `Commerce:UpdateTrustedThumbprint` set (SHA-256 of the signing
+   certificate) the signer must equal it and `Valid` or `UntrustedRoot` passes;
+   without a pin only `Valid` with the trusted subject passes (ADR-013).
+   Attestation is not verifiable yet, so
    a package that requires it is refused. Any mismatch aborts before install
    and deletes the staged file.
 4. Quiesce: refused while a sale is being built (the cart holds lines); durable
@@ -203,6 +209,7 @@ Configuration summary:
 | `Commerce:UpdateRepository` | `Incoders-Tools/incoders-commerce` | GitHub repository to read releases from |
 | `Commerce:UpdateManifestPath` | unset | Local manifest override (VM testing) |
 | `Commerce:UpdateTrustedPublisher` | `CN=Incoders Commerce (Interim)` | Required signer subject (ADR-013 swap is config-only) |
+| `Commerce:UpdateTrustedThumbprint` | unset | SHA-256 of the trusted signing certificate; required for interim-signed updates (ADR-013) |
 | `Commerce:UpdateStagingDirectory` | `<data>/updates` | Where packages are staged |
 
 Research (installing the update of the running app):

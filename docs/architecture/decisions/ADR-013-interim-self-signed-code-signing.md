@@ -21,7 +21,44 @@ The swap must be a configuration change, not a code change:
 | Signing material | PFX in secrets `POS_SIGNING_PFX_BASE64` + `POS_SIGNING_PFX_PASSWORD` | New PFX (or signing-service credentials) in the same secrets |
 | Publisher identity | Read from the PFX subject by `deploy/release/build-pos-msix.ps1` | Same script, new subject |
 | Manifest `publisherId` | Written by `deploy/release/new-release-manifest.ps1` from the build | Same |
-| Terminal trust | Public `.cer` installed once per terminal, as administrator | Not needed; the OS trusts the public chain |
+| Terminal trust (MSIX install) | Public `.cer` installed once per terminal, as administrator, in `LocalMachine\TrustedPeople` | Not needed; the OS trusts the public chain |
+| Updater trust (POS wizard) | Signer pinned by SHA-256 thumbprint: `Commerce:UpdateTrustedThumbprint` on every terminal | Change or clear the pin and `Commerce:UpdateTrustedPublisher` |
+
+## Trust in the POS update wizard: the thumbprint pin
+
+Windows reports a self-signed certificate that is only in `TrustedPeople` as an
+untrusted root when the POS asks `WinVerifyTrust` about a downloaded package
+(observed for a certificate that was not installed; the same status is expected
+until R6 proves otherwise on a terminal). Refusing that status would refuse
+every interim-signed update, and trusting it by subject text alone would let
+anyone who creates a certificate with the same subject through.
+
+The wizard therefore decides trust like this:
+
+| Signature status | Pin configured (`Commerce:UpdateTrustedThumbprint`) | No pin |
+| --- | --- | --- |
+| `Valid` | accepted only if the signer certificate SHA-256 equals the pin | accepted only if the signer subject equals `Commerce:UpdateTrustedPublisher` |
+| `UntrustedRoot` | accepted only if the signer certificate SHA-256 equals the pin | refused |
+| `NotSigned`, `Invalid`, `Expired`, `Unknown` | refused | refused |
+
+- The pin is the **SHA-256** of the signing certificate (uppercase hex, colons
+  and spaces tolerated), printed by `deploy/release/new-dev-signing-cert.ps1`.
+  SHA-256 is used instead of the SHA-1 that Windows tools display because a
+  pin is a security decision. A value that is not 64 hex characters (for
+  example a SHA-1) is refused up front, never silently unmatched.
+- `UntrustedRoot` cannot be produced by a tampered package: modifying any byte
+  makes `WinVerifyTrust` fail the digest check and return `Invalid`, which is
+  always refused (checked against a real signed MSIX with one byte flipped at
+  three offsets). Expiry is its own status and is refused, never folded into
+  `UntrustedRoot`. The SHA256 in the release manifest is also checked first.
+- The certificate stays in `LocalMachine\TrustedPeople` only so Windows will
+  install the MSIX. It does **not** need to be in `Trusted Root`, which would
+  trust everything that certificate signs for the whole machine.
+- **Swapping to the commercial certificate** is a configuration change: set
+  `Commerce:UpdateTrustedPublisher` to the new subject and either set the pin to
+  the new certificate's SHA-256 or clear it (a publicly trusted chain yields
+  `Valid`, which the subject check accepts). Rotating the interim certificate
+  is a new pin on every terminal together with the new `.cer`.
 
 ## Why
 
@@ -43,10 +80,12 @@ The swap must be a configuration change, not a code change:
   must match the signing certificate subject exactly or Windows rejects the
   package. The build script derives it from the PFX so the two cannot drift.
 - **Updater publisher check is configuration-driven.** The updater compares the
-  Authenticode signer subject of a downloaded package with the manifest
-  `publisherId` and with the terminal's trusted-publisher setting
-  (`Commerce:UpdateTrustedPublisher`, implemented in the install wizard as configuration, not a constant). Changing
-  certificates changes that value, not code.
+  manifest `publisherId` with the terminal's trusted-publisher setting
+  (`Commerce:UpdateTrustedPublisher`) and the signer of a downloaded package
+  with the pin (`Commerce:UpdateTrustedThumbprint`) or, without a pin, with that
+  same subject. Changing certificates changes configuration, not code. During the
+  interim period the pin must be set on every terminal; without it the wizard
+  refuses interim-signed packages.
 - **Publisher change is a package-identity change.** Windows treats a different
   publisher as a different package family, so an in-place upgrade from the
   interim package to one signed by the commercial certificate is not possible.

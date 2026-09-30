@@ -36,11 +36,6 @@ public sealed record UpdateEnvironment(int WindowsBuild, string Architecture)
         RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant());
 }
 
-public sealed record LocalUpdateManifestSource(string? ManifestPath)
-{
-    public bool IsConfigured => !string.IsNullOrWhiteSpace(ManifestPath) && File.Exists(ManifestPath);
-}
-
 public sealed class ReleaseDiscovery
 {
     public const int SupportedManifestSchemaVersion = 1;
@@ -52,32 +47,9 @@ public sealed class ReleaseDiscovery
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }
     };
 
-    public UpdateCheckResult CheckForUpdates(
-        Version localVersion,
-        LocalUpdateManifestSource source,
-        UpdateEnvironment? environment = null)
-    {
-        if (!source.IsConfigured || source.ManifestPath is null)
-        {
-            return new UpdateCheckResult(UpdateCheckStatus.ManifestNotConfigured, localVersion);
-        }
-
-        string json;
-        try
-        {
-            json = File.ReadAllText(source.ManifestPath);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return new UpdateCheckResult(UpdateCheckStatus.CheckFailedInvalid, localVersion, Detail: ex.Message);
-        }
-
-        return Evaluate(localVersion, json, environment);
-    }
-
     /// <summary>
     /// Pure evaluation of an already-fetched manifest document, shared by the
-    /// local-file and GitHub Releases sources.
+    /// local-file and GitHub Releases sources (see <see cref="UpdateChecker"/>).
     /// </summary>
     public UpdateCheckResult Evaluate(Version localVersion, string manifestJson, UpdateEnvironment? environment = null)
     {

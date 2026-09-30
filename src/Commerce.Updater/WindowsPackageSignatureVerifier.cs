@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Security.Cryptography.Pkcs;
 
 namespace Commerce.Updater;
@@ -13,6 +14,10 @@ namespace Commerce.Updater;
 /// Revocation is not checked: terminals may be offline, and the interim
 /// certificate has no revocation endpoint.
 /// </summary>
+/// <summary>The certificate that signed a package, as read from its signature block.</summary>
+/// <param name="Sha256Thumbprint">SHA-256 of the certificate DER, uppercase hex.</param>
+public sealed record PackageSigner(string Subject, string Sha256Thumbprint);
+
 public sealed class WindowsPackageSignatureVerifier : IPackageSignatureVerifier
 {
     private const string SignatureEntry = "AppxSignature.p7x";
@@ -25,31 +30,48 @@ public sealed class WindowsPackageSignatureVerifier : IPackageSignatureVerifier
             return new PackageSignature(PackageSignatureStatus.Unknown, null, "Package file not found.");
         }
 
-        var subject = ReadSignerSubject(packagePath);
-        if (subject is null)
+        var signer = ReadSigner(packagePath);
+        if (signer is null)
         {
             return new PackageSignature(PackageSignatureStatus.NotSigned, null, "No package signature block.");
         }
 
+        var subject = signer.Subject;
+
         if (!OperatingSystem.IsWindows())
         {
-            return new PackageSignature(PackageSignatureStatus.Unknown, subject, "Signature trust can only be verified on Windows.");
+            return new PackageSignature(PackageSignatureStatus.Unknown, subject, "Signature trust can only be verified on Windows.", signer.Sha256Thumbprint);
         }
 
         var code = TrustNative.Verify(packagePath);
-        var status = code switch
-        {
-            0 => PackageSignatureStatus.Valid,
-            0x800B0100 => PackageSignatureStatus.NotSigned,
-            0x800B0109 or 0x800B010A or 0x800B0101 => PackageSignatureStatus.UntrustedRoot,
-            0x80096010 or 0x80096004 or 0x800B0004 or 0x80096019 => PackageSignatureStatus.Invalid,
-            _ => PackageSignatureStatus.Unknown
-        };
-        return new PackageSignature(status, subject, $"WinVerifyTrust 0x{code:X8}");
+        return new PackageSignature(MapTrustResult(code), subject, $"WinVerifyTrust 0x{code:X8}", signer.Sha256Thumbprint);
     }
 
+    /// <summary>
+    /// Maps a <c>WinVerifyTrust</c> result. <c>UntrustedRoot</c> (an intact
+    /// signature whose chain is not trusted on this machine) is only ever the
+    /// result for an unmodified package: a modified one fails the digest check
+    /// and yields <c>Invalid</c>. An expired certificate is its own status so it
+    /// can never be mistaken for an untrusted root.
+    /// </summary>
+    public static PackageSignatureStatus MapTrustResult(uint code) => code switch
+    {
+        0 => PackageSignatureStatus.Valid,
+        0x800B0100 => PackageSignatureStatus.NotSigned,
+        0x800B0109 or 0x800B010A => PackageSignatureStatus.UntrustedRoot,
+        0x800B0101 => PackageSignatureStatus.Expired,
+        0x80096010 or 0x80096004 or 0x800B0004 or 0x80096019 => PackageSignatureStatus.Invalid,
+        _ => PackageSignatureStatus.Unknown
+    };
+
     /// <summary>Subject of the certificate that signed the package, or null when unsigned or unreadable.</summary>
-    public static string? ReadSignerSubject(string packagePath)
+    public static string? ReadSignerSubject(string packagePath) => ReadSigner(packagePath)?.Subject;
+
+    /// <summary>
+    /// The single certificate that signed the package (subject and SHA-256
+    /// thumbprint), or null when unsigned, unreadable or signed more than once.
+    /// </summary>
+    public static PackageSigner? ReadSigner(string packagePath)
     {
         try
         {
@@ -71,12 +93,15 @@ public sealed class WindowsPackageSignatureVerifier : IPackageSignatureVerifier
 
             var cms = new SignedCms();
             cms.Decode(bytes.AsSpan(P7xMagic.Length).ToArray());
-            return cms.SignerInfos.Count > 0
-                ? cms.SignerInfos[0].Certificate?.Subject
-                : null;
+            if (cms.SignerInfos.Count != 1 || cms.SignerInfos[0].Certificate is not { } certificate)
+            {
+                return null;
+            }
+
+            return new PackageSigner(certificate.Subject, Convert.ToHexString(SHA256.HashData(certificate.RawData)));
         }
         catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException
-                                       or System.Security.Cryptography.CryptographicException)
+                                       or CryptographicException)
         {
             return null;
         }

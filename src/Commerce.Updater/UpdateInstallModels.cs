@@ -25,6 +25,12 @@ public enum UpdateFailureReason
     NotPackaged,
     BackupFailed,
     InstallFailed,
+
+    /// <summary>The pending-upgrade marker could not be written, so nothing was installed.</summary>
+    PendingMarkerFailed,
+
+    /// <summary>An exception the workflow did not anticipate; carries the stage that was running.</summary>
+    UnexpectedError,
     Cancelled
 }
 
@@ -38,12 +44,20 @@ public sealed record UpdateInstallOutcome(
 
 public sealed record UpdateProgress(UpdateInstallStage Stage, double? Fraction, string Message);
 
+/// <param name="TrustedThumbprint">
+/// Optional pin: the SHA-256 thumbprint of the trusted signing certificate
+/// (<c>Commerce:UpdateTrustedThumbprint</c>). When set, the signer must match
+/// it exactly and <see cref="PackageSignatureStatus.UntrustedRoot"/> is
+/// accepted for that signer only; when unset, only <c>Valid</c> plus the
+/// publisher subject is accepted.
+/// </param>
 public sealed record UpdateInstallOptions(
     string StagingDirectory,
     string DatabasePath,
     string BackupDirectory,
     string TrustedPublisher,
-    TimeSpan QuiesceTimeout);
+    TimeSpan QuiesceTimeout,
+    string? TrustedThumbprint = null);
 
 public enum PackageSignatureStatus
 {
@@ -53,10 +67,18 @@ public enum PackageSignatureStatus
 
     /// <summary>The signature is intact but its certificate chain is not trusted on this machine.</summary>
     UntrustedRoot,
+
+    /// <summary>The signing certificate has expired (signatures are not timestamped in the interim period).</summary>
+    Expired,
     Unknown
 }
 
-public sealed record PackageSignature(PackageSignatureStatus Status, string? SignerSubject, string? Detail = null);
+/// <param name="SignerThumbprint">
+/// SHA-256 of the signing certificate (uppercase hex, no separators), read from
+/// the package signature block; null when it could not be read.
+/// </param>
+public sealed record PackageSignature(
+    PackageSignatureStatus Status, string? SignerSubject, string? Detail = null, string? SignerThumbprint = null);
 
 /// <summary>Reads the Authenticode/MSIX signature of a staged package (typed result, never a shell call).</summary>
 public interface IPackageSignatureVerifier

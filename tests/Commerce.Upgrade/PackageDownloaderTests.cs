@@ -72,13 +72,18 @@ public sealed class PackageDownloaderTests : IDisposable
     }
 
     [Fact]
-    public async Task Download_CleansStalePartialsAndOtherStagedFiles()
+    public async Task Download_CleansOnlyItsOwnStalePartialsAndPackages_ForeignFilesSurvive()
     {
         Directory.CreateDirectory(_staging);
-        var stalePartial = Path.Combine(_staging, "old.msix.partial");
+        var stalePartial = Path.Combine(_staging, "Commerce.Pos.Windows-0.8.0-win-x64.msix.partial");
         var staleOther = Path.Combine(_staging, "Commerce.Pos.Windows-0.9.0-win-x64.msix");
-        await File.WriteAllTextAsync(stalePartial, "x");
-        await File.WriteAllTextAsync(staleOther, "x");
+        var foreignNote = Path.Combine(_staging, "operator-notes.txt");
+        var foreignMsix = Path.Combine(_staging, "SomeOtherApp-1.0.msix");
+        var foreignPartial = Path.Combine(_staging, "other.zip.partial");
+        foreach (var file in new[] { stalePartial, staleOther, foreignNote, foreignMsix, foreignPartial })
+        {
+            await File.WriteAllTextAsync(file, "x");
+        }
 
         var result = await new PackageDownloader(new HttpClient(new BytesHandler(Payload)))
             .DownloadAsync(Package(), _staging, null, CancellationToken.None);
@@ -86,6 +91,9 @@ public sealed class PackageDownloaderTests : IDisposable
         Assert.True(result.Ok);
         Assert.False(File.Exists(stalePartial));
         Assert.False(File.Exists(staleOther));
+        Assert.True(File.Exists(foreignNote));
+        Assert.True(File.Exists(foreignMsix));
+        Assert.True(File.Exists(foreignPartial));
     }
 
     [Fact]
@@ -136,5 +144,81 @@ public sealed class PackageDownloaderTests : IDisposable
 
         Assert.False(result.Ok);
         Assert.Equal(0, handler.Calls);
+    }
+
+    private sealed class StallingHandler(bool stallBody) : HttpMessageHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (!stallBody)
+            {
+                await Task.Delay(Timeout.Infinite, cancellationToken);
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(new StallingStream()) };
+        }
+    }
+
+    private sealed class StallingStream : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            await Task.Delay(Timeout.Infinite, cancellationToken);
+            return 0;
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Download_StalledConnection_IsATimedOutFailure_NotACancel_AndLeavesNoPartial(bool stallBody)
+    {
+        var downloader = new PackageDownloader(new HttpClient(new StallingHandler(stallBody)), stallTimeout: TimeSpan.FromMilliseconds(150));
+
+        var result = await downloader.DownloadAsync(Package(), _staging, null, CancellationToken.None);
+
+        Assert.False(result.Ok);
+        Assert.True(result.TimedOut);
+        Assert.Empty(Directory.GetFiles(_staging));
+    }
+
+    [Fact]
+    public async Task Download_HttpClientTimeout_IsATimedOutFailure()
+    {
+        var timeout = new TaskCanceledException("timed out", new TimeoutException());
+        var downloader = new PackageDownloader(new HttpClient(new FaultHandler(timeout)));
+
+        var result = await downloader.DownloadAsync(Package(), _staging, null, CancellationToken.None);
+
+        Assert.False(result.Ok);
+        Assert.True(result.TimedOut);
+    }
+
+    [Fact]
+    public async Task Download_OperatorCancel_StillThrows_AndLeavesNoPartial()
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+        var downloader = new PackageDownloader(new HttpClient(new StallingHandler(stallBody: true)), stallTimeout: TimeSpan.FromMinutes(5));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => downloader.DownloadAsync(Package(), _staging, null, cts.Token));
+
+        Assert.Empty(Directory.GetFiles(_staging));
+    }
+
+    private sealed class FaultHandler(Exception failure) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            throw failure;
     }
 }

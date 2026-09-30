@@ -98,4 +98,44 @@ public sealed class WindowsPackageSignatureVerifierTests : IDisposable
 
         Assert.NotEqual(PackageSignatureStatus.Valid, signature.Status);
     }
+
+    [Fact]
+    public void Signer_ExposesTheSha256ThumbprintOfTheSigningCertificate()
+    {
+        var path = Path.Combine(_dir, "pinned.msix");
+        string expected;
+        using (var archive = ZipFile.Open(path, ZipArchiveMode.Create))
+        {
+            archive.CreateEntry("AppxManifest.xml");
+            using var key = RSA.Create(2048);
+            var request = new CertificateRequest("CN=Pin Test", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+            using var certificate = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(30));
+            expected = Convert.ToHexString(SHA256.HashData(certificate.RawData));
+            var cms = new SignedCms(new ContentInfo(new Oid("1.3.6.1.4.1.311.2.1.4"), [1, 2, 3]));
+            cms.ComputeSignature(new CmsSigner(certificate) { IncludeOption = X509IncludeOption.EndCertOnly });
+            using var stream = archive.CreateEntry("AppxSignature.p7x").Open();
+            stream.Write("PKCX"u8);
+            stream.Write(cms.Encode());
+        }
+
+        var signer = WindowsPackageSignatureVerifier.ReadSigner(path);
+
+        Assert.NotNull(signer);
+        Assert.Equal("CN=Pin Test", signer.Subject);
+        Assert.Equal(expected, signer.Sha256Thumbprint);
+    }
+
+    [Theory]
+    [InlineData(0u, PackageSignatureStatus.Valid)]
+    [InlineData(0x800B0100u, PackageSignatureStatus.NotSigned)]
+    [InlineData(0x800B0109u, PackageSignatureStatus.UntrustedRoot)]
+    [InlineData(0x800B010Au, PackageSignatureStatus.UntrustedRoot)]
+    [InlineData(0x800B0101u, PackageSignatureStatus.Expired)]
+    [InlineData(0x80096010u, PackageSignatureStatus.Invalid)]
+    [InlineData(0x80096004u, PackageSignatureStatus.Invalid)]
+    [InlineData(0x12345678u, PackageSignatureStatus.Unknown)]
+    public void TrustResult_MapsToTheTypedStatus_TamperingIsNeverUntrustedRoot(uint code, PackageSignatureStatus expected)
+    {
+        Assert.Equal(expected, WindowsPackageSignatureVerifier.MapTrustResult(code));
+    }
 }
