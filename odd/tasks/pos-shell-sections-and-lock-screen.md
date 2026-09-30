@@ -290,6 +290,31 @@ by admin (the staff member re-enters with email + password to set a new PIN).
     button text renders dark in Light/Vaca Verde (pre-existing implicit TextBlock
     style); tile email truncates beyond ~22 characters.
 
+- 2026-09-30 T4 review: RDD lineage `review-66b550ac6bdf8d5f` (approved,
+  acknowledged; next boundary `b39c9f8`) left three advisories, fixed by one writer
+  (route: direct), commits `f83f815`, `7996022`, `2c3b8d6`:
+  - WARNING deferred section vs. screen (`f83f815`): `ShellNavigation.Reconcile`
+    now moves the model to Sale at once when the lost section is busy
+    (`Deferred`) and sets `TeardownPending`; `CompleteTeardown()` (called from
+    `OnSectionIdle`) releases it, and `Navigate` is refused while pending. The
+    window detaches the busy view into `_tearingDownView`, shows the sale, and only
+    disposes on idle, so a new admin signing in before idle no longer leaves the
+    shell on Staff while the sale is shown. `ReconcilePending` is gone.
+  - SUGGESTION stale lock-screen error (`7996022`): the unexpected-error state moved
+    into `LockScreenModel.ReportUnexpected` (single `Status`); it is cleared on
+    Refresh/tile/Back/credentials and at the start of `SubmitCredentialsAsync`.
+    `LockScreenView._unexpected` removed.
+  - SUGGESTION dead button (`2c3b8d6`): `OpenCashWindow` lost its "Iniciar sesión"
+    button, the `signInOperator` parameter and the not-signed-in branches.
+  - RED: the new/updated tests copied into a worktree of `b39c9f8` failed to
+    compile (`TeardownPending`, `CompleteTeardown`, `ReportUnexpected`). GREEN:
+    focused `PosShell|PosLockScreen|PosCashSessionMarkup|PosOperatorMenu|PosBusy|PosStaffView`
+    141/141.
+  - Checks (throwaway worktree): `dotnet build Commerce.sln` 0 errors; full
+    `dotnet test tests/Commerce.Integration` 1305 passed, 0 failed, 0 skipped;
+    `file` UTF-8/ASCII.
+  - Not exercised in a real session: the WPF click-through of the deferred case.
+
 ## Next step
 Owner manual verification against the running stack (`run-all.ps1`), then review
 of the T3 follow-up and T4 commits (boundary `b936b7d`):
