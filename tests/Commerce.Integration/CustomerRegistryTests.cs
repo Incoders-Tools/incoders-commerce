@@ -730,9 +730,38 @@ public sealed class CustomerRegistryTests : IClassFixture<WebApplicationFactory<
         Assert.Equal(HttpStatusCode.Created, provisionResponse.StatusCode);
         var provisioned = await provisionResponse.Content.ReadFromJsonAsync<CreateUserResponse>();
 
+        // A REAL branch of the organization, inside the caller's own scope, so
+        // branch validation would pass: the 400 can only come from the
+        // customer-target guard.
+        var branchId = Guid.NewGuid();
+        using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            owner.Open();
+            using var branchCmd = new NpgsqlCommand("INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, 'In Scope')", owner);
+            branchCmd.Parameters.AddWithValue(branchId);
+            branchCmd.Parameters.AddWithValue(orgId);
+            branchCmd.ExecuteNonQuery();
+            using var scopeCmd = new NpgsqlCommand("UPDATE users SET branch_scope = ARRAY[$1::uuid] WHERE id = $2", owner);
+            scopeCmd.Parameters.AddWithValue(branchId);
+            scopeCmd.Parameters.AddWithValue(adminId);
+            scopeCmd.ExecuteNonQuery();
+        }
+
         var response = await client.PutAsJsonAsync(
-            $"/account/users/{provisioned!.UserId}/branches", new ReplaceBranchesRequest([Guid.NewGuid()]));
+            $"/account/users/{provisioned!.UserId}/branches", new ReplaceBranchesRequest([branchId]));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("a customer-linked account has no branch scope.", body);
+
+        using var check = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        check.Open();
+        using var auditCmd = new NpgsqlCommand(
+            "SELECT count(*) FROM audit_log WHERE entity_id = $1 AND action = 'user.branches.assigned'", check);
+        auditCmd.Parameters.AddWithValue(provisioned.UserId);
+        Assert.Equal(0L, (long)auditCmd.ExecuteScalar()!);
+        using var scopeRead = new NpgsqlCommand("SELECT cardinality(branch_scope) FROM users WHERE id = $1", check);
+        scopeRead.Parameters.AddWithValue(provisioned.UserId);
+        Assert.Equal(0, (int)scopeRead.ExecuteScalar()!);
     }
 }

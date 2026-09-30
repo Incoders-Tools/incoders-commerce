@@ -391,8 +391,10 @@ public sealed class PostgresUserAccountStore
     /// branch_scope -> audit row (old/new branch ids) -> COMMIT. Like the
     /// roles endpoint, this does not bump `session_version`: branch scope is
     /// read fresh from the store on every request, not baked into the cookie.
+    /// Returns the number of rows updated; when it is zero nothing is audited
+    /// and the transaction rolls back.
     /// </summary>
-    public async Task ReplaceBranchScopeAsync(
+    public async Task<int> ReplaceBranchScopeAsync(
         CloudTenantScope scope, Guid userId, IReadOnlyList<Guid> branchIds, string actorKind, Guid actorId, CancellationToken ct)
     {
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
@@ -407,11 +409,17 @@ public sealed class PostgresUserAccountStore
             prior = (Guid[]?)await readCmd.ExecuteScalarAsync(ct) ?? [];
         }
 
+        int updated;
         await using (var cmd = new NpgsqlCommand("UPDATE users SET branch_scope = $1 WHERE id = $2", connection, tx))
         {
             cmd.Parameters.AddWithValue(branchIds.ToArray());
             cmd.Parameters.AddWithValue(userId);
-            await cmd.ExecuteNonQueryAsync(ct);
+            updated = await cmd.ExecuteNonQueryAsync(ct);
+        }
+
+        if (updated == 0)
+        {
+            return 0;
         }
 
         await AuditLogWriter.InsertAsync(
@@ -422,6 +430,7 @@ public sealed class PostgresUserAccountStore
             ct);
 
         await tx.CommitAsync(ct);
+        return updated;
     }
 
     public async Task<IReadOnlyList<UserSummaryDto>> ListStaffAsync(CloudTenantScope scope, CancellationToken ct)

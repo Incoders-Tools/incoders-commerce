@@ -717,6 +717,24 @@ public sealed class RoleTaxonomyTests : IClassFixture<WebApplicationFactory<Prog
     }
 
     [Fact]
+    public async Task ReplaceBranchScopeAsync_UnknownUser_ReturnsZero_AndWritesNoAuditRow()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var admin = _factory.CreateClient(CookieClientOptions());
+        var (organizationId, branchId, adminUserId) = await BootstrapOrgAsync(admin, "b5z-admin@example.com", "admin-password");
+        var missingUserId = Guid.NewGuid();
+
+        using var scope = _factory.Services.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<PostgresUserAccountStore>();
+        var updated = await store.ReplaceBranchScopeAsync(
+            new CloudTenantScope(organizationId), missingUserId, [branchId], "org-user", adminUserId, CancellationToken.None);
+
+        Assert.Equal(0, updated);
+        Assert.Null(FindAuditRow("user", missingUserId, "user.branches.assigned"));
+    }
+
+    [Fact]
     public async Task ReplaceBranches_EmptyList_Returns400BranchRequired_AndScopeUnchanged()
     {
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }

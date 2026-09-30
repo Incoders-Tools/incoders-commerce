@@ -120,6 +120,37 @@ public sealed class SystemAdminOrganizationScopeTests : IClassFixture<WebApplica
     }
 
     [Fact]
+    public async Task Sysadmin_WithSelector_ReplacesBranchScopeOfTargetOrganizationUser_AndAudits()
+    {
+        if (!_postgresAvailable) return;
+        const string password = "correct-password";
+        var (_, sysadminId) = await BootstrapAsync("sysadmin-put-branches@example.com", password);
+        PromoteToSystemAdmin(sysadminId);
+        var (targetOrgId, targetAdminId) = await BootstrapAsync("target-put-branches@example.com", password);
+        var sysadmin = await SignInAsync("sysadmin-put-branches@example.com", password);
+
+        var created = await sysadmin.SendAsync(WithOrganizationSelector(
+            HttpMethod.Post, "/account/branches", targetOrgId, new CreateBranchRequest("Second Branch")));
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var newBranchId = (await created.Content.ReadFromJsonAsync<CreateBranchResponse>())!.BranchId;
+
+        var response = await sysadmin.SendAsync(WithOrganizationSelector(
+            HttpMethod.Put, $"/account/users/{targetAdminId}/branches", targetOrgId, new ReplaceBranchesRequest([newBranchId])));
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        owner.Open();
+        using var scopeCmd = new NpgsqlCommand("SELECT branch_scope FROM users WHERE id = $1", owner);
+        scopeCmd.Parameters.AddWithValue(targetAdminId);
+        Assert.Equal([newBranchId], (Guid[])scopeCmd.ExecuteScalar()!);
+        using var auditCmd = new NpgsqlCommand(
+            "SELECT count(*) FROM audit_log WHERE entity_id = $1 AND actor_id = $2 AND action = 'user.branches.assigned'", owner);
+        auditCmd.Parameters.AddWithValue(targetAdminId);
+        auditCmd.Parameters.AddWithValue(sysadminId);
+        Assert.Equal(1L, (long)auditCmd.ExecuteScalar()!);
+    }
+
+    [Fact]
     public async Task Sysadmin_WithoutSelector_SeesNoTenantDataForOwnOrganization()
     {
         if (!_postgresAvailable) return;
