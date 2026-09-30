@@ -241,5 +241,15 @@ the web after T3), release/versioning work.
   - Note for T3 follow-up: a business-admin sees only branches in their own
     scope (T1 cap), so a newly created branch is not assignable by them.
 
+- 2026-09-30: T3 review. RDD assess `af55577..156026a` medium, 525 lines;
+  owner GRANTED; one lens (reliability) approved and acknowledged (lineage
+  `review-0172258fbcd6abb1`). Next boundary `156026a`. Parent fixed the
+  WARNING inline in `91b7bcc` (route: direct inline, TDD): `listUsers`
+  normalizes a missing `branchIds` to `[]` so a web deployed ahead of the API
+  cannot crash the Users screen. RED `account.test.ts` 1 failed; GREEN;
+  `npm test` 312/312, `tsc -b --noEmit` 0. Remaining advisories: no test for
+  checkbox reset after a failed branch save, for the generic
+  `unableToSaveBranches` message, or for `ApiError.code` extraction edge cases.
+
 ## Next step
 T4 (POS robustness: typed outcomes, file logger, global handler, Spanish messages, busy states).
