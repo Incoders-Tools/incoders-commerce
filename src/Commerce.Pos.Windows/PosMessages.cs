@@ -104,7 +104,9 @@ public static class PosMessages
 
     public const string ResettingPassword = "Restableciendo contraseña…";
 
-    public const string LoadingUsers = "Cargando usuarios…";
+    public const string CustomersLoadFailed = "No se pudo cargar la lista de clientes. Intentá de nuevo.";
+
+    public const string UsersLoadFailed = "No se pudo cargar la lista de personal. Intentá de nuevo.";
 
     public const string BranchRequired = "Elegí al menos una sucursal para el usuario.";
 

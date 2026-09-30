@@ -1,3 +1,4 @@
+using System.IO;
 using System.Windows;
 using Commerce.BranchNode;
 using Commerce.Updater;
@@ -18,10 +19,16 @@ namespace Commerce.Pos.Windows;
 public partial class App : System.Windows.Application
 {
     private IHost? _host;
+    private bool _started;
 
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        // Logging and the global handlers come first so that even a failure
+        // while building the host is recorded and shown in friendly terms.
+        PosLog.Configure(new PosFileLogger(Path.Combine(PosHostBuilder.DefaultDataDirectory(), "logs")));
+        InstallGlobalHandlers();
 
         DesktopThemeService.ApplySavedTheme();
 
@@ -35,7 +42,7 @@ public partial class App : System.Windows.Application
         if (identity.Pairing is null)
         {
             var pairingClient = _host.Services.GetRequiredService<DevicePairingClient>();
-            var pairingWindow = new PairingWindow(pairingClient, localInstallationStore, identity.InstallationId) { Title = $"{branding.MainWindowTitle} — Pair terminal" };
+            var pairingWindow = new PairingWindow(pairingClient, localInstallationStore, identity.InstallationId) { Title = $"{branding.MainWindowTitle} — Configurar terminal" };
             var paired = pairingWindow.ShowDialog();
 
             if (paired != true || pairingWindow.PairedRecord is null)
@@ -94,6 +101,48 @@ public partial class App : System.Windows.Application
         MainWindow = mainWindow;
         ShutdownMode = ShutdownMode.OnMainWindowClose;
         mainWindow.Show();
+        _started = true;
+    }
+
+    private void InstallGlobalHandlers()
+    {
+        DispatcherUnhandledException += (_, args) =>
+        {
+            PosLog.Error("App", "Unhandled exception on the UI thread.", args.Exception);
+            ShowUnexpectedError();
+
+            if (_started)
+            {
+                args.Handled = true;
+                return;
+            }
+
+            // Startup never finished: there is no window to fall back to and the
+            // explicit shutdown mode would leave an invisible process behind.
+            args.Handled = true;
+            Shutdown(1);
+        };
+
+        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+            PosLog.Error("App", $"Unhandled exception (terminating: {args.IsTerminating}).", args.ExceptionObject as Exception);
+
+        TaskScheduler.UnobservedTaskException += (_, args) =>
+        {
+            PosLog.Error("App", "Unobserved task exception.", args.Exception);
+            args.SetObserved();
+        };
+    }
+
+    private static void ShowUnexpectedError()
+    {
+        try
+        {
+            MessageBox.Show(PosMessages.Unexpected, "Incoders Commerce", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        catch
+        {
+            // Showing the dialog must never raise a second crash.
+        }
     }
 
     protected override void OnExit(ExitEventArgs e)

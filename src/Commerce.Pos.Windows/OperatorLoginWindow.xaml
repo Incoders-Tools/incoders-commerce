@@ -1,7 +1,7 @@
 <Window x:Class="Commerce.Pos.Windows.OperatorLoginWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Acceso de operador" Height="700" Width="520" WindowStartupLocation="CenterScreen" Icon="app.ico"
+        Title="Acceso de operador" Height="740" Width="520" WindowStartupLocation="CenterScreen" Icon="app.ico"
         Background="{DynamicResource ShellBrush}" Foreground="{DynamicResource TextBrush}" ResizeMode="NoResize">
     <Grid Margin="20">
         <Border Style="{StaticResource CardBorder}">
@@ -14,6 +14,7 @@
                 </StackPanel>
 
 
+                <StackPanel x:Name="FormPanel">
                 <StackPanel x:Name="OperatorPickerPanel" Visibility="Collapsed" Margin="0,0,0,10">
                     <Border Style="{StaticResource SoftCardBorder}" Padding="14">
                         <StackPanel>
@@ -53,6 +54,13 @@
                 </StackPanel>
 
                 <Button x:Name="ContinueWithoutOperatorButton" Content="Continuar sin operador" HorizontalAlignment="Stretch" Margin="0,0,0,10" Click="ContinueWithoutOperatorButton_Click" Style="{StaticResource GhostButton}" />
+                </StackPanel>
+
+                <StackPanel x:Name="BusyPanel" Visibility="Collapsed" Margin="0,0,0,10">
+                    <ProgressBar x:Name="BusyProgressBar" IsIndeterminate="True" Height="6" BorderThickness="0"
+                                 Foreground="{DynamicResource PrimaryBrush}" Background="{DynamicResource BorderBrushMuted}" />
+                    <TextBlock x:Name="BusyText" Style="{StaticResource MutedTextBlock}" TextWrapping="Wrap" Margin="0,8,0,0" />
+                </StackPanel>
 
                 <Border Background="{DynamicResource DangerSurfaceBrush}" BorderBrush="{DynamicResource DangerBrush}" BorderThickness="1"
                         CornerRadius="10" Padding="10">

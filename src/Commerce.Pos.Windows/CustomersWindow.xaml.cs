@@ -49,12 +49,12 @@ public partial class CustomersWindow : Window
                 break;
 
             case AdminSignInOutcomeKind.InvalidCredentials:
-                StatusText.Text = outcome.ErrorMessage ?? "Invalid email or password.";
+                StatusText.Text = outcome.ErrorMessage ?? PosMessages.InvalidCredentials;
                 break;
 
             case AdminSignInOutcomeKind.Failed:
             default:
-                StatusText.Text = outcome.ErrorMessage ?? "Sign in failed.";
+                StatusText.Text = outcome.ErrorMessage ?? PosMessages.SignInFailed;
                 break;
         }
     }
@@ -64,7 +64,7 @@ public partial class CustomersWindow : Window
         var customers = await _adminClient.ListCustomersAsync();
         if (customers is null)
         {
-            FormStatusText.Text = "Customer management requires connectivity.";
+            FormStatusText.Text = PosMessages.CustomersLoadFailed;
             return;
         }
 
@@ -194,7 +194,7 @@ public partial class CustomersWindow : Window
         switch (outcome.Kind)
         {
             case CustomerAdminMutationKind.Succeeded:
-                FormStatusText.Text = "Saved.";
+                FormStatusText.Text = PosMessages.Saved;
                 CustomerKindComboBox.IsEnabled = true;
                 await LoadCustomersAsync();
                 break;
@@ -203,7 +203,7 @@ public partial class CustomersWindow : Window
             case CustomerAdminMutationKind.NotFound:
             case CustomerAdminMutationKind.Failed:
             default:
-                FormStatusText.Text = outcome.ErrorMessage ?? "Save failed.";
+                FormStatusText.Text = outcome.ErrorMessage ?? PosMessages.SaveFailed;
                 break;
         }
     }

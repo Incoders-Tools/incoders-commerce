@@ -149,7 +149,7 @@ public static class PosHostBuilder
         return builder.Build();
     }
 
-    private static string DefaultDataDirectory() => Path.Combine(
+    internal static string DefaultDataDirectory() => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "Incoders",
         "Commerce");

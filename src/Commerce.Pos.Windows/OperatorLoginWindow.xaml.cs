@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Input;
 
 namespace Commerce.Pos.Windows;
 
@@ -11,12 +12,19 @@ namespace Commerce.Pos.Windows;
 /// <see cref="DialogResult"/>, <see cref="ActiveOperator"/>) and
 /// <c>BranchSelectionPanel</c>'s collapsed-panel-reveal idiom for the
 /// "Add another operator" panel.
+///
+/// Network work (provisioning) runs through <see cref="BusyController"/>: the
+/// whole form (<c>FormPanel</c>) is disabled with a progress bar while the
+/// request is in flight, re-entry is ignored, and failures are logged by the
+/// client and shown as friendly Spanish text from <see cref="PosMessages"/>.
 /// </summary>
 public partial class OperatorLoginWindow : Window
 {
     private readonly OperatorProvisioningClient _provisioningClient;
     private readonly LocalOperatorStore _operatorStore;
     private readonly string _deviceToken;
+    private readonly BusyController _busy;
+    private bool _completed;
 
     private IReadOnlyList<CachedOperator> _nonStaleOperators = [];
 
@@ -28,8 +36,20 @@ public partial class OperatorLoginWindow : Window
         _provisioningClient = provisioningClient;
         _operatorStore = operatorStore;
         _deviceToken = deviceToken;
+        _busy = new BusyController(ApplyBusy, nameof(OperatorLoginWindow), message => StatusText.Text = message);
+
+        // A request in flight must finish before the window goes away.
+        Closing += (_, e) => e.Cancel = _busy.IsBusy && !_completed;
 
         Loaded += (_, _) => InitializePickerOrProvisioning();
+    }
+
+    private void ApplyBusy(bool busy, string? text)
+    {
+        FormPanel.IsEnabled = !busy;
+        BusyPanel.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+        BusyText.Text = text ?? string.Empty;
+        Cursor = busy ? Cursors.Wait : null;
     }
 
     private void InitializePickerOrProvisioning()
@@ -74,17 +94,18 @@ public partial class OperatorLoginWindow : Window
 
         if (OperatorListBox.SelectedItem is not CachedOperator selected)
         {
-            StatusText.Text = "Select an operator first.";
+            StatusText.Text = PosMessages.SelectOperatorFirst;
             return;
         }
 
         if (!OperatorPinCredential.Verify(PinBox.Password, selected.Salt, selected.Subkey))
         {
-            StatusText.Text = "Incorrect PIN.";
+            StatusText.Text = PosMessages.IncorrectPin;
             return;
         }
 
         ActiveOperator = selected;
+        _completed = true;
         DialogResult = true;
         Close();
     }
@@ -100,16 +121,21 @@ public partial class OperatorLoginWindow : Window
 
         if (!OperatorPinCredential.IsValidPin(pin))
         {
-            StatusText.Text = "PIN must be exactly 6 digits and not a trivial pattern.";
+            StatusText.Text = PosMessages.InvalidPinFormat;
             return;
         }
 
         if (pin != confirmPin)
         {
-            StatusText.Text = "PIN and confirmation do not match.";
+            StatusText.Text = PosMessages.PinMismatch;
             return;
         }
 
+        await _busy.RunAsync(PosMessages.Verifying, () => ProvisionAsync(email, password, pin));
+    }
+
+    private async Task ProvisionAsync(string email, string password, string pin)
+    {
         var outcome = await _provisioningClient.VerifyAsync(email, password, _deviceToken);
 
         switch (outcome.Kind)
@@ -122,17 +148,19 @@ public partial class OperatorLoginWindow : Window
 
                 _operatorStore.Upsert(operatorRecord);
                 ActiveOperator = operatorRecord;
+                _completed = true;
                 DialogResult = true;
                 Close();
                 break;
 
             case OperatorVerifyOutcomeKind.InvalidCredentials:
-                StatusText.Text = "Invalid email or password.";
+                StatusText.Text = PosMessages.InvalidCredentials;
                 break;
 
+            case OperatorVerifyOutcomeKind.TerminalNotRecognized:
             case OperatorVerifyOutcomeKind.Failed:
             default:
-                StatusText.Text = outcome.ErrorMessage ?? "Provisioning failed.";
+                StatusText.Text = outcome.ErrorMessage ?? PosMessages.ProvisioningFailed;
                 break;
         }
     }
