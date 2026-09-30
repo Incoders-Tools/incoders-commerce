@@ -90,7 +90,7 @@ the web after T3), release/versioning work.
   403), operator status reports inactive without it; upgrade persisted role
   permissions if roles store them; update `openspec/specs/pos-operator-session`.
   Route: delegated direct.
-- [ ] T3 Web: Users screen branch picker (default selected branch), edit
+- [x] T3 Web: Users screen branch picker (default selected branch), edit
   branches, show branches, `cashier` role, Spanish role labels via i18n;
   fix the test that locked `branchIds: []`; E2E selector check.
   Route: delegated direct.
@@ -214,5 +214,32 @@ the web after T3), release/versioning work.
   PUT-branches 404 path unproven; deploy ordering note (apply 0020 before
   shipping the API).
 
+- 2026-09-30: T3 done, commit `d4ac7b7` (route: delegated direct, one writer).
+  - RED: 20 tests failed against the unchanged screen (new branch/role/error
+    tests plus existing ones re-pointed at Spanish role labels and the
+    selected-branch payload). GREEN after implementation: UsersScreen 31/31;
+    full `npm test` 310 passed (49 files); `npm run build` ok (outDir is the
+    default `dist`, not Cloud.Api wwwroot); `npm run lint` 0 new warnings
+    (the `set-state-in-effect` at UsersScreen refresh is pre-existing);
+    standalone e2e typecheck (`tsc --noEmit --ignoreConfig` over
+    `e2e/*.ts` + `playwright.config.ts`) exit 0.
+  - Decisions: branch list comes from `BranchContext.selectableBranches` (the
+    caller's own scope, or the acted-on organization's branches for a
+    sysadmin), no new fetch; create form preselects the shell's selected branch
+    until the admin touches it (derived, so a late-arriving branch still
+    applies); client-side "at least one branch" mirrors the server for create
+    and for branch edits. Rows get branch checkboxes plus "Guardar sucursales"
+    (PUT `/account/users/{id}/branches`) and a Branches column (names, "Otra
+    sucursal" for ids outside the caller scope). Roles: `cashier` added,
+    Spanish labels/descriptions in `users.json` (es/en); `ApiError` gains an
+    optional `code` from `{ "error": ... }` bodies; `branch-required`,
+    `branch-not-in-organization` and any 403 map to friendly Spanish copy
+    (403 on role saves no longer shows the raw English server title).
+  - E2E impact: none. `admin-console.spec.ts` creates a user through the UI
+    and the single-branch admin's branch is auto-selected, so the form still
+    submits; `customers.spec.ts` posts the API directly with a branch id.
+  - Note for T3 follow-up: a business-admin sees only branches in their own
+    scope (T1 cap), so a newly created branch is not assignable by them.
+
 ## Next step
-T3 (Web: Users screen branch picker, branch editing, `cashier` role, Spanish role labels).
+T4 (POS robustness: typed outcomes, file logger, global handler, Spanish messages, busy states).
