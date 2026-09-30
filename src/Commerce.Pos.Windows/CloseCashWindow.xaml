@@ -29,7 +29,7 @@
                     <TextBlock Grid.Row="2" Text="Total con QR" Style="{StaticResource MutedTextBlock}" Margin="0,0,0,6" />
                     <TextBlock x:Name="QrTotalText" Grid.Row="2" Grid.Column="1" Text="$0.00" FontWeight="SemiBold" Margin="0,0,0,6" />
                     <TextBlock Grid.Row="3" Text="Efectivo esperado" FontSize="16" FontWeight="SemiBold" Style="{StaticResource MutedTextBlock}" VerticalAlignment="Center" />
-                    <TextBlock x:Name="ExpectedCashText" Grid.Row="3" Grid.Column="1" Text="$0.00" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource AccentBrush}" />
+                    <TextBlock x:Name="ExpectedCashText" Grid.Row="3" Grid.Column="1" Text="$0.00" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource AccentTextBrush}" />
                 </Grid>
                 <TextBlock x:Name="ExpectedBreakdownText" Style="{StaticResource MutedTextBlock}" FontSize="12" Margin="0,2,0,14" TextWrapping="Wrap" />
 

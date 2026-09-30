@@ -32,7 +32,7 @@
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <TextBlock Text="Vuelto" FontSize="16" FontWeight="SemiBold" Style="{StaticResource MutedTextBlock}" VerticalAlignment="Center" />
-                        <TextBlock x:Name="ChangeText" Grid.Column="1" Text="—" FontSize="26" FontWeight="Bold" Foreground="{DynamicResource AccentBrush}" />
+                        <TextBlock x:Name="ChangeText" Grid.Column="1" Text="—" FontSize="26" FontWeight="Bold" Foreground="{DynamicResource AccentTextBrush}" />
                     </Grid>
                 </StackPanel>
 

@@ -9,7 +9,13 @@
     <SolidColorBrush x:Key="BorderBrushMuted" Color="{DynamicResource ColorBorder}" />
     <SolidColorBrush x:Key="PrimaryBrush" Color="{DynamicResource ColorPrimary}" />
     <SolidColorBrush x:Key="PrimaryHoverBrush" Color="{DynamicResource ColorPrimaryHover}" />
+    <SolidColorBrush x:Key="PrimaryPressedBrush" Color="{DynamicResource ColorPrimaryPressed}" />
+    <SolidColorBrush x:Key="OnPrimaryBrush" Color="{DynamicResource ColorOnPrimary}" />
     <SolidColorBrush x:Key="AccentBrush" Color="{DynamicResource ColorAccent}" />
+    <SolidColorBrush x:Key="AccentTextBrush" Color="{DynamicResource ColorAccentText}" />
+    <SolidColorBrush x:Key="HoverSurfaceBrush" Color="{DynamicResource ColorHoverSurface}" />
+    <SolidColorBrush x:Key="PressedSurfaceBrush" Color="{DynamicResource ColorPressedSurface}" />
+    <SolidColorBrush x:Key="ScrollThumbBrush" Color="{DynamicResource ColorScrollThumb}" />
     <SolidColorBrush x:Key="SuccessBrush" Color="{DynamicResource ColorSuccess}" />
     <SolidColorBrush x:Key="WarningSurfaceBrush" Color="{DynamicResource ColorWarningSurface}" />
     <SolidColorBrush x:Key="WarningBorderBrush" Color="{DynamicResource ColorWarningBorder}" />
@@ -22,8 +28,10 @@
 
     <Thickness x:Key="CardPadding">20</Thickness>
 
+    <!-- No Foreground here on purpose: an implicit Foreground would also hit the TextBlock that a ContentPresenter
+         creates inside buttons, tiles and list items and override their own foreground (dark text on the primary fill).
+         Text inherits the Foreground of its window, view or control instead; Muted/Eyebrow styles still tint on purpose. -->
     <Style TargetType="TextBlock">
-        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
         <Setter Property="FontFamily" Value="Segoe UI" />
         <Setter Property="FontSize" Value="14" />
     </Style>
@@ -64,7 +72,7 @@
     </Style>
 
     <Style TargetType="Button">
-        <Setter Property="Foreground" Value="White" />
+        <Setter Property="Foreground" Value="{DynamicResource OnPrimaryBrush}" />
         <Setter Property="Background" Value="{DynamicResource PrimaryBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource PrimaryBrush}" />
         <Setter Property="BorderThickness" Value="1" />
@@ -88,14 +96,12 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter Property="Foreground" Value="White" />
                             <Setter TargetName="ButtonChrome" Property="Background" Value="{DynamicResource PrimaryHoverBrush}" />
                             <Setter TargetName="ButtonChrome" Property="BorderBrush" Value="{DynamicResource PrimaryHoverBrush}" />
                         </Trigger>
                         <Trigger Property="IsPressed" Value="True">
-                            <Setter Property="Foreground" Value="White" />
-                            <Setter TargetName="ButtonChrome" Property="Background" Value="{DynamicResource AccentBrush}" />
-                            <Setter TargetName="ButtonChrome" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                            <Setter TargetName="ButtonChrome" Property="Background" Value="{DynamicResource PrimaryPressedBrush}" />
+                            <Setter TargetName="ButtonChrome" Property="BorderBrush" Value="{DynamicResource PrimaryPressedBrush}" />
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter Property="Opacity" Value="0.45" />
@@ -110,6 +116,39 @@
         <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
         <Setter Property="Background" Value="{DynamicResource SurfaceSoftBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource BorderBrushMuted}" />
+        <!-- Hover and pressed use the neutral hover/pressed surfaces, never the primary fill, so the button's own
+             (and its content's) dark-on-light or light-on-dark text pair is kept in every state. -->
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="ButtonChrome"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="10"
+                            SnapsToDevicePixels="True">
+                        <ContentPresenter HorizontalAlignment="Center"
+                                          VerticalAlignment="Center"
+                                          Margin="{TemplateBinding Padding}" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="ButtonChrome" Property="Background" Value="{DynamicResource HoverSurfaceBrush}" />
+                            <Setter TargetName="ButtonChrome" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="ButtonChrome" Property="Background" Value="{DynamicResource PressedSurfaceBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="ButtonChrome" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.45" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
 
     <Style x:Key="GhostButton" TargetType="Button" BasedOn="{StaticResource SecondaryButton}">
@@ -207,7 +246,7 @@
                             <Setter TargetName="OptionChrome" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
                         </Trigger>
                         <Trigger Property="IsChecked" Value="True">
-                            <Setter Property="Foreground" Value="White" />
+                            <Setter Property="Foreground" Value="{DynamicResource OnPrimaryBrush}" />
                             <Setter TargetName="OptionChrome" Property="Background" Value="{DynamicResource PrimaryBrush}" />
                             <Setter TargetName="OptionChrome" Property="BorderBrush" Value="{DynamicResource PrimaryBrush}" />
                         </Trigger>
@@ -240,7 +279,7 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Thumb">
-                    <Border x:Name="ThumbChrome" Background="{DynamicResource BorderBrushMuted}" CornerRadius="4" Margin="2" />
+                    <Border x:Name="ThumbChrome" Background="{DynamicResource ScrollThumbBrush}" CornerRadius="4" Margin="2" />
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="ThumbChrome" Property="Background" Value="{DynamicResource AccentBrush}" />
@@ -346,11 +385,11 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsHighlighted" Value="True">
-                            <Setter TargetName="ItemChrome" Property="Background" Value="{DynamicResource SurfaceSoftBrush}" />
+                            <Setter TargetName="ItemChrome" Property="Background" Value="{DynamicResource HoverSurfaceBrush}" />
                         </Trigger>
                         <Trigger Property="IsSelected" Value="True">
                             <Setter TargetName="ItemChrome" Property="Background" Value="{DynamicResource PrimaryBrush}" />
-                            <Setter Property="Foreground" Value="White" />
+                            <Setter Property="Foreground" Value="{DynamicResource OnPrimaryBrush}" />
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter Property="Opacity" Value="0.5" />
@@ -421,10 +460,33 @@
         <Setter Property="FontFamily" Value="Segoe UI" />
     </Style>
 
+    <!-- Own template: the system default paints a light-blue selection under our light text in Dark. -->
     <Style TargetType="ListBoxItem">
+        <Setter Property="OverridesDefaultStyle" Value="True" />
         <Setter Property="Padding" Value="10,8" />
         <Setter Property="Margin" Value="0,2" />
         <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ListBoxItem">
+                    <Border x:Name="ItemChrome" Background="Transparent" CornerRadius="8" Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+                        <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="ItemChrome" Property="Background" Value="{DynamicResource HoverSurfaceBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="ItemChrome" Property="Background" Value="{DynamicResource PrimaryBrush}" />
+                            <Setter Property="Foreground" Value="{DynamicResource OnPrimaryBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.5" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
 
     <Style TargetType="ListViewItem" BasedOn="{StaticResource {x:Type ListBoxItem}}" />
@@ -482,13 +544,14 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="NavChrome" Property="Background" Value="{DynamicResource HoverSurfaceBrush}" />
                             <Setter TargetName="NavChrome" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
                         </Trigger>
                         <Trigger Property="IsKeyboardFocused" Value="True">
                             <Setter TargetName="NavChrome" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
                         </Trigger>
                         <Trigger Property="Tag" Value="Active">
-                            <Setter Property="Foreground" Value="White" />
+                            <Setter Property="Foreground" Value="{DynamicResource OnPrimaryBrush}" />
                             <Setter TargetName="NavChrome" Property="Background" Value="{DynamicResource PrimaryBrush}" />
                             <Setter TargetName="NavChrome" Property="BorderBrush" Value="{DynamicResource PrimaryBrush}" />
                         </Trigger>

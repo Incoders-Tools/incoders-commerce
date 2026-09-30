@@ -22,13 +22,14 @@
                             </Border>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="RailChrome" Property="Background" Value="{DynamicResource HoverSurfaceBrush}" />
                                     <Setter TargetName="RailChrome" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
                                 </Trigger>
                                 <Trigger Property="IsSelected" Value="True">
                                     <Setter TargetName="RailChrome" Property="Background" Value="{DynamicResource PrimaryBrush}" />
                                     <Setter TargetName="RailChrome" Property="BorderBrush" Value="{DynamicResource PrimaryBrush}" />
-                                    <Setter TargetName="RailGlyph" Property="Foreground" Value="White" />
-                                    <Setter TargetName="RailLabel" Property="Foreground" Value="White" />
+                                    <Setter TargetName="RailGlyph" Property="Foreground" Value="{DynamicResource OnPrimaryBrush}" />
+                                    <Setter TargetName="RailLabel" Property="Foreground" Value="{DynamicResource OnPrimaryBrush}" />
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>

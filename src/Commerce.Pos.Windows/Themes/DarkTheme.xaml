@@ -5,9 +5,15 @@
     <Color x:Key="ColorSurface">#151F32</Color>
     <Color x:Key="ColorSurfaceSoft">#1E293B</Color>
     <Color x:Key="ColorBorder">#334155</Color>
-    <Color x:Key="ColorPrimary">#3B82F6</Color>
-    <Color x:Key="ColorPrimaryHover">#2563EB</Color>
+    <Color x:Key="ColorPrimary">#2563EB</Color>
+    <Color x:Key="ColorPrimaryHover">#1D4ED8</Color>
     <Color x:Key="ColorAccent">#38BDF8</Color>
+    <Color x:Key="ColorPrimaryPressed">#1E40AF</Color>
+    <Color x:Key="ColorOnPrimary">#FFFFFF</Color>
+    <Color x:Key="ColorAccentText">#38BDF8</Color>
+    <Color x:Key="ColorHoverSurface">#2A3950</Color>
+    <Color x:Key="ColorScrollThumb">#64748B</Color>
+    <Color x:Key="ColorPressedSurface">#334155</Color>
     <Color x:Key="ColorSuccess">#22C55E</Color>
     <Color x:Key="ColorWarningSurface">#3A2A10</Color>
     <Color x:Key="ColorWarningBorder">#F59E0B</Color>

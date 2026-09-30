@@ -7,7 +7,13 @@
     <Color x:Key="ColorBorder">#D6DEE8</Color>
     <Color x:Key="ColorPrimary">#2563EB</Color>
     <Color x:Key="ColorPrimaryHover">#1D4ED8</Color>
-    <Color x:Key="ColorAccent">#0EA5E9</Color>
+    <Color x:Key="ColorAccent">#0284C7</Color>
+    <Color x:Key="ColorPrimaryPressed">#1E40AF</Color>
+    <Color x:Key="ColorOnPrimary">#FFFFFF</Color>
+    <Color x:Key="ColorAccentText">#0369A1</Color>
+    <Color x:Key="ColorHoverSurface">#E2E8F0</Color>
+    <Color x:Key="ColorScrollThumb">#64748B</Color>
+    <Color x:Key="ColorPressedSurface">#CBD5E1</Color>
     <Color x:Key="ColorSuccess">#15803D</Color>
     <Color x:Key="ColorWarningSurface">#FFF7ED</Color>
     <Color x:Key="ColorWarningBorder">#F59E0B</Color>

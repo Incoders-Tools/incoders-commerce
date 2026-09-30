@@ -185,7 +185,7 @@ public partial class UpdateWizardWindow : Window
         var brushKey = state switch
         {
             StageState.Done => "SuccessBrush",
-            StageState.Active => "AccentBrush",
+            StageState.Active => "AccentTextBrush",
             StageState.Failed => "DangerBrush",
             _ => "MutedTextBrush"
         };

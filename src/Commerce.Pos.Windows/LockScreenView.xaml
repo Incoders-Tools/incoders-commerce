@@ -41,7 +41,7 @@
                                             AutomationProperties.Name="{Binding Email}">
                                         <StackPanel HorizontalAlignment="Center">
                                             <Border Width="56" Height="56" CornerRadius="28" Background="{DynamicResource PrimaryBrush}" HorizontalAlignment="Center">
-                                                <TextBlock Text="{Binding Initials}" FontSize="20" FontWeight="Bold" Foreground="White"
+                                                <TextBlock Text="{Binding Initials}" FontSize="20" FontWeight="Bold" Foreground="{DynamicResource OnPrimaryBrush}"
                                                            HorizontalAlignment="Center" VerticalAlignment="Center" />
                                             </Border>
                                             <TextBlock Text="{Binding Email}" Foreground="{DynamicResource TextBrush}" FontWeight="SemiBold"

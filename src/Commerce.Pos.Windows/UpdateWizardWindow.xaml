@@ -28,7 +28,7 @@
                     <TextBlock Grid.Row="0" Text="Versión actual" Style="{StaticResource MutedTextBlock}" Margin="0,0,0,4" />
                     <TextBlock Grid.Row="0" Grid.Column="1" x:Name="CurrentVersionText" FontWeight="SemiBold" Margin="0,0,0,4" />
                     <TextBlock Grid.Row="1" Text="Versión nueva" Style="{StaticResource MutedTextBlock}" Margin="0,0,0,4" />
-                    <TextBlock Grid.Row="1" Grid.Column="1" x:Name="TargetVersionText" FontWeight="SemiBold" Foreground="{DynamicResource AccentBrush}" Margin="0,0,0,4" />
+                    <TextBlock Grid.Row="1" Grid.Column="1" x:Name="TargetVersionText" FontWeight="SemiBold" Foreground="{DynamicResource AccentTextBrush}" Margin="0,0,0,4" />
                     <TextBlock Grid.Row="2" Text="Paquete" Style="{StaticResource MutedTextBlock}" Margin="0,0,0,4" />
                     <TextBlock Grid.Row="2" Grid.Column="1" x:Name="FormatText" Margin="0,0,0,4" />
                     <TextBlock Grid.Row="3" Text="Tamaño" Style="{StaticResource MutedTextBlock}" Margin="0,0,0,4" />

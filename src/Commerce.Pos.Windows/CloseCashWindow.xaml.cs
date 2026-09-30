@@ -44,7 +44,7 @@ public partial class CloseCashWindow : Window
         {
             DifferenceText.Text = CashSessionInput.DifferenceLabel(difference);
             DifferenceText.Foreground = difference == 0m
-                ? (System.Windows.Media.Brush)FindResource("AccentBrush")
+                ? (System.Windows.Media.Brush)FindResource("AccentTextBrush")
                 : (System.Windows.Media.Brush)FindResource("DangerBrush");
         }
         else
