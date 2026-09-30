@@ -12,7 +12,7 @@ namespace Commerce.Pos.Windows;
 /// No branching logic beyond deserializing these two responses — covered by
 /// Unit 2's server-side integration tests and Unit 3's manual walkthrough.
 /// </summary>
-public sealed class OperatorProvisioningClient
+public sealed class OperatorProvisioningClient : IOperatorVerifier
 {
     private readonly HttpClient _httpClient;
 
@@ -159,4 +159,10 @@ public enum OperatorStatusOutcome
     Unreachable,
     /// <summary>The server does not know this terminal's device credential: pair it again.</summary>
     TerminalNotRecognized,
+}
+
+/// <summary>The one online call the lock screen needs; lets the screen's logic run against a fake.</summary>
+public interface IOperatorVerifier
+{
+    Task<OperatorVerifyOutcome> VerifyAsync(string email, string password, string deviceToken, CancellationToken ct = default);
 }

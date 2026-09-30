@@ -61,7 +61,7 @@ public static class PosMessages
 
     public const string Pairing = "Emparejando…";
 
-    // ---- Operator login window ----------------------------------------------
+    // ---- Lock screen (operator sign-in) -------------------------------------
 
     public const string SelectOperatorFirst = "Seleccioná un operador primero.";
 
@@ -76,8 +76,10 @@ public static class PosMessages
 
     public const string Verifying = "Verificando…";
 
-    public const string NoOperatorsOnTerminal =
-        "No hay operadores guardados en esta terminal. Agregalos desde Personal.";
+    public const string EmailAndPasswordToSignIn = "Ingresá tu correo y tu contraseña.";
+
+    public const string PinExpired =
+        "Tu PIN venció en esta terminal. Ingresá con tu correo y contraseña para renovarlo.";
 
     // ---- Staff / customer management windows --------------------------------
 
