@@ -48,8 +48,6 @@ UPDATE users
         WHERE e->>'name' = 'business-admin'
           AND (((e->>'permissions')::int) & 16) = 0);
 
-ALTER TABLE users FORCE ROW LEVEL SECURITY;
-
 DO $$
 BEGIN
     IF EXISTS (
@@ -60,5 +58,7 @@ BEGIN
     END IF;
 END
 $$;
+
+ALTER TABLE users FORCE ROW LEVEL SECURITY;
 
 COMMIT;

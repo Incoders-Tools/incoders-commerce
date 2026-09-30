@@ -6,13 +6,13 @@ namespace Commerce.Pos.Windows;
 
 /// <summary>
 /// Typed anonymous `HttpClient` for `POST /device/pair` (design.md "File
-/// Changes"). Separate from <see cref="CloudSyncClient"/> — pairing is
+/// Changes"). Separate from <see cref="CloudSyncClient"/> â€” pairing is
 /// anonymous, sync is bearer-authenticated.
 /// </summary>
 public sealed class DevicePairingClient
 {
     internal const string OperatorNotPermittedMessage =
-        "Este usuario no tiene permiso para operar el punto de venta. Ped� a un administrador que le asigne el rol Cajero.";
+        "Este usuario no tiene permiso para operar el punto de venta. Pedí a un administrador que le asigne el rol Cajero.";
 
     private readonly HttpClient _httpClient;
 
@@ -74,7 +74,7 @@ public sealed record DevicePairResponseDto(
     string? DeviceToken);
 
 /// <summary>
-/// Discriminated pairing result (design.md "Interfaces / Contracts") — the
+/// Discriminated pairing result (design.md "Interfaces / Contracts") â€” the
 /// UI branches on <see cref="Kind"/> rather than parsing HTTP status codes
 /// itself.
 /// </summary>
