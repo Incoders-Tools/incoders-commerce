@@ -1,4 +1,5 @@
 using Commerce.Domain.Discounts;
+using Commerce.Domain.Sales;
 
 namespace Commerce.Domain.Sync;
 
@@ -21,7 +22,8 @@ public sealed record SaleEffect(
     Guid? CustomerId = null,
     decimal? SaleDiscountPercent = null,
     decimal? SaleDiscountAmount = null,
-    DiscountAuthorization? DiscountAuthorization = null);
+    DiscountAuthorization? DiscountAuthorization = null,
+    SaleTender? Tender = null);
 
 /// <summary>
 /// One line of a scan-composed sale (commerce-pricing-engine design.md

@@ -1,5 +1,6 @@
 using System.Globalization;
 using Commerce.Domain.Discounts;
+using Commerce.Domain.Sales;
 using Commerce.Domain.Sync;
 using Microsoft.Data.Sqlite;
 
@@ -92,7 +93,8 @@ public sealed partial class BranchSyncStore
         command.CommandText = """
             SELECT total_amount, occurred_at_utc, sale_kind, customer_id,
                    sale_discount_percent, sale_discount_amount,
-                   discount_auth_method, discount_operator_id, discount_pin_version
+                   discount_auth_method, discount_operator_id, discount_pin_version,
+                   tender_method, tender_amount_received, tender_change
             FROM sale_effects WHERE sale_id = $saleId;
             """;
         command.Parameters.AddWithValue("$saleId", saleId.ToString());
@@ -118,7 +120,8 @@ public sealed partial class BranchSyncStore
             reader.IsDBNull(3) ? null : Guid.Parse(reader.GetString(3)),
             ReadDecimalOrNull(reader, 4),
             ReadDecimalOrNull(reader, 5),
-            authorization);
+            authorization,
+            reader.IsDBNull(9) ? null : new SaleTender(reader.GetString(9), ReadDecimalOrNull(reader, 10), ReadDecimalOrNull(reader, 11)));
     }
 
     // ---- branch discount PIN replica ----

@@ -244,6 +244,7 @@ public sealed partial class BranchSyncStore : IDisposable
         EnsureSaleCustomerColumnExists();
         EnsureCatalogCategoryColumnsExist();
         EnsureDiscountStorageExists();
+        EnsureTenderStorageExists();
     }
 
     /// <summary>
@@ -393,9 +394,11 @@ public sealed partial class BranchSyncStore : IDisposable
         insertSale.CommandText = """
             INSERT INTO sale_effects
                 (sale_id, branch_id, total_amount, occurred_at_utc, sale_kind, customer_id,
-                 sale_discount_percent, sale_discount_amount, discount_auth_method, discount_operator_id, discount_pin_version)
+                 sale_discount_percent, sale_discount_amount, discount_auth_method, discount_operator_id, discount_pin_version,
+                 tender_method, tender_amount_received, tender_change)
             VALUES ($saleId, $branchId, $totalAmount, $occurredAt, $saleKind, $customerId,
-                    $saleDiscountPercent, $saleDiscountAmount, $authMethod, $authOperatorId, $authPinVersion);
+                    $saleDiscountPercent, $saleDiscountAmount, $authMethod, $authOperatorId, $authPinVersion,
+                    $tenderMethod, $tenderReceived, $tenderChange);
             """;
         insertSale.Parameters.AddWithValue("$saleId", effect.SaleId.ToString());
         insertSale.Parameters.AddWithValue("$branchId", effect.BranchId.ToString());
@@ -408,6 +411,9 @@ public sealed partial class BranchSyncStore : IDisposable
         insertSale.Parameters.AddWithValue("$authMethod", (object?)effect.DiscountAuthorization?.Method ?? DBNull.Value);
         insertSale.Parameters.AddWithValue("$authOperatorId", effect.DiscountAuthorization is { } auth ? auth.OperatorId.ToString() : DBNull.Value);
         insertSale.Parameters.AddWithValue("$authPinVersion", effect.DiscountAuthorization is { } pinAuth ? pinAuth.PinVersion : DBNull.Value);
+        insertSale.Parameters.AddWithValue("$tenderMethod", (object?)effect.Tender?.Method ?? DBNull.Value);
+        insertSale.Parameters.AddWithValue("$tenderReceived", DecimalOrNull(effect.Tender?.AmountReceived));
+        insertSale.Parameters.AddWithValue("$tenderChange", DecimalOrNull(effect.Tender?.ChangeGiven));
         insertSale.ExecuteNonQuery();
     }
 

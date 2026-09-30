@@ -2,6 +2,7 @@ using Commerce.Application.Access;
 using Commerce.Application.Audit;
 using Commerce.Domain.Discounts;
 using Commerce.Domain.Identity;
+using Commerce.Domain.Sales;
 using Commerce.Domain.Sync;
 using Commerce.Domain.Sync.Payloads;
 
@@ -44,10 +45,13 @@ public sealed class BranchNodeService
         Guid saleId,
         decimal totalAmount,
         Guid operationId,
-        Guid correlationId)
+        Guid correlationId,
+        Guid? customerId = null,
+        SaleTender? tender = null)
     {
         var occurredAtUtc = _clock();
-        var payload = new SalePayloadV1(saleId, totalAmount, "Manual", occurredAtUtc, Lines: []);
+        var payload = new SalePayloadV1(
+            saleId, totalAmount, "Manual", occurredAtUtc, Lines: [], CustomerId: customerId, Tender: tender);
         var envelope = new SyncEnvelope(
             OperationId: operationId,
             ContractVersion: 1,
@@ -60,7 +64,7 @@ public sealed class BranchNodeService
             OccurredAtUtc: occurredAtUtc,
             PayloadKind: "sale",
             Payload: SyncPayloadCodec.Serialize(payload));
-        var effect = new SaleEffect(saleId, branchId, totalAmount, occurredAtUtc);
+        var effect = new SaleEffect(saleId, branchId, totalAmount, occurredAtUtc, CustomerId: customerId, Tender: tender);
 
         return _store.CommitSaleAtomically(envelope, effect);
     }
@@ -78,6 +82,7 @@ public sealed class BranchNodeService
     /// discount and <paramref name="discountAuthorization"/> proves who
     /// authorized the discounts (both null when nothing was discounted). Line
     /// discounts travel on <paramref name="lines"/> themselves.
+    /// <paramref name="tender"/> is how the customer paid (null on callers that predate tenders).
     /// </summary>
     public BranchOutboxCommitResult CompleteScannedSale(
         Guid organizationId,
@@ -90,12 +95,13 @@ public sealed class BranchNodeService
         Guid correlationId,
         Guid? customerId = null,
         SaleDiscount? saleDiscount = null,
-        DiscountAuthorization? discountAuthorization = null)
+        DiscountAuthorization? discountAuthorization = null,
+        SaleTender? tender = null)
     {
         var occurredAtUtc = _clock();
         var payload = new SalePayloadV1(
             saleId, totalAmount, "Scanned", occurredAtUtc, lines, customerId,
-            saleDiscount?.Percent, saleDiscount?.Amount, discountAuthorization);
+            saleDiscount?.Percent, saleDiscount?.Amount, discountAuthorization, tender);
         var envelope = new SyncEnvelope(
             OperationId: operationId,
             ContractVersion: 1,
@@ -111,7 +117,7 @@ public sealed class BranchNodeService
         var effect = new SaleEffect(
             saleId, branchId, totalAmount, occurredAtUtc, CustomerId: customerId,
             SaleDiscountPercent: saleDiscount?.Percent, SaleDiscountAmount: saleDiscount?.Amount,
-            DiscountAuthorization: discountAuthorization);
+            DiscountAuthorization: discountAuthorization, Tender: tender);
 
         return _store.CommitScannedSaleAtomically(envelope, effect, lines);
     }
