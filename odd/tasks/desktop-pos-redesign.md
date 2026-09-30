@@ -162,8 +162,10 @@ withdrawals/deposits during the session are a follow-up.
 - [x] C4. POS UI: open-session prompt, "Cerrar Caja" enabled in the nav bar
       with a close dialog (expected, counted, difference), session state
       visible in the header.
-- [ ] C5. Reclaim vertical space on the sale screen (owner: "the footer is
-      huge"; parent to confirm whether it means the totals panel).
+- [x] C5. Slim status footer (owner confirmed 2026-09-30: the window
+      footer, purely informational, flags available releases; the space goes
+      to the sale area). Route: direct inline (one mechanical markup +
+      code-behind change).
       Route for C1..C5: delegated direct (one writer, sequential units).
 
 ## Acceptance criteria
@@ -516,6 +518,15 @@ in a throwaway worktree at task close.
   CashSession` 55/55. Close render checked: 5000 + 38450.50 = 43450.50
   expected, 43000 counted, 450.50 short.
 
+- 2026-09-30 (parent): C5 done inline. Footer padding 16,4 -> 12,1, height
+  24 -> 18, font 12 -> 11; shows sync status, a highlighted "Actualización X
+  disponible" only when `IsUpdateAvailable`, and `v<version>` with the full
+  update status as tooltip (full status stays in Settings). Checks in a
+  throwaway worktree: POS build succeeded; `dotnet test --filter
+  Pos|Update|Version` 162/162; rendered at 1120x700 in three themes
+  (`scratchpad/shot/out/footer/`). Installing an update from the POS is not
+  wired (no UI calls `UpdaterService.RunUpgrade`) — follow-up.
+
 ## Owner decisions (2026-09-29)
 - Tax: the POS shows only the final-consumer total (tax included), no IVA
   line. Price composition is shown per product in the web products and price
@@ -535,4 +546,7 @@ in a throwaway worktree at task close.
   authorization.
 
 ## Next step
-C5 (reclaim vertical space on the sale screen) after the owner confirms what "footer" means; Phase 2c C1..C4 are done and unpushed on `dev`.
+Owner to choose the next item. Open follow-ups: install an available update
+from the POS, cash withdrawals/deposits, printed close and ticket, split
+tender, session/tender/discount reports (needs an `audit_log` read path), web
+product form, close authorization.
