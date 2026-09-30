@@ -126,6 +126,26 @@ terminal; the admin can only set/rotate the PIN, never read it back.
       branch PIN" with the operator; cloud ingestion persists and audits it.
       Route for D1..D5: delegated direct (one writer, sequential units).
 
+### Phase 2b — Tender (authorized 2026-09-29: record the method, no integration)
+Owner decision: the POS only records how the customer paid; card and QR are
+charged on the merchant's own terminal/app. Mercado Pago QR integration is
+deferred. Parent defaults: one tender per sale in this cut (split tender is a
+follow-up); Efectivo asks for the amount received (must be >= total), shows
+the change, offers "Exacto" quick fill; Tarjeta and QR need one confirmation;
+the tender buttons replace "Cobrar venta" as the way to complete a sale; works
+offline like any sale.
+- [ ] P1. Spec: tender requirement and scenarios in `pos-scan-sale`
+      (methods, cash change, offline, recorded and synced).
+- [ ] P2. Domain/payload: a QR method (house-consistent with
+      `PaymentMethod`, without breaking existing order payments), tender
+      method + amount received + change in the sale record and payload; cloud
+      ingestion keeps accepting older payloads.
+- [ ] P3. POS: enable Efectivo/Tarjeta/QR in `TotalsPanel`, cash dialog with
+      change, confirmation for card/QR, commit with the tender.
+- [ ] P4. Cleanups: the manual sale records the selected customer and a
+      tender; the customer picker walk-in text in Spanish.
+      Route for P1..P4: delegated direct (one writer, sequential units).
+
 ## Acceptance criteria
 - Sale screen matches the reference structure in all three themes, min size
   1120x700, no clipping.
@@ -365,5 +385,4 @@ in a throwaway worktree at task close.
   authorization.
 
 ## Next step
-Tender (Efectivo/Tarjeta/QR): needs the owner decisions on `QR` in
-`PaymentMethod` and on how tender interacts with the discounted final total.
+P1..P4 with one writer.
