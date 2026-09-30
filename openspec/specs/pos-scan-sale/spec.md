@@ -176,3 +176,118 @@ offline.
 - GIVEN a sale payload with no discount fields
 - WHEN it is ingested
 - THEN it is stored as before and no discount audit record is written
+
+### Requirement: Tender Recorded at the Moment of Sale
+
+Completing a sale at the POS MUST record how the customer paid: exactly one
+tender per sale, one of cash, card or QR. The POS only RECORDS the tender: card
+and QR are charged on the merchant's own terminal or app, and no payment
+provider is integrated. The tender is a point-of-sale record and MUST NOT
+extend or alter the order payment method taxonomy (`order-payment-lifecycle`);
+it is not an order payment attempt. Tender buttons are the way to complete a
+sale, for scan-composed and manual-total sales alike, and completing a sale
+without choosing a tender MUST NOT be possible.
+
+For cash the cashier MUST enter the amount received. The amount MUST be at
+least the sale total and have at most two decimals; anything else MUST be
+refused with a message and the sale MUST NOT be committed. The change MUST be
+the amount received minus the total and MUST be shown before the sale is
+confirmed. The cashier MUST be able to fill the amount received with the exact
+total in one action. Card and QR MUST each need a single explicit confirmation
+by the cashier that the charge was completed; they carry no amount received
+and no change. After a committed sale the cart MUST be cleared and the result
+MUST be shown, including the change for cash.
+
+#### Scenario: Cash with change
+
+- GIVEN a sale totalling 855.00
+- WHEN the cashier chooses cash and enters 1000.00 as the amount received
+- THEN the change shown is 145.00 and confirming records cash, 1000.00 received
+  and 145.00 change
+
+#### Scenario: Exact cash
+
+- GIVEN a sale totalling 855.00
+- WHEN the cashier chooses cash and uses the exact-amount action
+- THEN the amount received is 855.00, the change is 0.00 and the sale can be
+  confirmed
+
+#### Scenario: Insufficient or invalid cash is refused
+
+- GIVEN a sale totalling 855.00
+- WHEN the cashier enters 800.00, a non-number, or an amount with more than two
+  decimals as the amount received
+- THEN the sale cannot be confirmed and nothing is committed
+
+#### Scenario: Card or QR needs one confirmation
+
+- GIVEN a sale totalling 855.00
+- WHEN the cashier chooses card (or QR) and confirms the charge was completed
+- THEN the sale is committed with that method and no amount received or change
+
+#### Scenario: Cancelling the tender keeps the sale open
+
+- GIVEN a sale and an open tender prompt
+- WHEN the cashier cancels
+- THEN nothing is committed and the cart is unchanged
+
+#### Scenario: Tender is recorded offline
+
+- GIVEN no network and an invalid device credential
+- WHEN a sale is completed with a tender
+- THEN the sale and its tender are committed locally, never reading the device
+  credential
+
+### Requirement: Tender Recorded and Synchronized With the Sale
+
+A committed sale MUST record its tender, locally and in the queued sale
+payload: the method (cash, card or QR) and, for cash only, the amount received
+and the change. A sale committed before this requirement (no tender) MUST still
+read locally, and a payload with no tender MUST still be ingested by the cloud,
+which stores the payload as received. The tender fields are additive: an older
+reader ignores them.
+
+#### Scenario: Tender is stored locally and queued
+
+- GIVEN a cash sale of 855.00 with 1000.00 received
+- WHEN it is committed
+- THEN the local sale record and the queued payload carry cash, 1000.00 and
+  145.00
+
+#### Scenario: Card sale carries no cash fields
+
+- GIVEN a card sale
+- WHEN it is committed
+- THEN the recorded tender is card with no amount received and no change
+
+#### Scenario: Older payload without a tender still ingests
+
+- GIVEN a sale payload with no tender
+- WHEN the cloud ingests it
+- THEN it is stored as before
+
+#### Scenario: Cloud stores the tender
+
+- GIVEN a queued sale with a tender reaches the cloud
+- WHEN it is ingested
+- THEN the stored payload carries the tender and re-delivering the same
+  operation stores nothing new
+
+### Requirement: Walk-in Customer Label and Customer on Manual Sales
+
+The customer selector MUST label the no-customer entry in Spanish
+("Consumidor final"). A manual-total sale MUST record the selected customer in
+the local sale record and the queued payload, like a scan-composed sale, and
+walk-in MUST carry none.
+
+#### Scenario: Manual sale records the selected customer
+
+- GIVEN a cashier selected a synced customer and completes a manual-total sale
+- WHEN the sale is committed
+- THEN the local record and queued payload carry that customer
+
+#### Scenario: Walk-in label
+
+- GIVEN the customer selector is at its default
+- WHEN the operator opens it
+- THEN the first entry reads "Consumidor final"
