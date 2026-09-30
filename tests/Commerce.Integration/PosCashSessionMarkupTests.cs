@@ -61,6 +61,18 @@ public sealed class PosCashSessionMarkupTests
     }
 
     [Fact]
+    public void OpenCashWindow_HasNoSignInPath_BecauseItOnlyRunsWithAnOperatorSignedIn()
+    {
+        var xaml = Read("OpenCashWindow.xaml");
+        var code = Read("OpenCashWindow.xaml.cs");
+
+        Assert.DoesNotContain("SignInButton", xaml);
+        Assert.DoesNotContain("Iniciar sesi", xaml);
+        Assert.DoesNotContain("SignInButton_Click", code);
+        Assert.DoesNotContain("signInOperator", code, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void MainWindow_LocksTheSaleScreenWithoutASession_AndWiresOpenAndClose()
     {
         var xaml = Read("MainWindow.xaml");
