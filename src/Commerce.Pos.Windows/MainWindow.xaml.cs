@@ -6,6 +6,7 @@ using System.Windows;
 using System.Windows.Input;
 using Commerce.Application.Pricing;
 using Commerce.BranchNode;
+using Commerce.Domain.CashSessions;
 using Commerce.Domain.Discounts;
 using Commerce.Domain.Identity;
 using Commerce.Domain.Sales;
@@ -58,6 +59,8 @@ public partial class MainWindow : Window
     private Guid? _selectedCategoryId;
     private bool _railRefreshing;
     private string _lastSyncResult = "Sincronización lista.";
+    private CashSession? _cashSession;
+    private bool _openCashPrompted;
 
     public MainWindow(
         BranchSyncStore store,
@@ -133,10 +136,144 @@ public partial class MainWindow : Window
         RefreshCatalogCards();
         RefreshScannedTotal();
         RefreshCatalogFreshness();
+        RefreshCashSession();
+
+        // pos-cash-session: with no open session the sale screen stays locked and
+        // the open-cash prompt is offered as soon as the window is shown. A
+        // session left open by a previous run simply resumes (no prompt).
+        Loaded += (_, _) =>
+        {
+            if (!_openCashPrompted && _cashSession is null)
+            {
+                _openCashPrompted = true;
+                PromptOpenCash();
+            }
+        };
 
         // Fire-and-forget: never awaited by the constructor (design.md Data
         // Flow — the sale path, and window startup, never await a sync).
         _ = _syncScheduler.StartAsync();
+    }
+
+    /// <summary>
+    /// Reads the terminal's open cash session and reflects it: the header state,
+    /// "Cerrar Caja", and the lock over the sale screen while none is open.
+    /// </summary>
+    private void RefreshCashSession()
+    {
+        _cashSession = _branchNodeService.GetOpenCashSession();
+        var isOpen = _cashSession is not null;
+        NavBar.SetCashSession(CashSessionInput.HeaderText(_cashSession), isOpen);
+        SaleScreen.IsEnabled = isOpen;
+        CashClosedOverlay.Visibility = isOpen ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private void OpenCashButton_Click(object sender, RoutedEventArgs e) => PromptOpenCash();
+
+    /// <summary>
+    /// Asks for the opening float (naming the signed-in operator, or offering to
+    /// sign in first) and opens the session. Cancelling leaves the sale screen
+    /// locked behind the "Abrir caja" prompt. Never reads the device credential.
+    /// </summary>
+    private void PromptOpenCash()
+    {
+        var window = new OpenCashWindow(_currentOperator.Value?.Email, SignInOperatorFromPrompt) { Owner = this };
+        if (window.ShowDialog() == true && window.OpeningFloat is { } openingFloat && _currentOperator.Value is not null)
+        {
+            var result = _branchNodeService.OpenCashSession(
+                _pairing.OrganizationId, _pairing.BranchId, _currentOperator.ResolveActorId(_installationId), openingFloat, Guid.NewGuid());
+            CashClosedMessageText.Text = result.Outcome switch
+            {
+                CashSessionOpenOutcome.Opened => CashClosedMessageText.Text,
+                CashSessionOpenOutcome.AlreadyOpen => "Ya hay una caja abierta en esta terminal.",
+                _ => "El efectivo inicial no es válido.",
+            };
+            if (result.Outcome == CashSessionOpenOutcome.Opened)
+            {
+                SaleResultText.Text = $"Caja abierta con {openingFloat:C} iniciales.";
+                RefreshStatus();
+                _ = RunSyncAsync(SyncTrigger.PostSale);
+            }
+        }
+
+        RefreshCashSession();
+        if (_cashSession is not null)
+        {
+            ScanCodeTextBox.Focus();
+        }
+    }
+
+    /// <summary>Runs the operator sign-in on top of the open-cash prompt and returns the signed-in operator label (null when cancelled).</summary>
+    private string? SignInOperatorFromPrompt()
+    {
+        var owner = System.Windows.Application.Current.Windows.OfType<Window>().FirstOrDefault(w => w.IsActive) ?? this;
+        var operatorLoginWindow = new OperatorLoginWindow(_operatorProvisioningClient, _localOperatorStore, _pairing.DeviceToken)
+        {
+            Owner = owner
+        };
+
+        if (operatorLoginWindow.ShowDialog() == true && operatorLoginWindow.ActiveOperator is not null)
+        {
+            _currentOperator.Set(operatorLoginWindow.ActiveOperator);
+            RefreshIdentityText();
+            return operatorLoginWindow.ActiveOperator.Email;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// "Cerrar Caja": shows the totals computed from this session's recorded
+    /// tenders, asks for the counted cash, records the close with its difference
+    /// and returns to the "Abrir caja" state. A sale still being built must be
+    /// completed or cleared first.
+    /// </summary>
+    private void CloseCashButton_Click(object sender, RoutedEventArgs e)
+    {
+        var session = _branchNodeService.GetOpenCashSession();
+        if (session is null)
+        {
+            RefreshCashSession();
+            return;
+        }
+
+        if (!_cart.IsEmpty)
+        {
+            ScanMessageText.Text = "Cobre o vacíe la venta actual antes de cerrar la caja.";
+            return;
+        }
+
+        var summary = _branchNodeService.GetCashSessionSummary(session.SessionId)!;
+        var window = new CloseCashWindow(session, summary) { Owner = this };
+        if (window.ShowDialog() != true || window.CountedCash is not { } counted)
+        {
+            return;
+        }
+
+        var result = _branchNodeService.CloseCashSession(
+            session.SessionId, _currentOperator.ResolveActorId(_installationId), counted, Guid.NewGuid());
+        if (result.Outcome == CashSessionCloseOutcome.Closed && result.Session?.Closure is { } closure)
+        {
+            var summaryText =
+                $"Caja cerrada. Esperado {closure.Summary.ExpectedCash:C}, contado {closure.CountedCash:C}: {CashSessionInput.DifferenceLabel(closure.Difference)}.";
+            SaleResultText.Text = summaryText;
+            CashClosedMessageText.Text = summaryText + " Abra la caja con el efectivo inicial para seguir vendiendo.";
+            RefreshStatus();
+            _ = RunSyncAsync(SyncTrigger.PostSale);
+        }
+        else
+        {
+            ScanMessageText.Text = "No se pudo cerrar la caja: ya estaba cerrada o el importe no es válido.";
+        }
+
+        RefreshCashSession();
+    }
+
+    /// <summary>The message shown when a sale commit was refused for lack of an open cash session.</summary>
+    private void ReportNoOpenCashSession()
+    {
+        ScanMessageText.Text = "No hay una caja abierta. Abra la caja para registrar ventas.";
+        RefreshCashSession();
     }
 
     private void RefreshIdentityText()
@@ -250,6 +387,12 @@ public partial class MainWindow : Window
             correlationId: Guid.NewGuid(),
             customerId: customerId,
             tender: tender);
+
+        if (result.Refusal is SaleCommitRefusal.NoOpenCashSession)
+        {
+            ReportNoOpenCashSession();
+            return;
+        }
 
         SaleResultText.Text = result.WasNewlyCommitted
             ? $"Venta {result.Effect.SaleId} registrada por {result.Effect.TotalAmount:C} ({TenderInput.Describe(tender)}) en branch.db."
@@ -549,6 +692,12 @@ public partial class MainWindow : Window
             saleDiscount: _cart.SaleDiscount,
             discountAuthorization: _cart.Authorization,
             tender: tender);
+
+        if (result.Refusal is SaleCommitRefusal.NoOpenCashSession)
+        {
+            ReportNoOpenCashSession();
+            return;
+        }
 
         SaleResultText.Text = result.WasNewlyCommitted
             ? $"Venta escaneada {result.Effect.SaleId} registrada por {result.Effect.TotalAmount:C} ({TenderInput.Describe(tender)}) en branch.db."

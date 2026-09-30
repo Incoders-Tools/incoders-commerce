@@ -68,7 +68,7 @@
                         <TextBlock Text="Configuración" Style="{StaticResource NavLabel}" />
                     </StackPanel>
                 </Button>
-                <Button Style="{StaticResource NavEntry}" IsEnabled="False" ToolTip="Próximamente" ToolTipService.ShowOnDisabled="True" AutomationProperties.Name="Cerrar Caja">
+                <Button x:Name="CloseCashButton" Style="{StaticResource NavEntry}" Click="CloseCashButton_Click" ToolTip="Contar el efectivo y cerrar la caja" AutomationProperties.Name="Cerrar Caja">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="{StaticResource IconRegister}" Style="{StaticResource NavIcon}" />
                         <TextBlock Text="Cerrar Caja" Style="{StaticResource NavLabel}" />
@@ -76,12 +76,20 @@
                 </Button>
             </StackPanel>
 
-            <!-- The active operator doubles as the switch-operator action. -->
+            <!-- The active operator doubles as the switch-operator action; under it the cash session state, compact:
+                 "Caja abierta · 08:15" or "Caja cerrada". -->
             <Button x:Name="SwitchOperatorButton" Grid.Column="2" Style="{StaticResource NavButton}" Click="OperatorButton_Click"
                     ToolTip="Cambiar operador" AutomationProperties.Name="Cambiar operador" MaxWidth="170">
                 <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="{StaticResource IconOperator}" Style="{StaticResource NavIcon}" />
-                    <TextBlock x:Name="OperatorDisplayText" Text="Sin operador activo" Style="{StaticResource NavLabel}" TextTrimming="CharacterEllipsis" MaxWidth="110" />
+                    <TextBlock Text="{StaticResource IconOperator}" Style="{StaticResource NavIcon}" VerticalAlignment="Center" />
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock x:Name="OperatorDisplayText" Text="Sin operador activo" Style="{StaticResource NavLabel}" TextTrimming="CharacterEllipsis" MaxWidth="110" />
+                        <StackPanel Orientation="Horizontal" Margin="0,1,0,0">
+                            <Ellipse x:Name="CashSessionDot" Width="6" Height="6" Margin="0,0,4,0" VerticalAlignment="Center" Fill="{DynamicResource MutedTextBrush}" />
+                            <TextBlock x:Name="CashSessionStatusText" Text="Caja cerrada" Style="{StaticResource NavLabel}" FontSize="11" FontWeight="Normal"
+                                       TextTrimming="CharacterEllipsis" MaxWidth="100" />
+                        </StackPanel>
+                    </StackPanel>
                 </StackPanel>
             </Button>
         </Grid>

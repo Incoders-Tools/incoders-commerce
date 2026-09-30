@@ -16,9 +16,10 @@
                             StaffRequested="ManageStaffButton_Click"
                             SyncRequested="SyncButton_Click"
                             SettingsRequested="RepairButton_Click"
-                            SwitchOperatorRequested="SwitchOperatorButton_Click" />
+                            SwitchOperatorRequested="SwitchOperatorButton_Click"
+                            CloseCashRequested="CloseCashButton_Click" />
 
-        <Grid Grid.Row="1" Margin="16,12,16,8">
+        <Grid x:Name="SaleScreen" Grid.Row="1" Margin="16,12,16,8">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
@@ -148,6 +149,19 @@
                 <controls:CategoryRail x:Name="CategoryRailControl" CategorySelected="CategoryRail_CategorySelected" Grid.Column="2" Width="104" Margin="14,26,0,0" />
             </Grid>
         </Grid>
+
+        <!-- No open cash session: the sale screen is disabled and covered by this prompt (pos-cash-session). -->
+        <Border x:Name="CashClosedOverlay" Grid.Row="1" Background="{DynamicResource ShellBrush}" Visibility="Collapsed">
+            <Border Style="{StaticResource CardBorder}" Padding="28,24" MaxWidth="440" VerticalAlignment="Center" HorizontalAlignment="Center">
+                <StackPanel>
+                    <TextBlock Text="CAJA" Style="{StaticResource EyebrowTextBlock}" />
+                    <TextBlock Text="La caja está cerrada" Style="{StaticResource HeroTextBlock}" FontSize="24" />
+                    <TextBlock x:Name="CashClosedMessageText" Style="{StaticResource MutedTextBlock}" TextWrapping="Wrap" Margin="0,8,0,18"
+                               Text="Abra la caja con el efectivo inicial para empezar a vender. Todas las ventas quedan registradas en la caja abierta." />
+                    <Button x:Name="OpenCashButton" Content="Abrir caja" HorizontalAlignment="Stretch" Click="OpenCashButton_Click" AutomationProperties.Name="Abrir caja" />
+                </StackPanel>
+            </Border>
+        </Border>
 
         <Border Grid.Row="2" Background="{DynamicResource ShellElevatedBrush}" BorderBrush="{DynamicResource BorderBrushMuted}" BorderThickness="0,1,0,0" Padding="16,4">
             <Grid MinHeight="24">

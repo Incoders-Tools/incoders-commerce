@@ -15,6 +15,7 @@ public partial class PosNavBar : UserControl
     public static readonly RoutedEvent SyncRequestedEvent = Register(nameof(SyncRequested));
     public static readonly RoutedEvent SettingsRequestedEvent = Register(nameof(SettingsRequested));
     public static readonly RoutedEvent SwitchOperatorRequestedEvent = Register(nameof(SwitchOperatorRequested));
+    public static readonly RoutedEvent CloseCashRequestedEvent = Register(nameof(CloseCashRequested));
 
     public PosNavBar() => InitializeComponent();
 
@@ -28,6 +29,8 @@ public partial class PosNavBar : UserControl
 
     public event RoutedEventHandler SwitchOperatorRequested { add => AddHandler(SwitchOperatorRequestedEvent, value); remove => RemoveHandler(SwitchOperatorRequestedEvent, value); }
 
+    public event RoutedEventHandler CloseCashRequested { add => AddHandler(CloseCashRequestedEvent, value); remove => RemoveHandler(CloseCashRequestedEvent, value); }
+
     public string OperatorLabel
     {
         get => OperatorDisplayText.Text;
@@ -36,6 +39,17 @@ public partial class PosNavBar : UserControl
             OperatorDisplayText.Text = value;
             SwitchOperatorButton.ToolTip = $"Cambiar operador ({value})";
         }
+    }
+
+    /// <summary>
+    /// Shows the cash session state ("Caja abierta · 08:15" / "Caja cerrada") and
+    /// enables "Cerrar Caja" only while a session is open.
+    /// </summary>
+    public void SetCashSession(string statusText, bool isOpen)
+    {
+        CashSessionStatusText.Text = statusText;
+        CloseCashButton.IsEnabled = isOpen;
+        CashSessionDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, isOpen ? "AccentBrush" : "MutedTextBrush");
     }
 
     /// <summary>Shows the customers and staff entries (operators with the ManageUsers permission).</summary>
@@ -57,4 +71,6 @@ public partial class PosNavBar : UserControl
     private void SettingsButton_Click(object sender, RoutedEventArgs e) => RaiseEvent(new RoutedEventArgs(SettingsRequestedEvent, this));
 
     private void OperatorButton_Click(object sender, RoutedEventArgs e) => RaiseEvent(new RoutedEventArgs(SwitchOperatorRequestedEvent, this));
+
+    private void CloseCashButton_Click(object sender, RoutedEventArgs e) => RaiseEvent(new RoutedEventArgs(CloseCashRequestedEvent, this));
 }
