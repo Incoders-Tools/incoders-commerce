@@ -71,14 +71,14 @@ Parent defaults (revisit if the owner objects):
   sales.
 
 Tasks:
-- [ ] R1. Docs: ADR for interim self-signed signing (amending ADR-004/005
+- [x] R1. Docs: ADR for interim self-signed signing (amending ADR-004/005
       expectations), a go-live requirements checklist (commercial cert, MSI
       fallback decision, VM validation), and a terminal certificate install
       runbook; update `docs/pos-product-updates.md` open decisions.
-- [ ] R2. Packaging: script that publishes the POS self-contained, builds an
+- [x] R2. Packaging: script that publishes the POS self-contained, builds an
       MSIX (Windows SDK MakeAppx), signs it (SignTool) with a PFX, and a dev
       script to generate the self-signed certificate. Version from the tag.
-- [ ] R3. Release workflow: tag-triggered job on `windows-latest` that runs
+- [x] R3. Release workflow: tag-triggered job on `windows-latest` that runs
       R2 with the PFX from a repository secret, computes SHA256, generates
       `commerce-pos-release-manifest.json` matching the existing manifest
       schema, and creates the GitHub Release with the assets (prerelease for
@@ -94,6 +94,25 @@ Tasks:
 - [ ] R6. Installed VM validation per `docs/pos-product-updates.md` (owner
       or parent with an authorized VM; not runnable in CI).
 Route: R1..R3 one writer, then R4..R5 (delegated direct).
+
+### Progress (R1..R3, delegated direct, one writer)
+
+- R1 commit 6e6a22f `docs(release): ...`: ADR-013 (interim self-signed signing), `docs/launch/go-live-requirements.md`, `deploy/pos-terminal-certificate.md`, open decisions updated in `docs/pos-product-updates.md`.
+- R2 commit 1e584c3 `feat(release): add MSIX packaging ...`: `deploy/release/{new-dev-signing-cert,build-pos-msix}.ps1`, `AppxManifest.template.xml`; `.gitignore` covers `*.pfx *.p12 *.cer *.msix artifacts/`.
+- R3 commit 45d2914 `feat(release): add tag-triggered POS release workflow ...`: `.github/workflows/pos-release.yml`, `deploy/release/new-release-manifest.ps1`, `tests/Commerce.Upgrade/ReleaseManifestGeneratorTests.cs`.
+- Checks observed: PowerShell parse of both packaging scripts = 0 errors; throwaway cert + real `build-pos-msix.ps1 -Version 0.2.0-internal.1` produced and signed an MSIX with SDK 10.0.26100 tools, `Get-AuthenticodeSignature` shows the signer `CN=Incoders Commerce (Interim)` with status UnknownError (untrusted root, expected because the cert was not installed); TDD RED (3 tests failing, script missing) then GREEN, `dotnet test tests/Commerce.Upgrade` 34/34; `dotnet build Commerce.sln` 0 errors in a throwaway worktree (the main tree is locked by the running POS); workflow YAML parsed with PyYAML.
+- Not observed: `new-release-manifest.ps1` was only exercised through the tests; the workflow itself has not run (needs push, tag and secrets); the MSIX was never installed.
+- Decision: the workflow honors `.github/release-authorization.yml` (ADR-004 publication gate); all channels are `false`, so the owner must flip the flag.
+- Finding: a publisher change (interim to commercial certificate) is a new MSIX package family, so the swap needs a one-time reinstall per terminal (documented in ADR-013).
+- Risk for R6: MSIX file virtualization may redirect `%LocalAppData%` writes (`branch.db`, `update-manifest.json`).
+
+### Owner actions
+
+1. Create the PFX: `$env:POS_SIGNING_PFX_PASSWORD='...'; pwsh deploy/release/new-dev-signing-cert.ps1 -OutputDir <secure dir>`; keep the PFX private.
+2. Add repository secrets `POS_SIGNING_PFX_BASE64` (base64 of the PFX) and `POS_SIGNING_PFX_PASSWORD`.
+3. Set `publication_authorized: true` for the channel in `.github/release-authorization.yml`.
+4. Push a first tag (for example `v0.2.0-internal.1`) or run the `POS Release` workflow manually.
+5. Install the `.cer` on each terminal per `deploy/pos-terminal-certificate.md`.
 
 ## References
 
