@@ -201,3 +201,20 @@ Route: R1..R3 one writer, then R4..R5 one writer (delegated direct; work units i
   pinning the certificate thumbprint and accepting `UntrustedRoot` only for
   that exact signer.
 
+- 2026-09-30 (parent): R7 range `223a492..19d0552` assessed HIGH (1036
+  lines, 24 files). Owner GRANTED the review: four lenses, lineage
+  `review-1571ad0a79802e8c`, APPROVED with no correction and acknowledged
+  (authority burned). Parent spot check: `dotnet test tests/Commerce.Upgrade`
+  122/122. Advisory (non-blocking) follow-ups:
+  - WARNING `R1-pin-not-bound-to-verified-signer`: the pinned thumbprint is
+    read from `SignerInfos[0].Certificate` without proving that certificate's
+    key produced the signature (harden with `SignerInfo.CheckSignature(true)`
+    or read the signer from the WinVerifyTrust provider data).
+  - WARNING `R3-cancel-install-clears-marker` / `R4-cancel-marker-clear-unguarded`:
+    a cancel after the OS already applied the package loses the marker, and
+    `Clear()` is unguarded.
+  - WARNING `R2-signer-record-steals-class-doc`, SUGGESTIONs
+    `R2-duplicate-summary-tag`, `R2-malformed-pin-reason`,
+    `R2-test-name-overclaims` / `R3-infinite-timeout-unproved`,
+    `R3-singleflight-reentrancy`.
+
