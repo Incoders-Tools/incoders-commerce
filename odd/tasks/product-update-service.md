@@ -91,7 +91,7 @@ Tasks:
       quiesce (no sale in progress), back up `branch.db`, install through the
       Windows package deployment API, restart, typed failures; tests for the
       pure steps.
-- [ ] R7. Fix the R4..R5 review advisory findings and the interim trust
+- [x] R7. Fix the R4..R5 review advisory findings and the interim trust
       concern (authorized 2026-09-30): pin the signer certificate thumbprint
       (`Commerce:UpdateTrustedThumbprint`) and accept `UntrustedRoot` only
       for that exact signer (tampering still fails as `Invalid`); staging
@@ -125,20 +125,29 @@ Route: R1..R3 one writer, then R4..R5 one writer (delegated direct; work units i
 - Checks observed: see the final report of the writer in the parent thread (commands and counts): `dotnet build Commerce.sln` 0 errors; `dotnet test tests/Commerce.Upgrade` 84/84 (34 before); focused (Pos composition + wizard text, 39/39) and full `dotnet test tests/Commerce.Integration` 1051/1051 in a throwaway worktree; TDD RED = compile failure on missing types before each implementation, then GREEN; `WinVerifyTrust` P/Invoke smoke on a real MSIX built with a throwaway PFX (no certificate installed): `UntrustedRoot` with signer `CN=Incoders Commerce (Interim)` (matches `Get-AuthenticodeSignature`), `Invalid` (0x80096010) after flipping one byte; one unauthenticated GET to the GitHub releases endpoint returned HTTP 200 `[]`.
 - Not observed: a real install (`AddPackageAsync`), restart registration and the next-start report on an installed terminal; `Valid` with the certificate in `LocalMachine\TrustedPeople`; anything against a published release.
 
+### Progress (R7, delegated direct, one writer)
+
+- Commit b06c3fa `fix(updater): pin the signer thumbprint and type update install failures`: `Commerce:UpdateTrustedThumbprint` (SHA-256 of the signing certificate; SHA-1 is what Windows tools show, SHA-256 chosen because it is a security pin; a non-64-hex pin is refused up front). Rule: pin set = signer thumbprint must equal it and `Valid` or `UntrustedRoot` passes; no pin = `Valid` plus the trusted subject only; `NotSigned`/`Invalid`/`Expired`/`Unknown` always refused. `0x800B0101` (expired) is now its own `Expired` status instead of `UntrustedRoot`. Downloader deletes only `Commerce.Pos.Windows-*.msix[.partial]`; 60 s inactivity budget (headers and each read) is a typed `TimedOut` download failure, an operator cancel still throws. The workflow tracks the running stage (cancel and unexpected errors are reported there, new `UnexpectedError`), clears the marker when the install is cancelled, and types backup IO/SQLite failures (`BackupFailed`) and marker IO failures (`PendingMarkerFailed`); the marker is written before the restart registration. Progress is reported inline (was a threadpool `Progress<double>`: racy test and possible out-of-order stage ticks). `PackageVerifier.Verify` call removed (its inputs were placeholders; hash, signature status and signer are the single source). `ReleaseDiscovery.CheckForUpdates`/`LocalUpdateManifestSource` removed: only tests used them, migrated to `UpdateChecker` + `LocalFileManifestSource`. `SingleFlight` added. `new-dev-signing-cert.ps1`, ADR-013, runbook, go-live checklist and `docs/pos-product-updates.md` updated.
+- Commit 61312a4 `fix(pos): wire the trust pin, show the real failing stage and share the update check`: pin read from configuration, downloader client `Timeout = Infinite`, wizard fallback outcome uses the last reported stage with `UnexpectedError`, manual check awaits the in-flight check through `SingleFlight`.
+- Checks observed (throwaway worktree): compile-RED (tests referencing missing `Expired`, `TrustedThumbprint`, `SingleFlight`, ... failed to build) then GREEN; `dotnet build Commerce.sln` 0 errors; `dotnet test tests/Commerce.Upgrade` 122/122 (84 before); focused `tests/Commerce.Integration --filter Update|Pos` 181/181; full `tests/Commerce.Integration` 1055/1055.
+- Real-MSIX evidence (throwaway PFX, MSIX 0.2.0.7 built with `deploy/release`, nothing installed, no certificate installed, real `WindowsPackageSignatureVerifier` through the real `UpdateInstallWorkflow` with a not-packaged stub so it stops after verification): untouched package = `UntrustedRoot` (0x800B0109) with signer SHA-256 equal to the value the script printed; right pin = accepted, wrong pin = refused `SignerMismatch`, no pin = refused `SignatureInvalid`; one byte flipped at three offsets (100, size/3, size/2) with the tampered hash re-published = `Invalid` (0x80096010) and refused `SignatureInvalid`.
+- Not observed: real install; `WinVerifyTrust` result with the certificate in `LocalMachine\TrustedPeople` (R6); WPF window behavior (wizard fallback stage, manual check) has no automated test beyond the tested `SingleFlight` and text mapping.
+
 ### Owner actions
 
 1. Create the PFX: `$env:POS_SIGNING_PFX_PASSWORD='...'; pwsh deploy/release/new-dev-signing-cert.ps1 -OutputDir <secure dir>`; keep the PFX private.
 2. Add repository secrets `POS_SIGNING_PFX_BASE64` (base64 of the PFX) and `POS_SIGNING_PFX_PASSWORD`.
 3. Set `publication_authorized: true` for the channel in `.github/release-authorization.yml`.
 4. Push a first tag (for example `v0.2.0-internal.1`) or run the `POS Release` workflow manually.
-5. Install the `.cer` on each terminal per `deploy/pos-terminal-certificate.md`.
-6. Terminals that should follow prereleases set `Commerce:UpdateChannel=internal` (environment variable `Commerce__UpdateChannel`); the default is `stable`. `Commerce:UpdateTrustedPublisher` only changes when the commercial certificate replaces the interim one.
+5. Install the `.cer` on each terminal per `deploy/pos-terminal-certificate.md` (`LocalMachine\TrustedPeople`, no Root install) and set `Commerce__UpdateTrustedThumbprint` (machine environment variable) to the SHA-256 the cert script prints. Without the pin the wizard refuses every interim-signed update.
+6. Terminals that should follow prereleases set `Commerce:UpdateChannel=internal` (environment variable `Commerce__UpdateChannel`); the default is `stable`. `Commerce:UpdateTrustedPublisher` and the pin only change when the commercial certificate replaces the interim one.
 7. Cutting a first release is required before any terminal can see an update (the repository has no releases yet; the check reports "Manifest de updates no configurado").
 
 ### R6 installed-VM checklist (added by R4..R5)
 
 - Install the baseline MSIX (interim `.cer` in `LocalMachine\TrustedPeople`), pair, sell once, then publish a newer release.
-- The wizard verification returns `Valid` for the interim certificate in `TrustedPeople` only (not yet observed); otherwise the wizard refuses with "Verificación fallida".
+- With `Commerce__UpdateTrustedThumbprint` set to the certificate SHA-256, the wizard accepts the interim-signed package whether `WinVerifyTrust` returns `UntrustedRoot` or `Valid` (record which one it is with the certificate only in `TrustedPeople`); a wrong or unset pin, a tampered package (`Invalid`) and a missing certificate refuse with "Verificación fallida".
+- A file the operator put in the staging directory survives a download; a stalled network (unplug during download) reports "No se pudo descargar" with a timeout message, and Cancelar reports the cancel at the running stage.
 - MSIX file virtualization: the staged package under `%LocalAppData%\Incoders\Commerce\updates` must be readable by the deployment service (`AddPackageAsync`), and `branch.db`, `upgrade-backups` and `pending-upgrade.json` must land where the next start reads them. If not, set `Commerce:UpdateStagingDirectory` outside AppData.
 - `AddPackageAsync` with `ForceApplicationShutdown` from a standard (non-admin) user: does it succeed, and does the POS relaunch through `RegisterApplicationRestart`? Confirm the footer reports "Actualización a la versión X completada" and `branch.db` (pending operations, cash session) survived.
 - The `packageManagement` restricted capability is accepted for a package signed by the interim certificate.
