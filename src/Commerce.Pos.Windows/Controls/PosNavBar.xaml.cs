@@ -84,6 +84,10 @@ public partial class PosNavBar : UserControl
         set => ManageCustomersButton.Visibility = ManageStaffButton.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
     }
 
+    private static readonly System.Diagnostics.Stopwatch Clock = System.Diagnostics.Stopwatch.StartNew();
+
+    private readonly PopupReopenGuard _operatorMenuGuard = new();
+
     private static RoutedEvent Register(string name) =>
         EventManager.RegisterRoutedEvent(name, RoutingStrategy.Bubble, typeof(RoutedEventHandler), typeof(PosNavBar));
 
@@ -95,10 +99,15 @@ public partial class PosNavBar : UserControl
 
     private void SettingsButton_Click(object sender, RoutedEventArgs e) => RaiseEvent(new RoutedEventArgs(SettingsRequestedEvent, this));
 
+    private void OperatorButton_PreviewMouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e) =>
+        _operatorMenuGuard.NotifyPressed(Clock.Elapsed);
+
+    private void OperatorMenuPopup_Closed(object? sender, EventArgs e) => _operatorMenuGuard.NotifyClosed(Clock.Elapsed);
+
     private void OperatorButton_Click(object sender, RoutedEventArgs e)
     {
-        // Re-clicking while open closes the menu (StaysOpen=False already closed it on the press).
-        if (!OperatorMenuPopup.IsOpen)
+        // StaysOpen=False closes the menu on the press; the Click that follows must not reopen it.
+        if (!OperatorMenuPopup.IsOpen && _operatorMenuGuard.ShouldOpenOnClick(Clock.Elapsed))
         {
             RaiseEvent(new RoutedEventArgs(OperatorMenuRequestedEvent, this));
         }

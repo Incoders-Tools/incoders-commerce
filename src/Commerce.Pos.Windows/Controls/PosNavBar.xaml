@@ -78,7 +78,7 @@
 
             <!-- The active operator opens the operator menu (who is signed in, switch operator, sign out); under it the
                  cash session state, compact: "Caja abierta · 08:15" or "Caja cerrada". Adding operators lives in Personal. -->
-            <Button x:Name="SwitchOperatorButton" Grid.Column="2" Style="{StaticResource NavButton}" Click="OperatorButton_Click"
+            <Button x:Name="SwitchOperatorButton" Grid.Column="2" Style="{StaticResource NavButton}" Click="OperatorButton_Click" PreviewMouseDown="OperatorButton_PreviewMouseDown"
                     ToolTip="Operador y sesión" AutomationProperties.Name="Menú del operador" MaxWidth="170">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="{StaticResource IconOperator}" Style="{StaticResource NavIcon}" VerticalAlignment="Center" />
@@ -93,7 +93,7 @@
                 </StackPanel>
             </Button>
             <Popup x:Name="OperatorMenuPopup" Grid.Column="2" PlacementTarget="{Binding ElementName=SwitchOperatorButton}" Placement="Bottom"
-                   HorizontalOffset="0" StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade">
+                   HorizontalOffset="0" StaysOpen="False" Closed="OperatorMenuPopup_Closed" AllowsTransparency="True" PopupAnimation="Fade">
                 <Border Style="{StaticResource CardBorder}" Padding="12" CornerRadius="10" Margin="6">
                     <StackPanel Width="230">
                         <TextBlock x:Name="OperatorMenuTitle" FontWeight="SemiBold" FontSize="14" TextTrimming="CharacterEllipsis" />
