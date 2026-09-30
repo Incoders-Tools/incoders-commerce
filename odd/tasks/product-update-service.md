@@ -232,3 +232,14 @@ Route: R1..R3 one writer, then R4..R5 one writer (delegated direct; work units i
   duplicate summary tag, malformed-pin reason, test-name overclaim,
   `SingleFlight` reentrancy.
 
+- 2026-09-30 (parent): signer-binding fix range `7005235..0ed2488` assessed
+  HIGH (56 lines, 3 files). Owner GRANTED the review: four lenses, lineage
+  `review-084345695b351fc4`, APPROVED with no correction and acknowledged
+  (authority burned). Advisory follow-ups: WARNING
+  `R2-forged-test-models-tamper-not-ride-along` / `R3-ride-along-cert-unproved`
+  (the test corrupts the signature value; it does not build a block where an
+  extra, non-signing certificate is present, so the test name/comment
+  overclaim), SUGGESTION `R1-001` (assert the thumbprinted certificate is the
+  one matched by the SignerIdentifier), SUGGESTION
+  `R2-unexplained-signature-magic-in-test` (name the SPC OID and PKCX prefix).
+
