@@ -307,10 +307,11 @@ try {
     }
 
     # --- 3. Verify Desktop pairing ----------------------------------------
-    # B1: the sysadmin now holds ZERO branch scope by design (it is the
-    # platform owner, not staff assigned to a branch), so /device/pair
-    # correctly answers 403 "no-branches-assigned" for it — that is the
-    # EXPECTED outcome here, not a failure. Desktop pairing is meaningless
+    # B1: the sysadmin now holds ZERO branch scope and no roles by design (it
+    # is the platform owner, not staff assigned to a branch), so /device/pair
+    # correctly answers 403 for it: "operator-not-permitted" (no OperatePos,
+    # checked first) or "no-branches-assigned" — that is the EXPECTED
+    # outcome here, not a failure. Desktop pairing is meaningless
     # for an account with no branch; this step only proves sign-in-shaped
     # credentials work through that endpoint too, not that pairing succeeds.
     $pairResponse = Send-LocalJsonRequest -Client $client -Path 'device/pair' -Body @{
@@ -325,8 +326,8 @@ try {
     catch {
         throw 'Desktop pairing verification returned an invalid response.'
     }
-    if ($pairResponse.StatusCode -eq 403 -and $pairing.status -eq 'no-branches-assigned') {
-        $pairingNote = 'web sign-in verified; Desktop pairing correctly refused (no branch scope)'
+    if ($pairResponse.StatusCode -eq 403 -and $pairing.status -in @('operator-not-permitted', 'no-branches-assigned')) {
+        $pairingNote = "web sign-in verified; Desktop pairing correctly refused ($($pairing.status))"
     }
     elseif ($pairResponse.StatusCode -ne 200) {
         throw "Desktop pairing verification failed with HTTP $($pairResponse.StatusCode)."
