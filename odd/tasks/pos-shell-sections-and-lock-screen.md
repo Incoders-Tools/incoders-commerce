@@ -82,7 +82,7 @@ by admin (the staff member re-enters with email + password to set a new PIN).
   `CustomersWindow` and `UsersWindow` into views; Personal admin-only with
   create/list/deactivate and terminal-operator removal, no provisioning;
   Spanish copy; scrolling. Route: delegated direct.
-- [ ] T4 POS lock screen: full-window sign-in view when no operator (sale not
+- [x] T4 POS lock screen: full-window sign-in view when no operator (sale not
   visible or interactive); operator tiles + PIN; "Ingresar con usuario y
   contraseña" -> online verify -> create PIN when new to this terminal (or
   replace it); sign-out returns to the lock screen; remove
@@ -210,5 +210,102 @@ by admin (the staff member re-enters with email + password to set a new PIN).
     harness): owner check of create/deactivate/remove against the running stack.
   - Review of T3 commits: not yet assessed (pending parent).
 
+- 2026-09-30 review of T3 commits: RDD lineage `review-a4384814f07f90a8`
+  approved and acknowledged (next boundary `b936b7d`). Advisories resolved by
+  the T4 writer (route: direct), commits `f3f4070` and `5b58e14`:
+  - WARNING `PosOperatorMenuMarkupTests` brush regex had lost its backslashes, so
+    `Assert.Empty` was vacuous: pattern restored as one constant plus a test that
+    it matches `{StaticResource SomeBrush}` and not `{DynamicResource ...}`.
+  - WARNING `ReconcileShell` disposed a busy section's admin client: `ShellNavigation.
+    Reconcile(permissions, sectionBusy)` now returns `Unchanged | Switched | Deferred`;
+    a busy section is hidden at once and disposed when `BusyController.Idle`
+    (surfaced through `ISectionView.Idle`) fires, and the deferral is dropped if the
+    operator regains access. Unit tests for the decision and for `Idle`.
+  - SUGGESTION reset password no longer hides on the admin's own row or while
+    confirming a status change (API has no self restriction):
+    `StaffRow.CanResetPassword`, own grid column in the template.
+  - SUGGESTION admin `PasswordBox` cleared in `finally` (Staff and Customers); a
+    markup test locks the `finally` (no UI harness for a throwing handler).
+  - SUGGESTION `PosShellMarkupTests` now asserts every method regex matched and
+    covers `ApplySection` and `ReconcileShell`.
+  - RED: test files copied into a worktree of `b936b7d` failed to compile
+    (`ReconcileOutcome`, `Idle`, `CanResetPassword`). GREEN: 79/79 focused.
+- 2026-09-30 T4 done (route: delegated direct, one writer), commits `c93cb24`
+  (lock screen model and view) and `e8a579c` (gate the sale, drop the modals).
+  - Lock layer: `MainWindow` wraps nav + sale + sections + cash overlay in
+    `ShellContent` and adds `LockHost` (full window above it, footer stays).
+    `ApplyLockState` (run from `RefreshIdentityText`) collapses `ShellContent` and
+    shows the lock whenever `CurrentOperator` is null, so the sale is neither
+    visible nor reachable by keyboard or scanner. Nothing is cleared.
+  - `LockScreenModel` (UI-free) modes Tiles / PinEntry / Credentials / CreatePin:
+    non-stale cached operators as tiles; tile + 6-digit PIN verified offline
+    (wrong PIN: inline "PIN incorrecto."); "Ingresar con usuario y contraseña" ->
+    `VerifyAsync` -> an operator already cached and fresh enters directly (record
+    refreshed, PIN kept); new to the terminal, stale, or "Olvidé mi PIN" -> create
+    PIN (new + confirm, `IsValidPin`) -> `LocalOperatorStore.Upsert` replaces any
+    previous one. First run (no tiles) opens on email + password. Online errors via
+    `PosMessages` (invalid credentials, operator-not-permitted, branch-not-in-scope,
+    no branches, terminal-not-recognized "volvé a configurarla", unreachable);
+    offline the tile path still works. `IOperatorVerifier` lets tests fake the client.
+  - `LockScreenView`: branch name, large tiles with initials, PIN box + keypad
+    (auto-submits at 6 digits), one secondary link, inline status, `BusyController`
+    progress; scrolls; palette keys only. PIN and password boxes are cleared in
+    `finally`.
+  - Removed `OperatorLoginWindow`, `ProvisionOperatorWindow`, `OperatorSignInFlow`,
+    `OperatorSignInPlanner`, `OperatorLoginMode`; `App.xaml.cs` no longer shows a
+    sign-in at startup; `SignInOperatorFromPrompt` is gone (the open-cash prompt
+    runs only once an operator is in: `LockScreen_SignedIn`, first sign-in and
+    closed cash). `OperatorSessionActions(current)`: Cambiar operador and Cerrar
+    sesión both clear the operator (lock screen); `Reconcile` no longer treats a
+    reloaded record as a change (byte[] compares by reference).
+  - Status reconciliation: every sync (any trigger) now runs
+    `ReconcileOperatorsAfterSync` on the UI thread: an operator dropped by
+    `/device/operators/{id}/status` (or removed in Personal) signs the active one
+    out, which brings the lock back, and the lock tiles follow the store.
+  - Decision, sign-out with an open cash session and an in-progress cart: both
+    are kept (not closed, not cleared) and hidden behind the lock; the next
+    operator resumes them. Decision, stale cached operator signing in with email +
+    password: asks for a new PIN (the old one expired).
+  - Spec change (owner-approved): `pos-operator-session` retires "Operator
+    Identification Never Blocks a Sale" for the UI; new "Lock Screen Gates The Sale
+    UI" (sales require a signed-in operator in the UI; the domain/sync fallback to
+    the installation id stays), "Operator Sign-Out Keeps The Cash Session And The
+    Cart" replaces the old sign-out requirement, "Operator Menu" updated, Personal
+    scenarios updated.
+  - RED: `PosLockScreenModelTests` / `PosLockScreenMarkupTests` failed to compile
+    in a worktree of the prior commit (no `LockScreenModel`, `IOperatorVerifier`).
+    GREEN: focused `PosLockScreen|PosOperatorMenu|PosBusy|PosShell|PosStaffView`
+    130/130.
+  - Checks (throwaway worktree): `dotnet build Commerce.sln` 0 errors; full
+    `dotnet test tests/Commerce.Integration` 1299 passed, 0 failed, 0 skipped
+    (the flaky `PosCompositionRootTests.Build_Resolves_BranchNodeService` passed);
+    `file` UTF-8/ASCII. Render check (throwaway harness in the scratchpad, not
+    committed) of the real `MainWindow` at 1120x700 in Dark, Light and Vaca Verde:
+    tiles, PIN entry with error, credentials (with error), create PIN, first run.
+  - Not exercised in a real session: click-through of the WPF handlers (no UI
+    harness) and the real online verify.
+  - Follow-ups: PIN lockout/backoff after repeated wrong PINs (no POS-side pattern
+    exists; the server has `discount_pin_lockout` only for the discount PIN);
+    `OpenCashWindow` keeps its now-unreachable "Iniciar sesión" button; the primary
+    button text renders dark in Light/Vaca Verde (pre-existing implicit TextBlock
+    style); tile email truncates beyond ~22 characters.
+
 ## Next step
-T4 (POS lock screen). Hosting notes: `MainWindow` content area is `SaleScreen` + `SectionHost`; the lock screen can be a third full-window layer (covering the nav and the content) driven by `CurrentOperator`, and `ShellNavigation.Reconcile(null)` already returns the shell to the sale when there is no operator. Replace `OperatorSignInFlow`/`OperatorLoginWindow`/`ProvisionOperatorWindow` (still modal).
+Owner manual verification against the running stack (`run-all.ps1`), then review
+of the T3 follow-up and T4 commits (boundary `b936b7d`):
+1. Start the POS: it opens on the lock screen, nothing else visible. With cached
+   operators you see tiles; on a clean terminal (delete `operators.json` in
+   `%LOCALAPPDATA%\Incoders\Commerce`) it shows email + password.
+2. Sign in with email + password as an admin: create a PIN, you enter; the
+   open-cash prompt appears if the cash is closed.
+3. Add a sale to the cart, then Cerrar sesión: the lock covers everything; sign in
+   again (tile + PIN): cart and cash session are still there.
+4. Wrong PIN shows "PIN incorrecto."; "Ingresar con usuario y contraseña" with a
+   wrong password shows the inline error; stop Cloud.Api and confirm email +
+   password says the server is unreachable while tile + PIN still works.
+5. In Personal create a cashier, Cerrar sesión, sign in as the cashier with email +
+   password, create their PIN; next time use their tile. Tick "Olvidé mi PIN" to
+   replace it.
+6. Deactivate the signed-in cashier from another session/web; after the next sync
+   the POS returns to the lock screen and the tile is gone. In Personal, Restablecer
+   contraseña is now also available on your own row.
