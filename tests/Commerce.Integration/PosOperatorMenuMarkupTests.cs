@@ -3,10 +3,8 @@ using System.Text.RegularExpressions;
 namespace Commerce.Integration;
 
 /// <summary>
-/// Structural checks for the operator menu and the move of operator
-/// provisioning into "Personal": the nav button opens a palette-themed menu,
-/// the login window is a PIN picker that can no longer provision, and
-/// provisioning is reachable from Personal.
+/// Structural checks for the operator menu: the nav button opens a
+/// palette-themed menu, and Personal lists the terminal operators (remove only).
 /// </summary>
 public sealed class PosOperatorMenuMarkupTests
 {
@@ -68,38 +66,6 @@ public sealed class PosOperatorMenuMarkupTests
     }
 
     [Fact]
-    public void LoginWindow_IsAPinPickerOnly()
-    {
-        var xaml = Src("OperatorLoginWindow.xaml");
-        var code = Src("OperatorLoginWindow.xaml.cs");
-
-        Assert.Contains("x:Name=\"OperatorListBox\"", xaml);
-        Assert.Contains("x:Name=\"PinBox\"", xaml);
-        Assert.Contains("x:Name=\"ContinueWithoutOperatorButton\"", xaml);
-        Assert.DoesNotContain("Agregar", xaml);
-        Assert.DoesNotContain("EmailTextBox", xaml);
-        Assert.DoesNotContain("ProvisionButton", xaml);
-        Assert.DoesNotContain("OperatorProvisioningClient", code);
-    }
-
-    [Fact]
-    public void ProvisionWindow_HoldsTheProvisioningForm_WithBusyHandling()
-    {
-        var xaml = Src("ProvisionOperatorWindow.xaml");
-        var code = Src("ProvisionOperatorWindow.xaml.cs");
-
-        foreach (var name in new[] { "EmailTextBox", "PasswordBox", "NewPinBox", "ConfirmPinBox", "ProvisionButton", "FormPanel", "BusyPanel" })
-        {
-            Assert.Contains($"x:Name=\"{name}\"", xaml);
-        }
-
-        Assert.Contains("Agregar operador", xaml);
-        Assert.Contains("_busy.RunAsync", code);
-        Assert.Contains("OperatorProvisioningClient", code);
-        Assert.Contains("_operatorStore.Upsert", code);
-    }
-
-    [Fact]
     public void Personal_OffersTheTerminalOperators_WithRemoveOnly_NoProvisioning()
     {
         var staff = Src("StaffView.xaml");
@@ -112,13 +78,5 @@ public sealed class PosOperatorMenuMarkupTests
         Assert.DoesNotContain("Agregar operador", staff);
         Assert.DoesNotContain("ProvisionOperatorWindow", staffCode);
         Assert.Empty(Regex.Matches(staff, StaticBrushReference));
-    }
-
-    [Fact]
-    public void Startup_StillAllowsFirstRunProvisioning()
-    {
-        var code = Src("App.xaml.cs");
-
-        Assert.Contains("OperatorSignInFlow", code);
     }
 }

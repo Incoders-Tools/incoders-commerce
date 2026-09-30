@@ -111,29 +111,91 @@ locally and MUST require re-provisioning online.
 - THEN the staleness window for that operator's credential is reset from
   that point
 
-### Requirement: Operator Identification Never Blocks a Sale
+### Requirement: Lock Screen Gates The Sale UI
 
-Identifying the current operator MUST be strictly additive. If no
-operator can be identified — no cached PIN present, or no connectivity
-to provision one — the sale MUST proceed, falling back to attributing it
-to the installation. Operator identification MUST NOT gate
-`CommitSaleButton_Click`.
+While no operator is signed in, the POS main window MUST show only a full-window
+lock screen, covering the navigation and the content: the sale, the sections and
+the cash prompt MUST be neither visible nor interactive (keyboard and scanner
+input included). Owner-approved behavior change (2026-09-30): sales now REQUIRE a
+signed-in operator in the UI. The previous rule that identification never blocks
+a sale is retired for the UI; the domain and sync layers keep their fallback (an
+absent operator resolves the actor to the installation id), so replicated and
+legacy sales stay valid.
 
-#### Scenario: Sale proceeds with no operator identified
+The lock screen MUST offer two ways in:
 
-- GIVEN a terminal has no operator with a valid cached PIN currently
-  logged in and no connectivity to provision one
+- Operator tiles plus PIN: one large tile per operator cached on the terminal whose
+  credential is not stale; tapping a tile asks for that operator's 6-digit PIN,
+  verified locally against the cached credential with no network call. A wrong PIN
+  shows an inline error and stays on the PIN entry. The operator is always chosen
+  first, so two operators sharing a PIN is harmless; there is no PIN-only login.
+- "Ingresar con usuario y contraseña": email and password verified online. An
+  operator not yet cached on the terminal, or one who ticked "Olvidé mi PIN", MUST
+  then create a PIN (new and confirmation, valid per the PIN policy) that is cached
+  locally, replacing any previous one, before entering. An operator already cached
+  and not expired enters directly and keeps their PIN; one whose credential expired
+  chooses a new PIN. Online failures MUST be shown inline in
+  Spanish: invalid credentials, operator not permitted, branch not in scope, no
+  branches assigned, terminal not recognized (telling the operator to configure the
+  terminal again) and server unreachable.
+
+When the terminal has no usable cached operator (first run after pairing, or every
+cached credential stale) the lock screen MUST open on email and password, with no
+tiles. When the server is unreachable the tile and PIN path MUST keep working. The
+lock screen MUST show the terminal's branch, scroll when its content exceeds the
+window, and work in every theme. The sign-in MUST NOT open any modal window.
+
+#### Scenario: Nobody signed in
+
+- GIVEN the application starts on a paired terminal
+- WHEN the main window appears
+- THEN only the lock screen is shown, and the sale, the navigation and the cash
+  prompt are not visible and cannot receive input
+
+#### Scenario: Tile and PIN, offline
+
+- GIVEN an operator is cached and the network is down
+- WHEN they tap their tile and enter the right PIN
+- THEN they get in and no network call is made
+
+#### Scenario: Wrong PIN
+
+- GIVEN an operator tapped their tile
+- WHEN they enter a wrong PIN
+- THEN "PIN incorrecto." is shown inline and the lock screen stays
+
+#### Scenario: New staff member creates a PIN
+
+- GIVEN an administrator created a staff user and handed over the email and password
+- WHEN the staff member signs in with "Ingresar con usuario y contraseña" on a terminal
+  where they are not cached
+- THEN after the online verification they choose a PIN, which is cached, and they
+  get in; next time they can use their tile and PIN
+
+#### Scenario: Forgotten PIN
+
+- GIVEN an operator is cached and forgot their PIN
+- WHEN they sign in with email and password and tick "Olvidé mi PIN"
+- THEN they choose a new PIN that replaces the old one
+
+#### Scenario: First run
+
+- GIVEN a paired terminal has no cached operator
+- WHEN the application starts
+- THEN the lock screen shows email and password directly, with no tiles
+
+#### Scenario: Terminal not recognized
+
+- GIVEN the server does not know the terminal's device credential
+- WHEN an operator signs in with email and password
+- THEN the lock screen tells them to configure the terminal again
+
+#### Scenario: Sale is attributed to the signed-in operator
+
+- GIVEN an operator signed in through the lock screen
 - WHEN a sale is completed
-- THEN the sale succeeds and is attributed to the installation, exactly
-  as before this change
-
-#### Scenario: Sale is attributed to the current operator when identified
-
-- GIVEN a terminal has a currently logged-in operator with a valid
-  cached PIN
-- WHEN a sale is completed
-- THEN `CompleteOfflineSale`'s `actorId` is the current operator's user
-  id rather than the installation id
+- THEN `CompleteOfflineSale`'s `actorId` is the operator's user id rather than the
+  installation id
 
 ### Requirement: Operating The POS Requires OperatePos
 
@@ -242,13 +304,10 @@ session (`pos-cash-session`); each sale keeps the operator who made it.
 
 The operator button in the POS navigation bar MUST open a menu instead of any
 provisioning screen. The menu MUST show the active operator's email and access
-level (administrator, cashier, or no access to the point of sale) or "Sin
-operador activo" when nobody is signed in, and MUST offer: "Cambiar operador"
-(only when another non-stale operator is cached on the terminal), "Cerrar
-sesión" (only while an operator is active), and "Iniciar sesión" (only while
-nobody is active). "Cambiar operador" MUST open the PIN picker for operators
-already cached on the terminal and MUST NOT offer to provision anyone. The menu
-MUST NOT offer to add an operator.
+level (administrator, cashier, or no access to the point of sale) and MUST offer
+"Cambiar operador" (only when another non-stale operator is cached on the terminal)
+and "Cerrar sesión". Both return to the lock screen. The menu MUST NOT offer to add
+an operator: a new operator signs in on the lock screen with email and password.
 
 #### Scenario: Menu of the active operator
 
@@ -257,40 +316,41 @@ MUST NOT offer to add an operator.
 - THEN the menu shows the cashier's email and "Cajero", "Cambiar operador" and
   "Cerrar sesión", and no provisioning entry
 
-#### Scenario: Menu with nobody signed in
-
-- GIVEN no operator is active
-- WHEN the operator button is clicked
-- THEN the menu shows "Sin operador activo" and only "Iniciar sesión"
-
-#### Scenario: Switching never provisions
+#### Scenario: Switching goes through the lock screen
 
 - GIVEN an operator is signed in
 - WHEN they choose "Cambiar operador"
-- THEN only the PIN picker of cached operators is shown, with no email,
-  password or new-PIN fields
+- THEN the lock screen is shown
 
-### Requirement: Operator Sign-Out Keeps the Cash Session
+### Requirement: Sign-Out Keeps The Cash Session And The Cart
 
-"Cerrar sesión" MUST clear the terminal's current operator and then offer the
-PIN picker so another cached operator can sign in. It MUST NOT close or change
-an open cash session (`pos-cash-session`) and MUST NOT block sales: until
-somebody signs in, sales keep being attributed to the installation, per
-"Operator Identification Never Blocks a Sale". Cancelling the picker leaves the
-terminal with no active operator.
+"Cerrar sesión" and "Cambiar operador" MUST both clear the terminal's current
+operator and return to the lock screen. Neither MUST close or change an open cash
+session (`pos-cash-session`) or clear a sale in progress: the cash session and the
+cart stay as they are, hidden behind the lock screen, and the next operator who
+signs in resumes them. Removing the active operator from the terminal in Personal,
+and the status check dropping a revoked or inactive active operator, MUST also
+return to the lock screen.
 
 #### Scenario: Sign out inside an open session
 
-- GIVEN a cash session is open and an operator is signed in
+- GIVEN a cash session is open, a sale is in progress and an operator is signed in
 - WHEN the operator chooses "Cerrar sesión"
-- THEN the current operator is cleared, the nav label reads "Sin operador
-  activo", the PIN picker is offered, and the cash session is still open
+- THEN the lock screen is shown, the sale is not visible, the cash session is still
+  open and the cart is unchanged
 
 #### Scenario: Signing out and in as another operator
 
 - GIVEN two operators are cached and the first is signed in
 - WHEN the first signs out and the second enters their PIN
-- THEN the second is the current operator and the same cash session stays open
+- THEN the second is the current operator and the same cash session stays open with
+  the same cart
+
+#### Scenario: The active operator is deactivated
+
+- GIVEN an operator is signed in and an administrator deactivated their account
+- WHEN the next status check reports them inactive
+- THEN their cached credential is dropped and the lock screen is shown
 
 ### Requirement: Personal Is Admin Staff Management, Not Operator Sign-In
 
@@ -317,23 +377,16 @@ they were active.
 - GIVEN an operator is signed in and removes themselves from the terminal in
   Personal
 - WHEN the removal is confirmed
-- THEN that operator is signed out, the shell returns to the sale, and they no
-  longer appear in the PIN picker
+- THEN that operator is signed out, the lock screen is shown, and they no
+  longer appear as a tile on the lock screen
 
-#### Scenario: A new staff member is added through sign-in
+#### Scenario: A new staff member is added through the lock screen
 
 - GIVEN an administrator created a staff user in Personal
-- WHEN the current operator signs out and the new staff member signs in with
-  email and password
-- THEN they are provisioned on the terminal through the sign-in flow, not through
-  Personal
-
-#### Scenario: First run still provisions at startup
-
-- GIVEN a paired terminal has no cached operator
-- WHEN the application starts
-- THEN the provisioning form is shown, with "Continuar sin operador" available
-  (the lock screen requirement replaces this flow)
+- WHEN the current operator signs out and the new staff member signs in on the
+  lock screen with email and password
+- THEN they choose a PIN and are provisioned on the terminal through the lock
+  screen, not through Personal
 
 ### Requirement: Clientes And Personal Are Sections Of The Main Window
 

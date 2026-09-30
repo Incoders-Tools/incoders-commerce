@@ -15,7 +15,6 @@ public sealed class PosBusyMarkupTests
 
     [Theory]
     [InlineData("PairingWindow")]
-    [InlineData("ProvisionOperatorWindow")]
     public void Window_HasProgressBarBusyTextAndAGuardedInputHost(string window)
     {
         var xaml = Src(window + ".xaml");
@@ -34,6 +33,7 @@ public sealed class PosBusyMarkupTests
     [Theory]
     [InlineData("CustomersView")]
     [InlineData("StaffView")]
+    [InlineData("LockScreenView")]
     public void SectionView_HasProgressBarBusyTextAndAGuardedInputHost_AndRoutesThroughTheBusyController(string view)
     {
         var xaml = Src(view + ".xaml");
@@ -53,7 +53,6 @@ public sealed class PosBusyMarkupTests
 
     [Theory]
     [InlineData("PairingWindow")]
-    [InlineData("ProvisionOperatorWindow")]
     public void ThemedWindows_ColorTheProgressBarFromPaletteKeys(string window)
     {
         var xaml = Src(window + ".xaml");
@@ -64,7 +63,6 @@ public sealed class PosBusyMarkupTests
 
     [Theory]
     [InlineData("PairingWindow")]
-    [InlineData("ProvisionOperatorWindow")]
     public void Window_RoutesItsRequestsThroughTheBusyController_WithoutEnglishLiterals(string window)
     {
         var code = Src(window + ".xaml.cs");

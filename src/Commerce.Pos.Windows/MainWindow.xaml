@@ -11,6 +11,13 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
+        <!-- Everything behind the lock: the nav, the sale, the sections and the cash prompt. Collapsed (not just covered) while nobody is signed in. -->
+        <Grid x:Name="ShellContent" Grid.Row="0" Grid.RowSpan="2">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
         <controls:PosNavBar x:Name="NavBar" Grid.Row="0"
                             SaleRequested="SaleNavButton_Click"
                             CustomersRequested="ManageCustomersButton_Click"
@@ -19,7 +26,6 @@
                             SettingsRequested="RepairButton_Click"
                             OperatorMenuRequested="OperatorMenuButton_Click"
                             SwitchOperatorRequested="SwitchOperatorButton_Click"
-                            SignInRequested="OperatorSignInMenu_Click"
                             SignOutRequested="OperatorSignOutMenu_Click"
                             CloseCashRequested="CloseCashButton_Click" />
 
@@ -169,6 +175,11 @@
                 </StackPanel>
             </Border>
         </Border>
+
+        </Grid>
+
+        <!-- Lock screen: the only thing shown while no operator is signed in (pos-operator-session "Lock Screen Gates The Sale UI"). -->
+        <ContentControl x:Name="LockHost" Grid.Row="0" Grid.RowSpan="2" IsTabStop="False" Visibility="Collapsed" />
 
         <Border Grid.Row="2" Background="{DynamicResource ShellElevatedBrush}" BorderBrush="{DynamicResource BorderBrushMuted}" BorderThickness="0,1,0,0" Padding="12,1">
             <Grid Height="18">

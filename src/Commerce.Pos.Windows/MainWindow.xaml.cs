@@ -66,6 +66,8 @@ public partial class MainWindow : Window
     private bool _openCashPrompted;
     private readonly ShellNavigation _shell = new();
     private ISectionView? _sectionView;
+    private readonly LockScreenView _lockScreen;
+    private bool _locked;
 
     public MainWindow(
         BranchSyncStore store,
@@ -98,7 +100,7 @@ public partial class MainWindow : Window
         _localInstallationStore = localInstallationStore;
         _localOperatorStore = localOperatorStore;
         _currentOperator = currentOperator;
-        _operatorSession = new OperatorSessionActions(currentOperator, PromptOperatorSignIn);
+        _operatorSession = new OperatorSessionActions(currentOperator);
         _customerReplicaClient = customerReplicaClient;
         _catalogPriceReplicaClient = catalogPriceReplicaClient;
         _pricingResolutionService = pricingResolutionService;
@@ -138,6 +140,13 @@ public partial class MainWindow : Window
             _operatorProvisioningClient, _localOperatorStore, () => _pairing, discountPinReplicaClient);
         _syncScheduler = new SyncScheduler(RunSyncAsync);
 
+        // The lock screen is the first thing the window shows: nobody is signed in yet.
+        _lockScreen = new LockScreenView(
+            new LockScreenModel(operatorProvisioningClient, localOperatorStore, () => _pairing.DeviceToken),
+            () => _pairing.BranchName);
+        _lockScreen.SignedIn += LockScreen_SignedIn;
+        LockHost.Content = _lockScreen;
+
         RefreshIdentityText();
         RefreshStatus();
         RefreshCustomerPicker();
@@ -147,17 +156,9 @@ public partial class MainWindow : Window
         RefreshCatalogFreshness();
         RefreshCashSession();
 
-        // pos-cash-session: with no open session the sale screen stays locked and
-        // the open-cash prompt is offered as soon as the window is shown. A
-        // session left open by a previous run simply resumes (no prompt).
-        Loaded += (_, _) =>
-        {
-            if (!_openCashPrompted && _cashSession is null)
-            {
-                _openCashPrompted = true;
-                PromptOpenCash();
-            }
-        };
+        // pos-cash-session: the open-cash prompt is offered when the first operator
+        // signs in (see LockScreen_SignedIn); a session left open by a previous run
+        // simply resumes (no prompt).
 
         // Fire-and-forget: never awaited by the constructor (design.md Data
         // Flow — the sale path, and window startup, never await a sync).
@@ -213,7 +214,13 @@ public partial class MainWindow : Window
     /// </summary>
     private void PromptOpenCash()
     {
-        var window = new OpenCashWindow(_currentOperator.Value?.Email, SignInOperatorFromPrompt) { Owner = this };
+        if (_currentOperator.Value is null)
+        {
+            // Nobody is signed in: the lock screen is showing and opening the cash waits for an operator.
+            return;
+        }
+
+        var window = new OpenCashWindow(_currentOperator.Value.Email) { Owner = this };
         if (window.ShowDialog() == true && window.OpeningFloat is { } openingFloat && _currentOperator.Value is not null)
         {
             var result = _branchNodeService.OpenCashSession(
@@ -239,25 +246,65 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>Runs the operator sign-in on top of the open-cash prompt and returns the signed-in operator label (null when cancelled).</summary>
-    private string? SignInOperatorFromPrompt()
+    /// <summary>
+    /// The lock screen let an operator in: adopt them, lift the lock and, the first
+    /// time, offer the open-cash prompt when no cash session is open (the prompt is
+    /// opened after the lock closed, not from inside the sign-in event).
+    /// </summary>
+    private void LockScreen_SignedIn(CachedOperator signedIn)
     {
-        var signedIn = PromptOperatorSignIn(OperatorLoginMode.PinPickerOrFirstRun);
-        if (signedIn is null)
-        {
-            return null;
-        }
-
         _currentOperator.Set(signedIn);
         RefreshIdentityText();
-        return signedIn.Email;
+        RefreshCashSession();
+
+        if (!_openCashPrompted && _cashSession is null)
+        {
+            _openCashPrompted = true;
+            Dispatcher.BeginInvoke(PromptOpenCash, System.Windows.Threading.DispatcherPriority.Background);
+        }
     }
 
-    /// <summary>Shows the sign-in screen for the mode on top of whatever window is active.</summary>
-    private CachedOperator? PromptOperatorSignIn(OperatorLoginMode mode)
+    /// <summary>
+    /// Nobody signed in: only the lock screen is shown. The nav, the sale, the sections
+    /// and the cash prompt are collapsed (neither visible nor reachable by keyboard or
+    /// scanner), but nothing is cleared: the cart and the cash session stay as they
+    /// are for the next operator (pos-operator-session "Sign-Out Keeps The Cash
+    /// Session And The Cart").
+    /// </summary>
+    private void ApplyLockState()
     {
-        var owner = System.Windows.Application.Current.Windows.OfType<Window>().FirstOrDefault(w => w.IsActive) ?? this;
-        return OperatorSignInFlow.Run(mode, owner, _operatorProvisioningClient, _localOperatorStore, _pairing.DeviceToken);
+        var locked = _currentOperator.Value is null;
+        ShellContent.Visibility = locked ? Visibility.Collapsed : Visibility.Visible;
+        LockHost.Visibility = locked ? Visibility.Visible : Visibility.Collapsed;
+        if (locked == _locked)
+        {
+            return;
+        }
+
+        _locked = locked;
+        if (locked)
+        {
+            _lockScreen.Show();
+        }
+        else if (_shell.Current == ShellSection.Sale && _cashSession is not null)
+        {
+            ScanCodeTextBox.Focus();
+        }
+    }
+
+    /// <summary>
+    /// After a sync the status check may have dropped operators (revoked or inactive):
+    /// the active one is signed out, which brings the lock screen back, and the lock
+    /// screen's tiles follow the store.
+    /// </summary>
+    private void ReconcileOperatorsAfterSync()
+    {
+        _operatorSession.Reconcile(_localOperatorStore.Load());
+        RefreshIdentityText();
+        if (_locked)
+        {
+            _lockScreen.ReloadTiles();
+        }
     }
 
     /// <summary>
@@ -329,6 +376,7 @@ public partial class MainWindow : Window
         NavBar.AdminEntriesVisible =
             _currentOperator.Value is { } current && ((Permission)current.Permissions).HasFlag(Permission.ManageUsers);
         ReconcileShell();
+        ApplyLockState();
     }
 
     private string BuildStatusSummary()
@@ -831,6 +879,9 @@ public partial class MainWindow : Window
 
         var result = await _syncRunner.RunAsync(trigger);
 
+        // The status check may have dropped operators: follow it (the active one is signed out, the lock returns).
+        await Dispatcher.InvokeAsync(ReconcileOperatorsAfterSync);
+
         if (trigger != SyncTrigger.Button)
         {
             return;
@@ -913,8 +964,8 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// The operator button opens a menu (pos-operator-session "Operator Menu"):
-    /// who is signed in, switch operator, sign out. It never opens provisioning;
-    /// adding an operator is done from Personal. Nothing here is a precondition of
+    /// who is signed in, switch operator, sign out. The last two both return to the lock screen;
+    /// a new operator signs in there with email and password. Nothing here is a precondition of
     /// <see cref="CommitSaleButton_Click"/>, and none of it closes the cash session.
     /// </summary>
     private void OperatorMenuButton_Click(object sender, RoutedEventArgs e) =>
@@ -923,12 +974,6 @@ public partial class MainWindow : Window
     private void SwitchOperatorButton_Click(object sender, RoutedEventArgs e)
     {
         _operatorSession.SwitchOperator();
-        RefreshIdentityText();
-    }
-
-    private void OperatorSignInMenu_Click(object sender, RoutedEventArgs e)
-    {
-        _operatorSession.SignIn();
         RefreshIdentityText();
     }
 

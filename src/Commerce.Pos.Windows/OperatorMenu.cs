@@ -56,58 +56,27 @@ public static class OperatorMenuPresenter
     };
 }
 
-public enum OperatorSignInScreen
-{
-    PinPicker,
-    Provision,
-}
-
 /// <summary>
-/// Which screen serves a sign-in: the PIN picker when at least one fresh
-/// operator is cached, otherwise the provisioning form. The latter only ever
-/// applies to first run (nothing cached yet) or when every cached operator went
-/// stale, so the terminal can always be set up at startup.
-/// </summary>
-public static class OperatorSignInPlanner
-{
-    public static OperatorSignInScreen ScreenFor(IReadOnlyList<CachedOperator> cachedOperators, DateTimeOffset now) =>
-        cachedOperators.Any(op => !op.IsStale(now)) ? OperatorSignInScreen.PinPicker : OperatorSignInScreen.Provision;
-}
-
-public enum OperatorLoginMode
-{
-    /// <summary>Cached operators only; never shows provisioning (switch operator, after sign-out).</summary>
-    PinPicker,
-
-    /// <summary>The PIN picker, or the provisioning form when no fresh operator exists (startup, sign in).</summary>
-    PinPickerOrFirstRun,
-}
-
-/// <summary>
-/// The operator-menu actions over <see cref="CurrentOperator"/>. The prompt
-/// shows the sign-in UI and returns the operator who signed in (null when
-/// cancelled).
+/// The operator-menu actions over <see cref="CurrentOperator"/>. Both "Cambiar
+/// operador" and "Cerrar sesión" end in the lock screen: the session only forgets
+/// the operator, and the main window (which shows the lock layer whenever nobody is
+/// signed in) does the rest.
 ///
-/// Signing out never touches the cash session: it stays open (pos-operator-session
-/// "Operator Sign-Out Keeps the Cash Session") and sales keep working, attributed
-/// to the installation until somebody signs in again.
+/// Signing out never touches the cash session or the sale in progress: they stay
+/// where they are, hidden behind the lock, and the next operator resumes them
+/// (pos-operator-session "Sign-Out Keeps The Cash Session And The Cart").
 /// </summary>
-public sealed class OperatorSessionActions(CurrentOperator current, Func<OperatorLoginMode, CachedOperator?> prompt)
+public sealed class OperatorSessionActions(CurrentOperator current)
 {
-    public void SwitchOperator() => Adopt(prompt(OperatorLoginMode.PinPicker));
+    public void SwitchOperator() => current.Clear();
 
-    public void SignIn() => Adopt(prompt(OperatorLoginMode.PinPickerOrFirstRun));
-
-    public void SignOut()
-    {
-        current.Clear();
-        Adopt(prompt(OperatorLoginMode.PinPicker));
-    }
+    public void SignOut() => current.Clear();
 
     /// <summary>
-    /// Syncs the active operator with the terminal's stored operators after
-    /// Personal changed them: a removed operator is signed out, a re-provisioned
-    /// one picks up its fresh permissions.
+    /// Syncs the active operator with the terminal's stored operators after they
+    /// changed (removed in Personal, dropped by the status check): a removed operator
+    /// is signed out, one whose permissions changed picks up the fresh record. Safe
+    /// to call after every sync: an unchanged operator keeps the same instance.
     /// </summary>
     public void Reconcile(IReadOnlyList<CachedOperator> stored)
     {
@@ -121,17 +90,9 @@ public sealed class OperatorSessionActions(CurrentOperator current, Func<Operato
         {
             current.Clear();
         }
-        else if (match != active)
+        else if (match.Permissions != active.Permissions || match.Email != active.Email)
         {
             current.Set(match);
-        }
-    }
-
-    private void Adopt(CachedOperator? signedIn)
-    {
-        if (signedIn is not null)
-        {
-            current.Set(signedIn);
         }
     }
 }
