@@ -544,7 +544,7 @@
         <Setter Property="BorderBrush" Value="{DynamicResource BorderBrushMuted}" />
     </Style>
 
-    <!-- Payment method buttons: Phase 2, rendered disabled with an explanatory tooltip. -->
+    <!-- Payment method buttons (cash, card, QR) in the totals panel. -->
     <Style x:Key="TenderButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
         <Setter Property="MinHeight" Value="46" />
         <Setter Property="FontSize" Value="13" />

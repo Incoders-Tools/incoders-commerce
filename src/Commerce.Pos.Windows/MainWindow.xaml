@@ -57,7 +57,7 @@
                     </TextBlock>
                 </Grid>
                 <Button x:Name="ManualSaleButton" Grid.Column="1" Style="{StaticResource SecondaryButton}" Margin="10,0,0,0" MinHeight="52" Padding="16,0"
-                        Click="ManualSaleButton_Click" ToolTip="Cobrar un importe sin código de producto" AutomationProperties.Name="Venta manual">
+                        Click="ManualSaleButton_Click" ToolTip="Registrar una venta por un importe sin código de producto" AutomationProperties.Name="Venta manual">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="{StaticResource IconEdit}" Style="{StaticResource IconTextBlock}" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Margin="0,0,8,0" />
                         <TextBlock Text="Venta manual" FontWeight="SemiBold" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" VerticalAlignment="Center" />
@@ -72,7 +72,12 @@
                                        Style="{StaticResource MutedTextBlock}" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,12" />
                             <TextBlock Text="Importe" Style="{StaticResource MutedTextBlock}" Margin="0,0,0,6" />
                             <TextBox x:Name="AmountTextBox" Text="19.99" />
-                            <Button x:Name="CommitSaleButton" Content="Cobrar venta manual" Margin="0,12,0,0" Click="CommitSaleButton_Click" />
+                            <TextBlock Text="Cobrar con" Style="{StaticResource MutedTextBlock}" Margin="0,12,0,6" />
+                            <UniformGrid Rows="1">
+                                <Button x:Name="CommitSaleButton" Content="Efectivo" Tag="cash" Margin="0,0,6,0" Click="CommitSaleButton_Click" AutomationProperties.Name="Cobrar venta manual en efectivo" />
+                                <Button x:Name="ManualCardButton" Content="Tarjeta" Tag="card" Margin="0,0,6,0" Click="CommitSaleButton_Click" AutomationProperties.Name="Cobrar venta manual con tarjeta" />
+                                <Button x:Name="ManualQrButton" Content="QR" Tag="qr" Click="CommitSaleButton_Click" AutomationProperties.Name="Cobrar venta manual con QR" />
+                            </UniformGrid>
                         </StackPanel>
                     </Border>
                 </Popup>
@@ -137,7 +142,7 @@
                         </StackPanel>
                     </Grid>
                     <controls:SaleLinesTable x:Name="SaleTable" Grid.Row="1" QuantityEdited="SaleTable_QuantityEdited" LineRemoved="SaleTable_LineRemoved" LineDiscountRequested="SaleTable_LineDiscountRequested" />
-                    <controls:TotalsPanel x:Name="TotalsPanelControl" Grid.Row="2" Margin="0,10,0,0" CommitRequested="CommitScannedSaleButton_Click" SaleDiscountRequested="TotalsPanel_SaleDiscountRequested" />
+                    <controls:TotalsPanel x:Name="TotalsPanelControl" Grid.Row="2" Margin="0,10,0,0" TenderRequested="CommitScannedSaleButton_Click" SaleDiscountRequested="TotalsPanel_SaleDiscountRequested" />
                 </Grid>
 
                 <controls:CategoryRail x:Name="CategoryRailControl" CategorySelected="CategoryRail_CategorySelected" Grid.Column="2" Width="104" Margin="14,26,0,0" />

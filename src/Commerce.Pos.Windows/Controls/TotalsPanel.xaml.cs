@@ -5,9 +5,9 @@ using System.Windows.Controls;
 namespace Commerce.Pos.Windows.Controls;
 
 /// <summary>
-/// Subtotal, TOTAL and the charge action. The tender buttons (cash, card, QR)
-/// are Phase 2 and stay disabled; <see cref="CommitRequested"/> is the only
-/// action and keeps the existing scanned-sale commit.
+/// Subtotal, discount, TOTAL and the tender buttons (cash, card, QR), which are
+/// the way to complete a sale: each raises <see cref="TenderRequested"/> with
+/// the method and the host collects the tender and commits.
 /// </summary>
 public partial class TotalsPanel : UserControl
 {
@@ -23,8 +23,8 @@ public partial class TotalsPanel : UserControl
     public static readonly RoutedEvent SaleDiscountRequestedEvent =
         EventManager.RegisterRoutedEvent(nameof(SaleDiscountRequested), RoutingStrategy.Bubble, typeof(RoutedEventHandler), typeof(TotalsPanel));
 
-    public static readonly RoutedEvent CommitRequestedEvent =
-        EventManager.RegisterRoutedEvent(nameof(CommitRequested), RoutingStrategy.Bubble, typeof(RoutedEventHandler), typeof(TotalsPanel));
+    public static readonly RoutedEvent TenderRequestedEvent =
+        EventManager.RegisterRoutedEvent(nameof(TenderRequested), RoutingStrategy.Bubble, typeof(TenderRequestedEventHandler), typeof(TotalsPanel));
 
     public TotalsPanel()
     {
@@ -32,7 +32,8 @@ public partial class TotalsPanel : UserControl
         Refresh();
     }
 
-    public event RoutedEventHandler CommitRequested { add => AddHandler(CommitRequestedEvent, value); remove => RemoveHandler(CommitRequestedEvent, value); }
+    /// <summary>The operator chose how the customer pays; the host collects the tender and commits the sale.</summary>
+    public event TenderRequestedEventHandler TenderRequested { add => AddHandler(TenderRequestedEvent, value); remove => RemoveHandler(TenderRequestedEvent, value); }
 
     /// <summary>The operator asked to add, change or remove the whole-sale discount; the host authorizes and applies it.</summary>
     public event RoutedEventHandler SaleDiscountRequested { add => AddHandler(SaleDiscountRequestedEvent, value); remove => RemoveHandler(SaleDiscountRequestedEvent, value); }
@@ -57,11 +58,11 @@ public partial class TotalsPanel : UserControl
         set => SetValue(TotalProperty, value);
     }
 
-    /// <summary>Enables the charge action (there is something to charge).</summary>
+    /// <summary>Enables the tender buttons (there is something to charge).</summary>
     public bool CanCommit
     {
-        get => CommitScannedSaleButton.IsEnabled;
-        set => CommitScannedSaleButton.IsEnabled = value;
+        get => CashTenderButton.IsEnabled;
+        set => CashTenderButton.IsEnabled = CardTenderButton.IsEnabled = QrTenderButton.IsEnabled = value;
     }
 
     private void Refresh()
@@ -73,5 +74,19 @@ public partial class TotalsPanel : UserControl
 
     private void SaleDiscountButton_Click(object sender, RoutedEventArgs e) => RaiseEvent(new RoutedEventArgs(SaleDiscountRequestedEvent, this));
 
-    private void CommitButton_Click(object sender, RoutedEventArgs e) => RaiseEvent(new RoutedEventArgs(CommitRequestedEvent, this));
+    private void TenderButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: string method })
+        {
+            RaiseEvent(new TenderRequestedEventArgs(TenderRequestedEvent, this, method));
+        }
+    }
 }
+
+/// <summary>The tender method the operator picked (<see cref="Commerce.Domain.Sales.SaleTender"/> constants).</summary>
+public sealed class TenderRequestedEventArgs(RoutedEvent routedEvent, object source, string method) : RoutedEventArgs(routedEvent, source)
+{
+    public string Method { get; } = method;
+}
+
+public delegate void TenderRequestedEventHandler(object sender, TenderRequestedEventArgs e);

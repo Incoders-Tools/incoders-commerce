@@ -8,6 +8,8 @@ using Commerce.Application.Pricing;
 using Commerce.BranchNode;
 using Commerce.Domain.Discounts;
 using Commerce.Domain.Identity;
+using Commerce.Domain.Sales;
+using Commerce.Pos.Windows.Controls;
 using Commerce.Updater;
 using Commerce.Domain.Sync;
 
@@ -202,6 +204,11 @@ public partial class MainWindow : Window
             $"{operatorLine}";
     }
 
+    /// <summary>
+    /// Manual-total sale, completed with one of the tender buttons in the popup
+    /// (its Tag is the method). Asks the tender, then commits with the selected
+    /// customer and the tender.
+    /// </summary>
     private void CommitSaleButton_Click(object sender, RoutedEventArgs e)
     {
         ManualSalePopup.IsOpen = false;
@@ -217,11 +224,19 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (!decimal.TryParse(AmountTextBox.Text, NumberStyles.Number, CultureInfo.InvariantCulture, out var amount))
+        if (!decimal.TryParse(AmountTextBox.Text, NumberStyles.Number, CultureInfo.InvariantCulture, out var amount) || amount <= 0m)
         {
             SaleResultText.Text = "Importe inválido.";
             return;
         }
+
+        var tender = CollectTender((sender as FrameworkElement)?.Tag as string ?? SaleTender.Cash, amount);
+        if (tender is null)
+        {
+            return;
+        }
+
+        var customerId = (CustomerPickerComboBox.SelectedItem as SaleCustomerPickerItem)?.CustomerId;
 
         // Zero references to DeviceToken, zero HTTP, zero credential validity
         // check — a fully revoked device credential never reaches this path.
@@ -232,10 +247,12 @@ public partial class MainWindow : Window
             saleId: Guid.NewGuid(),
             totalAmount: amount,
             operationId: Guid.NewGuid(),
-            correlationId: Guid.NewGuid());
+            correlationId: Guid.NewGuid(),
+            customerId: customerId,
+            tender: tender);
 
         SaleResultText.Text = result.WasNewlyCommitted
-            ? $"Venta {result.Effect.SaleId} registrada por {result.Effect.TotalAmount:C} en branch.db."
+            ? $"Venta {result.Effect.SaleId} registrada por {result.Effect.TotalAmount:C} ({TenderInput.Describe(tender)}) en branch.db."
             : $"La venta {result.Effect.SaleId} ya estaba registrada (reintento idempotente).";
 
         RefreshStatus();
@@ -249,6 +266,16 @@ public partial class MainWindow : Window
         // slow or unreachable cloud can never delay or fail this commit
         // (ADR-002).
         _ = RunSyncAsync(SyncTrigger.PostSale);
+    }
+
+    /// <summary>
+    /// Opens the tender prompt for <paramref name="method"/> and returns what the
+    /// operator confirmed, or null when they cancelled (nothing is committed).
+    /// </summary>
+    private SaleTender? CollectTender(string method, decimal total)
+    {
+        var window = new TenderWindow(method, total) { Owner = this };
+        return window.ShowDialog() == true ? window.Tender : null;
     }
 
     /// <summary>
@@ -484,12 +511,13 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Task 7.4: "Commit scanned sale" — writes `sale_effects(sale_kind=
+    /// Task 7.4: complete the scanned sale with a tender (raised by the totals
+    /// panel's Efectivo / Tarjeta / QR buttons) — writes `sale_effects(sale_kind=
     /// 'Scanned') + sale_lines` atomically via
     /// <see cref="BranchNodeService.CompleteScannedSale"/>, distinct from
     /// <see cref="CommitSaleButton_Click"/>'s manual-total path.
     /// </summary>
-    private void CommitScannedSaleButton_Click(object sender, RoutedEventArgs e)
+    private void CommitScannedSaleButton_Click(object sender, TenderRequestedEventArgs e)
     {
         if (_cart.IsEmpty)
         {
@@ -497,9 +525,15 @@ public partial class MainWindow : Window
             return;
         }
 
+        var total = _cart.Total;
+        var tender = CollectTender(e.Method, total);
+        if (tender is null)
+        {
+            return;
+        }
+
         var saleId = Guid.NewGuid();
         var lines = _cart.BuildSaleLines(saleId);
-        var total = _cart.Total;
         var customerId = (CustomerPickerComboBox.SelectedItem as SaleCustomerPickerItem)?.CustomerId;
 
         var result = _branchNodeService.CompleteScannedSale(
@@ -513,10 +547,11 @@ public partial class MainWindow : Window
             correlationId: Guid.NewGuid(),
             customerId: customerId,
             saleDiscount: _cart.SaleDiscount,
-            discountAuthorization: _cart.Authorization);
+            discountAuthorization: _cart.Authorization,
+            tender: tender);
 
         SaleResultText.Text = result.WasNewlyCommitted
-            ? $"Venta escaneada {result.Effect.SaleId} registrada por {result.Effect.TotalAmount:C} en branch.db."
+            ? $"Venta escaneada {result.Effect.SaleId} registrada por {result.Effect.TotalAmount:C} ({TenderInput.Describe(tender)}) en branch.db."
             : $"La venta {result.Effect.SaleId} ya estaba registrada (reintento idempotente).";
 
         _cart.Clear();

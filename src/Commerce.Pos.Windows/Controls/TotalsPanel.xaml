@@ -36,29 +36,25 @@
             </Grid>
 
             <Grid Grid.Row="2" Margin="0,2,0,10">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                     <TextBlock Text="TOTAL" FontSize="16" FontWeight="SemiBold" Style="{StaticResource MutedTextBlock}" VerticalAlignment="Center" Margin="0,0,10,0" />
                     <TextBlock x:Name="ScannedTotalText" Text="$0.00" FontSize="32" FontWeight="Bold" VerticalAlignment="Center" />
                 </StackPanel>
-                <Button x:Name="CommitScannedSaleButton" Grid.Column="1" Content="Cobrar venta" MinWidth="150" MinHeight="46" FontSize="15" Click="CommitButton_Click" />
             </Grid>
 
-            <!-- Payment methods arrive in Phase 2; disabled with an explanatory tooltip until then. -->
+            <!-- Payment methods: the way to complete a sale. Each one asks the host to collect the tender and commit. -->
             <UniformGrid Grid.Row="3" Rows="1">
                 <UniformGrid.Resources>
                     <Style TargetType="Button" BasedOn="{StaticResource TenderButton}">
                         <Setter Property="Margin" Value="0,0,6,0" />
-                        <Setter Property="IsEnabled" Value="False" />
-                        <Setter Property="ToolTip" Value="Próximamente" />
+                        <Setter Property="FontSize" Value="15" />
+                        <Setter Property="FontWeight" Value="SemiBold" />
+                        <EventSetter Event="Click" Handler="TenderButton_Click" />
                     </Style>
                 </UniformGrid.Resources>
-                <Button Content="Efectivo" />
-                <Button Content="Tarjeta" />
-                <Button Content="QR" Margin="0" />
+                <Button x:Name="CashTenderButton" Content="Efectivo" Tag="cash" AutomationProperties.Name="Cobrar en efectivo" />
+                <Button x:Name="CardTenderButton" Content="Tarjeta" Tag="card" AutomationProperties.Name="Cobrar con tarjeta" />
+                <Button x:Name="QrTenderButton" Content="QR" Tag="qr" Margin="0" AutomationProperties.Name="Cobrar con QR" />
             </UniformGrid>
         </Grid>
     </Border>

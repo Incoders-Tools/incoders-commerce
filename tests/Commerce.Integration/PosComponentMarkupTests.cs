@@ -89,7 +89,6 @@ public sealed class PosComponentMarkupTests
         Assert.Contains("x:Name=\"SaleDiscountButton\"", xaml);
         Assert.Contains("SaleDiscountRequested", code);
         Assert.Contains("x:Name=\"ScannedTotalText\"", xaml);
-        Assert.Contains("x:Name=\"CommitScannedSaleButton\"", xaml);
     }
 
     [Fact]
@@ -106,18 +105,59 @@ public sealed class PosComponentMarkupTests
         commit = commit[..commit.IndexOf("Task 7.7", StringComparison.Ordinal)];
         Assert.Contains("saleDiscount: _cart.SaleDiscount", commit);
         Assert.Contains("discountAuthorization: _cart.Authorization", commit);
+        Assert.Contains("tender: tender", commit);
         Assert.DoesNotContain("DeviceToken", commit);
     }
 
     [Fact]
-    public void TenderButtons_AreDisabledWithAComingSoonTooltip()
+    public void TotalsPanel_OffersEnabledTenderButtons_AsTheWayToCompleteASale()
     {
-        var totals = File.ReadAllText(Path.Combine(PosDirectory(), "Controls", "TotalsPanel.xaml"));
+        var xaml = File.ReadAllText(Path.Combine(PosDirectory(), "Controls", "TotalsPanel.xaml"));
+        var code = File.ReadAllText(Path.Combine(PosDirectory(), "Controls", "TotalsPanel.xaml.cs"));
 
-        Assert.Contains("Efectivo", totals);
-        Assert.Contains("Tarjeta", totals);
-        Assert.Contains("QR", totals);
-        Assert.Contains("Property=\"IsEnabled\" Value=\"False\"", totals);
-        Assert.Contains("Próximamente", totals);
+        Assert.Contains("x:Name=\"CashTenderButton\"", xaml);
+        Assert.Contains("x:Name=\"CardTenderButton\"", xaml);
+        Assert.Contains("x:Name=\"QrTenderButton\"", xaml);
+        Assert.Contains("Efectivo", xaml);
+        Assert.Contains("Tarjeta", xaml);
+        Assert.Contains("QR", xaml);
+        Assert.DoesNotContain("Property=\"IsEnabled\" Value=\"False\"", xaml);
+        Assert.DoesNotContain("Próximamente", xaml);
+        Assert.DoesNotContain("Cobrar venta", xaml);
+        Assert.Contains("TenderRequested", code);
+    }
+
+    [Fact]
+    public void TenderWindow_HasTheCashAndConfirmationControls_AndIsThemedThroughDynamicResourceOnly()
+    {
+        var xaml = File.ReadAllText(Path.Combine(PosDirectory(), "TenderWindow.xaml"));
+
+        Assert.Contains("AmountReceivedTextBox", xaml);
+        Assert.Contains("ExactButton", xaml);
+        Assert.Contains("Exacto", xaml);
+        Assert.Contains("ChangeText", xaml);
+        Assert.Contains("ConfirmButton", xaml);
+        Assert.Contains("{DynamicResource ShellBrush}", xaml);
+        Assert.Empty(Regex.Matches(xaml, @"\{StaticResource\s+\w*Brush\w*\}"));
+    }
+
+    [Fact]
+    public void MainWindow_CompletesBothSalePathsWithATender_AndTheManualPathRecordsTheCustomer()
+    {
+        var xaml = File.ReadAllText(Path.Combine(PosDirectory(), "MainWindow.xaml"));
+        var code = File.ReadAllText(Path.Combine(PosDirectory(), "MainWindow.xaml.cs"));
+
+        Assert.Contains("TenderRequested=", xaml);
+        Assert.Contains("x:Name=\"CommitSaleButton\"", xaml);
+        Assert.Contains("x:Name=\"AmountTextBox\"", xaml);
+
+        var manual = code[code.IndexOf("private void CommitSaleButton_Click", StringComparison.Ordinal)..];
+        manual = manual[..manual.IndexOf("private void RefreshCustomerPicker", StringComparison.Ordinal)];
+        Assert.Contains("CompleteOfflineSale", manual);
+        Assert.Contains("customerId:", manual);
+        Assert.Contains("tender:", manual);
+        // Comments may mention the device token; only executable lines matter.
+        var manualCode = string.Join(Environment.NewLine, manual.Split((char)10).Where(l => !l.TrimStart().StartsWith("//", StringComparison.Ordinal)));
+        Assert.DoesNotContain("DeviceToken", manualCode);
     }
 }
