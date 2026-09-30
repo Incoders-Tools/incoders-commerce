@@ -70,12 +70,12 @@ by admin (the staff member re-enters with email + password to set a new PIN).
   `f75bdbd..3ec7bc3` joins the first review here).
 
 ## Tasks
-- [ ] T1 API: `PUT /account/users/{id}/status` (`{ "revoked": bool }`),
+- [x] T1 API: `PUT /account/users/{id}/status` (`{ "revoked": bool }`),
   `ManageUsers`, same tenant/branch cap as roles/branches, cannot deactivate
   yourself, cannot deactivate someone holding permissions you lack, bumps
   `session_version` so web sessions end, audited; revoked users already fail
   sign-in and device verify (confirm). Route: delegated direct.
-- [ ] T2 Web: "Dar de baja" / "Reactivar" on the Users screen with confirm,
+- [x] T2 Web: "Dar de baja" / "Reactivar" on the Users screen with confirm,
   friendly errors. Route: delegated direct (may share the T1 writer).
 - [ ] T3 POS shell sections: MainWindow hosts Venta, Clientes, Personal as
   views in the content area (nav switches, returns to Venta); convert
@@ -101,6 +101,39 @@ by admin (the staff member re-enters with email + password to set a new PIN).
 ## Progress
 - 2026-09-30: document created (route: parent, direct; mapping reused from
   `staff-roles-and-pos-operator-ux`).
+- 2026-09-30 T1+T2 done (route: delegated direct, one writer).
+  - T1 `0af1336` feat(account): `PUT /account/users/{userId:guid}/status`
+    `{ "revoked": bool }` in the `/account/users` admin group (ManageUsers,
+    tenant scope, sysadmin acting allowed). 204, idempotent (no second audit
+    row or session bump). Errors: 400 `revoked-required`, 400
+    `cannot-revoke-self`, 400 `not-a-staff-user` (customer-linked), 404
+    unknown/foreign, 403 `permissions-exceed-caller` (target permissions not
+    a subset of the caller's, or sysadmin target for non-sysadmin), 403
+    `branch-not-in-scope` (target branch outside caller scope; sysadmin
+    acting exempt). Revoke sets `is_revoked`, bumps `session_version`
+    (+ `SessionVersionCache.Set`, so the session ends immediately), audits
+    `user.revoked` / `user.reactivated`. Spec: user-credentials "Deactivate
+    And Reactivate Staff".
+  - T2 `cec16fa` feat(web): Users row action "Dar de baja" / "Reactivar" with
+    an inline confirm step (no dialog component exists in the codebase),
+    hidden on the caller's own row (`useOptionalAuth().user.userId`),
+    friendly es/en errors; `updateUserStatus` in `api/account.ts`.
+  - RED: 14 new `RoleTaxonomyTests.Status_*` failed 14/14 (405 MethodNotAllowed;
+    session test 200 instead of 401) in a worktree seeded with the test +
+    request record only; 8 new UsersScreen vitest cases failed 8/8.
+    GREEN: RoleTaxonomyTests 38/38; UsersScreen 39/39.
+  - Checks: `dotnet build Commerce.sln` (worktree) 0 errors; full
+    `dotnet test tests/Commerce.Integration` (worktree) 1206 passed, 1 failed
+    (`PosCompositionRootTests.Build_Resolves_BranchNodeService`, SQLitePCL
+    disposed object: the known launcher trap, unrelated); `npm test` 320/320;
+    `npm run build` ok (dist); `npm run lint` 0 errors, warning count
+    unchanged (27); e2e standalone `tsc --noEmit --ignoreConfig` exit 0
+    (no e2e selector touches the new row actions).
+  - Decisions: revoked users already failed sign-in, `/device/pair`,
+    `/device/operators/verify` (401) and status reports inactive; now proven
+    end to end through the new endpoint. Reactivation does not bump the
+    session version. Commits reviewed per RDD: not yet assessed (pending
+    parent).
 
 ## Next step
-T1.
+T3 (POS shell sections; Personal uses `PUT /account/users/{id}/status`).
