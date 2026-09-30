@@ -562,4 +562,259 @@ public sealed class RoleTaxonomyTests : IClassFixture<WebApplicationFactory<Prog
         Assert.Equal(originalRolesJson, GetRolesJson(targetId));
         Assert.Equal(0, CountAuditRows("user", targetId, "user.roles.assigned"));
     }
+
+    // --- strict staff branch scope (staff-roles-and-pos-operator-ux T1) -------
+
+    private static Guid[] GetBranchScope(Guid userId)
+    {
+        using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        owner.Open();
+        using var cmd = new NpgsqlCommand("SELECT branch_scope FROM users WHERE id = $1", owner);
+        cmd.Parameters.AddWithValue(userId);
+        return (Guid[])cmd.ExecuteScalar()!;
+    }
+
+    private static void AddToBranchScope(Guid userId, Guid branchId)
+    {
+        using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        owner.Open();
+        using var cmd = new NpgsqlCommand("UPDATE users SET branch_scope = array_append(branch_scope, $1) WHERE id = $2", owner);
+        cmd.Parameters.AddWithValue(branchId);
+        cmd.Parameters.AddWithValue(userId);
+        cmd.ExecuteNonQuery();
+    }
+
+    private static async Task<string?> ReadErrorCodeAsync(HttpResponseMessage response)
+    {
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return doc.RootElement.TryGetProperty("error", out var error) ? error.GetString() : null;
+    }
+
+    private static async Task<Guid> CreateBranchAsync(HttpClient adminClient, string name)
+    {
+        var response = await adminClient.PostAsJsonAsync("/account/branches", new CreateBranchRequest(name));
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<CreateBranchResponse>())!.BranchId;
+    }
+
+    /// <summary>A caller who may manage users and grant seller, scoped to ONE branch only.</summary>
+    private async Task<HttpClient> SignInScopedManagerAsync(Guid organizationId, Guid branchId, string email)
+    {
+        var id = Guid.NewGuid();
+        SeedSecondUser(
+            organizationId, id, email, HashPassword(id, organizationId, "scoped-password"), "scoped-manager",
+            Permission.ManageUsers | Permission.ViewSales, [branchId]);
+        var client = _factory.CreateClient(CookieClientOptions());
+        var signIn = await client.PostAsJsonAsync("/account/sign-in", new SignInRequest(email, "scoped-password"));
+        Assert.Equal(HttpStatusCode.OK, signIn.StatusCode);
+        return client;
+    }
+
+    [Fact]
+    public async Task CreateUser_StaffWithEmptyBranches_Returns400BranchRequired_AndNoUserPersisted()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var client = _factory.CreateClient(CookieClientOptions());
+        await BootstrapOrgAsync(client, "b1-admin@example.com", "admin-password");
+        await client.PostAsJsonAsync("/account/sign-in", new SignInRequest("b1-admin@example.com", "admin-password"));
+
+        var response = await client.PostAsJsonAsync(
+            "/account/users",
+            new CreateUserRequest("b1-nobranch@example.com", "password", [RoleCatalog.Seller], []));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("branch-required", await ReadErrorCodeAsync(response));
+        Assert.Equal(0, CountUsersByEmail("b1-nobranch@example.com"));
+    }
+
+    [Fact]
+    public async Task CreateUser_StaffWithOmittedBranches_Returns400BranchRequired()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var client = _factory.CreateClient(CookieClientOptions());
+        await BootstrapOrgAsync(client, "b2-admin@example.com", "admin-password");
+        await client.PostAsJsonAsync("/account/sign-in", new SignInRequest("b2-admin@example.com", "admin-password"));
+
+        var response = await client.PostAsJsonAsync(
+            "/account/users",
+            new { email = "b2-omitted@example.com", password = "password", roleNames = new[] { RoleCatalog.Seller } });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("branch-required", await ReadErrorCodeAsync(response));
+        Assert.Equal(0, CountUsersByEmail("b2-omitted@example.com"));
+    }
+
+    [Fact]
+    public async Task CreateUser_BranchOutsideOrganization_Returns400WithTypedCode()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var clientA = _factory.CreateClient(CookieClientOptions());
+        await BootstrapOrgAsync(clientA, "b3-admin-a@example.com", "admin-password");
+        await clientA.PostAsJsonAsync("/account/sign-in", new SignInRequest("b3-admin-a@example.com", "admin-password"));
+        var (_, branchIdB, _) = await BootstrapOrgAsync(_factory.CreateClient(), "b3-admin-b@example.com", "admin-password-b");
+
+        var response = await clientA.PostAsJsonAsync(
+            "/account/users",
+            new CreateUserRequest("b3-cross@example.com", "password", [RoleCatalog.Seller], [branchIdB]));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("branch-not-in-organization", await ReadErrorCodeAsync(response));
+    }
+
+    [Fact]
+    public async Task CreateUser_ScopedCallerAssigningBranchOutsideOwnScope_Returns403_AndNoUserPersisted()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var admin = _factory.CreateClient(CookieClientOptions());
+        var (organizationId, branchId, _) = await BootstrapOrgAsync(admin, "b4-admin@example.com", "admin-password");
+        await admin.PostAsJsonAsync("/account/sign-in", new SignInRequest("b4-admin@example.com", "admin-password"));
+        var otherBranchId = await CreateBranchAsync(admin, "Second branch");
+        var scoped = await SignInScopedManagerAsync(organizationId, branchId, "b4-scoped@example.com");
+
+        var outside = await scoped.PostAsJsonAsync(
+            "/account/users",
+            new CreateUserRequest("b4-outside@example.com", "password", [RoleCatalog.Seller], [otherBranchId]));
+        var inside = await scoped.PostAsJsonAsync(
+            "/account/users",
+            new CreateUserRequest("b4-inside@example.com", "password", [RoleCatalog.Seller], [branchId]));
+
+        Assert.Equal(HttpStatusCode.Forbidden, outside.StatusCode);
+        Assert.Equal(0, CountUsersByEmail("b4-outside@example.com"));
+        Assert.Equal(HttpStatusCode.Created, inside.StatusCode);
+    }
+
+    [Fact]
+    public async Task ReplaceBranches_HappyPath_PersistsScope_Audits_AndListReturnsBranchIds()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var admin = _factory.CreateClient(CookieClientOptions());
+        var (organizationId, branchId, adminUserId) = await BootstrapOrgAsync(admin, "b5-admin@example.com", "admin-password");
+        await admin.PostAsJsonAsync("/account/sign-in", new SignInRequest("b5-admin@example.com", "admin-password"));
+        var secondBranchId = await CreateBranchAsync(admin, "Second branch");
+        AddToBranchScope(adminUserId, secondBranchId); // a new branch is not automatically in its creator's scope
+        var create = await admin.PostAsJsonAsync(
+            "/account/users",
+            new CreateUserRequest("b5-target@example.com", "password", [RoleCatalog.Seller], [branchId]));
+        var created = await create.Content.ReadFromJsonAsync<CreateUserResponse>();
+
+        var response = await admin.PutAsJsonAsync(
+            $"/account/users/{created!.UserId}/branches", new ReplaceBranchesRequest([secondBranchId]));
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal([secondBranchId], GetBranchScope(created.UserId));
+        var audit = FindAuditRow("user", created.UserId, "user.branches.assigned");
+        Assert.NotNull(audit);
+        Assert.Equal(adminUserId, audit!.Value.ActorId);
+        Assert.Equal(organizationId, audit.Value.OrganizationId);
+
+        var list = await admin.GetFromJsonAsync<List<UserSummaryDto>>("/account/users");
+        Assert.Equal([secondBranchId], list!.Single(u => u.UserId == created.UserId).BranchIds);
+    }
+
+    [Fact]
+    public async Task ReplaceBranches_EmptyList_Returns400BranchRequired_AndScopeUnchanged()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var admin = _factory.CreateClient(CookieClientOptions());
+        var (_, branchId, _) = await BootstrapOrgAsync(admin, "b6-admin@example.com", "admin-password");
+        await admin.PostAsJsonAsync("/account/sign-in", new SignInRequest("b6-admin@example.com", "admin-password"));
+        var create = await admin.PostAsJsonAsync(
+            "/account/users",
+            new CreateUserRequest("b6-target@example.com", "password", [RoleCatalog.Seller], [branchId]));
+        var created = await create.Content.ReadFromJsonAsync<CreateUserResponse>();
+
+        var response = await admin.PutAsJsonAsync(
+            $"/account/users/{created!.UserId}/branches", new ReplaceBranchesRequest([]));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("branch-required", await ReadErrorCodeAsync(response));
+        Assert.Equal([branchId], GetBranchScope(created.UserId));
+    }
+
+    [Fact]
+    public async Task ReplaceBranches_BranchOutsideOrganization_Returns400WithTypedCode()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var admin = _factory.CreateClient(CookieClientOptions());
+        var (_, branchId, _) = await BootstrapOrgAsync(admin, "b7-admin@example.com", "admin-password");
+        await admin.PostAsJsonAsync("/account/sign-in", new SignInRequest("b7-admin@example.com", "admin-password"));
+        var (_, foreignBranchId, _) = await BootstrapOrgAsync(_factory.CreateClient(), "b7-admin-b@example.com", "admin-password-b");
+        var create = await admin.PostAsJsonAsync(
+            "/account/users",
+            new CreateUserRequest("b7-target@example.com", "password", [RoleCatalog.Seller], [branchId]));
+        var created = await create.Content.ReadFromJsonAsync<CreateUserResponse>();
+
+        var response = await admin.PutAsJsonAsync(
+            $"/account/users/{created!.UserId}/branches", new ReplaceBranchesRequest([foreignBranchId]));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("branch-not-in-organization", await ReadErrorCodeAsync(response));
+        Assert.Equal([branchId], GetBranchScope(created.UserId));
+    }
+
+    [Fact]
+    public async Task ReplaceBranches_CrossOrganizationOrUnknownTarget_Returns404()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var admin = _factory.CreateClient(CookieClientOptions());
+        var (_, branchId, _) = await BootstrapOrgAsync(admin, "b8-admin-a@example.com", "admin-password");
+        await admin.PostAsJsonAsync("/account/sign-in", new SignInRequest("b8-admin-a@example.com", "admin-password"));
+        var (_, _, foreignUserId) = await BootstrapOrgAsync(_factory.CreateClient(), "b8-admin-b@example.com", "admin-password-b");
+
+        var cross = await admin.PutAsJsonAsync($"/account/users/{foreignUserId}/branches", new ReplaceBranchesRequest([branchId]));
+        var unknown = await admin.PutAsJsonAsync($"/account/users/{Guid.NewGuid()}/branches", new ReplaceBranchesRequest([branchId]));
+
+        Assert.Equal(HttpStatusCode.NotFound, cross.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, unknown.StatusCode);
+    }
+
+    [Fact]
+    public async Task ReplaceBranches_CallerWithoutManageUsers_Returns403()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var admin = _factory.CreateClient(CookieClientOptions());
+        var (organizationId, branchId, adminUserId) = await BootstrapOrgAsync(admin, "b9-admin@example.com", "admin-password");
+
+        var noPermId = Guid.NewGuid();
+        SeedSecondUser(
+            organizationId, noPermId, "b9-noperm@example.com", HashPassword(noPermId, organizationId, "noperm-password"),
+            "seller", Permission.ViewSales, [branchId]);
+        var noPerm = _factory.CreateClient(CookieClientOptions());
+        await noPerm.PostAsJsonAsync("/account/sign-in", new SignInRequest("b9-noperm@example.com", "noperm-password"));
+
+        var response = await noPerm.PutAsJsonAsync($"/account/users/{adminUserId}/branches", new ReplaceBranchesRequest([branchId]));
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task ReplaceBranches_ScopedCallerAssigningBranchOutsideOwnScope_Returns403()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var admin = _factory.CreateClient(CookieClientOptions());
+        var (organizationId, branchId, _) = await BootstrapOrgAsync(admin, "b10-admin@example.com", "admin-password");
+        await admin.PostAsJsonAsync("/account/sign-in", new SignInRequest("b10-admin@example.com", "admin-password"));
+        var otherBranchId = await CreateBranchAsync(admin, "Second branch");
+        var create = await admin.PostAsJsonAsync(
+            "/account/users",
+            new CreateUserRequest("b10-target@example.com", "password", [RoleCatalog.Seller], [branchId]));
+        var created = await create.Content.ReadFromJsonAsync<CreateUserResponse>();
+        var scoped = await SignInScopedManagerAsync(organizationId, branchId, "b10-scoped@example.com");
+
+        var response = await scoped.PutAsJsonAsync(
+            $"/account/users/{created!.UserId}/branches", new ReplaceBranchesRequest([otherBranchId]));
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal([branchId], GetBranchScope(created.UserId));
+    }
 }

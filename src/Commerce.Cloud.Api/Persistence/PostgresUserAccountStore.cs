@@ -386,6 +386,44 @@ public sealed class PostgresUserAccountStore
         await tx.CommitAsync(ct);
     }
 
+    /// <summary>
+    /// Owns ONE transaction: set_config -> read prior scope -> UPDATE
+    /// branch_scope -> audit row (old/new branch ids) -> COMMIT. Like the
+    /// roles endpoint, this does not bump `session_version`: branch scope is
+    /// read fresh from the store on every request, not baked into the cookie.
+    /// </summary>
+    public async Task ReplaceBranchScopeAsync(
+        CloudTenantScope scope, Guid userId, IReadOnlyList<Guid> branchIds, string actorKind, Guid actorId, CancellationToken ct)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+
+        await SetTenantScopeAsync(connection, tx, scope, ct);
+
+        Guid[] prior;
+        await using (var readCmd = new NpgsqlCommand("SELECT branch_scope FROM users WHERE id = $1", connection, tx))
+        {
+            readCmd.Parameters.AddWithValue(userId);
+            prior = (Guid[]?)await readCmd.ExecuteScalarAsync(ct) ?? [];
+        }
+
+        await using (var cmd = new NpgsqlCommand("UPDATE users SET branch_scope = $1 WHERE id = $2", connection, tx))
+        {
+            cmd.Parameters.AddWithValue(branchIds.ToArray());
+            cmd.Parameters.AddWithValue(userId);
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+
+        await AuditLogWriter.InsertAsync(
+            connection, tx,
+            new UserManagementAuditEntry(
+                actorKind, actorId, scope.OrganizationId, "user", userId, "user.branches.assigned",
+                JsonSerializer.Serialize(prior), JsonSerializer.Serialize(branchIds)),
+            ct);
+
+        await tx.CommitAsync(ct);
+    }
+
     public async Task<IReadOnlyList<UserSummaryDto>> ListStaffAsync(CloudTenantScope scope, CancellationToken ct)
     {
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
@@ -394,12 +432,12 @@ public sealed class PostgresUserAccountStore
 
         var users = new List<UserSummaryDto>();
         await using var cmd = new NpgsqlCommand(
-            "SELECT id, email, roles, is_revoked FROM users WHERE customer_id IS NULL ORDER BY email", connection, tx);
+            "SELECT id, email, roles, is_revoked, branch_scope FROM users WHERE customer_id IS NULL ORDER BY email", connection, tx);
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         while (await reader.ReadAsync(ct))
         {
             var roles = JsonSerializer.Deserialize<List<RoleDto>>(reader.GetString(2), RoleSerializerOptions) ?? [];
-            users.Add(new UserSummaryDto(reader.GetGuid(0), reader.GetString(1), roles.Select(role => role.Name).ToList(), reader.GetBoolean(3)));
+            users.Add(new UserSummaryDto(reader.GetGuid(0), reader.GetString(1), roles.Select(role => role.Name).ToList(), reader.GetBoolean(3), reader.GetFieldValue<Guid[]>(4)));
         }
         await reader.CloseAsync();
 

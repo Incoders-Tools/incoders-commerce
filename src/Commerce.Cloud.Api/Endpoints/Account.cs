@@ -43,6 +43,38 @@ public static class AccountEndpoints
     /// <summary>T5a branding validation: `#rrggbb`, nothing looser (no 3-digit shorthand, no alpha channel).</summary>
     private static readonly Regex HexColorPattern = new("^#[0-9a-fA-F]{6}$", RegexOptions.Compiled);
 
+    /// <summary>
+    /// Shared branch-scope validation for staff creation and branch
+    /// replacement. Returns null when the assignment is acceptable, otherwise
+    /// the denial: 400 <c>branch-required</c> (empty when required), 400
+    /// <c>branch-not-in-organization</c>, or 403 when a caller assigns a
+    /// branch outside their own scope. A system administrator acting on a
+    /// selected organization may assign any branch of it; the organization
+    /// check runs first so a foreign id never reveals cap details.
+    /// </summary>
+    private static async Task<IResult?> ValidateBranchAssignmentAsync(
+        CloudTenantScope scope, UserAccount caller, Guid[] branchIds, bool required,
+        PostgresUserAccountStore userStore, CancellationToken ct)
+    {
+        if (required && branchIds.Length == 0)
+        {
+            return Results.BadRequest(new { error = "branch-required" });
+        }
+
+        if (!await userStore.BranchesBelongToOrganizationAsync(scope, branchIds, ct))
+        {
+            return Results.BadRequest(new { error = "branch-not-in-organization" });
+        }
+
+        var actingSysadmin = caller.IsSystemAdmin && scope.IsActingOnSelectedOrganization;
+        if (!actingSysadmin && branchIds.Any(branchId => !caller.BranchScope.Contains(branchId)))
+        {
+            return Results.StatusCode(StatusCodes.Status403Forbidden);
+        }
+
+        return null;
+    }
+
     /// <summary>T5a branding validation: sensible upper bound on a caller-submitted URL, well above any real logo URL.</summary>
     private const int LogoUrlMaxLength = 2048;
 
@@ -602,13 +634,16 @@ public static class AccountEndpoints
                     : Results.Forbid();
             }
 
-            var branchIds = request.BranchIds ?? [];
-            if (!await userStore.BranchesBelongToOrganizationAsync(scope, branchIds, ct))
+            // A staff account (no customer link) is unusable without a branch
+            // (the POS rejects it with `branch-not-in-scope`), so an empty
+            // scope is refused for every client. Customer-linked accounts
+            // keep the empty scope they have always had.
+            var branchIds = (request.BranchIds ?? []).Distinct().ToArray();
+            var branchDenial = await ValidateBranchAssignmentAsync(
+                scope, caller, branchIds, required: request.CustomerId is null, userStore, ct);
+            if (branchDenial is not null)
             {
-                return Results.ValidationProblem(new Dictionary<string, string[]>
-                {
-                    ["branchIds"] = ["one or more branches do not belong to the caller's organization."],
-                });
+                return branchDenial;
             }
 
             // commerce-customer-identity follow-up: the target Customer must
@@ -706,6 +741,61 @@ public static class AccountEndpoints
 
             var roleDtos = roles!.Select(r => new RoleDto(r.Name, r.Permissions)).ToList();
             await userStore.ReplaceRolesAsync(scope, userId, roleDtos, "org-user", callerId, ct);
+
+            return Results.NoContent();
+        });
+
+        // Replaces a staff user's branch scope. Same authorization shape as
+        // the roles endpoint, and the same branch validation as creation
+        // (non-empty, inside the organization, inside the caller's own cap).
+        adminGroup.MapPut("/{userId:guid}/branches", async (
+            Guid userId,
+            ReplaceBranchesRequest request,
+            HttpContext httpContext,
+            PostgresUserAccountStore userStore,
+            CancellationToken ct) =>
+        {
+            var scope = TenantScopeEndpointFilter.GetScope(httpContext);
+
+            var callerIdClaim = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (callerIdClaim is null || !Guid.TryParse(callerIdClaim, out var callerId))
+            {
+                return Results.Forbid();
+            }
+
+            var caller = await userStore.LoadActorAsync(scope.IdentityScope, callerId, ct);
+            if (caller is null || caller.IsRevoked)
+            {
+                return Results.Forbid();
+            }
+
+            if (!ActingPermissions.For(caller, scope).HasFlag(Permission.ManageUsers))
+            {
+                return Results.Forbid();
+            }
+
+            var target = await userStore.LoadActorAsync(scope, userId, ct);
+            if (target is null)
+            {
+                return Results.NotFound();
+            }
+
+            if (target.CustomerId is not null)
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["userId"] = ["a customer-linked account has no branch scope."],
+                });
+            }
+
+            var branchIds = (request.BranchIds ?? []).Distinct().ToArray();
+            var branchDenial = await ValidateBranchAssignmentAsync(scope, caller, branchIds, required: true, userStore, ct);
+            if (branchDenial is not null)
+            {
+                return branchDenial;
+            }
+
+            await userStore.ReplaceBranchScopeAsync(scope, userId, branchIds, "org-user", callerId, ct);
 
             return Results.NoContent();
         });
@@ -891,7 +981,7 @@ public sealed record CreateUserRequest(string Email, string Password, string[] R
 
 public sealed record CreateUserResponse(Guid UserId);
 
-public sealed record UserSummaryDto(Guid UserId, string Email, IReadOnlyList<string> RoleNames, bool IsRevoked);
+public sealed record UserSummaryDto(Guid UserId, string Email, IReadOnlyList<string> RoleNames, bool IsRevoked, IReadOnlyList<Guid> BranchIds);
 public sealed record CreateBranchRequest(string BranchName);
 public sealed record CreateBranchResponse(Guid BranchId);
 public sealed record BranchSummaryDto(Guid BranchId, string BranchName);
@@ -902,3 +992,4 @@ public sealed record OrganizationBrandingResponse(string? LogoUrl, string? Prima
 public sealed record UpdateOrganizationBrandingRequest(string? LogoUrl, string? PrimaryColor);
 
 public sealed record AssignRolesRequest(string[] RoleNames);
+public sealed record ReplaceBranchesRequest(Guid[] BranchIds);

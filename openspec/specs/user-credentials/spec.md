@@ -318,6 +318,60 @@ check.
   Organization A
 - THEN the request is rejected regardless of the caller's own permission set
 
+### Requirement: Mandatory Staff Branch Scope
+
+A staff account (one with no `CustomerId`) MUST hold at least one branch in
+its branch scope, because a staff account with an empty scope cannot operate
+any branch. `POST /account/users` MUST reject a staff account whose
+`branchIds` is empty or omitted with HTTP 400 and the typed body
+`{"error":"branch-required"}`; a `CustomerId`-linked account keeps an empty
+branch scope. Every branch id MUST belong to the caller's organization
+(HTTP 400, `{"error":"branch-not-in-organization"}`), and a caller MUST NOT
+assign a branch outside their own `BranchScope` (HTTP 403); a system
+administrator acting on a selected organization MAY assign any branch of that
+organization. The system MUST expose `PUT /account/users/{userId}/branches`
+on the same `ManageUsers`-gated group, taking `{"branchIds":[...]}` and
+replacing the target's branch scope under the same validation, answering 204
+on success, 404 for a user outside the caller's organization, and 400 for a
+`CustomerId`-linked target. Each replacement MUST be recorded in the audit
+log as `user.branches.assigned`. The web and desktop clients share these
+rules because they share the API.
+
+#### Scenario: Staff creation without a branch is rejected
+
+- GIVEN an authenticated `business-admin` in Organization A
+- WHEN they call `POST /account/users` with role `seller` and no branch ids
+- THEN the response is 400 with `{"error":"branch-required"}` and no user is
+  persisted
+
+#### Scenario: Caller cannot assign a branch outside their own scope
+
+- GIVEN a caller holding `ManageUsers` whose `BranchScope` is branch X
+- WHEN they create a staff user, or replace a user's branches, with branch Y
+  of the same organization
+- THEN the request is rejected with 403 and nothing is persisted
+
+#### Scenario: System administrator assigns a branch of the acted-on organization
+
+- GIVEN a system administrator acting on Organization A through the
+  organization selector
+- WHEN they create a staff user with a branch of Organization A
+- THEN the user is created with that branch scope
+
+#### Scenario: Branch scope is replaced
+
+- GIVEN a staff user with branch X in Organization A
+- WHEN a `ManageUsers` caller calls `PUT /account/users/{userId}/branches`
+  with branch Y that they may assign
+- THEN the user's branch scope is exactly branch Y and an audit row is written
+
+#### Scenario: Replacing branches with an empty list is rejected
+
+- GIVEN a staff user with a branch scope
+- WHEN a `ManageUsers` caller calls the branches endpoint with `branchIds: []`
+- THEN the response is 400 with `{"error":"branch-required"}` and the scope is
+  unchanged
+
 ### Requirement: Business-Admin Rename Migration
 
 The system MUST rewrite every persisted role entry with the name `"admin"`
@@ -479,7 +533,8 @@ The system MUST expose `GET /account/users` on the existing
 `ManageUsers`-gated `/account/users` group, returning the staff users
 persisted in the caller's own organization. The endpoint MUST NOT return a
 user belonging to another organization, and MUST NOT return a
-`CustomerId`-linked (customer) account.
+`CustomerId`-linked (customer) account. Each returned item MUST include
+the user's `branchIds`.
 
 #### Scenario: Business-admin lists staff in their own organization
 

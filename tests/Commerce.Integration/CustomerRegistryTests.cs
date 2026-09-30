@@ -708,4 +708,31 @@ public sealed class CustomerRegistryTests : IClassFixture<WebApplicationFactory<
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
+
+    [Fact]
+    public async Task PutBranches_TargetHasCustomerId_Returns400_NotAStaffUser()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var orgId = Guid.NewGuid();
+        var adminId = Guid.NewGuid();
+        await SeedUserAsync(orgId, adminId, "admin-branches-guard@example.com", "admin-password", Permission.ManageUsers);
+        var client = await SignedInClientAsync("admin-branches-guard@example.com", "admin-password");
+
+        var customerId = Guid.NewGuid();
+        var customerStore = new PostgresCustomerStore(_dataSource!);
+        await customerStore.CreateAsync(
+            new CloudTenantScope(orgId), NewRetail(customerId, "Branches Guard Customer"), "org-user", adminId, CancellationToken.None);
+
+        var provisionResponse = await client.PostAsJsonAsync(
+            "/account/users",
+            new CreateUserRequest("customer-branches-guard@example.com", "customer-password", [], [], customerId));
+        Assert.Equal(HttpStatusCode.Created, provisionResponse.StatusCode);
+        var provisioned = await provisionResponse.Content.ReadFromJsonAsync<CreateUserResponse>();
+
+        var response = await client.PutAsJsonAsync(
+            $"/account/users/{provisioned!.UserId}/branches", new ReplaceBranchesRequest([Guid.NewGuid()]));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
 }

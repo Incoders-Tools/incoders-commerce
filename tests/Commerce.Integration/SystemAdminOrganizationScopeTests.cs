@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using Commerce.Cloud.Api.Authentication;
 using Commerce.Cloud.Api.Endpoints;
+using Commerce.Domain.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
@@ -220,5 +221,32 @@ public sealed class SystemAdminOrganizationScopeTests : IClassFixture<WebApplica
         Assert.Equal(HttpStatusCode.OK, list.StatusCode);
         var users = await list.Content.ReadFromJsonAsync<List<UserSummaryDto>>();
         Assert.Contains(users!, u => u.UserId == targetAdminId);
+    }
+
+    [Fact]
+    public async Task Sysadmin_ActingOnSelectedOrganization_CreatesStaffWithBranch_PersistsBranchScope()
+    {
+        if (!_postgresAvailable) return;
+        const string password = "correct-password";
+        var (_, sysadminId) = await BootstrapAsync("sysadmin-staff-branch@example.com", password);
+        PromoteToSystemAdmin(sysadminId);
+        var (targetOrgId, _) = await BootstrapAsync("target-staff-branch-admin@example.com", password);
+        var sysadmin = await SignInAsync("sysadmin-staff-branch@example.com", password);
+
+        var branch = await sysadmin.SendAsync(WithOrganizationSelector(
+            HttpMethod.Post, "/account/branches", targetOrgId, new CreateBranchRequest("Acting Branch")));
+        var branchId = (await branch.Content.ReadFromJsonAsync<CreateBranchResponse>())!.BranchId;
+
+        var create = await sysadmin.SendAsync(WithOrganizationSelector(
+            HttpMethod.Post, "/account/users", targetOrgId,
+            new CreateUserRequest("acting-seller@example.com", "seller-password", [RoleCatalog.Seller], [branchId])));
+
+        Assert.Equal(HttpStatusCode.Created, create.StatusCode);
+        var created = await create.Content.ReadFromJsonAsync<CreateUserResponse>();
+        using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        owner.Open();
+        using var cmd = new NpgsqlCommand("SELECT branch_scope FROM users WHERE id = $1", owner);
+        cmd.Parameters.AddWithValue(created!.UserId);
+        Assert.Equal([branchId], (Guid[])(await cmd.ExecuteScalarAsync())!);
     }
 }
