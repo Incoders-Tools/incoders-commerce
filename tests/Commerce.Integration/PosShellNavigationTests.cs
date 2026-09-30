@@ -75,38 +75,56 @@ public sealed class PosShellNavigationTests
     }
 
     [Fact]
-    public void Reconcile_WhileTheSectionIsBusy_DefersTheFallback_AndKeepsTheSection()
+    public void Reconcile_WhileTheSectionIsBusy_MovesTheModelToTheSaleAtOnce_AndMarksTheSectionForTeardown()
     {
         var shell = new ShellNavigation();
         shell.Navigate(ShellSection.Staff, Admin);
 
         Assert.Equal(ReconcileOutcome.Deferred, shell.Reconcile(null, sectionBusy: true));
-        Assert.Equal(ShellSection.Staff, shell.Current);
-        Assert.True(shell.ReconcilePending);
+        Assert.Equal(ShellSection.Sale, shell.Current);
+        Assert.True(shell.TeardownPending);
     }
 
     [Fact]
-    public void Reconcile_OnceTheSectionIsIdle_AppliesTheDeferredFallback()
+    public void CompleteTeardown_OnceTheSectionIsIdle_ReleasesTheOldSection_AndReportsItOnce()
     {
         var shell = new ShellNavigation();
         shell.Navigate(ShellSection.Staff, Admin);
         shell.Reconcile(Cashier, sectionBusy: true);
 
-        Assert.Equal(ReconcileOutcome.Switched, shell.Reconcile(Cashier, sectionBusy: false));
+        Assert.True(shell.CompleteTeardown());
+        Assert.False(shell.TeardownPending);
         Assert.Equal(ShellSection.Sale, shell.Current);
-        Assert.False(shell.ReconcilePending);
+        Assert.False(shell.CompleteTeardown());
     }
 
     [Fact]
-    public void Reconcile_WhenAccessIsBackBeforeTheSectionWentIdle_DropsTheDeferral()
+    public void Navigate_WhileTheOldSectionAwaitsTeardown_IsRefused()
     {
         var shell = new ShellNavigation();
         shell.Navigate(ShellSection.Staff, Admin);
         shell.Reconcile(null, sectionBusy: true);
 
-        Assert.Equal(ReconcileOutcome.Unchanged, shell.Reconcile(Admin, sectionBusy: true));
-        Assert.False(shell.ReconcilePending);
-        Assert.Equal(ShellSection.Staff, shell.Current);
+        Assert.False(shell.Navigate(ShellSection.Customers, Admin));
+        Assert.Equal(ShellSection.Sale, shell.Current);
+    }
+
+    [Fact]
+    public void DeferredSignOut_ThenANewAdminSignsInBeforeIdle_KeepsTheModelOnTheSale_UntilIdleDisposesTheOldSection()
+    {
+        var shell = new ShellNavigation();
+        shell.Navigate(ShellSection.Staff, Admin);
+
+        shell.Reconcile(null, sectionBusy: true);
+        Assert.Equal(ReconcileOutcome.Unchanged, shell.Reconcile(Admin, sectionBusy: false));
+
+        // The shell and the screen agree: the sale, with the old section still waiting to be torn down.
+        Assert.Equal(ShellSection.Sale, shell.Current);
+        Assert.True(shell.TeardownPending);
+
+        Assert.True(shell.CompleteTeardown());
+        Assert.Equal(ShellSection.Sale, shell.Current);
+        Assert.True(shell.Navigate(ShellSection.Staff, Admin));
     }
 
     [Fact]
@@ -116,7 +134,7 @@ public sealed class PosShellNavigationTests
         shell.Navigate(ShellSection.Staff, Admin);
 
         Assert.Equal(ReconcileOutcome.Unchanged, shell.Reconcile(Admin, sectionBusy: true));
-        Assert.False(shell.ReconcilePending);
+        Assert.False(shell.TeardownPending);
     }
 
     [Fact]

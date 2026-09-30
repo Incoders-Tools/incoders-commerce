@@ -66,6 +66,9 @@ public partial class MainWindow : Window
     private bool _openCashPrompted;
     private readonly ShellNavigation _shell = new();
     private ISectionView? _sectionView;
+
+    /// <summary>A section the operator lost while its request was in flight: hidden, disposed once idle.</summary>
+    private ISectionView? _tearingDownView;
     private readonly LockScreenView _lockScreen;
     private bool _locked;
 
@@ -208,8 +211,8 @@ public partial class MainWindow : Window
     private void OpenCashButton_Click(object sender, RoutedEventArgs e) => PromptOpenCash();
 
     /// <summary>
-    /// Asks for the opening float (naming the signed-in operator, or offering to
-    /// sign in first) and opens the session. Cancelling leaves the sale screen
+    /// Asks for the opening float (naming the signed-in operator) and opens the session.
+    /// Cancelling leaves the sale screen
     /// locked behind the "Abrir caja" prompt. Never reads the device credential.
     /// </summary>
     private void PromptOpenCash()
@@ -1049,8 +1052,9 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// After the operator changed (sign-out, switch, removal): a section they may not open gives
-    /// way to the sale. A section with a request in flight is never disposed under it: it is
-    /// hidden at once and torn down when its request ends (<see cref="OnSectionIdle"/>).
+    /// way to the sale. The model moves to the sale at once, so the screen always follows it. A
+    /// section with a request in flight is never disposed under it: it is detached and hidden, and
+    /// torn down when its request ends (<see cref="OnSectionIdle"/>).
     /// </summary>
     private void ReconcileShell()
     {
@@ -1065,28 +1069,31 @@ public partial class MainWindow : Window
                 NavBar.SetActiveSection(ShellSection.Sale);
                 if (_sectionView is { } busyView)
                 {
-                    busyView.Idle -= OnSectionIdle;
+                    _tearingDownView = busyView;
+                    _sectionView = null;
                     busyView.Idle += OnSectionIdle;
                 }
+                RefreshCashSession();
                 break;
         }
     }
 
     private void OnSectionIdle()
     {
-        if (_sectionView is { } view)
+        if (_tearingDownView is not { } view)
         {
-            view.Idle -= OnSectionIdle;
+            return;
         }
 
-        ReconcileShell();
-        if (_shell.Current != ShellSection.Sale)
+        view.Idle -= OnSectionIdle;
+        _tearingDownView = null;
+        view.Dispose();
+        if (_sectionView is null)
         {
-            // The operator regained access while the section was busy: show it again.
-            SectionHost.Visibility = Visibility.Visible;
-            SaleScreen.Visibility = Visibility.Collapsed;
-            NavBar.SetActiveSection(_shell.Current);
+            SectionHost.Content = null;
         }
+
+        _shell.CompleteTeardown();
     }
 
     /// <summary>Shows Personal inside the shell: admin staff management plus removal of this terminal's operators (no provisioning).</summary>

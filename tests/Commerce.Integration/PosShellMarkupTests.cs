@@ -50,6 +50,12 @@ public sealed class PosShellMarkupTests
         Assert.Contains("_sectionView?.IsBusy == true", reconcile.Value);
         Assert.Contains("ReconcileOutcome.Deferred", reconcile.Value);
         Assert.Contains("OnSectionIdle", reconcile.Value);
+
+        // The window never shows a section the model has left: the idle handler only tears down.
+        var idle = Regex.Match(code, @"void OnSectionIdle\(\)[\s\S]*?\n    }");
+        Assert.True(idle.Success);
+        Assert.Contains("CompleteTeardown", idle.Value);
+        Assert.DoesNotContain("SectionHost.Visibility = Visibility.Visible", idle.Value);
     }
 
     [Fact]
