@@ -91,6 +91,16 @@ Tasks:
       quiesce (no sale in progress), back up `branch.db`, install through the
       Windows package deployment API, restart, typed failures; tests for the
       pure steps.
+- [ ] R7. Fix the R4..R5 review advisory findings and the interim trust
+      concern (authorized 2026-09-30): pin the signer certificate thumbprint
+      (`Commerce:UpdateTrustedThumbprint`) and accept `UntrustedRoot` only
+      for that exact signer (tampering still fails as `Invalid`); staging
+      cleanup limited to files the downloader owns; typed stages for cancel
+      vs timeout vs failure; no leaked marker on install cancel; typed
+      backup/marker IO failures; wizard shows the real failing stage;
+      `PackageVerifier` fed real inputs or bypassed explicitly; progress
+      test race; manual check while one is in flight; remove the legacy
+      local-check path if unused. Route: delegated direct.
 - [ ] R6. Installed VM validation per `docs/pos-product-updates.md` (owner
       or parent with an authorized VM; not runnable in CI).
 Route: R1..R3 one writer, then R4..R5 one writer (delegated direct; work units in the Progress entries).
