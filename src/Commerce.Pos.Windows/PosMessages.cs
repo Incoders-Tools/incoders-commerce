@@ -28,7 +28,7 @@ public static class PosMessages
         "El servidor no reconoce esta terminal. Abrí Configuración y volvé a configurarla para seguir sincronizando.";
 
     public const string SessionExpired =
-        "La sesión de administrador venció. Cerrá esta ventana y volvé a ingresar.";
+        "La sesión de administrador venció. Salí de esta sección y volvé a entrar para confirmar tu contraseña.";
 
     /// <summary>Last resort for an exception nobody anticipated (global handler and busy guard).</summary>
     public const string Unexpected =
@@ -116,4 +116,15 @@ public static class PosMessages
     public const string BranchNotInOrganization = "Alguna de las sucursales elegidas no pertenece a esta organización.";
 
     public const string InvalidData = "Los datos ingresados no son válidos. Revisalos e intentá de nuevo.";
+
+    // ---- Shell sections (Clientes, Personal) --------------------------------
+
+    public const string ConfirmPasswordTitle = "Confirmá tu contraseña";
+
+    public const string ConfirmPasswordForCustomers =
+        "Para gestionar clientes, confirmá tu contraseña de administrador. Hace falta conexión a internet.";
+
+    public const string DisplayNameRequired = "El nombre para mostrar es obligatorio.";
+
+    public const string DiscountMustBeNumber = "El porcentaje de descuento debe ser un número.";
 }

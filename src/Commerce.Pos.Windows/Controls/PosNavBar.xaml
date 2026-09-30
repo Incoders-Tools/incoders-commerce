@@ -26,10 +26,10 @@
             </Grid.ColumnDefinitions>
 
             <StackPanel Grid.Column="0" Orientation="Horizontal">
-                <Button x:Name="NewSaleButton" Style="{StaticResource NavEntry}" Tag="Active" AutomationProperties.Name="Nueva Venta">
+                <Button x:Name="NewSaleButton" Style="{StaticResource NavEntry}" Tag="Active" Click="SaleButton_Click" AutomationProperties.Name="Venta">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="{StaticResource IconAdd}" Style="{StaticResource NavIcon}" />
-                        <TextBlock Text="Nueva Venta" Style="{StaticResource NavLabel}" />
+                        <TextBlock Text="Venta" Style="{StaticResource NavLabel}" />
                     </StackPanel>
                 </Button>
                 <Button Style="{StaticResource NavEntry}" IsEnabled="False" ToolTip="Próximamente" ToolTipService.ShowOnDisabled="True" AutomationProperties.Name="Productos">

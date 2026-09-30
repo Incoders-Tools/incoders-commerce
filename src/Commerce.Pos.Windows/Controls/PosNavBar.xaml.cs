@@ -10,6 +10,7 @@ namespace Commerce.Pos.Windows.Controls;
 /// </summary>
 public partial class PosNavBar : UserControl
 {
+    public static readonly RoutedEvent SaleRequestedEvent = Register(nameof(SaleRequested));
     public static readonly RoutedEvent CustomersRequestedEvent = Register(nameof(CustomersRequested));
     public static readonly RoutedEvent StaffRequestedEvent = Register(nameof(StaffRequested));
     public static readonly RoutedEvent SyncRequestedEvent = Register(nameof(SyncRequested));
@@ -21,6 +22,8 @@ public partial class PosNavBar : UserControl
     public static readonly RoutedEvent CloseCashRequestedEvent = Register(nameof(CloseCashRequested));
 
     public PosNavBar() => InitializeComponent();
+
+    public event RoutedEventHandler SaleRequested { add => AddHandler(SaleRequestedEvent, value); remove => RemoveHandler(SaleRequestedEvent, value); }
 
     public event RoutedEventHandler CustomersRequested { add => AddHandler(CustomersRequestedEvent, value); remove => RemoveHandler(CustomersRequestedEvent, value); }
 
@@ -84,12 +87,22 @@ public partial class PosNavBar : UserControl
         set => ManageCustomersButton.Visibility = ManageStaffButton.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
     }
 
+    /// <summary>Highlights the entry of the section the shell shows (the nav style keys off Tag="Active").</summary>
+    public void SetActiveSection(ShellSection section)
+    {
+        NewSaleButton.Tag = section == ShellSection.Sale ? "Active" : null;
+        ManageCustomersButton.Tag = section == ShellSection.Customers ? "Active" : null;
+        ManageStaffButton.Tag = section == ShellSection.Staff ? "Active" : null;
+    }
+
     private static readonly System.Diagnostics.Stopwatch Clock = System.Diagnostics.Stopwatch.StartNew();
 
     private readonly PopupReopenGuard _operatorMenuGuard = new();
 
     private static RoutedEvent Register(string name) =>
         EventManager.RegisterRoutedEvent(name, RoutingStrategy.Bubble, typeof(RoutedEventHandler), typeof(PosNavBar));
+
+    private void SaleButton_Click(object sender, RoutedEventArgs e) => RaiseEvent(new RoutedEventArgs(SaleRequestedEvent, this));
 
     private void CustomersButton_Click(object sender, RoutedEventArgs e) => RaiseEvent(new RoutedEventArgs(CustomersRequestedEvent, this));
 

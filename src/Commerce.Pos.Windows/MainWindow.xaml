@@ -12,6 +12,7 @@
         </Grid.RowDefinitions>
 
         <controls:PosNavBar x:Name="NavBar" Grid.Row="0"
+                            SaleRequested="SaleNavButton_Click"
                             CustomersRequested="ManageCustomersButton_Click"
                             StaffRequested="ManageStaffButton_Click"
                             SyncRequested="SyncButton_Click"
@@ -152,6 +153,9 @@
                 <controls:CategoryRail x:Name="CategoryRailControl" CategorySelected="CategoryRail_CategorySelected" Grid.Column="2" Width="104" Margin="14,26,0,0" />
             </Grid>
         </Grid>
+
+        <!-- Management sections (Clientes, Personal) replace the sale screen here; the sale screen is hidden, never rebuilt, so the cart survives. -->
+        <ContentControl x:Name="SectionHost" Grid.Row="1" Visibility="Collapsed" IsTabStop="False" />
 
         <!-- No open cash session: the sale screen is disabled and covered by this prompt (pos-cash-session). -->
         <Border x:Name="CashClosedOverlay" Grid.Row="1" Background="{DynamicResource ShellBrush}" Visibility="Collapsed">

@@ -1,0 +1,15 @@
+<UserControl x:Class="Commerce.Pos.Windows.Controls.AdminSignInPanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Border Style="{StaticResource CardBorder}" MaxWidth="460" HorizontalAlignment="Left">
+        <StackPanel>
+            <TextBlock x:Name="PromptTitle" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap" />
+            <TextBlock x:Name="PromptHint" Style="{StaticResource MutedTextBlock}" TextWrapping="Wrap" Margin="0,4,0,14" />
+            <TextBlock Text="Correo" Style="{StaticResource MutedTextBlock}" Margin="0,0,0,4" />
+            <TextBox x:Name="EmailTextBox" Margin="0,0,0,10" AutomationProperties.Name="Correo del administrador" />
+            <TextBlock Text="Contraseña" Style="{StaticResource MutedTextBlock}" Margin="0,0,0,4" />
+            <PasswordBox x:Name="PasswordBox" Margin="0,0,0,14" KeyDown="PasswordBox_KeyDown" AutomationProperties.Name="Contraseña del administrador" />
+            <Button x:Name="ConfirmButton" Content="Confirmar" HorizontalAlignment="Left" Click="ConfirmButton_Click" />
+        </StackPanel>
+    </Border>
+</UserControl>

@@ -64,6 +64,8 @@ public partial class MainWindow : Window
     private string _lastSyncResult = "Sincronización lista.";
     private CashSession? _cashSession;
     private bool _openCashPrompted;
+    private readonly ShellNavigation _shell = new();
+    private ISectionView? _sectionView;
 
     public MainWindow(
         BranchSyncStore store,
@@ -199,7 +201,7 @@ public partial class MainWindow : Window
         var isOpen = _cashSession is not null;
         NavBar.SetCashSession(CashSessionInput.HeaderText(_cashSession), isOpen);
         SaleScreen.IsEnabled = isOpen;
-        CashClosedOverlay.Visibility = isOpen ? Visibility.Collapsed : Visibility.Visible;
+        CashClosedOverlay.Visibility = isOpen || _shell.Current != ShellSection.Sale ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private void OpenCashButton_Click(object sender, RoutedEventArgs e) => PromptOpenCash();
@@ -326,6 +328,7 @@ public partial class MainWindow : Window
         // customer create/edit").
         NavBar.AdminEntriesVisible =
             _currentOperator.Value is { } current && ((Permission)current.Permissions).HasFlag(Permission.ManageUsers);
+        ReconcileShell();
     }
 
     private string BuildStatusSummary()
@@ -935,24 +938,70 @@ public partial class MainWindow : Window
         RefreshIdentityText();
     }
 
+    private void SaleNavButton_Click(object sender, RoutedEventArgs e) => ShowSection(ShellSection.Sale);
+
     /// <summary>
-    /// Opens <see cref="CustomersWindow"/> modally with a FRESH
-    /// <see cref="CustomerAdminClient"/> (design.md "Desktop authorization for
-    /// customer create/edit"): its cookie is scoped to this one window
-    /// instance and is discarded here, never persisted, never reused across
-    /// opens. Button visibility is UX-only (see
-    /// <see cref="RefreshIdentityText"/>) — the server re-checks
-    /// <c>ManageUsers</c> on every call the window makes.
+    /// Shows Clientes inside the shell with a FRESH <see cref="CustomerAdminClient"/>
+    /// (design.md "Desktop authorization for customer create/edit"): its cookie
+    /// lives only while the section is open and is discarded when the operator
+    /// leaves it, never persisted, never reused across visits. Button visibility
+    /// is UX-only (see <see cref="RefreshIdentityText"/>); the server re-checks
+    /// <c>ManageUsers</c> on every call the section makes.
     /// </summary>
-    private void ManageCustomersButton_Click(object sender, RoutedEventArgs e)
+    private void ManageCustomersButton_Click(object sender, RoutedEventArgs e) => ShowSection(ShellSection.Customers);
+
+    /// <summary>
+    /// Switches the content area to the target section. The sale screen is
+    /// hidden, never rebuilt or cleared: the cart, the scan box and the cash
+    /// session survive a visit to another section. A section with a request in
+    /// flight keeps the focus until it ends.
+    /// </summary>
+    private void ShowSection(ShellSection target)
     {
-        using var adminClient = _customerAdminClientFactory();
-        var customersWindow = new CustomersWindow(adminClient)
+        if (_sectionView?.IsBusy == true)
         {
-            Title = _branding.CustomersWindowTitle,
-            Owner = this
-        };
-        customersWindow.ShowDialog();
+            return;
+        }
+
+        if (_shell.Navigate(target, _currentOperator.Value?.Permissions))
+        {
+            ApplySection();
+        }
+    }
+
+    /// <summary>Mirrors <see cref="_shell"/> in the window: disposes the section being left and builds the one being entered.</summary>
+    private void ApplySection()
+    {
+        _sectionView?.Dispose();
+        _sectionView = null;
+        SectionHost.Content = null;
+
+        var section = _shell.Current;
+        if (section == ShellSection.Customers)
+        {
+            var view = new CustomersView(_customerAdminClientFactory(), _currentOperator.Value?.Email);
+            _sectionView = view;
+            SectionHost.Content = view;
+        }
+
+        var isSale = section == ShellSection.Sale;
+        SaleScreen.Visibility = isSale ? Visibility.Visible : Visibility.Collapsed;
+        SectionHost.Visibility = isSale ? Visibility.Collapsed : Visibility.Visible;
+        NavBar.SetActiveSection(section);
+        RefreshCashSession();
+        if (isSale && _cashSession is not null)
+        {
+            ScanCodeTextBox.Focus();
+        }
+    }
+
+    /// <summary>After the operator changed (sign-out, switch, removal): a section they may not open gives way to the sale.</summary>
+    private void ReconcileShell()
+    {
+        if (_shell.Reconcile(_currentOperator.Value?.Permissions))
+        {
+            ApplySection();
+        }
     }
 
     private void ManageStaffButton_Click(object sender, RoutedEventArgs e)

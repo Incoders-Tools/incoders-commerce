@@ -1,0 +1,127 @@
+<UserControl x:Class="Commerce.Pos.Windows.CustomersView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:Commerce.Pos.Windows.Controls">
+    <UserControl.Resources>
+        <Style x:Key="FieldLabel" TargetType="TextBlock" BasedOn="{StaticResource MutedTextBlock}">
+            <Setter Property="Margin" Value="0,0,0,4" />
+        </Style>
+        <Style x:Key="FieldBox" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+            <Setter Property="Margin" Value="0,0,0,10" />
+            <Setter Property="MaxWidth" Value="520" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+        </Style>
+        <Style x:Key="FieldCombo" TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
+            <Setter Property="Margin" Value="0,0,0,10" />
+            <Setter Property="MaxWidth" Value="520" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="DisplayMemberPath" Value="Label" />
+            <Setter Property="SelectedValuePath" Value="Value" />
+        </Style>
+    </UserControl.Resources>
+    <Grid Margin="16,12,16,8">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,10">
+            <TextBlock Text="CLIENTES" Style="{StaticResource EyebrowTextBlock}" />
+            <TextBlock Text="Clientes" Style="{StaticResource HeroTextBlock}" FontSize="24" />
+        </StackPanel>
+
+        <!-- Outside the scroll area on purpose: an error must stay visible however far the form is scrolled. -->
+        <TextBlock x:Name="StatusText" Grid.Row="1" TextWrapping="Wrap" Margin="0,0,0,8" Foreground="{DynamicResource DangerBrush}"
+                   Visibility="Collapsed" AutomationProperties.Name="Estado" />
+
+        <StackPanel x:Name="BusyPanel" Grid.Row="2" Visibility="Collapsed" Margin="0,0,0,8">
+            <ProgressBar x:Name="BusyProgressBar" IsIndeterminate="True" Height="6" BorderThickness="0"
+                         Foreground="{DynamicResource PrimaryBrush}" Background="{DynamicResource BorderBrushMuted}" />
+            <TextBlock x:Name="BusyText" Margin="0,6,0,0" TextWrapping="Wrap" Style="{StaticResource MutedTextBlock}" />
+        </StackPanel>
+
+        <Grid x:Name="FormPanel" Grid.Row="3">
+            <ScrollViewer x:Name="SignInScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <controls:AdminSignInPanel x:Name="SignInPanel" />
+            </ScrollViewer>
+
+            <Grid x:Name="ManagementPanel" Visibility="Collapsed">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="260" />
+                    <ColumnDefinition Width="16" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <DockPanel Grid.Column="0">
+                    <Button x:Name="NewCustomerButton" Content="Nuevo cliente" DockPanel.Dock="Top" Margin="0,0,0,8" HorizontalAlignment="Stretch"
+                            Click="NewCustomerButton_Click" />
+                    <ListBox x:Name="CustomersListBox" DisplayMemberPath="DisplayName" SelectionChanged="CustomersListBox_SelectionChanged" />
+                </DockPanel>
+
+                <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Margin="0,0,12,0">
+                        <TextBlock Text="Tipo de cliente" Style="{StaticResource FieldLabel}" />
+                        <ComboBox x:Name="CustomerKindComboBox" Style="{StaticResource FieldCombo}" />
+
+                        <TextBlock Text="Nombre para mostrar" Style="{StaticResource FieldLabel}" />
+                        <TextBox x:Name="DisplayNameTextBox" Style="{StaticResource FieldBox}" />
+
+                        <TextBlock Text="Razón social" Style="{StaticResource FieldLabel}" />
+                        <TextBox x:Name="LegalNameTextBox" Style="{StaticResource FieldBox}" />
+
+                        <TextBlock Text="Tipo de documento fiscal" Style="{StaticResource FieldLabel}" />
+                        <ComboBox x:Name="TaxIdTypeComboBox" Style="{StaticResource FieldCombo}" />
+
+                        <TextBlock Text="Número de documento fiscal" Style="{StaticResource FieldLabel}" />
+                        <TextBox x:Name="TaxIdTextBox" Style="{StaticResource FieldBox}" />
+
+                        <TextBlock Text="Condición frente al IVA" Style="{StaticResource FieldLabel}" />
+                        <ComboBox x:Name="TaxConditionComboBox" Style="{StaticResource FieldCombo}" />
+
+                        <TextBlock Text="Teléfono" Style="{StaticResource FieldLabel}" />
+                        <TextBox x:Name="PhoneTextBox" Style="{StaticResource FieldBox}" />
+
+                        <TextBlock Text="Correo" Style="{StaticResource FieldLabel}" />
+                        <TextBox x:Name="EmailTextBox" Style="{StaticResource FieldBox}" />
+
+                        <TextBlock Text="Calle" Style="{StaticResource FieldLabel}" />
+                        <TextBox x:Name="AddressStreetTextBox" Style="{StaticResource FieldBox}" />
+
+                        <TextBlock Text="Número" Style="{StaticResource FieldLabel}" />
+                        <TextBox x:Name="AddressNumberTextBox" Style="{StaticResource FieldBox}" />
+
+                        <TextBlock Text="Barrio" Style="{StaticResource FieldLabel}" />
+                        <TextBox x:Name="NeighborhoodTextBox" Style="{StaticResource FieldBox}" />
+
+                        <TextBlock Text="Localidad" Style="{StaticResource FieldLabel}" />
+                        <TextBox x:Name="LocalityTextBox" Style="{StaticResource FieldBox}" />
+
+                        <TextBlock Text="Provincia" Style="{StaticResource FieldLabel}" />
+                        <TextBox x:Name="ProvinceTextBox" Style="{StaticResource FieldBox}" />
+
+                        <TextBlock Text="Código postal" Style="{StaticResource FieldLabel}" />
+                        <TextBox x:Name="PostalCodeTextBox" Style="{StaticResource FieldBox}" />
+
+                        <TextBlock Text="Notas de entrega" Style="{StaticResource FieldLabel}" />
+                        <TextBox x:Name="DeliveryNotesTextBox" Style="{StaticResource FieldBox}" />
+
+                        <TextBlock Text="Porcentaje de descuento" Style="{StaticResource FieldLabel}" />
+                        <TextBox x:Name="DiscountPercentageTextBox" Style="{StaticResource FieldBox}" />
+
+                        <TextBlock Text="Condiciones de pago" Style="{StaticResource FieldLabel}" />
+                        <TextBox x:Name="PaymentTermsTextBox" Style="{StaticResource FieldBox}" />
+
+                        <TextBlock Text="Notas" Style="{StaticResource FieldLabel}" />
+                        <TextBox x:Name="NotesTextBox" Style="{StaticResource FieldBox}" />
+
+                        <CheckBox x:Name="IsEnabledCheckBox" Content="Habilitado" Margin="0,0,0,10" Visibility="Collapsed" />
+
+                        <Button x:Name="SaveButton" Content="Guardar" HorizontalAlignment="Left" Margin="0,0,0,12" Click="SaveButton_Click" />
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
+        </Grid>
+    </Grid>
+</UserControl>
