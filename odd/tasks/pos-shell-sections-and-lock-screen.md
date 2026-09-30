@@ -77,7 +77,7 @@ by admin (the staff member re-enters with email + password to set a new PIN).
   sign-in and device verify (confirm). Route: delegated direct.
 - [x] T2 Web: "Dar de baja" / "Reactivar" on the Users screen with confirm,
   friendly errors. Route: delegated direct (may share the T1 writer).
-- [ ] T3 POS shell sections: MainWindow hosts Venta, Clientes, Personal as
+- [x] T3 POS shell sections: MainWindow hosts Venta, Clientes, Personal as
   views in the content area (nav switches, returns to Venta); convert
   `CustomersWindow` and `UsersWindow` into views; Personal admin-only with
   create/list/deactivate and terminal-operator removal, no provisioning;
@@ -135,5 +135,80 @@ by admin (the staff member re-enters with email + password to set a new PIN).
     session version. Commits reviewed per RDD: not yet assessed (pending
     parent).
 
+- 2026-09-30 review of T1+T2 (plus the previous feature's pending slice): RDD
+  lineage `review-9eb96e481c8c1028` approved and acknowledged (next boundary
+  `9a060cf`). Advisories, route: direct (the T3 writer), commits `078a7e4` and
+  `81b0f0e`:
+  - WARNING no test that an org admin gets 403 `permissions-exceed-caller` when
+    targeting a system administrator: added
+    `Status_OrganizationAdminTargetingASystemAdministrator_Returns403_AndNothingChanges`.
+    It PASSED immediately (missing coverage, not a bug; `RoleTaxonomyTests`
+    39/39).
+  - SUGGESTION `confirmStatusChange` reports failure if `refresh()` throws:
+    `refresh()` already catches its own errors (it sets the load error and never
+    throws), so a failed reload after a successful PUT already shows the load
+    alert and not "no se pudo cambiar el estado". Added the vitest case
+    `does not claim the change failed when it succeeded but the reload failed`;
+    it PASSED immediately (no RED, no code change). UsersScreen 40/40.
+- 2026-09-30 T3 done (route: delegated direct, one writer), commits `1433da1`
+  (shell + Clientes) and `ec8ce44` (Personal).
+  - Shell: `ShellNavigation` (UI-free) holds the current section
+    (`Sale`/`Customers`/`Staff`) and the allowed sections by permissions
+    (`ManageUsers` gates Clientes and Personal); `Reconcile` falls back to the
+    sale when the operator changes (called from `RefreshIdentityText`).
+    `MainWindow` content area: `SaleScreen` (Grid, unchanged) and a
+    `SectionHost` `ContentControl`. Decision, sale state: the sale was NOT
+    extracted into a `SaleView` UserControl (985 lines of code-behind and the
+    tests rely on its names and handlers); the shell toggles
+    `SaleScreen.Visibility` instead, so the cart, scan box and cash session are
+    never rebuilt or cleared. The cash-closed overlay is hidden while a section
+    shows. `PosNavBar`: "Nueva Venta" is now "Venta" (raises `SaleRequested`),
+    `SetActiveSection` marks the active entry (`Tag="Active"`). A section with a
+    request in flight (`ISectionView.IsBusy`) keeps focus until it ends. Each
+    visit builds a fresh view and a fresh admin client and disposes them on
+    leaving, so the admin cookie lives only while the section is open.
+  - Admin password prompt: shared `AdminSignInPanel` ("Confirmá tu contraseña";
+    the email of the signed-in operator is shown read-only), cleared right after
+    the sign-in call, never stored; the section owns the call.
+  - Clientes: `CustomersView` (same behavior as the window) with Spanish
+    labels via `CustomerFormChoices` (wire values unchanged), busy state,
+    status above the scroll area, no MessageBox. `CustomersWindow` deleted.
+  - Personal: `StaffView` = create staff (email, initial password, role Cajero
+    default / Vendedor / Administrador from `StaffRoleOptions`, branch = this
+    terminal's), staff list (`StaffRowPresenter`: Spanish role labels, branch
+    membership, Activo/De baja), "Dar de baja"/"Reactivar" with inline confirm,
+    hidden on the admin's own row, password reset (inline panel), and "Operadores
+    de esta terminal" with "Quitar de esta terminal" (inline confirm; raises
+    `OperatorsChanged`, the host runs `Reconcile`). No provisioning entry.
+    `UserAdminClient.SetStatusAsync` + Spanish mapping of `cannot-revoke-self`,
+    `not-a-staff-user`, `permissions-exceed-caller`, `branch-not-in-scope` (also
+    for create); `UserAdminRecordDto` reads `branchIds`. `UsersWindow` and
+    `TerminalOperatorsWindow` deleted. `ProvisionOperatorWindow` and
+    `OperatorLoginWindow` stay for T4.
+  - Not carried over: role reassignment of an existing user from the POS (the
+    window had it; the web Users screen keeps it; spec "POS Staff Management
+    Section" says so). Branding keeps the now unused `UsersWindowTitle` /
+    `CustomersWindowTitle` (a test locks them).
+  - Specs: `pos-operator-session` ("Provisioning Lives in Personal" becomes
+    "Personal Is Admin Staff Management, Not Operator Sign-In" plus "Clientes And
+    Personal Are Sections Of The Main Window"), `admin-console` ("POS Staff
+    Management Section").
+  - RED: `PosShellNavigationTests`/`PosShellMarkupTests` failed to compile
+    (no `ShellNavigation`/`ShellSection`); `PosStaffViewTests` failed to compile
+    (no `PosMessages.CannotDeactivateSelf` etc., then no `SetStatusAsync`,
+    `StaffRowPresenter`, `StaffView`). GREEN: `Pos|ApplicationBranding|
+    OperatorProvisioning` 324/324.
+  - Checks (throwaway worktree): `dotnet build Commerce.sln` 0 errors; full
+    `dotnet test tests/Commerce.Integration` 1255 passed, 0 failed, 0 skipped
+    (the flaky `PosCompositionRootTests.Build_Resolves_BranchNodeService`
+    passed); `npm test` 321/321; `file` checks UTF-8. Render check (throwaway
+    harness in the scratchpad, not committed) at 1120x700 in Dark, Light and
+    Vaca Verde: Venta, Clientes (prompt and list), Personal (prompt, list, and
+    scrolled to the end): nav highlight correct, scrollbars present, nothing
+    clipped, status area fixed above the scroll area.
+  - Not exercised in a real session: click-through of the WPF handlers (no UI
+    harness): owner check of create/deactivate/remove against the running stack.
+  - Review of T3 commits: not yet assessed (pending parent).
+
 ## Next step
-T3 (POS shell sections; Personal uses `PUT /account/users/{id}/status`).
+T4 (POS lock screen). Hosting notes: `MainWindow` content area is `SaleScreen` + `SectionHost`; the lock screen can be a third full-window layer (covering the nav and the content) driven by `CurrentOperator`, and `ShellNavigation.Reconcile(null)` already returns the shell to the sale when there is no operator. Replace `OperatorSignInFlow`/`OperatorLoginWindow`/`ProvisionOperatorWindow` (still modal).
