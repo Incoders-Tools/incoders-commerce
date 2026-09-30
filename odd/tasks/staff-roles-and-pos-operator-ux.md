@@ -363,5 +363,26 @@ the web after T3), release/versioning work.
     Follow-ups: the `UsersWindow` body is still English/unstyled; no test of
     the WPF windows' runtime behavior beyond markup (no UI test harness).
 
+- 2026-09-30: T5 review approved and acknowledged (lineage review-7673485997b6851d;
+  next review boundary tree a09fd56 / commit f75bdbd). Advisories:
+  - WARNING push-ack contract unproved: added
+    `CashSessionIngestionTests.CloudSyncClient_TreatsTheRealInboxReplyAsAnAcknowledgement`
+    (real `CloudSyncClient` against the real `/sync/inbox` with a paired device
+    credential). It PASSED immediately: the real reply already satisfies the
+    client's check (missing-coverage finding, no RED, no code change). Commit
+    `test(pos): prove the real inbox reply acknowledges a push`.
+  - WARNING popup re-click reopens: RED `PopupReopenGuardTests` (type missing).
+    New `PopupReopenGuard` records the trigger press and the popup close; a Click
+    is ignored when the popup closed within the same press (150 ms lead
+    tolerance), and the guard is consumed by each Click so keyboard activation is
+    never suppressed. `PosNavBar` feeds it from `PreviewMouseDown` and
+    `Popup.Closed`; `SwitchOperatorButton` and the events are unchanged. Commit
+    `6226ec5`. Not exercised in a real WPF session (no UI harness): owner check.
+  - SUGGESTION `OpenTerminalOperators` calls `Reconcile`: not done; it lives in
+    the `MainWindow` code-behind (needs a window) and `Reconcile` itself is
+    unit-tested. Left as a follow-up.
+  - Checks: `dotnet build Commerce.sln` 0 errors; full `Commerce.Integration`
+    from a throwaway worktree 1193 passed, 0 failed, 0 skipped.
+
 ## Next step
 Manual verification by the owner: apply migration 0020 to the dev DB, re-provision the operator, reassign montes_patricio as cashier.
