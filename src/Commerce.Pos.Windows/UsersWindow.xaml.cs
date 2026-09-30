@@ -10,13 +10,17 @@ public partial class UsersWindow : Window
     private readonly UserAdminClient _client;
     private readonly Guid _branchId;
     private readonly BusyController _busy;
+    private readonly Action? _openTerminalOperators;
     private Guid? _selectedUserId;
 
-    public UsersWindow(UserAdminClient client, Guid branchId, ApplicationBranding branding)
+    /// <param name="openTerminalOperators">Opens the operators of this terminal (add / remove); null hides the entry.</param>
+    public UsersWindow(UserAdminClient client, Guid branchId, ApplicationBranding branding, Action? openTerminalOperators = null)
     {
         InitializeComponent();
         _client = client;
         _branchId = branchId;
+        _openTerminalOperators = openTerminalOperators;
+        TerminalOperatorsButton.Visibility = openTerminalOperators is null ? Visibility.Collapsed : Visibility.Visible;
         Title = branding.UsersWindowTitle;
         RolesItemsControl.ItemsSource = RoleCatalog.OrgAssignable.OrderBy(x => x).Select(x => new RoleChoice(x));
         _busy = new BusyController(ApplyBusy, nameof(UsersWindow), ShowStatus);
@@ -38,6 +42,8 @@ public partial class UsersWindow : Window
         StatusText.Text = message;
         FormStatusText.Text = message;
     }
+
+    private void TerminalOperatorsButton_Click(object sender, RoutedEventArgs e) => _openTerminalOperators?.Invoke();
 
     private async void SignInButton_Click(object sender, RoutedEventArgs e)
     {

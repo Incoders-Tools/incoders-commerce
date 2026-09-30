@@ -76,10 +76,10 @@
                 </Button>
             </StackPanel>
 
-            <!-- The active operator doubles as the switch-operator action; under it the cash session state, compact:
-                 "Caja abierta · 08:15" or "Caja cerrada". -->
+            <!-- The active operator opens the operator menu (who is signed in, switch operator, sign out); under it the
+                 cash session state, compact: "Caja abierta · 08:15" or "Caja cerrada". Adding operators lives in Personal. -->
             <Button x:Name="SwitchOperatorButton" Grid.Column="2" Style="{StaticResource NavButton}" Click="OperatorButton_Click"
-                    ToolTip="Cambiar operador" AutomationProperties.Name="Cambiar operador" MaxWidth="170">
+                    ToolTip="Operador y sesión" AutomationProperties.Name="Menú del operador" MaxWidth="170">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="{StaticResource IconOperator}" Style="{StaticResource NavIcon}" VerticalAlignment="Center" />
                     <StackPanel VerticalAlignment="Center">
@@ -92,6 +92,20 @@
                     </StackPanel>
                 </StackPanel>
             </Button>
+            <Popup x:Name="OperatorMenuPopup" Grid.Column="2" PlacementTarget="{Binding ElementName=SwitchOperatorButton}" Placement="Bottom"
+                   HorizontalOffset="0" StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade">
+                <Border Style="{StaticResource CardBorder}" Padding="12" CornerRadius="10" Margin="6">
+                    <StackPanel Width="230">
+                        <TextBlock x:Name="OperatorMenuTitle" FontWeight="SemiBold" FontSize="14" TextTrimming="CharacterEllipsis" />
+                        <TextBlock x:Name="OperatorMenuSubtitle" Style="{StaticResource MutedTextBlock}" FontSize="12" Margin="0,2,0,10" />
+                        <Button x:Name="SwitchOperatorMenuButton" Content="Cambiar operador" Style="{StaticResource SecondaryButton}"
+                                HorizontalAlignment="Stretch" Margin="0,0,0,6" Click="SwitchOperatorMenuButton_Click" />
+                        <Button x:Name="SignInMenuButton" Content="Iniciar sesión" HorizontalAlignment="Stretch" Margin="0,0,0,6" Click="SignInMenuButton_Click" />
+                        <Button x:Name="SignOutMenuButton" Content="Cerrar sesión" Style="{StaticResource SecondaryButton}"
+                                HorizontalAlignment="Stretch" Click="SignOutMenuButton_Click" />
+                    </StackPanel>
+                </Border>
+            </Popup>
         </Grid>
     </Border>
 </UserControl>

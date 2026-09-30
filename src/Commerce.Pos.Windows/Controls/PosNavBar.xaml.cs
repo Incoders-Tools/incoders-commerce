@@ -14,7 +14,10 @@ public partial class PosNavBar : UserControl
     public static readonly RoutedEvent StaffRequestedEvent = Register(nameof(StaffRequested));
     public static readonly RoutedEvent SyncRequestedEvent = Register(nameof(SyncRequested));
     public static readonly RoutedEvent SettingsRequestedEvent = Register(nameof(SettingsRequested));
+    public static readonly RoutedEvent OperatorMenuRequestedEvent = Register(nameof(OperatorMenuRequested));
     public static readonly RoutedEvent SwitchOperatorRequestedEvent = Register(nameof(SwitchOperatorRequested));
+    public static readonly RoutedEvent SignInRequestedEvent = Register(nameof(SignInRequested));
+    public static readonly RoutedEvent SignOutRequestedEvent = Register(nameof(SignOutRequested));
     public static readonly RoutedEvent CloseCashRequestedEvent = Register(nameof(CloseCashRequested));
 
     public PosNavBar() => InitializeComponent();
@@ -27,6 +30,13 @@ public partial class PosNavBar : UserControl
 
     public event RoutedEventHandler SettingsRequested { add => AddHandler(SettingsRequestedEvent, value); remove => RemoveHandler(SettingsRequestedEvent, value); }
 
+    /// <summary>The operator button was clicked: the host answers with <see cref="OpenOperatorMenu"/>.</summary>
+    public event RoutedEventHandler OperatorMenuRequested { add => AddHandler(OperatorMenuRequestedEvent, value); remove => RemoveHandler(OperatorMenuRequestedEvent, value); }
+
+    public event RoutedEventHandler SignInRequested { add => AddHandler(SignInRequestedEvent, value); remove => RemoveHandler(SignInRequestedEvent, value); }
+
+    public event RoutedEventHandler SignOutRequested { add => AddHandler(SignOutRequestedEvent, value); remove => RemoveHandler(SignOutRequestedEvent, value); }
+
     public event RoutedEventHandler SwitchOperatorRequested { add => AddHandler(SwitchOperatorRequestedEvent, value); remove => RemoveHandler(SwitchOperatorRequestedEvent, value); }
 
     public event RoutedEventHandler CloseCashRequested { add => AddHandler(CloseCashRequestedEvent, value); remove => RemoveHandler(CloseCashRequestedEvent, value); }
@@ -37,7 +47,7 @@ public partial class PosNavBar : UserControl
         set
         {
             OperatorDisplayText.Text = value;
-            SwitchOperatorButton.ToolTip = $"Cambiar operador ({value})";
+            SwitchOperatorButton.ToolTip = $"Operador y sesión ({value})";
         }
     }
 
@@ -51,6 +61,21 @@ public partial class PosNavBar : UserControl
         CloseCashButton.IsEnabled = isOpen;
         CashSessionDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, isOpen ? "AccentBrush" : "MutedTextBrush");
     }
+
+    /// <summary>Shows the operator menu under the operator button with the entries the presenter decided.</summary>
+    public void OpenOperatorMenu(OperatorMenuState state)
+    {
+        OperatorMenuTitle.Text = state.Title;
+        OperatorMenuSubtitle.Text = state.Subtitle ?? string.Empty;
+        OperatorMenuSubtitle.Visibility = state.Subtitle is null ? Visibility.Collapsed : Visibility.Visible;
+        SwitchOperatorMenuButton.Visibility = VisibleWhen(state, OperatorMenuAction.SwitchOperator);
+        SignInMenuButton.Visibility = VisibleWhen(state, OperatorMenuAction.SignIn);
+        SignOutMenuButton.Visibility = VisibleWhen(state, OperatorMenuAction.SignOut);
+        OperatorMenuPopup.IsOpen = true;
+    }
+
+    private static Visibility VisibleWhen(OperatorMenuState state, OperatorMenuAction action) =>
+        state.Actions.Contains(action) ? Visibility.Visible : Visibility.Collapsed;
 
     /// <summary>Shows the customers and staff entries (operators with the ManageUsers permission).</summary>
     public bool AdminEntriesVisible
@@ -70,7 +95,26 @@ public partial class PosNavBar : UserControl
 
     private void SettingsButton_Click(object sender, RoutedEventArgs e) => RaiseEvent(new RoutedEventArgs(SettingsRequestedEvent, this));
 
-    private void OperatorButton_Click(object sender, RoutedEventArgs e) => RaiseEvent(new RoutedEventArgs(SwitchOperatorRequestedEvent, this));
+    private void OperatorButton_Click(object sender, RoutedEventArgs e)
+    {
+        // Re-clicking while open closes the menu (StaysOpen=False already closed it on the press).
+        if (!OperatorMenuPopup.IsOpen)
+        {
+            RaiseEvent(new RoutedEventArgs(OperatorMenuRequestedEvent, this));
+        }
+    }
+
+    private void SwitchOperatorMenuButton_Click(object sender, RoutedEventArgs e) => RaiseMenuAction(SwitchOperatorRequestedEvent);
+
+    private void SignInMenuButton_Click(object sender, RoutedEventArgs e) => RaiseMenuAction(SignInRequestedEvent);
+
+    private void SignOutMenuButton_Click(object sender, RoutedEventArgs e) => RaiseMenuAction(SignOutRequestedEvent);
+
+    private void RaiseMenuAction(RoutedEvent routedEvent)
+    {
+        OperatorMenuPopup.IsOpen = false;
+        RaiseEvent(new RoutedEventArgs(routedEvent, this));
+    }
 
     private void CloseCashButton_Click(object sender, RoutedEventArgs e) => RaiseEvent(new RoutedEventArgs(CloseCashRequestedEvent, this));
 }

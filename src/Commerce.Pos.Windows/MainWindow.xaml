@@ -16,7 +16,10 @@
                             StaffRequested="ManageStaffButton_Click"
                             SyncRequested="SyncButton_Click"
                             SettingsRequested="RepairButton_Click"
+                            OperatorMenuRequested="OperatorMenuButton_Click"
                             SwitchOperatorRequested="SwitchOperatorButton_Click"
+                            SignInRequested="OperatorSignInMenu_Click"
+                            SignOutRequested="OperatorSignOutMenu_Click"
                             CloseCashRequested="CloseCashButton_Click" />
 
         <Grid x:Name="SaleScreen" Grid.Row="1" Margin="16,12,16,8">

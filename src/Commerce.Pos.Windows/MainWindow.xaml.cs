@@ -38,6 +38,7 @@ public partial class MainWindow : Window
     private readonly LocalInstallationStore _localInstallationStore;
     private readonly LocalOperatorStore _localOperatorStore;
     private readonly CurrentOperator _currentOperator;
+    private readonly OperatorSessionActions _operatorSession;
     private readonly CustomerReplicaClient _customerReplicaClient;
     private readonly CatalogPriceReplicaClient _catalogPriceReplicaClient;
     private readonly IDiscountAuthorizer _discountAuthorizer;
@@ -95,6 +96,7 @@ public partial class MainWindow : Window
         _localInstallationStore = localInstallationStore;
         _localOperatorStore = localOperatorStore;
         _currentOperator = currentOperator;
+        _operatorSession = new OperatorSessionActions(currentOperator, PromptOperatorSignIn);
         _customerReplicaClient = customerReplicaClient;
         _catalogPriceReplicaClient = catalogPriceReplicaClient;
         _pricingResolutionService = pricingResolutionService;
@@ -238,20 +240,22 @@ public partial class MainWindow : Window
     /// <summary>Runs the operator sign-in on top of the open-cash prompt and returns the signed-in operator label (null when cancelled).</summary>
     private string? SignInOperatorFromPrompt()
     {
-        var owner = System.Windows.Application.Current.Windows.OfType<Window>().FirstOrDefault(w => w.IsActive) ?? this;
-        var operatorLoginWindow = new OperatorLoginWindow(_operatorProvisioningClient, _localOperatorStore, _pairing.DeviceToken)
+        var signedIn = PromptOperatorSignIn(OperatorLoginMode.PinPickerOrFirstRun);
+        if (signedIn is null)
         {
-            Owner = owner
-        };
-
-        if (operatorLoginWindow.ShowDialog() == true && operatorLoginWindow.ActiveOperator is not null)
-        {
-            _currentOperator.Set(operatorLoginWindow.ActiveOperator);
-            RefreshIdentityText();
-            return operatorLoginWindow.ActiveOperator.Email;
+            return null;
         }
 
-        return null;
+        _currentOperator.Set(signedIn);
+        RefreshIdentityText();
+        return signedIn.Email;
+    }
+
+    /// <summary>Shows the sign-in screen for the mode on top of whatever window is active.</summary>
+    private CachedOperator? PromptOperatorSignIn(OperatorLoginMode mode)
+    {
+        var owner = System.Windows.Application.Current.Windows.OfType<Window>().FirstOrDefault(w => w.IsActive) ?? this;
+        return OperatorSignInFlow.Run(mode, owner, _operatorProvisioningClient, _localOperatorStore, _pairing.DeviceToken);
     }
 
     /// <summary>
@@ -905,25 +909,30 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Same shape as <see cref="RepairButton_Click"/> (design.md "One window
-    /// for three flows"): always visible, explicit action, never an
-    /// interrupt, never a precondition of <see cref="CommitSaleButton_Click"/>.
-    /// Reopens <see cref="OperatorLoginWindow"/> for provisioning a new
-    /// operator or PIN-entry for an already-cached different operator.
+    /// The operator button opens a menu (pos-operator-session "Operator Menu"):
+    /// who is signed in, switch operator, sign out. It never opens provisioning;
+    /// adding an operator is done from Personal. Nothing here is a precondition of
+    /// <see cref="CommitSaleButton_Click"/>, and none of it closes the cash session.
     /// </summary>
+    private void OperatorMenuButton_Click(object sender, RoutedEventArgs e) =>
+        NavBar.OpenOperatorMenu(OperatorMenuPresenter.Build(_currentOperator.Value, _localOperatorStore.Load(), DateTimeOffset.UtcNow));
+
     private void SwitchOperatorButton_Click(object sender, RoutedEventArgs e)
     {
-        var operatorLoginWindow = new OperatorLoginWindow(_operatorProvisioningClient, _localOperatorStore, _pairing.DeviceToken)
-        {
-            Owner = this
-        };
+        _operatorSession.SwitchOperator();
+        RefreshIdentityText();
+    }
 
-        var result = operatorLoginWindow.ShowDialog();
-        if (result == true && operatorLoginWindow.ActiveOperator is not null)
-        {
-            _currentOperator.Set(operatorLoginWindow.ActiveOperator);
-            RefreshIdentityText();
-        }
+    private void OperatorSignInMenu_Click(object sender, RoutedEventArgs e)
+    {
+        _operatorSession.SignIn();
+        RefreshIdentityText();
+    }
+
+    private void OperatorSignOutMenu_Click(object sender, RoutedEventArgs e)
+    {
+        _operatorSession.SignOut();
+        RefreshIdentityText();
     }
 
     /// <summary>
@@ -949,8 +958,22 @@ public partial class MainWindow : Window
     private void ManageStaffButton_Click(object sender, RoutedEventArgs e)
     {
         using var adminClient = _userAdminClientFactory();
-        var usersWindow = new UsersWindow(adminClient, _pairing.BranchId, _branding) { Owner = this };
+        UsersWindow? usersWindow = null;
+        usersWindow = new UsersWindow(adminClient, _pairing.BranchId, _branding, () => OpenTerminalOperators(usersWindow!)) { Owner = this };
         usersWindow.ShowDialog();
+    }
+
+    /// <summary>
+    /// Personal > "Operadores de esta terminal": add or remove the operators that
+    /// can sign in here. Afterwards the active operator is reconciled with what is
+    /// stored (removed: signed out; re-provisioned: fresh permissions).
+    /// </summary>
+    private void OpenTerminalOperators(Window owner)
+    {
+        var window = new TerminalOperatorsWindow(_localOperatorStore, _operatorProvisioningClient, _pairing.DeviceToken) { Owner = owner };
+        window.ShowDialog();
+        _operatorSession.Reconcile(_localOperatorStore.Load());
+        RefreshIdentityText();
     }
 
     // Task 4.6: the customer pull, catalog/price pull, and operator

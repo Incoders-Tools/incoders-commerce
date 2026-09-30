@@ -76,6 +76,9 @@ public static class PosMessages
 
     public const string Verifying = "Verificando…";
 
+    public const string NoOperatorsOnTerminal =
+        "No hay operadores guardados en esta terminal. Agregalos desde Personal.";
+
     // ---- Staff / customer management windows --------------------------------
 
     public const string NoPermissionToManageStaff = "No tenés permiso para administrar el personal.";

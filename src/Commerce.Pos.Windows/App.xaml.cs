@@ -54,21 +54,21 @@ public partial class App : System.Windows.Application
             identity = pairingWindow.PairedRecord;
         }
 
-        // Unlike PairingWindow, cancel/close of OperatorLoginWindow does NOT
+        // Unlike PairingWindow, cancel/close of the operator sign-in does NOT
         // Shutdown(): an unidentified operator still has a branch to sell
         // into (design.md "Cancel does not shut down; actorId is total").
         // Both "Continue without operator" and cancel/close leave
         // CurrentOperator unset, and MainWindow opens regardless.
         var currentOperator = _host.Services.GetRequiredService<CurrentOperator>();
-        var operatorLoginWindow = new OperatorLoginWindow(
+        // First run (nothing cached) shows the provisioning form; otherwise the PIN picker.
+        var signedInOperator = OperatorSignInFlow.Run(
+            OperatorLoginMode.PinPickerOrFirstRun, null,
             _host.Services.GetRequiredService<OperatorProvisioningClient>(),
             _host.Services.GetRequiredService<LocalOperatorStore>(),
             identity.Pairing!.DeviceToken);
-
-        var loggedIn = operatorLoginWindow.ShowDialog();
-        if (loggedIn == true && operatorLoginWindow.ActiveOperator is not null)
+        if (signedInOperator is not null)
         {
-            currentOperator.Set(operatorLoginWindow.ActiveOperator);
+            currentOperator.Set(signedInOperator);
         }
 
         var mainWindow = new MainWindow(

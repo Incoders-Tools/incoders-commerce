@@ -237,3 +237,86 @@ session (`pos-cash-session`); each sale keeps the operator who made it.
 - GIVEN a cash session is open
 - WHEN another operator signs in
 - THEN the same session stays open
+
+### Requirement: Operator Menu
+
+The operator button in the POS navigation bar MUST open a menu instead of any
+provisioning screen. The menu MUST show the active operator's email and access
+level (administrator, cashier, or no access to the point of sale) or "Sin
+operador activo" when nobody is signed in, and MUST offer: "Cambiar operador"
+(only when another non-stale operator is cached on the terminal), "Cerrar
+sesión" (only while an operator is active), and "Iniciar sesión" (only while
+nobody is active). "Cambiar operador" MUST open the PIN picker for operators
+already cached on the terminal and MUST NOT offer to provision anyone. The menu
+MUST NOT offer to add an operator.
+
+#### Scenario: Menu of the active operator
+
+- GIVEN a cashier is signed in and a second non-stale operator is cached
+- WHEN the operator button is clicked
+- THEN the menu shows the cashier's email and "Cajero", "Cambiar operador" and
+  "Cerrar sesión", and no provisioning entry
+
+#### Scenario: Menu with nobody signed in
+
+- GIVEN no operator is active
+- WHEN the operator button is clicked
+- THEN the menu shows "Sin operador activo" and only "Iniciar sesión"
+
+#### Scenario: Switching never provisions
+
+- GIVEN an operator is signed in
+- WHEN they choose "Cambiar operador"
+- THEN only the PIN picker of cached operators is shown, with no email,
+  password or new-PIN fields
+
+### Requirement: Operator Sign-Out Keeps the Cash Session
+
+"Cerrar sesión" MUST clear the terminal's current operator and then offer the
+PIN picker so another cached operator can sign in. It MUST NOT close or change
+an open cash session (`pos-cash-session`) and MUST NOT block sales: until
+somebody signs in, sales keep being attributed to the installation, per
+"Operator Identification Never Blocks a Sale". Cancelling the picker leaves the
+terminal with no active operator.
+
+#### Scenario: Sign out inside an open session
+
+- GIVEN a cash session is open and an operator is signed in
+- WHEN the operator chooses "Cerrar sesión"
+- THEN the current operator is cleared, the nav label reads "Sin operador
+  activo", the PIN picker is offered, and the cash session is still open
+
+#### Scenario: Signing out and in as another operator
+
+- GIVEN two operators are cached and the first is signed in
+- WHEN the first signs out and the second enters their PIN
+- THEN the second is the current operator and the same cash session stays open
+
+### Requirement: Operator Provisioning Lives in Personal
+
+Adding an operator to a terminal (email, password and a new PIN, verified online
+once) MUST be done from the "Personal" area, in "Operadores de esta terminal",
+which also lists the operators cached on the terminal and MUST let an
+administrator remove one from the terminal. Removing an operator forgets only
+the local PIN credential, never the cloud account, and signs the operator out
+when they were active. The provisioning form MUST be shown at startup, and from
+"Iniciar sesión", only when the terminal has no non-stale cached operator
+(first run), so a new terminal can always be set up.
+
+#### Scenario: Adding an operator from Personal
+
+- GIVEN an administrator opens Personal > "Operadores de esta terminal"
+- WHEN they add an operator with valid credentials and a PIN
+- THEN the operator is cached on the terminal and can sign in with the PIN
+
+#### Scenario: Removing the active operator
+
+- GIVEN an operator is signed in and is removed from the terminal in Personal
+- WHEN the window closes
+- THEN that operator is signed out and no longer appears in the PIN picker
+
+#### Scenario: First run still provisions at startup
+
+- GIVEN a paired terminal has no cached operator
+- WHEN the application starts
+- THEN the provisioning form is shown, with "Continuar sin operador" available
