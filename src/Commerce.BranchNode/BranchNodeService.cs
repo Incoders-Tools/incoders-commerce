@@ -1,5 +1,6 @@
 using Commerce.Application.Access;
 using Commerce.Application.Audit;
+using Commerce.Domain.CashSessions;
 using Commerce.Domain.Discounts;
 using Commerce.Domain.Identity;
 using Commerce.Domain.Sales;
@@ -50,8 +51,10 @@ public sealed class BranchNodeService
         SaleTender? tender = null)
     {
         var occurredAtUtc = _clock();
+        var cashSessionId = _store.GetOpenCashSession()?.SessionId;
         var payload = new SalePayloadV1(
-            saleId, totalAmount, "Manual", occurredAtUtc, Lines: [], CustomerId: customerId, Tender: tender);
+            saleId, totalAmount, "Manual", occurredAtUtc, Lines: [], CustomerId: customerId, Tender: tender,
+            CashSessionId: cashSessionId);
         var envelope = new SyncEnvelope(
             OperationId: operationId,
             ContractVersion: 1,
@@ -64,9 +67,10 @@ public sealed class BranchNodeService
             OccurredAtUtc: occurredAtUtc,
             PayloadKind: "sale",
             Payload: SyncPayloadCodec.Serialize(payload));
-        var effect = new SaleEffect(saleId, branchId, totalAmount, occurredAtUtc, CustomerId: customerId, Tender: tender);
+        var effect = new SaleEffect(
+            saleId, branchId, totalAmount, occurredAtUtc, CustomerId: customerId, Tender: tender, CashSessionId: cashSessionId);
 
-        return _store.CommitSaleAtomically(envelope, effect);
+        return _store.CommitSaleAtomically(envelope, effect, requireOpenCashSession: true);
     }
 
     /// <summary>
@@ -99,9 +103,10 @@ public sealed class BranchNodeService
         SaleTender? tender = null)
     {
         var occurredAtUtc = _clock();
+        var cashSessionId = _store.GetOpenCashSession()?.SessionId;
         var payload = new SalePayloadV1(
             saleId, totalAmount, "Scanned", occurredAtUtc, lines, customerId,
-            saleDiscount?.Percent, saleDiscount?.Amount, discountAuthorization, tender);
+            saleDiscount?.Percent, saleDiscount?.Amount, discountAuthorization, tender, cashSessionId);
         var envelope = new SyncEnvelope(
             OperationId: operationId,
             ContractVersion: 1,
@@ -117,9 +122,87 @@ public sealed class BranchNodeService
         var effect = new SaleEffect(
             saleId, branchId, totalAmount, occurredAtUtc, CustomerId: customerId,
             SaleDiscountPercent: saleDiscount?.Percent, SaleDiscountAmount: saleDiscount?.Amount,
-            DiscountAuthorization: discountAuthorization, Tender: tender);
+            DiscountAuthorization: discountAuthorization, Tender: tender, CashSessionId: cashSessionId);
 
-        return _store.CommitScannedSaleAtomically(envelope, effect, lines);
+        return _store.CommitScannedSaleAtomically(envelope, effect, lines, requireOpenCashSession: true);
+    }
+
+    /// <summary>The terminal's open cash session, or null (pos-cash-session).</summary>
+    public CashSession? GetOpenCashSession() => _store.GetOpenCashSession();
+
+    public CashSession? GetCashSession(Guid sessionId) => _store.GetCashSession(sessionId);
+
+    /// <summary>Live totals and expected cash of a session, computed from its sales' recorded tenders.</summary>
+    public CashSessionSummary? GetCashSessionSummary(Guid sessionId) => _store.GetCashSessionSummary(sessionId);
+
+    /// <summary>
+    /// Opens the terminal's cash session with its opening float and queues the
+    /// <c>cash-session.opened</c> envelope in the same transaction. Refused when
+    /// the float is not zero-or-more with at most two decimals, or when a
+    /// session is already open. Never reads the device credential.
+    /// </summary>
+    public CashSessionOpenResult OpenCashSession(
+        Guid organizationId, Guid branchId, Guid operatorId, decimal openingFloat, Guid correlationId)
+    {
+        if (!CashSessionMath.IsValidAmount(openingFloat))
+        {
+            return new CashSessionOpenResult(CashSessionOpenOutcome.InvalidFloat, null);
+        }
+
+        var openedAtUtc = _clock();
+        var session = new CashSession(Guid.NewGuid(), organizationId, branchId, operatorId, openedAtUtc, openingFloat);
+        var envelope = new SyncEnvelope(
+            OperationId: Guid.NewGuid(),
+            ContractVersion: 1,
+            OrganizationId: organizationId,
+            BranchId: branchId,
+            AggregateId: session.SessionId,
+            AggregateVersion: 1,
+            ActorId: operatorId,
+            CorrelationId: correlationId,
+            OccurredAtUtc: openedAtUtc,
+            PayloadKind: CashSessionPayloadKinds.Opened,
+            Payload: SyncPayloadCodec.Serialize(
+                new CashSessionOpenedPayloadV1(session.SessionId, operatorId, openingFloat, openedAtUtc)));
+
+        return _store.OpenCashSession(session, envelope);
+    }
+
+    /// <summary>
+    /// Closes the session: totals are computed from its sales, recorded with the
+    /// counted cash and the difference, and the <c>cash-session.closed</c>
+    /// envelope is queued in the same transaction. Refused for an invalid counted
+    /// amount, an unknown session, or a session that is already closed.
+    /// </summary>
+    public CashSessionCloseResult CloseCashSession(
+        Guid sessionId, Guid operatorId, decimal countedCash, Guid correlationId)
+    {
+        if (!CashSessionMath.IsValidAmount(countedCash))
+        {
+            return new CashSessionCloseResult(CashSessionCloseOutcome.InvalidCountedCash, _store.GetCashSession(sessionId));
+        }
+
+        var closedAtUtc = _clock();
+        return _store.CloseCashSession(sessionId, operatorId, countedCash, closedAtUtc, closed =>
+        {
+            var closure = closed.Closure!;
+            var summary = closure.Summary;
+            return new SyncEnvelope(
+                OperationId: Guid.NewGuid(),
+                ContractVersion: 1,
+                OrganizationId: closed.OrganizationId,
+                BranchId: closed.BranchId,
+                AggregateId: closed.SessionId,
+                AggregateVersion: 2,
+                ActorId: operatorId,
+                CorrelationId: correlationId,
+                OccurredAtUtc: closedAtUtc,
+                PayloadKind: CashSessionPayloadKinds.Closed,
+                Payload: SyncPayloadCodec.Serialize(new CashSessionClosedPayloadV1(
+                    closed.SessionId, operatorId, closed.OpeningFloat, closedAtUtc, summary.SaleCount, summary.CashKept,
+                    summary.CardTotal, summary.QrTotal, summary.UntenderedTotal, summary.ExpectedCash,
+                    closure.CountedCash, closure.Difference)));
+        });
     }
 
     public bool Acknowledge(Guid operationId) => _store.Acknowledge(operationId);

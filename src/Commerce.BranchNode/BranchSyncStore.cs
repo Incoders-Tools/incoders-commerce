@@ -5,7 +5,13 @@ using Microsoft.Data.Sqlite;
 
 namespace Commerce.BranchNode;
 
-public sealed record BranchOutboxCommitResult(bool WasNewlyCommitted, SaleEffect Effect);
+/// <summary>
+/// <see cref="Refusal"/> is set when the commit was refused before anything was
+/// written (pos-cash-session: no open cash session); <see cref="WasNewlyCommitted"/>
+/// is then false and <see cref="Effect"/> is the effect that was attempted.
+/// </summary>
+public sealed record BranchOutboxCommitResult(
+    bool WasNewlyCommitted, SaleEffect Effect, Commerce.Domain.CashSessions.SaleCommitRefusal? Refusal = null);
 
 /// <summary>
 /// One row of the `payment_outbox` table (commerce-payments design.md
@@ -245,6 +251,7 @@ public sealed partial class BranchSyncStore : IDisposable
         EnsureCatalogCategoryColumnsExist();
         EnsureDiscountStorageExists();
         EnsureTenderStorageExists();
+        EnsureCashSessionStorageExists();
     }
 
     /// <summary>
@@ -332,8 +339,8 @@ public sealed partial class BranchSyncStore : IDisposable
         alter.ExecuteNonQuery();
     }
 
-    public BranchOutboxCommitResult CommitSaleAtomically(SyncEnvelope envelope, SaleEffect effect) =>
-        CommitSaleAtomicallyCore(envelope, effect with { SaleKind = "Manual" }, lines: []);
+    public BranchOutboxCommitResult CommitSaleAtomically(SyncEnvelope envelope, SaleEffect effect, bool requireOpenCashSession = false) =>
+        CommitSaleAtomicallyCore(envelope, effect with { SaleKind = "Manual" }, lines: [], requireOpenCashSession);
 
     /// <summary>
     /// Task 7.3 (GREEN): the scan-composed sale counterpart to
@@ -342,10 +349,11 @@ public sealed partial class BranchSyncStore : IDisposable
     /// SAME transaction as the sale effect and outbox row (design.md "POS
     /// scan-to-sell": `sale_effects(sale_kind='Scanned') + sale_lines [1 tx]`).
     /// </summary>
-    public BranchOutboxCommitResult CommitScannedSaleAtomically(SyncEnvelope envelope, SaleEffect effect, IReadOnlyList<SaleLine> lines) =>
-        CommitSaleAtomicallyCore(envelope, effect with { SaleKind = "Scanned" }, lines);
+    public BranchOutboxCommitResult CommitScannedSaleAtomically(SyncEnvelope envelope, SaleEffect effect, IReadOnlyList<SaleLine> lines, bool requireOpenCashSession = false) =>
+        CommitSaleAtomicallyCore(envelope, effect with { SaleKind = "Scanned" }, lines, requireOpenCashSession);
 
-    private BranchOutboxCommitResult CommitSaleAtomicallyCore(SyncEnvelope envelope, SaleEffect effect, IReadOnlyList<SaleLine> lines)
+    private BranchOutboxCommitResult CommitSaleAtomicallyCore(
+        SyncEnvelope envelope, SaleEffect effect, IReadOnlyList<SaleLine> lines, bool requireOpenCashSession)
     {
         lock (_writeGate)
         {
@@ -356,6 +364,15 @@ public sealed partial class BranchSyncStore : IDisposable
             {
                 transaction.Commit();
                 return new BranchOutboxCommitResult(WasNewlyCommitted: false, existing);
+            }
+
+            // pos-cash-session: the sale must belong to a session that is STILL open
+            // inside this same transaction, so a close can never interleave.
+            if (requireOpenCashSession && !IsCashSessionOpen(effect.CashSessionId, transaction))
+            {
+                transaction.Rollback();
+                return new BranchOutboxCommitResult(
+                    WasNewlyCommitted: false, effect, Commerce.Domain.CashSessions.SaleCommitRefusal.NoOpenCashSession);
             }
 
             InsertSaleEffectRow(effect, transaction);
@@ -395,10 +412,10 @@ public sealed partial class BranchSyncStore : IDisposable
             INSERT INTO sale_effects
                 (sale_id, branch_id, total_amount, occurred_at_utc, sale_kind, customer_id,
                  sale_discount_percent, sale_discount_amount, discount_auth_method, discount_operator_id, discount_pin_version,
-                 tender_method, tender_amount_received, tender_change)
+                 tender_method, tender_amount_received, tender_change, cash_session_id)
             VALUES ($saleId, $branchId, $totalAmount, $occurredAt, $saleKind, $customerId,
                     $saleDiscountPercent, $saleDiscountAmount, $authMethod, $authOperatorId, $authPinVersion,
-                    $tenderMethod, $tenderReceived, $tenderChange);
+                    $tenderMethod, $tenderReceived, $tenderChange, $cashSessionId);
             """;
         insertSale.Parameters.AddWithValue("$saleId", effect.SaleId.ToString());
         insertSale.Parameters.AddWithValue("$branchId", effect.BranchId.ToString());
@@ -414,6 +431,7 @@ public sealed partial class BranchSyncStore : IDisposable
         insertSale.Parameters.AddWithValue("$tenderMethod", (object?)effect.Tender?.Method ?? DBNull.Value);
         insertSale.Parameters.AddWithValue("$tenderReceived", DecimalOrNull(effect.Tender?.AmountReceived));
         insertSale.Parameters.AddWithValue("$tenderChange", DecimalOrNull(effect.Tender?.ChangeGiven));
+        insertSale.Parameters.AddWithValue("$cashSessionId", effect.CashSessionId is { } sessionId ? sessionId.ToString() : DBNull.Value);
         insertSale.ExecuteNonQuery();
     }
 

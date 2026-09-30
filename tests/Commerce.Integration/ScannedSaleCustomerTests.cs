@@ -31,7 +31,7 @@ public sealed class ScannedSaleCustomerTests : IDisposable
     private BranchNodeService NewService(BranchSyncStore store)
     {
         var auditSink = new Commerce.Application.Audit.InMemoryAuditSink();
-        return new BranchNodeService(store, new Commerce.Application.Access.TenantAuthorizationService(auditSink), auditSink);
+        return new BranchNodeService(store, new Commerce.Application.Access.TenantAuthorizationService(auditSink), auditSink).WithOpenSession();
     }
 
     private static IReadOnlyList<SaleLine> Lines(Guid saleId) =>

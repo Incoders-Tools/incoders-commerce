@@ -23,7 +23,8 @@ public sealed record SaleEffect(
     decimal? SaleDiscountPercent = null,
     decimal? SaleDiscountAmount = null,
     DiscountAuthorization? DiscountAuthorization = null,
-    SaleTender? Tender = null);
+    SaleTender? Tender = null,
+    Guid? CashSessionId = null);
 
 /// <summary>
 /// One line of a scan-composed sale (commerce-pricing-engine design.md

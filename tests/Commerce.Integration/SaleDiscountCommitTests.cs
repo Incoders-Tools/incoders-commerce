@@ -38,7 +38,7 @@ public sealed class SaleDiscountCommitTests : IDisposable
     private BranchNodeService NewService(BranchSyncStore store)
     {
         var sink = new InMemoryAuditSink();
-        return new BranchNodeService(store, new TenantAuthorizationService(sink), sink);
+        return new BranchNodeService(store, new TenantAuthorizationService(sink), sink).WithOpenSession();
     }
 
     private static SaleLine Line(Guid saleId, int number, decimal quantity, decimal unit, decimal? percent = null, decimal? amount = null) =>

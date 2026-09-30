@@ -38,7 +38,7 @@ public sealed class SaleTenderCommitTests : IDisposable
     private static BranchNodeService NewService(BranchSyncStore store)
     {
         var sink = new InMemoryAuditSink();
-        return new BranchNodeService(store, new TenantAuthorizationService(sink), sink);
+        return new BranchNodeService(store, new TenantAuthorizationService(sink), sink).WithOpenSession();
     }
 
     private static SaleLine Line(Guid saleId) =>

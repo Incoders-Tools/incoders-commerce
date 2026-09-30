@@ -15,7 +15,9 @@ namespace Commerce.Domain.Sync.Payloads;
 /// line carries its own optional discount), all null when nothing was
 /// discounted, so a payload written before discounts existed still reads. The
 /// tender (how the customer paid) follows the same rule: an optional trailing
-/// field, null on a payload written before tenders existed.
+/// field, null on a payload written before tenders existed. So is the cash
+/// session the sale belongs to (<see cref="CashSessionId"/>), null on a payload
+/// written before sessions existed.
 /// <see cref="TotalAmount"/> is the FINAL total, after every discount.
 /// </summary>
 public sealed record SalePayloadV1(
@@ -28,4 +30,5 @@ public sealed record SalePayloadV1(
     decimal? SaleDiscountPercent = null,
     decimal? SaleDiscountAmount = null,
     DiscountAuthorization? DiscountAuthorization = null,
-    SaleTender? Tender = null);
+    SaleTender? Tender = null,
+    Guid? CashSessionId = null);
