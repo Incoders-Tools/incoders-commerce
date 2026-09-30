@@ -314,6 +314,24 @@ by admin (the staff member re-enters with email + password to set a new PIN).
     `dotnet test tests/Commerce.Integration` 1305 passed, 0 failed, 0 skipped;
     `file` UTF-8/ASCII.
   - Not exercised in a real session: the WPF click-through of the deferred case.
+- Follow-up (theme contrast, `f45dc28`): unreadable text in the themes (primary
+  button text dark on the green fill in Light/Vaca Verde; lock-screen tile hover
+  dark-on-green). Root cause: the implicit `TextBlock` style forced `TextBrush`,
+  which also hit the `TextBlock` a `ContentPresenter` creates inside buttons, so the
+  control's own Foreground never applied; the secondary/ghost/tile buttons also
+  reused the primary template, whose hover painted the primary fill under
+  dark text. Fix: the implicit style no longer sets Foreground (text inherits from
+  window/view/control); secondary buttons have their own hover/pressed surfaces;
+  new palette keys `OnPrimary`, `PrimaryPressed`, `AccentText`, `HoverSurface`,
+  `PressedSurface`, `ScrollThumb` in all three themes; `ListBoxItem` has a themed
+  template; Dark primary is now `#2563EB` (white was 3.68:1) and Light accent
+  `#0284C7`. `PosThemeContrastTests` asserts WCAG AA (4.5:1 text, 3:1 indicators)
+  for every declared pair in the three themes, plus markup guards (no implicit
+  Foreground, no hard-coded white). Disabled states are opacity-dimmed and exempt.
+  RED: test alone in a worktree of HEAD, 45 failures (missing keys and real
+  ratios). GREEN: `Pos` filter 460/460; full `dotnet test tests/Commerce.Integration`
+  1420 passed, 0 failed, 0 skipped. Render check (throwaway harness, 1120x700,
+  three themes, forced hover) inspected by hand.
 
 ## Next step
 Owner manual verification against the running stack (`run-all.ps1`), then review
