@@ -1133,6 +1133,33 @@ public sealed class RoleTaxonomyTests : IClassFixture<WebApplicationFactory<Prog
     }
 
     [Fact]
+    public async Task Status_OrganizationAdminTargetingASystemAdministrator_Returns403_AndNothingChanges()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var admin = _factory.CreateClient(CookieClientOptions());
+        var (organizationId, branchId, _) = await BootstrapOrgAsync(admin, "s15-admin@example.com", "admin-password");
+        await admin.PostAsJsonAsync("/account/sign-in", new SignInRequest("s15-admin@example.com", "admin-password"));
+        var platformId = Guid.NewGuid();
+        SeedSecondUser(
+            organizationId, platformId, "s15-platform@example.com", HashPassword(platformId, organizationId, "platform-password"),
+            RoleCatalog.Cashier, Permission.OperatePos, [branchId]);
+        using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            owner.Open();
+            using var promote = new NpgsqlCommand("UPDATE users SET is_system_admin = true WHERE id = $1", owner);
+            promote.Parameters.AddWithValue(platformId);
+            promote.ExecuteNonQuery();
+        }
+
+        var response = await PutStatusAsync(admin, platformId, true);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal("permissions-exceed-caller", await ReadErrorCodeAsync(response));
+        Assert.Equal(0, CountAuditRows("user", platformId, "user.revoked"));
+    }
+
+    [Fact]
     public async Task Status_SystemAdministratorActingOnAnOrganization_CanRevokeItsStaff()
     {
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
