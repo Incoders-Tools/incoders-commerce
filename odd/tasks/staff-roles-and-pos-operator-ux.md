@@ -94,7 +94,7 @@ the web after T3), release/versioning work.
   branches, show branches, `cashier` role, Spanish role labels via i18n;
   fix the test that locked `branchIds: []`; E2E selector check.
   Route: delegated direct.
-- [ ] T4 POS robustness: typed outcomes for all statuses in device clients,
+- [x] T4 POS robustness: typed outcomes for all statuses in device clients,
   file logger under `%LOCALAPPDATA%\Incoders\Commerce\logs`, global
   unhandled-exception handler (log + friendly dialog, no crash on handler
   exceptions), friendly Spanish messages (incl. the new `OperatePos` 403),
@@ -251,5 +251,52 @@ the web after T3), release/versioning work.
   checkbox reset after a failed branch save, for the generic
   `unableToSaveBranches` message, or for `ApiError.code` extraction edge cases.
 
+- 2026-09-30: T4 done, commits `a0375ec` (clients, logger, messages, server
+  challenge) and `f530283` (busy UI, windows, global handlers) (route:
+  delegated direct, one writer).
+  - RED: new test classes failed to compile (no `PosMessages`, `PosLog`,
+    `PosFileLogger`, `BusyController`); after the clients landed, the server
+    test `Verify_UnknownDeviceToken_Returns401_WithABearerChallenge` failed
+    (`Assert.NotEmpty`: no `WWW-Authenticate`); `PosBusyMarkupTests` failed
+    until the windows were rebuilt. GREEN: `PosClientResilience`, `PosFileLogger`,
+    `PosBusyController`, `PosBusyMarkup`, `OperatePosClient`,
+    `OperatorProvisioning`, `PosStaffManagement`, `PosComponentMarkup`,
+    `PosCashSession`, `PosCompositionRoot`, `PosAdminClientComposition`: 101/101
+    plus `OperatorProvisioning|DeviceEndpoint|DeviceBearer|DeviceCredential` 49/49,
+    0 skipped. Full `Commerce.Integration`: 1148 passed, 1 failed
+    (`PublicRateLimitTests.WithGuestOrderingConfigAbsent_...`, the known
+    spurious failure with a populated `Commerce.Cloud.Api/wwwroot`), 0 skipped.
+    `dotnet build Commerce.sln`: 0 errors. Render check (throwaway harness, not
+    committed): pairing/login busy state in Dark, Light and Vaca Verde.
+  - 401 distinction: the server had no signal (endpoint `Results.Unauthorized()`
+    and the DeviceBearer auth failure were both a bare 401). Added
+    `DeviceBearerAuthenticationHandler.HandleChallengeAsync` answering 401 with
+    `WWW-Authenticate: Bearer realm="device"`; the endpoint's credential 401
+    carries no header. POS: 401 + challenge = `TerminalNotRecognized` (friendly
+    "reconfigure this terminal" message; `OperatorStatusOutcome` gains the same
+    member, sync push keeps `CredentialRejected`); 401 without = invalid
+    credentials. An older server without the header degrades to invalid
+    credentials.
+  - Shared helper `PosHttp` (status first, JSON only when a JSON body exists,
+    transport failures typed, bodies truncated into the log); `GetStatusAsync`
+    treats anything but a typed answer as `Unreachable` so an ambiguous reply
+    never deprovisions a cached operator. Covered clients: OperatorProvisioning,
+    DevicePairing, UserAdmin, CustomerAdmin (plus new `HttpClient` ctor for
+    tests), CloudSync, CustomerReplica, CatalogPriceReplica, DiscountPinReplica.
+  - Logger: `PosFileLogger` (`%LOCALAPPDATA%\Incoders\Commerce\logs    pos-YYYYMMDD.log`, UTF-8, lock-serialized, newest 14 files kept, regex
+    redaction of Bearer tokens and password/pin/token fields, never throws);
+    `PosLog` static facade (no-op until `App.OnStartup` configures it).
+  - Messages: `PosMessages` is the one catalog (server/transport, credentials,
+    pairing, login, staff/customer windows). `DevicePairingClient.
+    OperatorNotPermittedMessage` removed. Busy: `BusyController` (re-entrancy
+    guard, logs and friendly text on exception, restores in `finally`); each
+    window has `FormPanel` (disabled while busy), `BusyPanel` with
+    `BusyProgressBar` and `BusyText`, and cancels `Closing` while busy.
+  - Left as is: `CustomersWindow` keeps English labels and no busy state (only
+    its client-fed messages are Spanish; the global handler covers crashes);
+    `UsersWindow` XAML labels stay English (a test locks "Reset password");
+    `SyncRunner` summaries stay English (`RunSyncAsyncTests` locks them);
+    `OperatorLoginWindow` height 700 -> 740 for the progress row.
+
 ## Next step
-T4 (POS robustness: typed outcomes, file logger, global handler, Spanish messages, busy states).
+T5 (logged-operator menu: active operator, switch operator, sign out; provisioning moved to "Personal"). Reuse `BusyController` and `PosMessages`; `OperatorLoginWindow` keeps `FormPanel`/`BusyPanel`.
