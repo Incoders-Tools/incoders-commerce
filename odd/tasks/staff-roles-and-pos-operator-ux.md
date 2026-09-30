@@ -100,7 +100,7 @@ the web after T3), release/versioning work.
   exceptions), friendly Spanish messages (incl. the new `OperatePos` 403),
   busy state (disabled inputs + progress) in pairing and login.
   Route: delegated direct.
-- [ ] T5 POS operator menu: logged-operator button opens a menu with the
+- [x] T5 POS operator menu: logged-operator button opens a menu with the
   active operator, switch operator (PIN picker) and sign out
   (`CurrentOperator.Clear()`); provisioning a new operator moves to
   "Personal". Route: delegated direct.
@@ -298,5 +298,70 @@ the web after T3), release/versioning work.
     `SyncRunner` summaries stay English (`RunSyncAsyncTests` locks them);
     `OperatorLoginWindow` height 700 -> 740 for the progress row.
 
+- 2026-09-30: T4 review. RDD assess `b9c9374..145a9d3`-range of T4 (commits
+  `a0375ec`, `f530283`) approved and acknowledged (lineage
+  `review-d772955f7b3f2fee`). Next boundary `145a9d3`. Advisories fixed in
+  `f2fd4be` (route: direct, one writer, TDD):
+  - WARNING push acknowledged on any 2xx: RED 6 new `PosClientResilienceTests`
+    cases failed (HTML 200, `{}`, non-JSON, empty body, ack for another
+    operation all returned Success). GREEN: `CloudSyncClient.PushAsync` succeeds
+    only when the body is the server's `InboundApplyResult` for THIS operation
+    (matching `OperationId`, defined outcome); otherwise `Failed(UnexpectedResponse)`
+    is returned, logged, and the outbox row stays pending. The replica pull
+    clients already fail without a valid body and `SyncRunner` guards the cursor
+    fields, so no other client needed the rule; the operator status check was
+    already typed in T4.
+  - WARNING `PosLog` race: new `PosLogCollection` (`DisableParallelization`);
+    `PosBusyController`, `PosFileLogger`, `PosClientResilience`, `OperatePosClient`
+    and `PosStaffManagement` tests join it; temp-dir cleanup is guarded.
+  - SUGGESTION: `UserAdminClient` 400 mapping tests (`branch-required`,
+    `branch-not-in-organization`, fallback, non-JSON body) and the body is read
+    once (`PosHttp.LogFailureWithBodyAsync` returns the text, `ParseErrorCode`
+    reads it); a test that logging and mapping both work.
+  - Checks: `Pos|OperatePos|RunSyncAsync|OperatorProvisioning` 244 passed, 0
+    skipped.
+
+- 2026-09-30: T5 done, commit `6dede0d` (route: direct inline by the single
+  writer of the delegated unit; no further delegation).
+  - RED: `PosOperatorMenuTests` failed to compile (no `OperatorMenuPresenter`,
+    `OperatorSessionActions`, `OperatorSignInPlanner`, `OperatorLoginMode`);
+    markup tests failed until the windows existed. GREEN after implementation.
+  - Design: `OperatorMenu.cs` holds the testable units: `OperatorMenuPresenter`
+    (title/role/actions), `OperatorSignInPlanner` (PIN picker vs provisioning),
+    `OperatorSessionActions` (switch, sign in, sign out, `Reconcile` after
+    Personal changed the store). `PosNavBar` now opens a palette-themed `Popup`
+    (events `OperatorMenuRequested`, `SwitchOperatorRequested`,
+    `SignInRequested`, `SignOutRequested`); `x:Name="SwitchOperatorButton"`
+    kept. `OperatorLoginWindow` is a PIN picker only (no provisioning, no busy
+    state: the PIN check is local); provisioning moved to the new
+    `ProvisionOperatorWindow` (same logic, `BusyController`, `Continuar sin
+    operador` only at startup, `Cancelar` from Personal). `TerminalOperatorsWindow`
+    (Personal > "Operadores de esta terminal", opened from a button in
+    `UsersWindow`) lists cached operators, adds (provisioning) and removes
+    (`LocalOperatorStore.Remove`, confirmed). `OperatorSignInFlow` picks the
+    screen for startup, "Iniciar sesión" and the open-cash prompt, so first run
+    (no fresh operator) still provisions at startup.
+  - Decision, sign-out with an open cash session: sign-out is allowed, never
+    closes or changes the cash session, and does not block sales (the existing
+    "Operator Identification Never Blocks a Sale" requirement stays; sales are
+    attributed to the installation until someone signs in). It clears
+    `CurrentOperator` and immediately offers the PIN picker; cancelling leaves
+    "Sin operador activo". "Cambiar operador" shows only when another fresh
+    operator is cached. Removing the active operator in Personal signs them out.
+  - Spec: `pos-operator-session` gains "Operator Menu", "Operator Sign-Out Keeps
+    the Cash Session" and "Operator Provisioning Lives in Personal".
+  - Checks: `dotnet build Commerce.sln` 0 errors; focused `Pos|OperatePos|
+    OperatorProvisioning|ApplicationBranding` 277 passed, 0 skipped; full
+    `Commerce.Integration` from a throwaway worktree 1186 passed, 0 failed, 0
+    skipped; render check (throwaway harness, not committed) of the nav with the
+    menu open (active and signed-out), Personal and its terminal-operators
+    window, the PIN picker and the provisioning window in Dark, Light and Vaca
+    Verde.
+  - Noted, not changed: in Light and Vaca Verde the primary button text renders
+    dark on the blue/green fill (pre-existing: the implicit TextBlock style wins
+    over the button foreground), affecting "Iniciar sesión", "Ingresar", etc.
+    Follow-ups: the `UsersWindow` body is still English/unstyled; no test of
+    the WPF windows' runtime behavior beyond markup (no UI test harness).
+
 ## Next step
-T5 (logged-operator menu: active operator, switch operator, sign out; provisioning moved to "Personal"). Reuse `BusyController` and `PosMessages`; `OperatorLoginWindow` keeps `FormPanel`/`BusyPanel`.
+Manual verification by the owner: apply migration 0020 to the dev DB, re-provision the operator, reassign montes_patricio as cashier.
