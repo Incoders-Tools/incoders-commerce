@@ -800,6 +800,81 @@ public static class AccountEndpoints
             return updated == 0 ? Results.NotFound() : Results.NoContent();
         });
 
+        // Deactivates ("dar de baja") or reactivates a staff user. Same
+        // authorization shape as the roles and branches endpoints, plus: no
+        // self-revocation, staff only, and the target may not hold more than
+        // the caller may manage (permissions and branches). Idempotent.
+        adminGroup.MapPut("/{userId:guid}/status", async (
+            Guid userId,
+            UpdateUserStatusRequest request,
+            HttpContext httpContext,
+            PostgresUserAccountStore userStore,
+            SessionVersionCache sessionVersionCache,
+            CancellationToken ct) =>
+        {
+            if (request.Revoked is not { } revoked)
+            {
+                return Results.BadRequest(new { error = "revoked-required" });
+            }
+
+            var scope = TenantScopeEndpointFilter.GetScope(httpContext);
+
+            var callerIdClaim = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (callerIdClaim is null || !Guid.TryParse(callerIdClaim, out var callerId))
+            {
+                return Results.Forbid();
+            }
+
+            var caller = await userStore.LoadActorAsync(scope.IdentityScope, callerId, ct);
+            if (caller is null || caller.IsRevoked)
+            {
+                return Results.Forbid();
+            }
+
+            var callerPermissions = ActingPermissions.For(caller, scope);
+            if (!callerPermissions.HasFlag(Permission.ManageUsers))
+            {
+                return Results.Forbid();
+            }
+
+            var target = await userStore.LoadActorAsync(scope, userId, ct);
+            if (target is null)
+            {
+                return Results.NotFound();
+            }
+
+            if (target.Id == callerId)
+            {
+                return Results.BadRequest(new { error = "cannot-revoke-self" });
+            }
+
+            if (target.CustomerId is not null)
+            {
+                return Results.BadRequest(new { error = "not-a-staff-user" });
+            }
+
+            if ((target.IsSystemAdmin && !caller.IsSystemAdmin)
+                || (target.EffectivePermissions & ~callerPermissions) != Permission.None)
+            {
+                return Results.Json(new { error = "permissions-exceed-caller" }, statusCode: StatusCodes.Status403Forbidden);
+            }
+
+            var actingSysadmin = caller.IsSystemAdmin && scope.IsActingOnSelectedOrganization;
+            if (!actingSysadmin && target.BranchScope.Any(branchId => !caller.BranchScope.Contains(branchId)))
+            {
+                return Results.Json(new { error = "branch-not-in-scope" }, statusCode: StatusCodes.Status403Forbidden);
+            }
+
+            var version = await userStore.SetRevokedAsync(scope, userId, revoked, "org-user", callerId, ct);
+            if (version is null)
+            {
+                return Results.NotFound();
+            }
+
+            sessionVersionCache.Set(userId, version.Value);
+            return Results.NoContent();
+        });
+
         group.MapPost("/sign-out", async (HttpContext httpContext) =>
         {
             await httpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
@@ -993,3 +1068,4 @@ public sealed record UpdateOrganizationBrandingRequest(string? LogoUrl, string? 
 
 public sealed record AssignRolesRequest(string[] RoleNames);
 public sealed record ReplaceBranchesRequest(Guid[] BranchIds);
+public sealed record UpdateUserStatusRequest(bool? Revoked);

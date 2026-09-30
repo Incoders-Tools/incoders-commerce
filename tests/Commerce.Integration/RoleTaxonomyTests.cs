@@ -6,6 +6,7 @@ using Commerce.Cloud.Api.Authentication;
 using Commerce.Cloud.Api.Endpoints;
 using Commerce.Cloud.Api.Persistence;
 using Commerce.Cloud.Api.Tenancy;
+using Commerce.Domain.Customers;
 using Commerce.Domain.Identity;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -834,5 +835,331 @@ public sealed class RoleTaxonomyTests : IClassFixture<WebApplicationFactory<Prog
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         Assert.Equal([branchId], GetBranchScope(created.UserId));
+    }
+
+    // --- deactivate / reactivate staff (pos-shell-sections-and-lock-screen T1) ---
+
+    private static async Task<HttpResponseMessage> PutStatusAsync(HttpClient client, Guid userId, bool? revoked) =>
+        await client.PutAsJsonAsync($"/account/users/{userId}/status", new UpdateUserStatusRequest(revoked));
+
+    private static int GetSessionVersion(Guid userId)
+    {
+        using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        owner.Open();
+        using var cmd = new NpgsqlCommand("SELECT session_version FROM users WHERE id = $1", owner);
+        cmd.Parameters.AddWithValue(userId);
+        return (int)cmd.ExecuteScalar()!;
+    }
+
+    private static async Task<Guid> CreateStaffAsync(HttpClient admin, string email, string roleName, params Guid[] branchIds)
+    {
+        var create = await admin.PostAsJsonAsync("/account/users", new CreateUserRequest(email, "staff-password", [roleName], branchIds));
+        create.EnsureSuccessStatusCode();
+        return (await create.Content.ReadFromJsonAsync<CreateUserResponse>())!.UserId;
+    }
+
+    [Fact]
+    public async Task Status_Revoke_Returns204_Audits_BumpsSessionVersion_AndListShowsRevoked()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var admin = _factory.CreateClient(CookieClientOptions());
+        var (organizationId, branchId, adminUserId) = await BootstrapOrgAsync(admin, "s1-admin@example.com", "admin-password");
+        await admin.PostAsJsonAsync("/account/sign-in", new SignInRequest("s1-admin@example.com", "admin-password"));
+        var targetId = await CreateStaffAsync(admin, "s1-target@example.com", RoleCatalog.Cashier, branchId);
+        var versionBefore = GetSessionVersion(targetId);
+
+        var response = await PutStatusAsync(admin, targetId, true);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal(versionBefore + 1, GetSessionVersion(targetId));
+        var audit = FindAuditRow("user", targetId, "user.revoked");
+        Assert.NotNull(audit);
+        Assert.Equal(adminUserId, audit!.Value.ActorId);
+        Assert.Equal(organizationId, audit.Value.OrganizationId);
+        var list = await admin.GetFromJsonAsync<List<UserSummaryDto>>("/account/users");
+        Assert.True(list!.Single(u => u.UserId == targetId).IsRevoked);
+    }
+
+    [Fact]
+    public async Task Status_RevokedUser_CannotSignIn_Verify_Pair_AndOperatorStatusIsInactive()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var admin = _factory.CreateClient(CookieClientOptions());
+        var (organizationId, branchId, _) = await BootstrapOrgAsync(admin, "s2-admin@example.com", "admin-password");
+        await admin.PostAsJsonAsync("/account/sign-in", new SignInRequest("s2-admin@example.com", "admin-password"));
+        var targetId = await CreateStaffAsync(admin, "s2-target@example.com", RoleCatalog.Cashier, branchId);
+        string deviceToken;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var credentialStore = scope.ServiceProvider.GetRequiredService<PostgresDeviceCredentialStore>();
+            deviceToken = (await credentialStore.IssueAsync(
+                new CloudTenantScope(organizationId), Guid.NewGuid(), branchId, Guid.NewGuid(), CancellationToken.None)).PlaintextToken;
+        }
+
+        HttpRequestMessage DeviceCall(HttpMethod method, string path, object? body = null)
+        {
+            var request = new HttpRequestMessage(method, path);
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", deviceToken);
+            if (body is not null) request.Content = JsonContent.Create(body);
+            return request;
+        }
+
+        var before = await _factory.CreateClient().SendAsync(DeviceCall(HttpMethod.Get, $"/device/operators/{targetId}/status"));
+        Assert.Equal("active", (await before.Content.ReadFromJsonAsync<OperatorStatusResponse>())!.Status);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await PutStatusAsync(admin, targetId, true)).StatusCode);
+
+        var signIn = await _factory.CreateClient(CookieClientOptions())
+            .PostAsJsonAsync("/account/sign-in", new SignInRequest("s2-target@example.com", "staff-password"));
+        var verify = await _factory.CreateClient().SendAsync(DeviceCall(
+            HttpMethod.Post, "/device/operators/verify", new OperatorVerifyRequest("s2-target@example.com", "staff-password")));
+        var pair = await _factory.CreateClient().PostAsJsonAsync(
+            "/device/pair", new DevicePairRequest("s2-target@example.com", "staff-password", Guid.NewGuid(), branchId));
+        var status = await _factory.CreateClient().SendAsync(DeviceCall(HttpMethod.Get, $"/device/operators/{targetId}/status"));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, signIn.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, verify.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, pair.StatusCode);
+        Assert.Equal("inactive", (await status.Content.ReadFromJsonAsync<OperatorStatusResponse>())!.Status);
+    }
+
+    [Fact]
+    public async Task Status_Revoke_EndsTheTargetsExistingWebSession()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var admin = _factory.CreateClient(CookieClientOptions());
+        var (_, branchId, _) = await BootstrapOrgAsync(admin, "s3-admin@example.com", "admin-password");
+        await admin.PostAsJsonAsync("/account/sign-in", new SignInRequest("s3-admin@example.com", "admin-password"));
+        var targetId = await CreateStaffAsync(admin, "s3-target@example.com", RoleCatalog.BusinessAdmin, branchId);
+        var targetClient = _factory.CreateClient(CookieClientOptions());
+        Assert.Equal(HttpStatusCode.OK, (await targetClient.PostAsJsonAsync(
+            "/account/sign-in", new SignInRequest("s3-target@example.com", "staff-password"))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await targetClient.GetAsync("/account/me")).StatusCode);
+
+        await PutStatusAsync(admin, targetId, true);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, (await targetClient.GetAsync("/account/me")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Status_Reactivate_Returns204_Audits_AndTheUserCanSignInAgain()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var admin = _factory.CreateClient(CookieClientOptions());
+        var (_, branchId, _) = await BootstrapOrgAsync(admin, "s4-admin@example.com", "admin-password");
+        await admin.PostAsJsonAsync("/account/sign-in", new SignInRequest("s4-admin@example.com", "admin-password"));
+        var targetId = await CreateStaffAsync(admin, "s4-target@example.com", RoleCatalog.Cashier, branchId);
+        await PutStatusAsync(admin, targetId, true);
+
+        var response = await PutStatusAsync(admin, targetId, false);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.NotNull(FindAuditRow("user", targetId, "user.reactivated"));
+        var signIn = await _factory.CreateClient(CookieClientOptions())
+            .PostAsJsonAsync("/account/sign-in", new SignInRequest("s4-target@example.com", "staff-password"));
+        Assert.Equal(HttpStatusCode.OK, signIn.StatusCode);
+    }
+
+    [Fact]
+    public async Task Status_RepeatedRevoke_IsIdempotent_OneAuditRowAndOneVersionBump()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var admin = _factory.CreateClient(CookieClientOptions());
+        var (_, branchId, _) = await BootstrapOrgAsync(admin, "s5-admin@example.com", "admin-password");
+        await admin.PostAsJsonAsync("/account/sign-in", new SignInRequest("s5-admin@example.com", "admin-password"));
+        var targetId = await CreateStaffAsync(admin, "s5-target@example.com", RoleCatalog.Cashier, branchId);
+        var versionBefore = GetSessionVersion(targetId);
+
+        var first = await PutStatusAsync(admin, targetId, true);
+        var second = await PutStatusAsync(admin, targetId, true);
+
+        Assert.Equal(HttpStatusCode.NoContent, first.StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, second.StatusCode);
+        Assert.Equal(1, CountAuditRows("user", targetId, "user.revoked"));
+        Assert.Equal(versionBefore + 1, GetSessionVersion(targetId));
+    }
+
+    [Fact]
+    public async Task Status_TargetIsTheCaller_Returns400CannotRevokeSelf_AndNothingChanges()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var admin = _factory.CreateClient(CookieClientOptions());
+        var (_, _, adminUserId) = await BootstrapOrgAsync(admin, "s6-admin@example.com", "admin-password");
+        await admin.PostAsJsonAsync("/account/sign-in", new SignInRequest("s6-admin@example.com", "admin-password"));
+
+        var response = await PutStatusAsync(admin, adminUserId, true);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("cannot-revoke-self", await ReadErrorCodeAsync(response));
+        Assert.Equal(0, CountAuditRows("user", adminUserId, "user.revoked"));
+    }
+
+    [Fact]
+    public async Task Status_UnknownUser_Returns404()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var admin = _factory.CreateClient(CookieClientOptions());
+        await BootstrapOrgAsync(admin, "s7-admin@example.com", "admin-password");
+        await admin.PostAsJsonAsync("/account/sign-in", new SignInRequest("s7-admin@example.com", "admin-password"));
+
+        var response = await PutStatusAsync(admin, Guid.NewGuid(), true);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Status_UserOfAnotherOrganization_Returns404()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var adminA = _factory.CreateClient(CookieClientOptions());
+        await BootstrapOrgAsync(adminA, "s8-admin-a@example.com", "admin-password");
+        await adminA.PostAsJsonAsync("/account/sign-in", new SignInRequest("s8-admin-a@example.com", "admin-password"));
+        var adminB = _factory.CreateClient(CookieClientOptions());
+        var (_, _, foreignUserId) = await BootstrapOrgAsync(adminB, "s8-admin-b@example.com", "admin-password");
+
+        var response = await PutStatusAsync(adminA, foreignUserId, true);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal(0, CountAuditRows("user", foreignUserId, "user.revoked"));
+    }
+
+    [Fact]
+    public async Task Status_MissingRevokedField_Returns400()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var admin = _factory.CreateClient(CookieClientOptions());
+        var (_, branchId, _) = await BootstrapOrgAsync(admin, "s9-admin@example.com", "admin-password");
+        await admin.PostAsJsonAsync("/account/sign-in", new SignInRequest("s9-admin@example.com", "admin-password"));
+        var targetId = await CreateStaffAsync(admin, "s9-target@example.com", RoleCatalog.Cashier, branchId);
+
+        var response = await PutStatusAsync(admin, targetId, null);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("revoked-required", await ReadErrorCodeAsync(response));
+    }
+
+    [Fact]
+    public async Task Status_CustomerLinkedTarget_Returns400NotAStaffUser()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var admin = _factory.CreateClient(CookieClientOptions());
+        var (organizationId, _, adminUserId) = await BootstrapOrgAsync(admin, "s10-admin@example.com", "admin-password");
+        await admin.PostAsJsonAsync("/account/sign-in", new SignInRequest("s10-admin@example.com", "admin-password"));
+        var customerId = Guid.NewGuid();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<PostgresCustomerStore>().CreateAsync(
+                new CloudTenantScope(organizationId),
+                new NewCustomer(customerId, CustomerKind.Retail, "Jane Doe", null, TaxIdType.None, null,
+                    TaxCondition.ConsumidorFinal, null, null, null, null, null, null, null, null, null, null, null, null, adminUserId),
+                "org-user", adminUserId, CancellationToken.None);
+        }
+        var create = await admin.PostAsJsonAsync(
+            "/account/users", new CreateUserRequest("s10-customer@example.com", "password", [], [], customerId));
+        var customerUserId = (await create.Content.ReadFromJsonAsync<CreateUserResponse>())!.UserId;
+
+        var response = await PutStatusAsync(admin, customerUserId, true);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("not-a-staff-user", await ReadErrorCodeAsync(response));
+    }
+
+    [Fact]
+    public async Task Status_TargetHoldsPermissionsTheCallerLacks_Returns403()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var admin = _factory.CreateClient(CookieClientOptions());
+        var (organizationId, branchId, _) = await BootstrapOrgAsync(admin, "s11-admin@example.com", "admin-password");
+        await admin.PostAsJsonAsync("/account/sign-in", new SignInRequest("s11-admin@example.com", "admin-password"));
+        var cashierId = await CreateStaffAsync(admin, "s11-cashier@example.com", RoleCatalog.Cashier, branchId);
+        var scoped = await SignInScopedManagerAsync(organizationId, branchId, "s11-scoped@example.com");
+
+        var response = await PutStatusAsync(scoped, cashierId, true);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal("permissions-exceed-caller", await ReadErrorCodeAsync(response));
+        Assert.Equal(0, CountAuditRows("user", cashierId, "user.revoked"));
+    }
+
+    [Fact]
+    public async Task Status_TargetHasBranchOutsideCallersScope_Returns403()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var admin = _factory.CreateClient(CookieClientOptions());
+        var (organizationId, branchId, adminUserId) = await BootstrapOrgAsync(admin, "s12-admin@example.com", "admin-password");
+        await admin.PostAsJsonAsync("/account/sign-in", new SignInRequest("s12-admin@example.com", "admin-password"));
+        var otherBranchId = await CreateBranchAsync(admin, "Second branch");
+        AddToBranchScope(adminUserId, otherBranchId);
+        var sellerId = await CreateStaffAsync(admin, "s12-seller@example.com", RoleCatalog.Seller, branchId, otherBranchId);
+        var scoped = await SignInScopedManagerAsync(organizationId, branchId, "s12-scoped@example.com");
+
+        var response = await PutStatusAsync(scoped, sellerId, true);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal("branch-not-in-scope", await ReadErrorCodeAsync(response));
+    }
+
+    [Fact]
+    public async Task Status_CallerWithoutManageUsers_Returns403()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var admin = _factory.CreateClient(CookieClientOptions());
+        var (organizationId, branchId, _) = await BootstrapOrgAsync(admin, "s13-admin@example.com", "admin-password");
+        await admin.PostAsJsonAsync("/account/sign-in", new SignInRequest("s13-admin@example.com", "admin-password"));
+        var targetId = await CreateStaffAsync(admin, "s13-target@example.com", RoleCatalog.Seller, branchId);
+        var sellerId = Guid.NewGuid();
+        SeedSecondUser(
+            organizationId, sellerId, "s13-seller@example.com", HashPassword(sellerId, organizationId, "seller-password"),
+            RoleCatalog.Seller, Permission.ViewSales, [branchId]);
+        var seller = _factory.CreateClient(CookieClientOptions());
+        await seller.PostAsJsonAsync("/account/sign-in", new SignInRequest("s13-seller@example.com", "seller-password"));
+
+        var response = await PutStatusAsync(seller, targetId, true);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Status_SystemAdministratorActingOnAnOrganization_CanRevokeItsStaff()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var platform = _factory.CreateClient(CookieClientOptions());
+        var (_, _, platformUserId) = await BootstrapOrgAsync(platform, "s14-platform@example.com", "admin-password");
+        using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            owner.Open();
+            using var promote = new NpgsqlCommand("UPDATE users SET is_system_admin = true, roles = '[]'::jsonb WHERE id = $1", owner);
+            promote.Parameters.AddWithValue(platformUserId);
+            promote.ExecuteNonQuery();
+        }
+        await platform.PostAsJsonAsync("/account/sign-in", new SignInRequest("s14-platform@example.com", "admin-password"));
+        var clientAdmin = _factory.CreateClient(CookieClientOptions());
+        var (clientOrgId, clientBranchId, _) = await BootstrapOrgAsync(clientAdmin, "s14-client@example.com", "admin-password");
+        await clientAdmin.PostAsJsonAsync("/account/sign-in", new SignInRequest("s14-client@example.com", "admin-password"));
+        var targetId = await CreateStaffAsync(clientAdmin, "s14-target@example.com", RoleCatalog.Cashier, clientBranchId);
+
+        var request = new HttpRequestMessage(HttpMethod.Put, $"/account/users/{targetId}/status")
+        {
+            Content = JsonContent.Create(new UpdateUserStatusRequest(true)),
+        };
+        request.Headers.Add("X-Organization-Id", clientOrgId.ToString());
+        var response = await platform.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.NotNull(FindAuditRow("user", targetId, "user.revoked"));
     }
 }

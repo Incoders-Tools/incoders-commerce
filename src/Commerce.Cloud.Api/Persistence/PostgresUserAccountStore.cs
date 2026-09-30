@@ -433,6 +433,64 @@ public sealed class PostgresUserAccountStore
         return updated;
     }
 
+    /// <summary>
+    /// Sets a user's revoked flag. Revoking also bumps `session_version` so the
+    /// user's existing web sessions stop validating. Idempotent: when the flag
+    /// already has the requested value nothing changes and nothing is audited.
+    /// Returns null when the user does not exist in the scope; otherwise the
+    /// session version after the call.
+    /// </summary>
+    public async Task<int?> SetRevokedAsync(
+        CloudTenantScope scope, Guid userId, bool revoked, string actorKind, Guid actorId, CancellationToken ct)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+
+        await SetTenantScopeAsync(connection, tx, scope, ct);
+
+        bool current;
+        int version;
+        await using (var readCmd = new NpgsqlCommand(
+            "SELECT is_revoked, session_version FROM users WHERE id = $1 FOR UPDATE", connection, tx))
+        {
+            readCmd.Parameters.AddWithValue(userId);
+            await using var reader = await readCmd.ExecuteReaderAsync(ct);
+            if (!await reader.ReadAsync(ct))
+            {
+                return null;
+            }
+            current = reader.GetBoolean(0);
+            version = reader.GetInt32(1);
+        }
+
+        if (current == revoked)
+        {
+            await tx.CommitAsync(ct);
+            return version;
+        }
+
+        await using (var updateCmd = new NpgsqlCommand(
+            "UPDATE users SET is_revoked = $1, session_version = session_version + $2 WHERE id = $3 RETURNING session_version",
+            connection, tx))
+        {
+            updateCmd.Parameters.AddWithValue(revoked);
+            updateCmd.Parameters.AddWithValue(revoked ? 1 : 0);
+            updateCmd.Parameters.AddWithValue(userId);
+            version = (int)(await updateCmd.ExecuteScalarAsync(ct))!;
+        }
+
+        await AuditLogWriter.InsertAsync(
+            connection, tx,
+            new UserManagementAuditEntry(
+                actorKind, actorId, scope.OrganizationId, "user", userId,
+                revoked ? "user.revoked" : "user.reactivated",
+                JsonSerializer.Serialize(current), JsonSerializer.Serialize(revoked)),
+            ct);
+
+        await tx.CommitAsync(ct);
+        return version;
+    }
+
     public async Task<IReadOnlyList<UserSummaryDto>> ListStaffAsync(CloudTenantScope scope, CancellationToken ct)
     {
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
