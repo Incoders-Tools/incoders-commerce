@@ -384,5 +384,20 @@ the web after T3), release/versioning work.
   - Checks: `dotnet build Commerce.sln` 0 errors; full `Commerce.Integration`
     from a throwaway worktree 1193 passed, 0 failed, 0 skipped.
 
+- 2026-09-30: closure (parent, direct inline). RDD assess `f75bdbd..a81ea2e`
+  medium, 150 lines, `under_budget` (pending in the next slice; boundary stays
+  `f75bdbd`). Applied `0020_operate_pos_permission.sql` to the dev database by
+  hand (`UPDATE 1`; admin@vacaverde.local permissions 31). `run-all.ps1`
+  surfaced a regression from T2: `provision-admin.ps1` treated the sysadmin's
+  new `operator-not-permitted` pairing refusal as a failure; fixed in
+  `2f9a064` (accepts it alongside `no-branches-assigned`), re-run succeeded.
+  Stack running via `run-all.ps1` (note: it populates Cloud.Api `wwwroot`).
+
 ## Next step
-Manual verification by the owner: apply migration 0020 to the dev DB, re-provision the operator, reassign montes_patricio as cashier.
+Manual verification by the owner: sign into the POS (PIN provisioning as
+admin@vacaverde.local), try the operator menu (switch, sign out) and Personal
+> "Operadores de esta terminal"; in the web, reassign montes_patricio to
+"Ruta 51" with the Cajero role and confirm it can sign into the POS.
+Follow-ups: POS `UsersWindow`/`CustomersWindow` still English; Light/Vaca
+Verde primary button text contrast (pre-existing); `OpenTerminalOperators`
+reconcile seam; ingest the pending `f75bdbd..` slice into the next review.
