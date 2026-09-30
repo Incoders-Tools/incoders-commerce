@@ -1002,12 +1002,45 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>After the operator changed (sign-out, switch, removal): a section they may not open gives way to the sale.</summary>
+    /// <summary>
+    /// After the operator changed (sign-out, switch, removal): a section they may not open gives
+    /// way to the sale. A section with a request in flight is never disposed under it: it is
+    /// hidden at once and torn down when its request ends (<see cref="OnSectionIdle"/>).
+    /// </summary>
     private void ReconcileShell()
     {
-        if (_shell.Reconcile(_currentOperator.Value?.Permissions))
+        switch (_shell.Reconcile(_currentOperator.Value?.Permissions, _sectionView?.IsBusy == true))
         {
-            ApplySection();
+            case ReconcileOutcome.Switched:
+                ApplySection();
+                break;
+            case ReconcileOutcome.Deferred:
+                SectionHost.Visibility = Visibility.Collapsed;
+                SaleScreen.Visibility = Visibility.Visible;
+                NavBar.SetActiveSection(ShellSection.Sale);
+                if (_sectionView is { } busyView)
+                {
+                    busyView.Idle -= OnSectionIdle;
+                    busyView.Idle += OnSectionIdle;
+                }
+                break;
+        }
+    }
+
+    private void OnSectionIdle()
+    {
+        if (_sectionView is { } view)
+        {
+            view.Idle -= OnSectionIdle;
+        }
+
+        ReconcileShell();
+        if (_shell.Current != ShellSection.Sale)
+        {
+            // The operator regained access while the section was busy: show it again.
+            SectionHost.Visibility = Visibility.Visible;
+            SaleScreen.Visibility = Visibility.Collapsed;
+            NavBar.SetActiveSection(_shell.Current);
         }
     }
 

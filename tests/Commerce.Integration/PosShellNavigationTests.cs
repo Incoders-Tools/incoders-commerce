@@ -75,6 +75,51 @@ public sealed class PosShellNavigationTests
     }
 
     [Fact]
+    public void Reconcile_WhileTheSectionIsBusy_DefersTheFallback_AndKeepsTheSection()
+    {
+        var shell = new ShellNavigation();
+        shell.Navigate(ShellSection.Staff, Admin);
+
+        Assert.Equal(ReconcileOutcome.Deferred, shell.Reconcile(null, sectionBusy: true));
+        Assert.Equal(ShellSection.Staff, shell.Current);
+        Assert.True(shell.ReconcilePending);
+    }
+
+    [Fact]
+    public void Reconcile_OnceTheSectionIsIdle_AppliesTheDeferredFallback()
+    {
+        var shell = new ShellNavigation();
+        shell.Navigate(ShellSection.Staff, Admin);
+        shell.Reconcile(Cashier, sectionBusy: true);
+
+        Assert.Equal(ReconcileOutcome.Switched, shell.Reconcile(Cashier, sectionBusy: false));
+        Assert.Equal(ShellSection.Sale, shell.Current);
+        Assert.False(shell.ReconcilePending);
+    }
+
+    [Fact]
+    public void Reconcile_WhenAccessIsBackBeforeTheSectionWentIdle_DropsTheDeferral()
+    {
+        var shell = new ShellNavigation();
+        shell.Navigate(ShellSection.Staff, Admin);
+        shell.Reconcile(null, sectionBusy: true);
+
+        Assert.Equal(ReconcileOutcome.Unchanged, shell.Reconcile(Admin, sectionBusy: true));
+        Assert.False(shell.ReconcilePending);
+        Assert.Equal(ShellSection.Staff, shell.Current);
+    }
+
+    [Fact]
+    public void Reconcile_WhileStillAllowed_IsUnchanged_EvenWhenBusy()
+    {
+        var shell = new ShellNavigation();
+        shell.Navigate(ShellSection.Staff, Admin);
+
+        Assert.Equal(ReconcileOutcome.Unchanged, shell.Reconcile(Admin, sectionBusy: true));
+        Assert.False(shell.ReconcilePending);
+    }
+
+    [Fact]
     public void Reconcile_WhileStillAllowed_ChangesNothing()
     {
         var shell = new ShellNavigation();

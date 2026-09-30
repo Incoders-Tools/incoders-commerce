@@ -23,6 +23,9 @@ public sealed class BusyController
 
     public bool IsBusy { get; private set; }
 
+    /// <summary>Raised once the work ended and the busy state was restored (never for an ignored re-entrant call).</summary>
+    public event Action? Idle;
+
     public async Task RunAsync(string busyText, Func<Task> work)
     {
         if (IsBusy)
@@ -45,6 +48,7 @@ public sealed class BusyController
         {
             IsBusy = false;
             _render(false, null);
+            Idle?.Invoke();
         }
     }
 }

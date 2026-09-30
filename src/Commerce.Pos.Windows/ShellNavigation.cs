@@ -38,16 +38,46 @@ public sealed class ShellNavigation
     }
 
     /// <summary>After the operator changed: a section the new operator may not open falls back to the sale.</summary>
-    public bool Reconcile(int? permissions)
+    public bool Reconcile(int? permissions) => Reconcile(permissions, sectionBusy: false) == ReconcileOutcome.Switched;
+
+    /// <summary>A fallback is waiting for the current section's request to finish (see <see cref="Reconcile(int?, bool)"/>).</summary>
+    public bool ReconcilePending { get; private set; }
+
+    /// <summary>
+    /// Like <see cref="Reconcile(int?)"/>, but a section with a request in flight is
+    /// never torn down: the fallback is <see cref="ReconcileOutcome.Deferred"/> until
+    /// the host calls this again once the section is idle.
+    /// </summary>
+    public ReconcileOutcome Reconcile(int? permissions, bool sectionBusy)
     {
         if (Allowed(permissions).Contains(Current))
         {
-            return false;
+            ReconcilePending = false;
+            return ReconcileOutcome.Unchanged;
         }
 
+        if (sectionBusy)
+        {
+            ReconcilePending = true;
+            return ReconcileOutcome.Deferred;
+        }
+
+        ReconcilePending = false;
         Current = ShellSection.Sale;
-        return true;
+        return ReconcileOutcome.Switched;
     }
+}
+
+public enum ReconcileOutcome
+{
+    /// <summary>The current section is still allowed.</summary>
+    Unchanged,
+
+    /// <summary>The section was dropped: the shell is back on the sale.</summary>
+    Switched,
+
+    /// <summary>The section is no longer allowed but is busy: keep it until it is idle.</summary>
+    Deferred,
 }
 
 /// <summary>A management section hosted in the main window's content area.</summary>
@@ -55,4 +85,7 @@ public interface ISectionView : IDisposable
 {
     /// <summary>A network action is in flight: the shell keeps the section until it ends.</summary>
     bool IsBusy { get; }
+
+    /// <summary>Raised when a network action ends and the section is no longer busy.</summary>
+    event Action? Idle;
 }

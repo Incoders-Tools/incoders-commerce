@@ -184,6 +184,44 @@ public sealed class PosStaffViewTests
     }
 
     [Fact]
+    public void Rows_OfferPasswordReset_OnEveryRow_EvenTheOwnOne_AndWhileConfirmingAStatusChange()
+    {
+        // The API has no self restriction on reset-password, and it does not depend on the status action.
+        var target = Guid.NewGuid();
+        var rows = StaffRowPresenter.Build(
+            [User("me@x.test", ["business-admin"], id: Me), User("a@x.test", ["cashier"], id: target), User("b@x.test", [], revoked: true)],
+            Me, TerminalBranch, pendingUserId: target);
+
+        Assert.All(rows, row => Assert.True(row.CanResetPassword));
+        Assert.False(rows.Single(r => r.Email == "me@x.test").CanChangeStatus);
+        Assert.True(rows.Single(r => r.Email == "a@x.test").IsConfirming);
+    }
+
+    [Theory]
+    [InlineData("StaffView.xaml.cs")]
+    [InlineData("CustomersView.xaml.cs")]
+    public void AdminSignIn_ClearsThePasswordBox_EvenWhenTheCallThrows(string file)
+    {
+        var code = Src(file);
+        var method = System.Text.RegularExpressions.Regex.Match(code, @"async Task SignInAsync\(\)[\s\S]*?\n    }");
+
+        Assert.True(method.Success);
+        Assert.Matches(@"finally\s*\{\s*SignInPanel\.ClearPassword\(\);", method.Value);
+    }
+
+    [Fact]
+    public void StaffView_OffersPasswordResetIndependentlyOfTheStatusAction()
+    {
+        var xaml = Src("StaffView.xaml");
+        var reset = System.Text.RegularExpressions.Regex.Match(xaml, @"<Button[^>]*ResetPasswordRowButton_Click[^>]*/>");
+
+        Assert.True(reset.Success);
+        Assert.Contains("{Binding CanResetPassword,", reset.Value);
+        Assert.DoesNotContain("ShowAction", reset.Value);
+        Assert.DoesNotContain("IsConfirming", reset.Value);
+    }
+
+    [Fact]
     public void Rows_AskForConfirmation_OnlyForThePendingRow()
     {
         var target = Guid.NewGuid();

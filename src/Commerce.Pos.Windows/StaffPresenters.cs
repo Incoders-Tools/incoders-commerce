@@ -39,6 +39,9 @@ public sealed record StaffRow(
     /// <summary>Convenience for the template: the confirm step and the action are mutually exclusive.</summary>
     public bool ShowAction => CanChangeStatus && !IsConfirming;
 
+    /// <summary>Password reset does not depend on the status action: the API allows it on any staff user, the admin's own row included.</summary>
+    public bool CanResetPassword => true;
+
     /// <summary>Second line of a row: where the person works and whether the account is active.</summary>
     public string DetailText => string.Join(" · ", new[] { BranchText, StatusText }.Where(part => part.Length > 0));
 }

@@ -31,8 +31,25 @@ public sealed class PosShellMarkupTests
         Assert.Contains("new CustomersView(", code);
         Assert.Contains("SaleScreen.Visibility", code);
         Assert.DoesNotContain("new CustomersWindow", code);
-        // Switching sections must never rebuild or clear the sale.
-        Assert.DoesNotContain("_cart.Clear", Regex.Match(code, @"void ShowSection[\s\S]*?\n    }").Value);
+        // Switching sections must never rebuild or clear the sale (and the guard must actually find the methods).
+        foreach (var method in new[] { "ShowSection", "ApplySection", "ReconcileShell" })
+        {
+            var body = Regex.Match(code, @"void " + method + @"\([^)]*\)[\s\S]*?\n    }");
+            Assert.True(body.Success, $"{method} was not found in MainWindow.xaml.cs");
+            Assert.DoesNotContain("_cart.Clear", body.Value);
+        }
+    }
+
+    [Fact]
+    public void MainWindow_NeverDisposesABusySection_WhenTheOperatorChanges()
+    {
+        var code = Src("MainWindow.xaml.cs");
+        var reconcile = Regex.Match(code, @"void ReconcileShell\(\)[\s\S]*?\n    }");
+
+        Assert.True(reconcile.Success);
+        Assert.Contains("_sectionView?.IsBusy == true", reconcile.Value);
+        Assert.Contains("ReconcileOutcome.Deferred", reconcile.Value);
+        Assert.Contains("OnSectionIdle", reconcile.Value);
     }
 
     [Fact]

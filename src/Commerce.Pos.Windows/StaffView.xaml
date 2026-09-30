@@ -76,20 +76,23 @@
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
                                             <StackPanel VerticalAlignment="Center">
                                                 <TextBlock Text="{Binding Email}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
                                                 <TextBlock Text="{Binding RolesText}" Style="{StaticResource MutedTextBlock}" FontSize="12" />
                                                 <TextBlock Text="{Binding DetailText}" Style="{StaticResource MutedTextBlock}" FontSize="12" />
                                             </StackPanel>
-                                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"
+                                            <Button Grid.Column="1" Content="Restablecer contraseña" Tag="{Binding UserId}" Style="{StaticResource GhostButton}"
+                                                    Margin="0,0,8,0" VerticalAlignment="Center"
+                                                    Visibility="{Binding CanResetPassword, Converter={StaticResource BoolToVisibility}}"
+                                                    Click="ResetPasswordRowButton_Click" />
+                                            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center"
                                                         Visibility="{Binding ShowAction, Converter={StaticResource BoolToVisibility}}">
-                                                <Button Content="Restablecer contraseña" Tag="{Binding UserId}" Style="{StaticResource GhostButton}" Margin="0,0,8,0"
-                                                        Click="ResetPasswordRowButton_Click" />
                                                 <Button Content="{Binding ActionLabel}" Tag="{Binding UserId}" Style="{StaticResource SecondaryButton}"
                                                         Click="StatusActionButton_Click" />
                                             </StackPanel>
-                                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"
+                                            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center"
                                                         Visibility="{Binding IsConfirming, Converter={StaticResource BoolToVisibility}}">
                                                 <TextBlock Text="{Binding ConfirmText}" VerticalAlignment="Center" Margin="0,0,10,0" FontWeight="SemiBold" />
                                                 <Button Content="Confirmar" Tag="{Binding UserId}" Margin="0,0,8,0" Click="ConfirmStatusButton_Click" />

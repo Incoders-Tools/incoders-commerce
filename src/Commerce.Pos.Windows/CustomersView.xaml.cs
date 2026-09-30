@@ -46,6 +46,12 @@ public partial class CustomersView : UserControl, ISectionView
 
     public bool IsBusy => _busy.IsBusy;
 
+    public event Action? Idle
+    {
+        add => _busy.Idle += value;
+        remove => _busy.Idle -= value;
+    }
+
     public void Dispose() => _adminClient.Dispose();
 
     private void ApplyBusy(bool busy, string? text)
@@ -70,8 +76,16 @@ public partial class CustomersView : UserControl, ISectionView
         await _busy.RunAsync(PosMessages.SigningIn, async () =>
         {
             ShowStatus(string.Empty, isError: false);
-            var outcome = await _adminClient.SignInAsync(email, password);
-            SignInPanel.ClearPassword();
+            AdminSignInOutcome outcome;
+            try
+            {
+                outcome = await _adminClient.SignInAsync(email, password);
+            }
+            finally
+            {
+                SignInPanel.ClearPassword();
+            }
+
             if (outcome.Kind != AdminSignInOutcomeKind.SignedIn)
             {
                 ShowStatus(outcome.ErrorMessage ?? PosMessages.SignInFailed, isError: true);

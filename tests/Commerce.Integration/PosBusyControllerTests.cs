@@ -54,6 +54,36 @@ public sealed class PosBusyControllerTests
     }
 
     [Fact]
+    public async Task RunAsync_RaisesIdle_AfterTheWorkEnds_WithTheControllerNoLongerBusy()
+    {
+        var controller = Controller();
+        var busyAtIdle = true;
+        controller.Idle += () => { busyAtIdle = controller.IsBusy; _events.Add("idle-event"); };
+
+        await controller.RunAsync("a", () => Task.CompletedTask);
+
+        Assert.False(busyAtIdle);
+        Assert.Equal(["busy:a", "idle", "idle-event"], _events);
+    }
+
+    [Fact]
+    public async Task RunAsync_RaisesIdle_EvenWhenTheWorkThrows_AndNotForAnIgnoredSecondAction()
+    {
+        var controller = Controller();
+        var idles = 0;
+        controller.Idle += () => idles++;
+        var release = new TaskCompletionSource();
+
+        var first = controller.RunAsync("a", async () => { await release.Task; throw new InvalidOperationException("kaput"); });
+        await controller.RunAsync("b", () => Task.CompletedTask);
+        Assert.Equal(0, idles);
+        release.SetResult();
+        await first;
+
+        Assert.Equal(1, idles);
+    }
+
+    [Fact]
     public async Task RunAsync_WhenTheWorkThrows_TheDetailIsLogged()
     {
         var dir = Path.Combine(Path.GetTempPath(), "pos-busy-" + Guid.NewGuid().ToString("N"));
