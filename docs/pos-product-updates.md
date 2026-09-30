@@ -206,9 +206,24 @@ Implement detection before installation:
 
 The install wizard should be implemented after detection is reliable and visible on the installed VM path.
 
-## Open decisions
+## Decisions and open questions
 
-- Exact package technology implementation details: WiX/MSI, MSIX tooling, signing provider.
-- Whether update checks call GitHub Releases directly or a thin first-party API endpoint that mirrors the release manifest.
-- Whether update availability is per organization/branch/channel or global per product channel.
-- How administrator authorization is represented in the UI when an MSI/service update requires elevation.
+Decided (owner and parent defaults, 2026-09-30; see
+[ADR-013](./architecture/decisions/ADR-013-interim-self-signed-code-signing.md)
+and `odd/tasks/product-update-service.md`):
+
+| Question | Decision |
+| --- | --- |
+| Release source | GitHub Releases, called directly by the POS. The repository is public, so no credentials are needed. A first-party mirror API stays a later option. |
+| Availability scope | Global per product channel (`stable` from `main`, `internal` from prereleases cut on `dev`), not per organization or branch. |
+| Package technology | MSIX first. The signed-MSI fallback of ADR-005 stays a follow-up and becomes a go-live item only if a terminal below Windows 10 2004 appears. |
+| Signing | Interim self-signed certificate installed once per terminal; a commercial certificate is a go-live requirement. Swapping it needs no code change (ADR-013). |
+| How a release is cut | Push a `v<semver>` tag or run `pos-release.yml` manually; the tag is the version source. Scripts: `deploy/release/`. |
+| Terminal trust | [Terminal certificate runbook](../deploy/pos-terminal-certificate.md). |
+| Launch blockers | [Go-live requirements](./launch/go-live-requirements.md). |
+
+Still open:
+
+- How administrator authorization is represented in the UI when an update needs elevation (install wizard).
+- How the Windows Service branch node is packaged if it is split from the POS process; today the POS hosts it in-process.
+- Whether packaged-app file virtualization affects `%LocalAppData%` data such as `branch.db` (validate on the installed VM).
