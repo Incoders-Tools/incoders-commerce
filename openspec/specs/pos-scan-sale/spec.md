@@ -291,3 +291,16 @@ walk-in MUST carry none.
 - GIVEN the customer selector is at its default
 - WHEN the operator opens it
 - THEN the first entry reads "Consumidor final"
+
+### Requirement: Sales Require an Open Cash Session
+
+Both sale paths (scan-composed and manual-total) MUST refuse to commit while
+the terminal has no open cash session, as defined by `pos-cash-session`, and the
+sale screen MUST NOT be usable until a session is open. A committed sale MUST
+reference the open session.
+
+#### Scenario: Sale refused without a session
+
+- GIVEN the terminal has no open cash session
+- WHEN a sale is committed by either path
+- THEN it is refused and nothing is recorded

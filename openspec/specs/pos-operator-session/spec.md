@@ -180,3 +180,14 @@ already established for device pairing and bootstrap.
 - WHEN an attempt is made to open the customer-management screen
 - THEN access is denied, consistent with treating an unidentified operator
   as having no elevated role
+
+### Requirement: Operator Switching Keeps the Cash Session
+
+Switching the signed-in operator MUST NOT close or change the open cash
+session (`pos-cash-session`); each sale keeps the operator who made it.
+
+#### Scenario: Switch inside an open session
+
+- GIVEN a cash session is open
+- WHEN another operator signs in
+- THEN the same session stays open
