@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
-import { adminResetPassword, createUser, listUsers, updateUserBranches, updateUserRoles } from '@/api/account'
+import { adminResetPassword, createUser, listUsers, updateUserBranches, updateUserRoles, updateUserStatus } from '@/api/account'
 import { ApiError } from '@/api/client'
 import type { UserSummary } from '@/api/types'
+import { useOptionalAuth } from '@/auth/AuthContext'
 import { useOptionalBranchContext } from '@/branch/BranchContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -35,6 +36,7 @@ const assignableRoles = ['business-admin', 'seller', 'cashier', 'provider']
 export function UsersScreen() {
   const { t } = useTranslation('users')
   const branchContext = useOptionalBranchContext()
+  const ownUserId = useOptionalAuth()?.user?.userId ?? null
   const selectableBranches = useMemo(() => branchContext?.selectableBranches ?? [], [branchContext])
   const selectedBranchId = branchContext?.selectedBranch?.id ?? null
   const [users, setUsers] = useState<UserSummary[]>([])
@@ -55,6 +57,8 @@ export function UsersScreen() {
    * failing says nothing about whether the collection could be read. */
   const [loadError, setLoadError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  /** The row waiting for the administrator to confirm a deactivation or reactivation. */
+  const [pendingStatusUserId, setPendingStatusUserId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [view, setView] = useViewPreference('users')
@@ -176,6 +180,25 @@ export function UsersScreen() {
             ? t('errors.unableToSaveRolesWithDetail', { email: user.email, detail: err.message })
             : t('errors.unableToSaveRoles', { email: user.email })),
       )
+    }
+  }
+
+  const statusErrorFor = (err: unknown, user: UserSummary): string => {
+    if (err instanceof ApiError) {
+      if (err.code === 'cannot-revoke-self') return t('errors.cannotRevokeSelf')
+      if (err.status === 403) return t('errors.forbiddenStatus')
+    }
+    return t('errors.unableToChangeStatus', { email: user.email })
+  }
+
+  const confirmStatusChange = async (user: UserSummary) => {
+    setActionError(null)
+    setPendingStatusUserId(null)
+    try {
+      await updateUserStatus(user.userId, !user.isRevoked)
+      await refresh()
+    } catch (err) {
+      setActionError(statusErrorFor(err, user))
     }
   }
 
@@ -369,6 +392,29 @@ export function UsersScreen() {
             <Button size="sm" onClick={() => void forceReset(user.userId)}>
               {t('row.forceReset')}
             </Button>
+            {user.userId !== ownUserId &&
+              (pendingStatusUserId === user.userId ? (
+                <span className="flex flex-wrap items-center gap-2 text-sm text-foreground">
+                  {t(user.isRevoked ? 'row.confirmReactivate' : 'row.confirmDeactivate', { email: user.email })}
+                  <Button size="sm" variant={user.isRevoked ? 'default' : 'destructive'} onClick={() => void confirmStatusChange(user)}>
+                    {t('row.confirm')}
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setPendingStatusUserId(null)}>
+                    {t('row.cancel')}
+                  </Button>
+                </span>
+              ) : (
+                <Button
+                  size="sm"
+                  variant={user.isRevoked ? 'default' : 'destructive'}
+                  onClick={() => {
+                    setActionError(null)
+                    setPendingStatusUserId(user.userId)
+                  }}
+                >
+                  {t(user.isRevoked ? 'row.reactivate' : 'row.deactivate')}
+                </Button>
+              ))}
           </>
         )}
       />

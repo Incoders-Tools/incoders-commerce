@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { UsersScreen } from './UsersScreen'
+import { AuthContext } from '@/auth/AuthContext'
 import { BranchContext } from '@/branch/BranchContext'
 import type { UserSummary } from '@/api/types'
 
@@ -544,5 +545,111 @@ describe('UsersScreen', () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
     expect(fetchMock.mock.calls[1][0]).toBe('/account/users/user-1/reset-password')
+  })
+
+  describe('deactivating and reactivating staff', () => {
+    const signedInAs = (userId: string) => ({
+      user: { organizationId: 'org', userId, displayName: 'me', permissions: 0, isSystemAdmin: false, selectableBranches: [] },
+      error: null,
+      signIn: async () => {},
+      signOut: async () => {},
+    })
+
+    const renderAs = (userId: string) =>
+      render(
+        <AuthContext.Provider value={signedInAs(userId)}>
+          <BranchContext.Provider
+            value={{ selectedBranch: ruta51, selectableBranches: [ruta51, centro], selectBranch: () => {} }}
+          >
+            <UsersScreen />
+          </BranchContext.Provider>
+        </AuthContext.Provider>,
+      )
+
+    const errorBody = (status: number, code?: string) =>
+      new Response(JSON.stringify(code ? { error: code } : {}), { status })
+
+    it('asks for confirmation, then deactivates the user and refreshes the list', async () => {
+      listOnce([seller]).mockResolvedValueOnce(new Response(null, { status: 204 }))
+      listOnce([{ ...seller, isRevoked: true }])
+
+      const user = userEvent.setup()
+      renderAs('someone-else')
+
+      await screen.findByText('staff@example.com')
+      await user.click(screen.getByRole('button', { name: 'Dar de baja' }))
+
+      expect(screen.getByText('¿Dar de baja a staff@example.com?')).toBeInTheDocument()
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+
+      await user.click(screen.getByRole('button', { name: 'Confirmar' }))
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
+      expect(fetchMock.mock.calls[1][0]).toBe('/account/users/user-1/status')
+      expect(fetchMock.mock.calls[1][1].method).toBe('PUT')
+      expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toEqual({ revoked: true })
+      expect(await screen.findByRole('button', { name: 'Reactivar' })).toBeInTheDocument()
+    })
+
+    it('does nothing when the confirmation is cancelled', async () => {
+      listOnce([seller])
+
+      const user = userEvent.setup()
+      renderAs('someone-else')
+
+      await screen.findByText('staff@example.com')
+      await user.click(screen.getByRole('button', { name: 'Dar de baja' }))
+      await user.click(screen.getByRole('button', { name: 'Cancelar' }))
+
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(screen.getByRole('button', { name: 'Dar de baja' })).toBeInTheDocument()
+    })
+
+    it('reactivates a revoked user after confirmation', async () => {
+      listOnce([revokedProvider]).mockResolvedValueOnce(new Response(null, { status: 204 }))
+      listOnce([{ ...revokedProvider, isRevoked: false }])
+
+      const user = userEvent.setup()
+      renderAs('someone-else')
+
+      await screen.findByText('supplier@vendor.test')
+      expect(screen.queryByRole('button', { name: 'Dar de baja' })).not.toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: 'Reactivar' }))
+      expect(screen.getByText('¿Reactivar a supplier@vendor.test?')).toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: 'Confirmar' }))
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
+      expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toEqual({ revoked: false })
+      expect(await screen.findByRole('button', { name: 'Dar de baja' })).toBeInTheDocument()
+    })
+
+    it('offers no deactivation on the signed-in user\'s own row', async () => {
+      listOnce([seller, revokedProvider])
+
+      renderAs('user-1')
+
+      await screen.findByText('staff@example.com')
+      expect(screen.queryByRole('button', { name: 'Dar de baja' })).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Reactivar' })).toBeInTheDocument()
+    })
+
+    it.each([
+      [400, 'cannot-revoke-self', /no podés darte de baja a vos mismo/i],
+      [403, 'permissions-exceed-caller', /no tenés permiso para dar de baja o reactivar/i],
+      [403, 'branch-not-in-scope', /no tenés permiso para dar de baja o reactivar/i],
+      [500, undefined, /no se pudo cambiar el estado de staff@example\.com/i],
+    ])('shows a friendly message when the server answers %s %s', async (status, code, message) => {
+      listOnce([seller]).mockResolvedValueOnce(errorBody(status, code))
+
+      const user = userEvent.setup()
+      renderAs('someone-else')
+
+      await screen.findByText('staff@example.com')
+      await user.click(screen.getByRole('button', { name: 'Dar de baja' }))
+      await user.click(screen.getByRole('button', { name: 'Confirmar' }))
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(message)
+      expect(screen.getByRole('button', { name: 'Dar de baja' })).toBeInTheDocument()
+    })
   })
 })

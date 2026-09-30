@@ -11,7 +11,10 @@
     "branchRequired": "Choose at least one branch for the user.",
     "branchNotInOrganization": "One of the chosen branches does not belong to the organization.",
     "forbidden": "You are not allowed to assign that branch or role.",
-    "unableToSaveBranches": "Unable to save the branches of {{email}}."
+    "unableToSaveBranches": "Unable to save the branches of {{email}}.",
+    "cannotRevokeSelf": "You cannot deactivate yourself.",
+    "forbiddenStatus": "You are not allowed to deactivate or reactivate this user.",
+    "unableToChangeStatus": "Unable to change the status of {{email}}."
   },
   "createForm": {
     "emailAriaLabel": "User email",
@@ -53,7 +56,13 @@
     "newPasswordPlaceholder": "New password",
     "forceReset": "Force reset",
     "branchForUser": "Branch {{branch}} for {{email}}",
-    "saveBranches": "Save branches"
+    "saveBranches": "Save branches",
+    "deactivate": "Deactivate",
+    "reactivate": "Reactivate",
+    "confirmDeactivate": "Deactivate {{email}}?",
+    "confirmReactivate": "Reactivate {{email}}?",
+    "confirm": "Confirm",
+    "cancel": "Cancel"
   },
   "roles": {
     "business-admin": {

@@ -70,3 +70,4 @@ export const getOwnOrganizationBranding = () => apiFetch<OrganizationBranding>('
 // branch-discount-pin: status is readable, the PIN is write-only (PUT sets or rotates it).
 export const getBranchDiscountPin = (branchId: string) => apiFetch<BranchDiscountPinStatus>(`/account/branches/${branchId}/discount-pin`)
 export const setBranchDiscountPin = (branchId: string, pin: string) => apiFetch<BranchDiscountPinStatus>(`/account/branches/${branchId}/discount-pin`, { method: 'PUT', body: JSON.stringify({ pin }) })
+export const updateUserStatus = (userId: string, revoked: boolean) => apiFetch<void>(`/account/users/${userId}/status`, { method: 'PUT', body: JSON.stringify({ revoked }) })
