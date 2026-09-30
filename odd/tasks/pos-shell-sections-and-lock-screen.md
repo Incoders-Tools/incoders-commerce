@@ -332,6 +332,34 @@ by admin (the staff member re-enters with email + password to set a new PIN).
   ratios). GREEN: `Pos` filter 460/460; full `dotnet test tests/Commerce.Integration`
   1420 passed, 0 failed, 0 skipped. Render check (throwaway harness, 1120x700,
   three themes, forced hover) inspected by hand.
+- 2026-09-30 contrast slice review: RDD lineage `review-f18a19b9f85408a5` (approved,
+  acknowledged; next boundary `4399e64`) left four advisories, fixed by one writer
+  (route: direct), commits `7b7c9e3`, `5314c59`, `0da097b`:
+  - WARNING navigation blocked by a pending teardown (`7b7c9e3`): `ShellNavigation`
+    takes a `TimeProvider` and a timeout (default 10 s); `TeardownPending` stops
+    blocking once it elapsed (`TeardownExpired`), and the window then force-releases
+    the detached view. `BusyController` exposes `Token`/`Cancel()`, swallows the
+    cancellation quietly and raises `Idle` even if rendering throws; both views pass
+    the token to every admin client call, and `ISectionView.CancelPending()` is
+    called when the view is detached. A refused click now shows
+    `PosMessages.PreviousOperationRunning` instead of being ignored.
+  - SUGGESTION seam over `ISectionView` (`7b7c9e3`): the UI-free `SectionLifecycle`
+    owns the active and detached views; tests prove exactly-once disposal and that a
+    release does not ask to clear the host when a new section is shown.
+  - WARNING open-cash without operator (`5314c59`): `CashSessionInput.CanPromptOpenCash`;
+    `PromptOpenCash` returns early to the lock state without a usable operator label;
+    `OpenCashWindow` keeps Confirm disabled and inert without one.
+  - WARNING separate visual trees (`0da097b`): implicit `ToolTip`, `ContextMenu` and a
+    templated `MenuItem` from the palette; popup content roots set
+    `TextElement.Foreground`; every `UserControl` root sets `Foreground`.
+    `PosThemeContrastTests` now covers every Window/UserControl root, every popup
+    child and asserts AA contrast of the style pairs in the three themes.
+  - RED: new tests copied into a worktree of `4399e64` failed to compile (first
+    slice and open-cash) and 11 theme-guard tests failed (styles and roots missing).
+    GREEN: `Pos` filter 485/485; full `dotnet test tests/Commerce.Integration` 1445 passed, 0 failed, 0 skipped; `dotnet build Commerce.sln` 0 errors (throwaway worktree).
+  - Not exercised in a real session: hover/appearance of the new ToolTip and
+    ContextMenu in the running app (no render harness this time); the real hung
+    request case.
 
 ## Next step
 Owner manual verification against the running stack (`run-all.ps1`), then review
