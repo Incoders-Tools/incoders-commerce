@@ -72,6 +72,30 @@ public sealed class PosCashSessionMarkupTests
         Assert.DoesNotContain("signInOperator", code, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [InlineData(null, false)]
+    [InlineData("", false)]
+    [InlineData("   ", false)]
+    [InlineData("ana@vacaverde.test", true)]
+    public void OpenCashPrompt_NeedsAnOperatorLabel(string? label, bool expected) =>
+        Assert.Equal(expected, Commerce.Pos.Windows.CashSessionInput.CanPromptOpenCash(label));
+
+    [Fact]
+    public void PromptOpenCash_NeverOpensWithoutAnOperator_AndTheWindowCannotConfirmWithoutOne()
+    {
+        var main = Read("MainWindow.xaml.cs");
+        var prompt = Regex.Match(main, @"void PromptOpenCash\(\)[\s\S]*?new OpenCashWindow");
+        Assert.True(prompt.Success);
+        Assert.Contains("CanPromptOpenCash", prompt.Value);
+        Assert.Contains("ApplyLockState()", prompt.Value);
+        Assert.Contains("return;", prompt.Value);
+        Assert.DoesNotContain("?.Email", main[main.IndexOf("void PromptOpenCash", StringComparison.Ordinal)..][..900]);
+
+        var window = Read("OpenCashWindow.xaml.cs");
+        Assert.Contains("ConfirmButton.IsEnabled = _hasOperator && entry.IsValid", window);
+        Assert.Contains("!_hasOperator || !entry.IsValid", window);
+    }
+
     [Fact]
     public void MainWindow_LocksTheSaleScreenWithoutASession_AndWiresOpenAndClose()
     {

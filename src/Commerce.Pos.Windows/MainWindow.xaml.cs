@@ -215,13 +215,14 @@ public partial class MainWindow : Window
     /// </summary>
     private void PromptOpenCash()
     {
-        if (_currentOperator.Value is null)
+        if (_currentOperator.Value is not { } signedIn || !CashSessionInput.CanPromptOpenCash(signedIn.Email))
         {
-            // Nobody is signed in: the lock screen is showing and opening the cash waits for an operator.
+            // Nobody is signed in: the prompt never opens without an operator; make sure the lock screen is what shows.
+            ApplyLockState();
             return;
         }
 
-        var window = new OpenCashWindow(_currentOperator.Value.Email) { Owner = this };
+        var window = new OpenCashWindow(signedIn.Email) { Owner = this };
         if (window.ShowDialog() == true && window.OpeningFloat is { } openingFloat && _currentOperator.Value is not null)
         {
             var result = _branchNodeService.OpenCashSession(

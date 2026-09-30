@@ -65,7 +65,7 @@ public sealed class PosLockScreenMarkupTests
         Assert.Contains("_lockScreen.SignedIn", code);
         var prompt = Regex.Match(code, @"void PromptOpenCash\(\)[\s\S]*?\n    }");
         Assert.True(prompt.Success);
-        Assert.Contains("_currentOperator.Value is null", prompt.Value);
+        Assert.Contains("CanPromptOpenCash", prompt.Value);
     }
 
     [Fact]

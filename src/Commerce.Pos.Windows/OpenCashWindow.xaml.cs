@@ -12,12 +12,15 @@ namespace Commerce.Pos.Windows;
 /// </summary>
 public partial class OpenCashWindow : Window
 {
-    /// <param name="operatorLabel">The signed-in operator.</param>
-    public OpenCashWindow(string operatorLabel)
+    private readonly bool _hasOperator;
+
+    /// <param name="operatorLabel">The signed-in operator; without one the prompt can never confirm.</param>
+    public OpenCashWindow(string? operatorLabel)
     {
         InitializeComponent();
 
-        OperatorText.Text = operatorLabel;
+        _hasOperator = CashSessionInput.CanPromptOpenCash(operatorLabel);
+        OperatorText.Text = operatorLabel ?? string.Empty;
         Refresh();
         Loaded += (_, _) =>
         {
@@ -32,7 +35,7 @@ public partial class OpenCashWindow : Window
     private void Refresh()
     {
         var entry = CashSessionInput.ReadAmount(OpeningFloatTextBox.Text);
-        ConfirmButton.IsEnabled = entry.IsValid;
+        ConfirmButton.IsEnabled = _hasOperator && entry.IsValid;
 
         MessageText.Text = entry.Message ?? string.Empty;
         MessageBorder.Visibility = entry.Message is null ? Visibility.Collapsed : Visibility.Visible;
@@ -60,7 +63,7 @@ public partial class OpenCashWindow : Window
     private void Confirm()
     {
         var entry = CashSessionInput.ReadAmount(OpeningFloatTextBox.Text);
-        if (!entry.IsValid)
+        if (!_hasOperator || !entry.IsValid)
         {
             return;
         }

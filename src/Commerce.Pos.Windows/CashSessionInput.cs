@@ -22,6 +22,9 @@ public sealed record CloseEntry(bool IsValid, decimal? Counted, decimal? Differe
 /// </summary>
 public static class CashSessionInput
 {
+    /// <summary>The open-cash prompt names the signed-in operator, so it needs one: no label, no prompt.</summary>
+    public static bool CanPromptOpenCash(string? operatorLabel) => !string.IsNullOrWhiteSpace(operatorLabel);
+
     public static AmountEntry ReadAmount(string? text)
     {
         var normalized = (text ?? string.Empty).Trim().TrimStart('$').Trim().Replace(',', '.');
