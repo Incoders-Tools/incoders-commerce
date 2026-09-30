@@ -151,3 +151,34 @@ Route: R1..R3 one writer, then R4..R5 one writer (delegated direct; work units i
   so every terminal installed with the interim certificate needs a one-time
   backup/uninstall/reinstall/restore (ADR-013).
 
+- 2026-09-30 (parent): R4..R5 range `ace4138..7a41168` assessed HIGH (2727
+  lines, 32 files). Owner GRANTED the review: four lenses, lineage
+  `review-506238d7f4ade4e5`, APPROVED with no correction and acknowledged
+  (authority burned). Parent spot check: `dotnet test tests/Commerce.Upgrade`
+  84/84. Advisory (non-blocking) findings, open as follow-ups, not yet
+  accepted as scope:
+  - WARNING `R1-staging-clean-deletes-all-files` / `R3-staging-cleanup-deletes-foreign-files`:
+    `PackageDownloader.CleanStaging` deletes every file in a configurable
+    staging dir except the target.
+  - WARNING `R4-cancel-misclassification` / `R2-cancel-stage` /
+    `R3-http-timeout-reported-as-cancel`: every `OperationCanceledException`
+    is reported as an operator cancel at the Download stage, including
+    HttpClient timeouts (default 100 s) and cancels in later stages.
+  - WARNING `R3-cancel-during-install-leaks-marker`: cancelling during install
+    leaves the pending-upgrade marker.
+  - WARNING `R3-untyped-backup-and-marker-io-failures`: plain IO/SQLite
+    failures in backup/marker escape as a generic InstallFailed.
+  - WARNING `R2-wizard-unexpected-error`: the wizard marks earlier stages Done
+    on any unexpected exception.
+  - WARNING `R2-placeholder-verifier`: `PackageVerifier.Verify` is fed
+    hardcoded placeholder inputs.
+  - SUGGESTION `R1-publisher-subject-only-pin` (pin thumbprint/key instead of
+    subject text), `R2-legacy-local-check`, `R3-happy-path-progress-race`,
+    `R3-manual-check-noop-while-inflight` / `R4-manual-check-dropped`.
+  Parent concern (unverified, R6): a self-signed certificate only in
+  `LocalMachine\TrustedPeople` likely makes WinVerifyTrust return
+  `UntrustedRoot`, so the wizard would refuse every interim-signed update;
+  fix by also trusting it as a root during the interim period, or by
+  pinning the certificate thumbprint and accepting `UntrustedRoot` only for
+  that exact signer.
+
