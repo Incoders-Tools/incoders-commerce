@@ -418,6 +418,11 @@ in a throwaway worktree at task close.
     tender should feed the payment ledger or cash-session totals, that needs its
     own decision; running app processes keep the old binaries until restarted.
 
+- 2026-09-30 (parent): tender range `512cfa1..dc555a1` assessed medium
+  (1206 lines, 24 files); owner DECLINED the review for this candidate.
+  Parent spot check in a throwaway worktree: `dotnet test --filter Tender`
+  56/56. Cash render checked: 9409.75 total, 10000 received, 590.25 change.
+
 ## Owner decisions (2026-09-29)
 - Tax: the POS shows only the final-consumer total (tax included), no IVA
   line. Price composition is shown per product in the web products and price
