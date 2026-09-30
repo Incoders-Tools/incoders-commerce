@@ -118,6 +118,21 @@ public sealed class CashSessionIngestionTests : IClassFixture<WebApplicationFact
     }
 
     [Fact]
+    public async Task CloudSyncClient_TreatsTheRealInboxReplyAsAnAcknowledgement()
+    {
+        if (!_postgresAvailable) return;
+        var (org, branch, token) = await PairedTerminalAsync();
+        var operatorId = Guid.NewGuid();
+        var envelope = Opened(org, branch, Guid.NewGuid(), operatorId);
+
+        var result = await new Commerce.Pos.Windows.CloudSyncClient(_factory.CreateClient()).PushAsync(envelope, token);
+
+        Assert.True(result.Success, result.Error);
+        Assert.Equal(envelope.OperationId, result.Result!.OperationId);
+        Assert.Equal(InboundApplyOutcome.Applied, result.Result.Outcome);
+    }
+
+    [Fact]
     public void AuditBuilder_ReturnsNothingForAnUnrelatedOrUnreadablePayload()
     {
         var org = Guid.NewGuid();
