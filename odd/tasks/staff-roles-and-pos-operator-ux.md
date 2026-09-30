@@ -198,5 +198,21 @@ the web after T3), release/versioning work.
     or cashier cannot be told apart by permissions int alone: cashier=16,
     seller=1, business-admin=31.
 
+- 2026-09-30: T2 review. RDD assess `8b08a7d..b9c9374` high (process-starting
+  test code), 687 lines; owner GRANTED; four lenses, approved and acknowledged
+  (lineage `review-8a0110c1de1f25c6`, authority burned). Next boundary
+  `b9c9374`. Parent applied two confirmed advisory warnings inline in
+  `ca00f8c`: `DevicePairingClient.cs` was saved as Windows-1252 (re-encoded to
+  UTF-8), and the 0020 post-condition ran after FORCE RLS was restored (moved
+  before it). Focused check `OperatePosMigration|OperatorProvisioning|
+  DevicePairing|DeviceEndpoint|RoleCatalog` in a throwaway worktree: 43/43,
+  0 skipped. Remaining advisories: seller operators already provisioned are
+  deprovisioned at the next status check (intended by the owner's option A;
+  T4 must show the friendly message); migration test runs as an RLS-bypassing
+  owner (does not exercise the hazard); cross-client message constant coupling
+  (T4 may centralize POS messages); misleading `RoleCatalogTests` name; the
+  PUT-branches 404 path unproven; deploy ordering note (apply 0020 before
+  shipping the API).
+
 ## Next step
 T3 (Web: Users screen branch picker, branch editing, `cashier` role, Spanish role labels).
