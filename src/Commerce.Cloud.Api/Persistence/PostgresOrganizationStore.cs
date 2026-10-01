@@ -92,6 +92,7 @@ public sealed class PostgresOrganizationStore
             await insertOrgCmd.ExecuteNonQueryAsync(ct);
         }
 
+        // No `code` column: the `branches_allocate_code` trigger gives the organization's first branch code 1.
         await using (var insertBranchCmd = new NpgsqlCommand(
             "INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, $3)", connection, tx))
         {
@@ -145,20 +146,21 @@ public sealed class PostgresOrganizationStore
 
         var results = new List<BranchOption>();
         await using (var cmd = new NpgsqlCommand(
-            "SELECT id, name FROM branches WHERE id = ANY($1) ORDER BY name", connection, tx))
+            "SELECT id, name, code FROM branches WHERE id = ANY($1) ORDER BY name", connection, tx))
         {
             cmd.Parameters.AddWithValue(branchIds);
             await using var reader = await cmd.ExecuteReaderAsync(ct);
             while (await reader.ReadAsync(ct))
             {
-                results.Add(new BranchOption(reader.GetGuid(0), reader.GetString(1)));
+                results.Add(new BranchOption(reader.GetGuid(0), reader.GetString(1), reader.GetInt16(2)));
             }
         }
 
         await tx.CommitAsync(ct);
         return results;
     }
-    public Task CreateBranchAsync(CloudTenantScope scope, NewBranch branch, CancellationToken ct) =>
+
+    public Task<int> CreateBranchAsync(CloudTenantScope scope, NewBranch branch, CancellationToken ct) =>
         CreateBranchAsync(scope, branch, audit: null, ct);
 
     /// <summary>
@@ -171,21 +173,26 @@ public sealed class PostgresOrganizationStore
     /// <see cref="Tenancy.CloudTenantScope.IsActingOnSelectedOrganization"/>)
     /// supplies one.
     /// </summary>
-    public async Task CreateBranchAsync(CloudTenantScope scope, NewBranch branch, Auditing.UserManagementAuditEntry? audit, CancellationToken ct)
+    public async Task<int> CreateBranchAsync(CloudTenantScope scope, NewBranch branch, Auditing.UserManagementAuditEntry? audit, CancellationToken ct)
     {
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
         await TenantScopeSql.ApplyAsync(connection, tx, scope, ct);
-        await using (var cmd = new NpgsqlCommand("INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, $3)", connection, tx))
+        // `code` is left out on purpose: the `branches_allocate_code` trigger assigns the next
+        // per-organization code under an advisory lock (0021_branch_codes.sql), so this insert and
+        // any raw-SQL insert share ONE allocation rule. RETURNING hands the assigned code back.
+        short code;
+        await using (var cmd = new NpgsqlCommand("INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, $3) RETURNING code", connection, tx))
         {
             cmd.Parameters.AddWithValue(branch.Id); cmd.Parameters.AddWithValue(scope.OrganizationId); cmd.Parameters.AddWithValue(branch.Name);
-            await cmd.ExecuteNonQueryAsync(ct);
+            code = (short)(await cmd.ExecuteScalarAsync(ct))!;
         }
         if (audit is not null)
         {
             await Auditing.AuditLogWriter.InsertAsync(connection, tx, audit, ct);
         }
         await tx.CommitAsync(ct);
+        return code;
     }
 
     public async Task<IReadOnlyList<BranchOption>> ListBranchesAsync(CloudTenantScope scope, CancellationToken ct)
@@ -194,9 +201,9 @@ public sealed class PostgresOrganizationStore
         await using var tx = await connection.BeginTransactionAsync(ct);
         await TenantScopeSql.ApplyAsync(connection, tx, scope, ct);
         var branches = new List<BranchOption>();
-        await using var cmd = new NpgsqlCommand("SELECT id, name FROM branches ORDER BY name", connection, tx);
+        await using var cmd = new NpgsqlCommand("SELECT id, name, code FROM branches ORDER BY name", connection, tx);
         await using var reader = await cmd.ExecuteReaderAsync(ct);
-        while (await reader.ReadAsync(ct)) branches.Add(new BranchOption(reader.GetGuid(0), reader.GetString(1)));
+        while (await reader.ReadAsync(ct)) branches.Add(new BranchOption(reader.GetGuid(0), reader.GetString(1), reader.GetInt16(2)));
         await reader.CloseAsync();
         await tx.CommitAsync(ct);
         return branches;

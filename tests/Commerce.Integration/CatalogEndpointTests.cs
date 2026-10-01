@@ -76,6 +76,7 @@ public sealed class CatalogEndpointTests : IClassFixture<WebApplicationFactory<P
 
         var organizationsSql = File.ReadAllText(Path.Combine(repoRoot.FullName, "deploy", "db", "migrations", "0003_organizations_branches.sql"));
         using (var cmd = new NpgsqlCommand(organizationsSql, owner)) cmd.ExecuteNonQuery();
+        PostgresTestFixture.ApplyMigration(owner, "0021_branch_codes.sql");
 
         // B7 U4: 0009's presentations_org_code_uk is ORG-scoped, but a
         // prior test method in this SAME class (and physical database —

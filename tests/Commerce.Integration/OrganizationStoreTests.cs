@@ -62,6 +62,7 @@ public sealed class OrganizationStoreTests : IDisposable
 
         var orgsSql = File.ReadAllText(Path.Combine(repoRoot, "deploy", "db", "migrations", "0003_organizations_branches.sql"));
         using (var cmd = new NpgsqlCommand(orgsSql, owner)) cmd.ExecuteNonQuery();
+        PostgresTestFixture.ApplyMigration(owner, "0021_branch_codes.sql");
 
         var deviceSql = File.ReadAllText(Path.Combine(repoRoot, "deploy", "db", "migrations", "0004_device_credentials.sql"));
         using (var cmd = new NpgsqlCommand(deviceSql, owner)) cmd.ExecuteNonQuery();

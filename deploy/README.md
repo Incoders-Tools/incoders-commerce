@@ -633,3 +633,12 @@ Cloud.Api (local, containerized, or staging) to sync against.
 ### commerce-admin-console — `0012_admin_console.sql`
 
 Apply `0012_admin_console.sql` after the existing migration lineage. It migrates legacy platform administrator identities into the reserved Incoders Platform organization, preserves the password hashes, and removes the legacy `platform_admins` table. After rollout, reset each migrated system administrator password through the unified `/account` identity flow; do not run the retired platform-genesis workflow.
+
+### human-document-numbers — `0021_branch_codes.sql`
+
+Apply `0021_branch_codes.sql` after `0020`. Every branch gets a short numeric `code` (1..999), unique per organization, assigned by the server and never changed; it is the `{branch}` part of human document numbers such as `V01-C2-125`.
+
+- Existing branches are numbered per organization in `created_at, id` order (1, 2, 3 ...). The backfill switches `FORCE ROW LEVEL SECURITY` off for the owner inside the migration transaction only (otherwise the owner sees zero rows) and aborts if any branch is left without a code before restoring it.
+- New branches are numbered by the `branches_allocate_code` BEFORE INSERT trigger: when an insert omits `code`, it takes a transaction-scoped advisory lock keyed on the organization and assigns `MAX(code)+1`. Concurrent creations for one organization are serialized; different organizations do not block each other. Raw-SQL inserts that omit `code` keep working.
+- The `branches_code_immutable` trigger rejects any UPDATE that changes `code`. A `CHECK (code BETWEEN 1 AND 999)` and `UNIQUE (organization_id, code)` back it up.
+- Idempotent (a re-run changes nothing). The inverse is documented as a comment at the top of the file. `deploy/dev/db/init-rls.sql` carries a verbatim copy. The dev database has no migration tracking: apply the file by hand, as owner, to every existing environment before deploying the API that reads `branches.code`.

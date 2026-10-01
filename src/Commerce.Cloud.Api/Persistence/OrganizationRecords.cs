@@ -30,7 +30,7 @@ public enum BootstrapOutcome
 /// operator's branch scope has more than one branch (design.md "Pairing
 /// flow").
 /// </summary>
-public sealed record BranchOption(Guid Id, string Name);
+public sealed record BranchOption(Guid Id, string Name, int Code);
 
 /// <summary>
 /// One organization's web branding (T5, organization-persistence spec

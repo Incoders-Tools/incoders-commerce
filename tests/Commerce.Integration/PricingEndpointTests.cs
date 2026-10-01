@@ -84,6 +84,7 @@ public sealed class PricingEndpointTests : IClassFixture<WebApplicationFactory<P
         Apply("0001_init_rls.sql", "__APP_RUNTIME_PASSWORD__", "dev-only-password");
         Apply("0002_users.sql");
         Apply("0003_organizations_branches.sql");
+        Apply("0021_branch_codes.sql");
         Apply("0004_device_credentials.sql");
         Apply("0009_catalog_and_pricing.sql");
         Apply("0016_catalog_branch_ownership.sql");

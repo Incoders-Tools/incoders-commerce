@@ -93,6 +93,7 @@ public sealed class CustomerOrderSubmissionTests : IClassFixture<WebApplicationF
         Apply("0001_init_rls.sql", "__APP_RUNTIME_PASSWORD__", "dev-only-password");
         Apply("0002_users.sql");
         Apply("0003_organizations_branches.sql");
+        Apply("0021_branch_codes.sql");
         Apply("0004_device_credentials.sql");
         Apply("0005_password_recovery.sql");
         Apply("0006_role_taxonomy.sql");
@@ -423,6 +424,7 @@ internal static class CustomerOrderSubmissionTestsMigrations
         Apply("0001_init_rls.sql", "__APP_RUNTIME_PASSWORD__", "dev-only-password");
         Apply("0002_users.sql");
         Apply("0003_organizations_branches.sql");
+        Apply("0021_branch_codes.sql");
         Apply("0004_device_credentials.sql");
         Apply("0005_password_recovery.sql");
         Apply("0006_role_taxonomy.sql");

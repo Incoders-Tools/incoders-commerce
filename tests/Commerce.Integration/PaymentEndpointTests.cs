@@ -82,7 +82,7 @@ public sealed class PaymentEndpointTests : IClassFixture<WebApplicationFactory<P
         var migrationsDir = Path.Combine(RepoRoot(), "deploy", "db", "migrations");
         foreach (var file in new[]
         {
-            "0001_init_rls.sql", "0002_users.sql", "0003_organizations_branches.sql",
+            "0001_init_rls.sql", "0002_users.sql", "0003_organizations_branches.sql", "0021_branch_codes.sql",
             "0004_device_credentials.sql", "0005_password_recovery.sql", "0006_role_taxonomy.sql",
             "0007_platform_administration.sql", "0008_customer_registry.sql", "0009_catalog_and_pricing.sql",
             "0010_guest_ordering.sql", "0011_payments.sql"
