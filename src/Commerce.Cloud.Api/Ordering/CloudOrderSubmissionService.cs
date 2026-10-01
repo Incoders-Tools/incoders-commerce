@@ -188,13 +188,13 @@ public sealed class CloudOrderSubmissionService
     /// reuses the SAME <see cref="ResolveLinesAsync"/> the registered path
     /// uses, with <c>discountPercentage: null</c> (guest-ordering spec.md
     /// "Guest Price Resolution"): list price, never a discount. The
-    /// confirmed verification is consumed via
-    /// <see cref="GuestVerificationService.TryConsumeAsync"/> IMMEDIATELY
-    /// BEFORE <see cref="IOrderStore.SubmitAsync"/> — a pricing denial on any
-    /// line (<c>"no-effective-price"</c>) returns before that consumption
-    /// call is ever made, so the guest's one-time verification is not burned
-    /// by a denial that was never their fault (public-order-surface spec.md
-    /// "Guest Verification Gate Before Admission").
+    /// confirmed verification is handed to <see cref="IOrderStore.SubmitAsync"/>
+    /// (persist-web-orders), which spends it in the SAME database transaction
+    /// that stores the order: a failed insert leaves it usable, and a pricing
+    /// denial (<c>"no-effective-price"</c>) or an unknown destination branch
+    /// returns before any consumption, so the guest's one-time verification is
+    /// not burned by a failure that was never their fault (public-order-surface
+    /// spec.md "Guest Verification Gate Before Admission").
     /// </summary>
     public async Task<OrderSubmissionOutcome> SubmitGuestAsync(
         CloudTenantScope scope,
@@ -221,18 +221,14 @@ public sealed class CloudOrderSubmissionService
             return new OrderSubmissionOutcome(OrderSubmissionOutcomeStatus.Denied, deniedReason, Order: null, WasNewlyAccepted: false);
         }
 
-        var consumed = await _guestVerificationService.TryConsumeAsync(
-            verificationId, guestContact.DocumentId, guestContact.ContactAddress, orderId, ct);
-        if (!consumed)
-        {
-            // Unconfirmed / expired / already-consumed / mismatched-contact —
-            // every failure branch denies identically; no order is stored.
-            return new OrderSubmissionOutcome(OrderSubmissionOutcomeStatus.Denied, "verification-invalid", Order: null, WasNewlyAccepted: false);
-        }
+        // An unconfirmed / expired / already-consumed / mismatched-contact verification denies as
+        // "verification-invalid" inside the store; no order is stored and nothing is spent.
+        var verification = _guestVerificationService.ConsumptionFor(
+            verificationId, guestContact.DocumentId, guestContact.ContactAddress);
 
         return await _orderStore.SubmitAsync(
             scope, orderId, OrderOrigin.Guest, customerId: null, guestContact, destinationBranchId,
-            OrderActors.PublicGuest, snapshots!, correlationId, destination, hasAvailableStock, ct);
+            OrderActors.PublicGuest, snapshots!, correlationId, destination, hasAvailableStock, verification, ct);
     }
 
     /// <summary>

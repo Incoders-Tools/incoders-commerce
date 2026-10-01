@@ -16,7 +16,7 @@ namespace Commerce.Integration;
 /// ADR-010 divergence proven end-to-end through the FULL submission path
 /// (not the isolated <see cref="Commerce.Application.Pricing.PricingResolutionService"/>
 /// unit test), and the guest verification gate wired immediately before
-/// <see cref="CloudOrderStore.Submit"/> (public-order-surface spec.md "Guest
+/// <see cref="IOrderStore.SubmitAsync"/> (public-order-surface spec.md "Guest
 /// Verification Gate Before Admission"; guest-ordering spec.md "Guest Price
 /// Resolution"). Against LIVE Postgres, mirroring the
 /// <see cref="OrderPricingTests"/> skip-if-unreachable convention.
@@ -71,6 +71,7 @@ public sealed class GuestOrderingTests : IDisposable
         Apply("0001_init_rls.sql", "__APP_RUNTIME_PASSWORD__", "dev-only-password");
         Apply("0002_users.sql");
         Apply("0003_organizations_branches.sql");
+        Apply("0021_branch_codes.sql");
         Apply("0004_device_credentials.sql");
         Apply("0022_terminal_registers.sql");
         Apply("0024_terminal_registers_assign_result.sql");
@@ -82,10 +83,11 @@ public sealed class GuestOrderingTests : IDisposable
         Apply("0010_guest_ordering.sql");
         Apply("0016_catalog_branch_ownership.sql");
         Apply("0017_pricing_branch_ownership.sql");
+        Apply("0025_orders.sql");
 
         using var resetCmd = new NpgsqlCommand(
             """
-            TRUNCATE TABLE guest_order_verifications, price_list_entries, price_lists, presentations, products,
+            TRUNCATE TABLE order_lines, orders, guest_order_verifications, price_list_entries, price_lists, presentations, products,
                 customer_ordering_access, customers, password_reset_tokens,
                 user_directory, users, device_credentials, branches, organizations CASCADE
             """,
@@ -197,14 +199,14 @@ public sealed class GuestOrderingTests : IDisposable
         return (verificationId, contact);
     }
 
-    private (InMemoryOrderStore OrderStore, CloudOrderSubmissionService SubmissionService, GuestVerificationService VerificationService, FakeEmailSender Sender, PostgresCustomerOrderingAccessStore AccessStore)
+    private (IOrderStore OrderStore, CloudOrderSubmissionService SubmissionService, GuestVerificationService VerificationService, FakeEmailSender Sender, PostgresCustomerOrderingAccessStore AccessStore)
         NewServicesWithSharedSender()
     {
         var auditSink = new InMemoryAuditSink();
         var accessStore = new PostgresCustomerOrderingAccessStore(_dataSource!);
         var accessService = new CustomerCatalogAccessService(accessStore, auditSink);
         var customerStore = new PostgresCustomerStore(_dataSource!);
-        var orderStore = new InMemoryOrderStore();
+        var orderStore = new PostgresOrderStore(_dataSource!);
         var catalogStore = new PostgresCatalogStore(_dataSource!);
         var priceListStore = new PostgresPriceListStore(_dataSource!);
         var verificationStore = new PostgresGuestVerificationStore(_dataSource!);
@@ -239,12 +241,12 @@ public sealed class GuestOrderingTests : IDisposable
         var (verificationId, contact) = await IssueAndConfirmVerificationAsync(
             verificationService, sender, scope, "30111222333", "guest@example.com");
         var guestOutcome = await submissionService.SubmitGuestAsync(
-            scope, Guid.NewGuid(), verificationId, contact, Guid.NewGuid(),
+            scope, Guid.NewGuid(), verificationId, contact, branchId,
             new[] { new SubmitOrderLine(Guid.NewGuid(), presentationId, Quantity: 1m) },
             Guid.NewGuid(), destination: null, hasAvailableStock: true, CancellationToken.None);
 
         var registeredOutcome = await submissionService.SubmitAsync(
-            scope, customerId, credential, Guid.NewGuid(), Guid.NewGuid(), actorId,
+            scope, customerId, credential, Guid.NewGuid(), branchId, actorId,
             new[] { new SubmitOrderLine(Guid.NewGuid(), presentationId, Quantity: 1m) },
             Guid.NewGuid(), destination: null, hasAvailableStock: true, CancellationToken.None);
 
@@ -279,7 +281,7 @@ public sealed class GuestOrderingTests : IDisposable
             verificationService, sender, scope, "30999888777", "buyer@example.com", "Real Guest");
 
         var outcome = await submissionService.SubmitGuestAsync(
-            scope, Guid.NewGuid(), verificationId, contact, Guid.NewGuid(),
+            scope, Guid.NewGuid(), verificationId, contact, branchId,
             new[] { new SubmitOrderLine(Guid.NewGuid(), presentationId, Quantity: 2m) },
             Guid.NewGuid(), destination: null, hasAvailableStock: true, CancellationToken.None);
 
@@ -310,13 +312,13 @@ public sealed class GuestOrderingTests : IDisposable
         var orderId = Guid.NewGuid();
 
         var outcome = await submissionService.SubmitGuestAsync(
-            scope, orderId, Guid.NewGuid(), contact, Guid.NewGuid(),
+            scope, orderId, Guid.NewGuid(), contact, branchId,
             new[] { new SubmitOrderLine(Guid.NewGuid(), presentationId, Quantity: 1m) },
             Guid.NewGuid(), destination: null, hasAvailableStock: true, CancellationToken.None);
 
         Assert.Equal(OrderSubmissionOutcomeStatus.Denied, outcome.Status);
         Assert.Null(outcome.Order);
-        Assert.Null(orderStore.Find(scope, orderId));
+        Assert.Null(await orderStore.FindAsync(scope, orderId, CancellationToken.None));
     }
 
     [Fact]
@@ -339,12 +341,12 @@ public sealed class GuestOrderingTests : IDisposable
         var line = new SubmitOrderLine(Guid.NewGuid(), presentationId, Quantity: 1m);
 
         var first = await submissionService.SubmitGuestAsync(
-            scope, Guid.NewGuid(), verificationId, contact, Guid.NewGuid(),
+            scope, Guid.NewGuid(), verificationId, contact, branchId,
             new[] { line }, Guid.NewGuid(), destination: null, hasAvailableStock: true, CancellationToken.None);
         Assert.Equal(OrderSubmissionOutcomeStatus.Accepted, first.Status);
 
         var second = await submissionService.SubmitGuestAsync(
-            scope, Guid.NewGuid(), verificationId, contact, Guid.NewGuid(),
+            scope, Guid.NewGuid(), verificationId, contact, branchId,
             new[] { line }, Guid.NewGuid(), destination: null, hasAvailableStock: true, CancellationToken.None);
 
         Assert.Equal(OrderSubmissionOutcomeStatus.Denied, second.Status);
@@ -368,7 +370,7 @@ public sealed class GuestOrderingTests : IDisposable
         var accessStore = new PostgresCustomerOrderingAccessStore(_dataSource!);
         var accessService = new CustomerCatalogAccessService(accessStore, new InMemoryAuditSink());
         var customerStore = new PostgresCustomerStore(_dataSource!);
-        var orderStore = new InMemoryOrderStore();
+        var orderStore = new PostgresOrderStore(_dataSource!);
         var catalogStore = new PostgresCatalogStore(_dataSource!);
         var priceListStore = new PostgresPriceListStore(_dataSource!);
         var verificationStore = new PostgresGuestVerificationStore(_dataSource!);
@@ -388,7 +390,7 @@ public sealed class GuestOrderingTests : IDisposable
         clockBox[0] = now.AddMinutes(30).AddSeconds(1);
 
         var outcome = await submissionService.SubmitGuestAsync(
-            scope, Guid.NewGuid(), verificationId, contact, Guid.NewGuid(),
+            scope, Guid.NewGuid(), verificationId, contact, branchId,
             new[] { new SubmitOrderLine(Guid.NewGuid(), presentationId, Quantity: 1m) },
             Guid.NewGuid(), destination: null, hasAvailableStock: true, CancellationToken.None);
 
@@ -416,7 +418,7 @@ public sealed class GuestOrderingTests : IDisposable
             verificationService, sender, scope, "30111222333", "unpriced@example.com");
 
         var denied = await submissionService.SubmitGuestAsync(
-            scope, Guid.NewGuid(), verificationId, contact, Guid.NewGuid(),
+            scope, Guid.NewGuid(), verificationId, contact, branchId,
             new[] { new SubmitOrderLine(Guid.NewGuid(), presentationId, Quantity: 1m) },
             Guid.NewGuid(), destination: null, hasAvailableStock: true, CancellationToken.None);
 
@@ -431,7 +433,7 @@ public sealed class GuestOrderingTests : IDisposable
         await PublishPriceAsync(scope, priceListId, presentationId, 15.00m, actorId);
 
         var retried = await submissionService.SubmitGuestAsync(
-            scope, Guid.NewGuid(), verificationId, contact, Guid.NewGuid(),
+            scope, Guid.NewGuid(), verificationId, contact, branchId,
             new[] { new SubmitOrderLine(Guid.NewGuid(), presentationId, Quantity: 1m) },
             Guid.NewGuid(), destination: null, hasAvailableStock: true, CancellationToken.None);
 

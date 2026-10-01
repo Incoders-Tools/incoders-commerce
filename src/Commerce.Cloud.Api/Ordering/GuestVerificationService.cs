@@ -109,40 +109,14 @@ public sealed class GuestVerificationService
     }
 
     /// <summary>
-    /// Consumes a confirmed ticket immediately before
-    /// <c>IOrderStore.SubmitAsync</c> (design.md Data Flow), so one
-    /// confirmation admits exactly one order. Requires the confirmed ticket's
-    /// document id and contact address to MATCH the submitted ones, and the
-    /// 30-minute confirm-to-submit TTL to not have elapsed. Returns false —
-    /// leaving the row untouched — for every failure branch; the caller (Unit
-    /// 4) is responsible for denying the whole order without consuming the
-    /// verification on a `no-effective-price` denial.
+    /// What an order submission needs to spend a confirmed ticket: the ticket, the document id and
+    /// contact address it must have been issued for, and the earliest confirmation instant still
+    /// inside the 30-minute confirm-to-submit window. The order store spends it in the SAME
+    /// transaction that inserts the order (persist-web-orders), so one confirmation admits exactly
+    /// one order and a failed submission never burns it.
     /// </summary>
-    public async Task<bool> TryConsumeAsync(
-        Guid verificationId, string documentId, string contactAddress, Guid orderId, CancellationToken ct)
-    {
-        var record = await _store.FindAsync(verificationId, ct);
-        var now = _clock();
-
-        if (record is null || record.ConsumedAt is not null || record.ConfirmedAt is null)
-        {
-            return false;
-        }
-
-        if (record.ConfirmedAt.Value.Add(ConfirmToSubmitTtl) <= now)
-        {
-            return false;
-        }
-
-        if (!string.Equals(record.DocumentId, documentId, StringComparison.Ordinal) ||
-            !string.Equals(record.ContactAddress, contactAddress, StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        await _store.ConsumeAsync(new CloudTenantScope(record.OrganizationId), verificationId, orderId, ct);
-        return true;
-    }
+    public GuestVerificationConsumption ConsumptionFor(Guid verificationId, string documentId, string contactAddress) =>
+        new(verificationId, documentId, contactAddress, _clock() - ConfirmToSubmitTtl);
 
     private static bool IsPending(GuestVerificationRecord? record, DateTimeOffset now) =>
         record is not null

@@ -17,7 +17,7 @@ public interface IPaymentLedgerStore
     /// <paramref name="subject"/> alone) so a real tenant-scoped
     /// implementation (<c>PostgresPaymentStore</c>) can set the RLS session
     /// scope before reading — mirrors every other scoped store in this repo
-    /// (e.g. <c>CloudOrderStore.Find(scope, orderId)</c>).
+    /// (e.g. <c>IOrderStore.FindAsync(scope, orderId, ct)</c>).
     /// </summary>
     Task<IReadOnlyList<PaymentEntry>> GetEntriesAsync(PaymentSubject subject, Guid organizationId, CancellationToken ct);
 }

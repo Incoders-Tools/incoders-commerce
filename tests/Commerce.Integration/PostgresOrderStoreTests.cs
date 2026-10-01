@@ -29,12 +29,12 @@ public sealed class PostgresOrderStoreTests : IDisposable
             foreach (var file in new[]
                      {
                          "0001_init_rls.sql", "0002_users.sql", "0003_organizations_branches.sql",
-                         "0021_branch_codes.sql", "0025_orders.sql",
+                         "0021_branch_codes.sql", "0010_guest_ordering.sql", "0025_orders.sql",
                      })
             {
                 PostgresTestFixture.ApplyMigration(owner, file);
             }
-            using var reset = new NpgsqlCommand("TRUNCATE TABLE order_lines, orders, branches, organizations CASCADE", owner);
+            using var reset = new NpgsqlCommand("TRUNCATE TABLE order_lines, orders, guest_order_verifications, branches, organizations CASCADE", owner);
             reset.ExecuteNonQuery();
         }
         _dataSource = NpgsqlDataSource.Create(PostgresTestFixture.DirectConnectionString);
@@ -77,15 +77,16 @@ public sealed class PostgresOrderStoreTests : IDisposable
         IReadOnlyList<OrderLineSnapshot>? lines = null, BranchSyncStore? destination = null, bool hasStock = false) =>
         store.SubmitAsync(
             scope, orderId, OrderOrigin.RegisteredCustomer, customerId ?? Guid.NewGuid(), guestContact: null, branchId,
-            Guid.NewGuid(), lines ?? [NewLine()], Guid.NewGuid(), destination, hasStock, CancellationToken.None);
+            Guid.NewGuid(), lines ?? [NewLine()], Guid.NewGuid(), destination, hasStock, verification: null, CancellationToken.None);
 
     private static Task<OrderSubmissionOutcome> SubmitGuestAsync(
-        IOrderStore store, CloudTenantScope scope, Guid orderId, Guid branchId, GuestContact? contact = null) =>
+        IOrderStore store, CloudTenantScope scope, Guid orderId, Guid branchId, GuestContact? contact = null,
+        GuestVerificationConsumption? verification = null, IReadOnlyList<OrderLineSnapshot>? lines = null) =>
         store.SubmitAsync(
             scope, orderId, OrderOrigin.Guest, customerId: null,
             contact ?? new GuestContact("30111222", GuestContactChannel.Email, "guest@example.com", "Ana Guest", "Portón azul"),
-            branchId, OrderActors.PublicGuest, [NewLine(QuantityBehavior.FixedQuantity)], Guid.NewGuid(),
-            destination: null, hasAvailableStock: false, CancellationToken.None);
+            branchId, OrderActors.PublicGuest, lines ?? [NewLine(QuantityBehavior.FixedQuantity)], Guid.NewGuid(),
+            destination: null, hasAvailableStock: false, verification, CancellationToken.None);
 
     [Fact]
     public async Task ARegisteredOrder_IsStoredNumbered_AndSurvivesARestart()
@@ -375,5 +376,198 @@ public sealed class PostgresOrderStoreTests : IDisposable
         Assert.Empty(await store.ListPendingAsync(scope, CancellationToken.None));
         var next = await SubmitRegisteredAsync(store, scope, Guid.NewGuid(), branch);
         Assert.Equal(1, next.Order!.OrderNumber!.Value.Sequence);
+    }
+
+    // --- persist-web-orders T2: the guest verification is spent in the order transaction ---------
+
+    private static readonly GuestContact VerifiedGuest =
+        new("30111222333", GuestContactChannel.Email, "Guest@Example.com", "Ana Guest", null);
+
+    /// <summary>Seeds a ticket the way the verification service leaves it: issued, then confirmed.</summary>
+    private static async Task<GuestVerificationConsumption> SeedVerificationAsync(
+        Guid orgId, bool confirmed = true, string documentId = "30111222333", string contactAddress = "guest@example.com",
+        TimeSpan? confirmedAgo = null)
+    {
+        var id = Guid.NewGuid();
+        var now = DateTimeOffset.UtcNow;
+        await using var connection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        await connection.OpenAsync();
+        await using var cmd = new NpgsqlCommand(
+            """
+            INSERT INTO guest_order_verifications (id, organization_id, document_id, contact_channel, contact_address,
+                code_hash, expires_at, confirmed_at)
+            VALUES ($1, $2, $3, 'Email', $4, 'hash', $5, $6)
+            """, connection);
+        cmd.Parameters.AddWithValue(id);
+        cmd.Parameters.AddWithValue(orgId);
+        cmd.Parameters.AddWithValue(documentId);
+        cmd.Parameters.AddWithValue(contactAddress);
+        cmd.Parameters.AddWithValue(now.AddMinutes(10));
+        cmd.Parameters.Add(new NpgsqlParameter
+        {
+            Value = confirmed ? now - (confirmedAgo ?? TimeSpan.Zero) : DBNull.Value,
+            NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.TimestampTz,
+        });
+        await cmd.ExecuteNonQueryAsync();
+        return new GuestVerificationConsumption(id, VerifiedGuest.DocumentId, VerifiedGuest.ContactAddress, now.AddMinutes(-30));
+    }
+
+    private static async Task<(DateTimeOffset? ConsumedAt, Guid? OrderId)> ReadVerificationAsync(Guid verificationId)
+    {
+        await using var connection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        await connection.OpenAsync();
+        await using var cmd = new NpgsqlCommand(
+            "SELECT consumed_at, consumed_order_id FROM guest_order_verifications WHERE id = $1", connection);
+        cmd.Parameters.AddWithValue(verificationId);
+        await using var reader = await cmd.ExecuteReaderAsync();
+        await reader.ReadAsync();
+        return (reader.IsDBNull(0) ? null : reader.GetFieldValue<DateTimeOffset>(0),
+                reader.IsDBNull(1) ? null : reader.GetGuid(1));
+    }
+
+    [Fact]
+    public async Task AGuestOrder_SpendsItsVerification_InTheSameTransactionThatStoresIt()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var org = await SeedOrganizationAsync();
+        var branch = await SeedBranchAsync(org);
+        var scope = new CloudTenantScope(org);
+        var ticket = await SeedVerificationAsync(org);
+        var orderId = Guid.NewGuid();
+
+        var outcome = await SubmitGuestAsync(NewStore(), scope, orderId, branch, VerifiedGuest, ticket);
+
+        Assert.Equal(OrderSubmissionOutcomeStatus.Accepted, outcome.Status);
+        var (consumedAt, consumedOrder) = await ReadVerificationAsync(ticket.VerificationId);
+        Assert.NotNull(consumedAt);
+        Assert.Equal(orderId, consumedOrder);
+    }
+
+    [Fact]
+    public async Task AFailedOrderInsert_LeavesTheVerificationUnconsumed_SoTheGuestCanRetry()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var org = await SeedOrganizationAsync();
+        var branch = await SeedBranchAsync(org);
+        var scope = new CloudTenantScope(org);
+        var ticket = await SeedVerificationAsync(org);
+        var store = NewStore();
+        var orderId = Guid.NewGuid();
+
+        // The line insert fails after the order row was written and the ticket spent: all of it rolls back.
+        await Assert.ThrowsAsync<PostgresException>(() =>
+            SubmitGuestAsync(store, scope, orderId, branch, VerifiedGuest, ticket, lines: [NewLine((QuantityBehavior)99)]));
+
+        var (consumedAt, consumedOrder) = await ReadVerificationAsync(ticket.VerificationId);
+        Assert.Null(consumedAt);
+        Assert.Null(consumedOrder);
+        Assert.Null(await store.FindAsync(scope, orderId, CancellationToken.None));
+
+        var retry = await SubmitGuestAsync(store, scope, orderId, branch, VerifiedGuest, ticket);
+        Assert.Equal(OrderSubmissionOutcomeStatus.Accepted, retry.Status);
+        Assert.Equal(1, retry.Order!.OrderNumber!.Value.Sequence);
+    }
+
+    [Fact]
+    public async Task ResubmittingAnExistingGuestOrder_ReturnsTheSameOrder_WithoutSpendingTheTicketAgain()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var org = await SeedOrganizationAsync();
+        var branch = await SeedBranchAsync(org);
+        var scope = new CloudTenantScope(org);
+        var ticket = await SeedVerificationAsync(org);
+        var orderId = Guid.NewGuid();
+
+        var first = await SubmitGuestAsync(NewStore(), scope, orderId, branch, VerifiedGuest, ticket);
+        var (spentAt, _) = await ReadVerificationAsync(ticket.VerificationId);
+        var again = await SubmitGuestAsync(NewStore(), scope, orderId, branch, VerifiedGuest, ticket);
+
+        Assert.Equal(OrderSubmissionOutcomeStatus.Accepted, again.Status);
+        Assert.False(again.WasNewlyAccepted);
+        Assert.Equal(first.Order!.OrderNumber, again.Order!.OrderNumber);
+        Assert.Equal(spentAt, (await ReadVerificationAsync(ticket.VerificationId)).ConsumedAt);
+
+        // A different ticket (not the one that admitted this order) does not read the order back.
+        var other = await SeedVerificationAsync(org);
+        var foreign = await SubmitGuestAsync(NewStore(), scope, orderId, branch, VerifiedGuest, other);
+        Assert.Equal(OrderSubmissionOutcomeStatus.Denied, foreign.Status);
+        Assert.Equal("verification-invalid", foreign.Reason);
+        Assert.Null((await ReadVerificationAsync(other.VerificationId)).ConsumedAt);
+    }
+
+    [Theory]
+    [InlineData("unconfirmed")]
+    [InlineData("expired-window")]
+    [InlineData("other-document")]
+    [InlineData("other-contact")]
+    [InlineData("already-consumed")]
+    public async Task AnUnusableVerification_DeniesTheOrder_StoresNothing_AndKeepsTheCounter(string defect)
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var org = await SeedOrganizationAsync();
+        var branch = await SeedBranchAsync(org);
+        var scope = new CloudTenantScope(org);
+        var store = NewStore();
+        var ticket = defect switch
+        {
+            "unconfirmed" => await SeedVerificationAsync(org, confirmed: false),
+            "expired-window" => await SeedVerificationAsync(org, confirmedAgo: TimeSpan.FromMinutes(31)),
+            "other-document" => await SeedVerificationAsync(org, documentId: "99999999"),
+            "other-contact" => await SeedVerificationAsync(org, contactAddress: "someone-else@example.com"),
+            _ => await SeedVerificationAsync(org),
+        };
+        if (defect == "already-consumed")
+        {
+            await SubmitGuestAsync(store, scope, Guid.NewGuid(), branch, VerifiedGuest, ticket);
+        }
+        var before = (await store.ListPendingAsync(scope, CancellationToken.None)).Count;
+        var orderId = Guid.NewGuid();
+
+        var outcome = await SubmitGuestAsync(store, scope, orderId, branch, VerifiedGuest, ticket);
+
+        Assert.Equal(OrderSubmissionOutcomeStatus.Denied, outcome.Status);
+        Assert.Equal("verification-invalid", outcome.Reason);
+        Assert.Null(outcome.Order);
+        Assert.Null(await store.FindAsync(scope, orderId, CancellationToken.None));
+        Assert.Equal(before, (await store.ListPendingAsync(scope, CancellationToken.None)).Count);
+        var next = await SubmitRegisteredAsync(store, scope, Guid.NewGuid(), branch);
+        Assert.Equal(before + 1, next.Order!.OrderNumber!.Value.Sequence);
+    }
+
+    [Fact]
+    public async Task AnUnknownDestinationBranch_DoesNotBurnTheGuestVerification()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var org = await SeedOrganizationAsync();
+        var scope = new CloudTenantScope(org);
+        var ticket = await SeedVerificationAsync(org);
+
+        var outcome = await SubmitGuestAsync(NewStore(), scope, Guid.NewGuid(), Guid.NewGuid(), VerifiedGuest, ticket);
+
+        Assert.Equal("destination-branch-not-found", outcome.Reason);
+        Assert.Null((await ReadVerificationAsync(ticket.VerificationId)).ConsumedAt);
+    }
+
+    [Fact]
+    public async Task OneVerification_AdmitsExactlyOneOrder_EvenWhenSubmissionsRace()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var org = await SeedOrganizationAsync();
+        var branch = await SeedBranchAsync(org);
+        var scope = new CloudTenantScope(org);
+        var ticket = await SeedVerificationAsync(org);
+
+        var outcomes = await Task.WhenAll(Enumerable.Range(0, 8)
+            .Select(_ => Task.Run(() => SubmitGuestAsync(NewStore(), scope, Guid.NewGuid(), branch, VerifiedGuest, ticket))));
+
+        Assert.Equal(1, outcomes.Count(o => o.Status == OrderSubmissionOutcomeStatus.Accepted));
+        Assert.Equal(7, outcomes.Count(o => o.Reason == "verification-invalid"));
+        Assert.Single(await NewStore().ListPendingAsync(scope, CancellationToken.None));
     }
 }

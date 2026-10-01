@@ -43,6 +43,22 @@ required or permitted as a substitute for this verification.
 - THEN confirmation fails, no order is admitted, and the guest may request
   a new code
 
+#### Scenario: A failed submission does not burn the verification
+
+- GIVEN a guest holds a confirmed verification
+- WHEN the order cannot be stored (the destination branch does not exist,
+  a price cannot be resolved, or the insert fails)
+- THEN no order is admitted and the verification stays unconsumed, so the
+  guest can submit again with the same confirmation
+
+#### Scenario: A verification admits exactly one order
+
+- GIVEN a guest order was admitted with a confirmed verification
+- WHEN the same verification is presented for a different order
+- THEN the submission is rejected as an invalid verification
+- AND presenting it again for the SAME order id returns the stored order
+  and its number without consuming anything
+
 ### Requirement: Public Catalogue Read
 
 The catalogue MUST be readable without an authenticated session, scoped to

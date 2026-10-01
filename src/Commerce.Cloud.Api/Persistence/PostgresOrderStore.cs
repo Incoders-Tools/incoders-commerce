@@ -16,9 +16,9 @@ namespace Commerce.Cloud.Api.Persistence;
 ///
 /// Submission, in one transaction: read the order (idempotency is per organization) -> resolve the
 /// branch code (a missing branch is a typed denial) -> take the per-branch advisory lock (seed 3) ->
-/// re-read (a concurrent submit of the same id finished first) ->
+/// re-read (a concurrent submit of the same id finished first) -> spend the guest verification ->
 /// <c>MAX(sequence)+1</c> -> insert order and lines -> attempt delivery and persist its state. Any
-/// exception rolls the whole transaction back: no order and no advanced counter.
+/// exception rolls the whole transaction back: no order, no consumed verification and no advanced counter.
 /// The lock is transaction-scoped (pgbouncer-safe); orders are never deleted, so a committed number is
 /// never reissued, and <c>UNIQUE (organization_id, destination_branch_id, sequence)</c> is the backstop.
 /// </summary>
@@ -55,6 +55,7 @@ public sealed class PostgresOrderStore : IOrderStore
         Guid correlationId,
         BranchSyncStore? destination,
         bool hasAvailableStock,
+        GuestVerificationConsumption? verification,
         CancellationToken ct)
     {
         // The same order id racing through two different branch locks loses the primary-key race in
@@ -63,7 +64,7 @@ public sealed class PostgresOrderStore : IOrderStore
         {
             var outcome = await TrySubmitAsync(
                 scope, orderId, origin, customerId, guestContact, destinationBranchId, actorId, lines, correlationId,
-                destination, hasAvailableStock, ct);
+                destination, hasAvailableStock, verification, ct);
             if (outcome is not null) return outcome;
             if (attempt >= 2) throw new InvalidOperationException($"Order {orderId} could not be stored after repeated key conflicts.");
         }
@@ -72,7 +73,7 @@ public sealed class PostgresOrderStore : IOrderStore
     private async Task<OrderSubmissionOutcome?> TrySubmitAsync(
         CloudTenantScope scope, Guid orderId, OrderOrigin origin, Guid? customerId, GuestContact? guestContact,
         Guid destinationBranchId, Guid actorId, IReadOnlyList<OrderLineSnapshot> lines, Guid correlationId,
-        BranchSyncStore? destination, bool hasAvailableStock, CancellationToken ct)
+        BranchSyncStore? destination, bool hasAvailableStock, GuestVerificationConsumption? verification, CancellationToken ct)
     {
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
@@ -81,7 +82,7 @@ public sealed class PostgresOrderStore : IOrderStore
         var existing = await ReadOrderAsync(connection, tx, scope.OrganizationId, orderId, ct);
         if (existing is not null)
         {
-            return await ExistingOutcomeAsync(tx, existing, ct);
+            return await ExistingOutcomeAsync(connection, tx, scope, existing, verification, ct);
         }
 
         var branchCode = await FindBranchCodeAsync(connection, tx, scope.OrganizationId, destinationBranchId, ct);
@@ -100,7 +101,12 @@ public sealed class PostgresOrderStore : IOrderStore
         existing = await ReadOrderAsync(connection, tx, scope.OrganizationId, orderId, ct);
         if (existing is not null)
         {
-            return await ExistingOutcomeAsync(tx, existing, ct);
+            return await ExistingOutcomeAsync(connection, tx, scope, existing, verification, ct);
+        }
+
+        if (verification is not null && !await ConsumeVerificationAsync(connection, tx, scope.OrganizationId, orderId, verification, ct))
+        {
+            return Denied(OrderSubmissionReasons.VerificationInvalid);
         }
 
         var sequence = await NextSequenceAsync(connection, tx, scope.OrganizationId, destinationBranchId, ct);
@@ -198,8 +204,17 @@ public sealed class PostgresOrderStore : IOrderStore
 
     // ---------------------------------------------------------------------------------------------
 
-    private static async Task<OrderSubmissionOutcome> ExistingOutcomeAsync(NpgsqlTransaction tx, Order existing, CancellationToken ct)
+    private static async Task<OrderSubmissionOutcome> ExistingOutcomeAsync(
+        NpgsqlConnection connection, NpgsqlTransaction tx, CloudTenantScope scope, Order existing,
+        GuestVerificationConsumption? verification, CancellationToken ct)
     {
+        // A guest retry (lost response) gets the same order without a fresh verification, but only
+        // when it presents the very ticket that was spent on this order.
+        if (verification is not null && !await VerificationBelongsToOrderAsync(connection, tx, scope.OrganizationId, existing.OrderId, verification, ct))
+        {
+            return Denied(OrderSubmissionReasons.VerificationInvalid);
+        }
+
         await tx.CommitAsync(ct);
         return new OrderSubmissionOutcome(
             OrderSubmissionOutcomeStatus.Accepted, OrderSubmissionReasons.ExistingOrder, existing, WasNewlyAccepted: false);
@@ -231,6 +246,49 @@ public sealed class PostgresOrderStore : IOrderStore
         cmd.Parameters.AddWithValue(organizationId);
         cmd.Parameters.AddWithValue(branchId);
         return Convert.ToInt32(await cmd.ExecuteScalarAsync(ct), CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>
+    /// Spends the ticket in the order transaction: ONE conditional UPDATE (unconsumed, confirmed inside the
+    /// confirm-to-submit window, same document id and contact address), so two submissions can never both
+    /// win and a rollback gives the ticket back.
+    /// </summary>
+    private static async Task<bool> ConsumeVerificationAsync(
+        NpgsqlConnection connection, NpgsqlTransaction tx, Guid organizationId, Guid orderId,
+        GuestVerificationConsumption verification, CancellationToken ct)
+    {
+        await using var cmd = new NpgsqlCommand(
+            """
+            UPDATE guest_order_verifications SET consumed_at = now(), consumed_order_id = $1
+            WHERE id = $2 AND organization_id = $3 AND consumed_at IS NULL
+              AND confirmed_at IS NOT NULL AND confirmed_at > $4
+              AND document_id = $5 AND lower(contact_address) = lower($6)
+            """, connection, tx);
+        cmd.Parameters.AddWithValue(orderId);
+        cmd.Parameters.AddWithValue(verification.VerificationId);
+        cmd.Parameters.AddWithValue(organizationId);
+        cmd.Parameters.AddWithValue(verification.ConfirmedAfter);
+        cmd.Parameters.AddWithValue(verification.DocumentId);
+        cmd.Parameters.AddWithValue(verification.ContactAddress);
+        return await cmd.ExecuteNonQueryAsync(ct) == 1;
+    }
+
+    private static async Task<bool> VerificationBelongsToOrderAsync(
+        NpgsqlConnection connection, NpgsqlTransaction tx, Guid organizationId, Guid orderId,
+        GuestVerificationConsumption verification, CancellationToken ct)
+    {
+        await using var cmd = new NpgsqlCommand(
+            """
+            SELECT 1 FROM guest_order_verifications
+            WHERE id = $1 AND organization_id = $2 AND consumed_order_id = $3
+              AND document_id = $4 AND lower(contact_address) = lower($5)
+            """, connection, tx);
+        cmd.Parameters.AddWithValue(verification.VerificationId);
+        cmd.Parameters.AddWithValue(organizationId);
+        cmd.Parameters.AddWithValue(orderId);
+        cmd.Parameters.AddWithValue(verification.DocumentId);
+        cmd.Parameters.AddWithValue(verification.ContactAddress);
+        return await cmd.ExecuteScalarAsync(ct) is not null;
     }
 
     private static async Task<bool> InsertOrderAsync(NpgsqlConnection connection, NpgsqlTransaction tx, Order order, CancellationToken ct)

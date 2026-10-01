@@ -95,6 +95,7 @@ Apply them in order, by hand, to every existing environment before deploying the
 
 - A web order (registered customer or guest) is stored in `orders` when it is accepted. Its number is `P{branch code}-W-{sequence}`; the branch code is the destination branch's own `branches.code`.
 - The order id the client sends is idempotent per organization. Sending it again returns the same order and number, never a second one.
+- A guest order spends its email verification in the same database transaction that stores the order, so a failed submission (unknown branch, failed insert) never burns the verification and one confirmation admits one order. Resubmitting an order id that was already admitted returns the stored order only when the request presents the very ticket that admitted it; the ticket is not spent again. Any other ticket is rejected as `verification-invalid`.
 - The order response carries the number (`order.orderNumber`), and the customer-facing screens explain it with the same kind of tooltip as the POS (planned in `odd/tasks/persist-web-orders.md`).
 
 ## Related

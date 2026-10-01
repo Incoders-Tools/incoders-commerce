@@ -20,7 +20,20 @@ public static class OrderSubmissionReasons
     public const string Retried = "retried";
     public const string NotFound = "not-found";
     public const string DestinationBranchNotFound = "destination-branch-not-found";
+    public const string VerificationInvalid = "verification-invalid";
 }
+
+/// <summary>
+/// The confirmed guest verification an order submission spends. The store consumes it in the SAME
+/// database transaction that inserts the order, so a failed insert leaves the verification
+/// usable and one confirmation can never admit two orders.
+/// </summary>
+/// <param name="VerificationId">The confirmed ticket.</param>
+/// <param name="DocumentId">The document id the ticket was issued for; must match.</param>
+/// <param name="ContactAddress">The contact address the ticket was issued for; matched ignoring case.</param>
+/// <param name="ConfirmedAfter">The ticket must have been confirmed after this instant (the confirm-to-submit TTL already applied to "now").</param>
+public sealed record GuestVerificationConsumption(
+    Guid VerificationId, string DocumentId, string ContactAddress, DateTimeOffset ConfirmedAfter);
 
 /// <summary>
 /// Cloud-side order acceptance (design.md data flow: "Customer web -> Cloud order/outbox ->
@@ -30,10 +43,13 @@ public static class OrderSubmissionReasons
 public interface IOrderStore
 {
     /// <summary>
-    /// Accepts an order: stores it with its number (<c>P{branch}-W-{sequence}</c>), then attempts
-    /// delivery to <paramref name="destination"/>. A destination branch that does not exist in the
-    /// organization is a typed denial (<see cref="OrderSubmissionReasons.DestinationBranchNotFound"/>),
-    /// never an exception.
+    /// Accepts an order: stores it with its number (<c>P{branch}-W-{sequence}</c>), spends
+    /// <paramref name="verification"/> (guest orders) in the same transaction, then attempts delivery
+    /// to <paramref name="destination"/>. A destination branch that does not exist in the organization
+    /// is a typed denial (<see cref="OrderSubmissionReasons.DestinationBranchNotFound"/>), never an
+    /// exception; an unusable verification is <see cref="OrderSubmissionReasons.VerificationInvalid"/>
+    /// and leaves nothing stored. Resubmitting an order id that already exists returns that order and
+    /// does not spend a verification again (a guest retry must present the ticket that admitted it).
     /// </summary>
     Task<OrderSubmissionOutcome> SubmitAsync(
         CloudTenantScope scope,
@@ -47,6 +63,7 @@ public interface IOrderStore
         Guid correlationId,
         BranchSyncStore? destination,
         bool hasAvailableStock,
+        GuestVerificationConsumption? verification,
         CancellationToken ct);
 
     /// <summary>
@@ -84,5 +101,5 @@ public static class OrderStoreExtensions
         CancellationToken ct) =>
         store.SubmitAsync(
             scope, orderId, OrderOrigin.RegisteredCustomer, customerId, guestContact: null,
-            destinationBranchId, actorId, lines, correlationId, destination, hasAvailableStock, ct);
+            destinationBranchId, actorId, lines, correlationId, destination, hasAvailableStock, verification: null, ct);
 }

@@ -237,3 +237,40 @@ destined to the selected branch.
 - GIVEN a signed-in customer whose home branch is "Ruta 51"
 - WHEN the customer submits an order
 - THEN the order's destination branch is "Ruta 51"
+
+### Requirement: Durable Numbered Orders
+
+Registered and guest orders MUST be stored in the database when accepted, so
+they survive an API restart, and each order MUST carry the human number
+`P{branch code}-W-{sequence}` (for example `P01-W-37`) assigned in the same
+transaction that stores it. The sequence counts the orders of the
+destination branch from 1; the order id sent by the client is idempotent per
+organization. An order whose destination branch does not exist in the
+organization MUST be rejected as `destination-branch-not-found`, never
+stored and never an unhandled error.
+
+#### Scenario: An accepted order survives a restart
+
+- GIVEN an order was accepted
+- WHEN the API restarts
+- THEN the order is still listed and can be read, with the same number
+
+#### Scenario: Resubmitting an order id returns the same number
+
+- GIVEN an order was accepted as `P01-W-37`
+- WHEN the same order id is submitted again
+- THEN the same order and number are returned and the branch counter does
+  not advance
+
+#### Scenario: Numbers are per branch
+
+- GIVEN branches `01` and `02`
+- WHEN orders are submitted to both
+- THEN each branch numbers its own orders from 1 (`P01-W-1`, `P02-W-1`)
+
+#### Scenario: Unknown destination branch is denied
+
+- GIVEN a destination branch id that is not a branch of the organization
+- WHEN an order is submitted to it
+- THEN the outcome is denied as `destination-branch-not-found` and nothing
+  is stored

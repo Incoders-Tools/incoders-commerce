@@ -134,7 +134,7 @@ public sealed class InMemoryOrderStore : IOrderStore
     Task<OrderSubmissionOutcome> IOrderStore.SubmitAsync(
         CloudTenantScope scope, Guid orderId, OrderOrigin origin, Guid? customerId, GuestContact? guestContact,
         Guid destinationBranchId, Guid actorId, IReadOnlyList<OrderLineSnapshot> lines, Guid correlationId,
-        BranchSyncStore? destination, bool hasAvailableStock, CancellationToken ct) =>
+        BranchSyncStore? destination, bool hasAvailableStock, GuestVerificationConsumption? verification, CancellationToken ct) =>
         Task.FromResult(Submit(
             scope, orderId, origin, customerId, guestContact, destinationBranchId, actorId, lines, correlationId,
             destination, hasAvailableStock));
