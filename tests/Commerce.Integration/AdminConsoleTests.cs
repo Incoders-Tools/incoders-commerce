@@ -165,6 +165,27 @@ public sealed class AdminConsoleTests : IClassFixture<WebApplicationFactory<Prog
     }
 
     [Fact]
+    public async Task Branches_WhenTheOrganizationRanOutOfCodes_Returns409WithTypedError()
+    {
+        if (!_postgresAvailable) return;
+        const string email = "branch-exhausted-admin@example.com"; const string password = "correct-password";
+        var (organizationId, _) = await BootstrapAsync(email, password);
+        using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            owner.Open();
+            using var top = new NpgsqlCommand("INSERT INTO branches (id, organization_id, name, code) VALUES ($1, $2, 'Last', 999)", owner);
+            top.Parameters.AddWithValue(Guid.NewGuid()); top.Parameters.AddWithValue(organizationId); top.ExecuteNonQuery();
+        }
+        var client = await SignInAsync(email, password);
+
+        var response = await client.PostAsJsonAsync("/account/branches", new CreateBranchRequest("Overflow"));
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal("branch-codes-exhausted", body.RootElement.GetProperty("error").GetString());
+    }
+
+    [Fact]
     public async Task Branches_CallerWithoutManageBranchSettingsReturns403AndDoesNotWrite()
     {
         if (!_postgresAvailable) return;

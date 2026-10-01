@@ -2,7 +2,7 @@ namespace Commerce.Domain.Tenancy;
 
 /// <summary>
 /// The short, numeric, per-organization code of a branch (1..999). The server
-/// assigns it at creation (database trigger `branches_allocate_code`) and it
+/// assigns it at creation (database trigger `branches_code_allocate`) and it
 /// never changes. This type is the SINGLE place that formats it for humans:
 /// at least two digits (`01`, `02`, ... `99`, `100`), the `{branch}` part of
 /// document numbers such as `V01-C2-125`.

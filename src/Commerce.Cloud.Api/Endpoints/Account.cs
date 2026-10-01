@@ -464,7 +464,15 @@ public static class AccountEndpoints
             var audit = scope.IsActingOnSelectedOrganization
                 ? new UserManagementAuditEntry("org-user", callerId, scope.OrganizationId, "branch", branchId, "branch.created", null, JsonSerializer.Serialize(new { name = request.BranchName }))
                 : null;
-            var code = await organizationStore.CreateBranchAsync(scope, new NewBranch(branchId, request.BranchName), audit, ct);
+            int code;
+            try
+            {
+                code = await organizationStore.CreateBranchAsync(scope, new NewBranch(branchId, request.BranchName), audit, ct);
+            }
+            catch (Commerce.Domain.Tenancy.BranchCodesExhaustedException)
+            {
+                return Results.Conflict(new { error = "branch-codes-exhausted" });
+            }
             return Results.Created($"/account/branches/{branchId}", new CreateBranchResponse(branchId, code));
         });
 

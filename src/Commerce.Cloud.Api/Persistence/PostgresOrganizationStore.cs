@@ -92,7 +92,7 @@ public sealed class PostgresOrganizationStore
             await insertOrgCmd.ExecuteNonQueryAsync(ct);
         }
 
-        // No `code` column: the `branches_allocate_code` trigger gives the organization's first branch code 1.
+        // No `code` column: the `branches_code_allocate` trigger gives the organization's first branch code 1.
         await using (var insertBranchCmd = new NpgsqlCommand(
             "INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, $3)", connection, tx))
         {
@@ -178,14 +178,22 @@ public sealed class PostgresOrganizationStore
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
         await TenantScopeSql.ApplyAsync(connection, tx, scope, ct);
-        // `code` is left out on purpose: the `branches_allocate_code` trigger assigns the next
+        // `code` is left out on purpose: the `branches_code_allocate` trigger assigns the next
         // per-organization code under an advisory lock (0021_branch_codes.sql), so this insert and
         // any raw-SQL insert share ONE allocation rule. RETURNING hands the assigned code back.
         short code;
         await using (var cmd = new NpgsqlCommand("INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, $3) RETURNING code", connection, tx))
         {
             cmd.Parameters.AddWithValue(branch.Id); cmd.Parameters.AddWithValue(scope.OrganizationId); cmd.Parameters.AddWithValue(branch.Name);
-            code = (short)(await cmd.ExecuteScalarAsync(ct))!;
+            try
+            {
+                code = (short)(await cmd.ExecuteScalarAsync(ct))!;
+            }
+            catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.CheckViolation && ex.ConstraintName == "branches_code_range_ck")
+            {
+                // The trigger offered MAX(code)+1 = 1000: the organization used up 1..999.
+                throw new Commerce.Domain.Tenancy.BranchCodesExhaustedException();
+            }
         }
         if (audit is not null)
         {

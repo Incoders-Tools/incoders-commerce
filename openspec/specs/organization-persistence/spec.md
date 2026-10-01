@@ -245,6 +245,13 @@ technical identifier shown only to system administrators.
 - WHEN two more branches are created in it
 - THEN the branches hold codes 1, 2 and 3 in creation order
 
+#### Scenario: An organization that used up every code gets a typed conflict
+
+- GIVEN an organization whose branches already hold code 999
+- WHEN a caller creates one more branch
+- THEN the request is rejected with `409` and `{ "error": "branch-codes-exhausted" }`
+- AND no branch row is created
+
 #### Scenario: Codes are numbered per organization
 
 - GIVEN Organization A and Organization B each have a bootstrap branch

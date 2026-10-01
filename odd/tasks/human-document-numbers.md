@@ -126,7 +126,7 @@ Forecast about 2000 authored lines over 5 tasks (+T6 if approved); trunk on
     330 passed; `tsc -b` clean; `npm run build` ok; `npm run lint` only the
     pre-existing warnings; e2e standalone `tsc --noEmit` clean.
   - Decision, allocation: ONE source of truth in the database. A BEFORE INSERT
-    trigger (`branches_allocate_code`) takes `pg_advisory_xact_lock(
+    trigger (`branches_code_allocate`, function `branches_allocate_code()`) takes `pg_advisory_xact_lock(
     hashtextextended(org_id::text, 0))` and assigns `MAX(code)+1` when the
     insert omits `code`. The app insert (bootstrap and `CreateBranchAsync`)
     omits it and reads it back with `RETURNING code`; raw-SQL test/seed inserts

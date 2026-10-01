@@ -2,6 +2,7 @@ using Commerce.Cloud.Api.Endpoints;
 using Commerce.Cloud.Api.Persistence;
 using Commerce.Cloud.Api.Tenancy;
 using Commerce.Domain.Identity;
+using Commerce.Domain.Tenancy;
 using Npgsql;
 
 namespace Commerce.Integration;
@@ -99,5 +100,24 @@ public sealed class BranchCodeStoreTests : IDisposable
         Assert.Equal(Enumerable.Range(2, 12), codes.Order());
         var persisted = (await store.ListBranchesAsync(scope, CancellationToken.None)).Select(b => b.Code).Order().ToArray();
         Assert.Equal(Enumerable.Range(1, 13), persisted);
+    }
+
+    [Fact]
+    public async Task CreateBranch_WhenTheOrganizationHoldsCode999_ThrowsTheTypedExhaustionError_AndWritesNothing()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var (store, scope, _) = await BootstrapAsync($"exhausted-{Guid.NewGuid():N}@example.com");
+        using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            owner.Open();
+            using var top = new NpgsqlCommand("INSERT INTO branches (id, organization_id, name, code) VALUES ($1, $2, 'Last', 999)", owner);
+            top.Parameters.AddWithValue(Guid.NewGuid()); top.Parameters.AddWithValue(scope.OrganizationId); top.ExecuteNonQuery();
+        }
+
+        await Assert.ThrowsAsync<BranchCodesExhaustedException>(() =>
+            store.CreateBranchAsync(scope, new NewBranch(Guid.NewGuid(), "Overflow"), CancellationToken.None));
+
+        Assert.DoesNotContain(await store.ListBranchesAsync(scope, CancellationToken.None), b => b.Name == "Overflow");
     }
 }

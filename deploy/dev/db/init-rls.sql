@@ -1659,7 +1659,8 @@ COMMIT;
 -- INSERT leaves `code` NULL it takes a transaction-scoped advisory lock keyed on
 -- the organization, then assigns MAX(code)+1. The lock serializes concurrent
 -- creations for the SAME organization only (different organizations hash to
--- different keys), and it is released at COMMIT/ROLLBACK, so the next creator
+-- different 64-bit keys; should two ever collide, the only effect is some extra,
+-- harmless serialization, never a wrong code), and it is released at COMMIT/ROLLBACK, so the next creator
 -- always sees the previous one's committed row (READ COMMITTED takes a fresh
 -- snapshot per statement). A gap left by a rolled-back creation is reused,
 -- because the MAX is over committed rows; branches are never deleted, so a
