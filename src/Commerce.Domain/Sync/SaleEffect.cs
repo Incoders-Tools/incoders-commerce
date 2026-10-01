@@ -11,7 +11,9 @@ namespace Commerce.Domain.Sync;
 /// commerce-pricing-engine design.md "POS: two explicit buttons, not a mode
 /// toggle". Defaults to `"Manual"` so every pre-existing call site (and every
 /// sale committed before this change shipped) keeps its original meaning
-/// without a data migration.
+/// without a data migration. <see cref="BranchCode"/>, <see cref="RegisterNumber"/> and
+/// <see cref="SaleSequence"/> are the parts of the human sale number, null while the terminal
+/// did not know its register (and for every sale made before numbering existed).
 /// </summary>
 public sealed record SaleEffect(
     Guid SaleId,
@@ -24,7 +26,20 @@ public sealed record SaleEffect(
     decimal? SaleDiscountAmount = null,
     DiscountAuthorization? DiscountAuthorization = null,
     SaleTender? Tender = null,
-    Guid? CashSessionId = null);
+    Guid? CashSessionId = null,
+    int? BranchCode = null,
+    int? RegisterNumber = null,
+    int? SaleSequence = null)
+{
+    /// <summary>
+    /// The human sale number (`V01-C2-125`), or null for a sale committed before the
+    /// terminal knew its register: the three parts travel together or not at all.
+    /// </summary>
+    public SaleNumber? Number =>
+        BranchCode is { } branch && RegisterNumber is { } register && SaleSequence is { } sequence
+            ? new SaleNumber(new Tenancy.BranchCode(branch), new Tenancy.RegisterNumber(register), sequence)
+            : null;
+}
 
 /// <summary>
 /// One line of a scan-composed sale (commerce-pricing-engine design.md

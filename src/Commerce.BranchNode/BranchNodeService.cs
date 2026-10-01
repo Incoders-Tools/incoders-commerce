@@ -48,7 +48,8 @@ public sealed class BranchNodeService
         Guid operationId,
         Guid correlationId,
         Guid? customerId = null,
-        SaleTender? tender = null)
+        SaleTender? tender = null,
+        SaleNumbering? numbering = null)
     {
         var occurredAtUtc = _clock();
         var cashSessionId = _store.GetOpenCashSession()?.SessionId;
@@ -70,7 +71,7 @@ public sealed class BranchNodeService
         var effect = new SaleEffect(
             saleId, branchId, totalAmount, occurredAtUtc, CustomerId: customerId, Tender: tender, CashSessionId: cashSessionId);
 
-        return _store.CommitSaleAtomically(envelope, effect, requireOpenCashSession: true);
+        return _store.CommitSaleAtomically(envelope, effect, requireOpenCashSession: true, numbering);
     }
 
     /// <summary>
@@ -87,6 +88,8 @@ public sealed class BranchNodeService
     /// authorized the discounts (both null when nothing was discounted). Line
     /// discounts travel on <paramref name="lines"/> themselves.
     /// <paramref name="tender"/> is how the customer paid (null on callers that predate tenders).
+    /// <paramref name="numbering"/> is the terminal's branch code and register number; null while it does
+    /// not know them (the sale then commits without a human number).
     /// </summary>
     public BranchOutboxCommitResult CompleteScannedSale(
         Guid organizationId,
@@ -100,7 +103,8 @@ public sealed class BranchNodeService
         Guid? customerId = null,
         SaleDiscount? saleDiscount = null,
         DiscountAuthorization? discountAuthorization = null,
-        SaleTender? tender = null)
+        SaleTender? tender = null,
+        SaleNumbering? numbering = null)
     {
         var occurredAtUtc = _clock();
         var cashSessionId = _store.GetOpenCashSession()?.SessionId;
@@ -124,7 +128,7 @@ public sealed class BranchNodeService
             SaleDiscountPercent: saleDiscount?.Percent, SaleDiscountAmount: saleDiscount?.Amount,
             DiscountAuthorization: discountAuthorization, Tender: tender, CashSessionId: cashSessionId);
 
-        return _store.CommitScannedSaleAtomically(envelope, effect, lines, requireOpenCashSession: true);
+        return _store.CommitScannedSaleAtomically(envelope, effect, lines, requireOpenCashSession: true, numbering);
     }
 
     /// <summary>The terminal's open cash session, or null (pos-cash-session).</summary>

@@ -18,6 +18,10 @@ namespace Commerce.Domain.Sync.Payloads;
 /// field, null on a payload written before tenders existed. So is the cash
 /// session the sale belongs to (<see cref="CashSessionId"/>), null on a payload
 /// written before sessions existed.
+/// The human sale number follows it too: <see cref="BranchCode"/>, <see cref="RegisterNumber"/>
+/// and <see cref="SaleSequence"/> (`V01-C2-125`) are optional trailing fields, all null when the
+/// terminal did not know its register when it committed the sale. The server treats them as
+/// a claim to verify, never as authority (ingestion is never blocked by them).
 /// <see cref="TotalAmount"/> is the FINAL total, after every discount.
 /// </summary>
 public sealed record SalePayloadV1(
@@ -31,4 +35,7 @@ public sealed record SalePayloadV1(
     decimal? SaleDiscountAmount = null,
     DiscountAuthorization? DiscountAuthorization = null,
     SaleTender? Tender = null,
-    Guid? CashSessionId = null);
+    Guid? CashSessionId = null,
+    int? BranchCode = null,
+    int? RegisterNumber = null,
+    int? SaleSequence = null);

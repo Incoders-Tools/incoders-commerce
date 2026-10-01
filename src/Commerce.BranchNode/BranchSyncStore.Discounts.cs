@@ -94,7 +94,8 @@ public sealed partial class BranchSyncStore
             SELECT total_amount, occurred_at_utc, sale_kind, customer_id,
                    sale_discount_percent, sale_discount_amount,
                    discount_auth_method, discount_operator_id, discount_pin_version,
-                   tender_method, tender_amount_received, tender_change, cash_session_id
+                   tender_method, tender_amount_received, tender_change, cash_session_id,
+                   branch_code, register_number, sale_sequence
             FROM sale_effects WHERE sale_id = $saleId;
             """;
         command.Parameters.AddWithValue("$saleId", saleId.ToString());
@@ -122,7 +123,10 @@ public sealed partial class BranchSyncStore
             ReadDecimalOrNull(reader, 5),
             authorization,
             reader.IsDBNull(9) ? null : new SaleTender(reader.GetString(9), ReadDecimalOrNull(reader, 10), ReadDecimalOrNull(reader, 11)),
-            reader.IsDBNull(12) ? null : Guid.Parse(reader.GetString(12)));
+            reader.IsDBNull(12) ? null : Guid.Parse(reader.GetString(12)),
+            reader.IsDBNull(13) ? null : reader.GetInt32(13),
+            reader.IsDBNull(14) ? null : reader.GetInt32(14),
+            reader.IsDBNull(15) ? null : reader.GetInt32(15));
     }
 
     // ---- branch discount PIN replica ----

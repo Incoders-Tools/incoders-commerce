@@ -1,6 +1,8 @@
 using Commerce.Domain.Payments;
+using Commerce.Domain.Sales;
 using Commerce.Domain.Sync;
 using Commerce.Domain.Sync.Payloads;
+using Commerce.Domain.Tenancy;
 using Microsoft.Data.Sqlite;
 
 namespace Commerce.BranchNode;
@@ -248,6 +250,7 @@ public sealed partial class BranchSyncStore : IDisposable
 
         EnsureSaleKindColumnExists();
         EnsureSaleCustomerColumnExists();
+        EnsureSaleNumberStorageExists();
         EnsureCatalogCategoryColumnsExist();
         EnsureDiscountStorageExists();
         EnsureTenderStorageExists();
@@ -283,6 +286,46 @@ public sealed partial class BranchSyncStore : IDisposable
 
             using var alter = _connection.CreateCommand();
             alter.CommandText = $"ALTER TABLE catalog_replica ADD COLUMN {column} TEXT NULL;";
+            alter.ExecuteNonQuery();
+        }
+    }
+
+    /// <summary>
+    /// Human sale numbers (`V01-C2-125`): the per-(branch, register) counter table and the
+    /// three nullable `sale_effects` columns that carry a sale's number. A `branch.db` from
+    /// before numbering gains them empty (old sales stay unnumbered, never renumbered);
+    /// reopening is idempotent.
+    /// </summary>
+    private void EnsureSaleNumberStorageExists()
+    {
+        using (var create = _connection.CreateCommand())
+        {
+            create.CommandText = """
+                CREATE TABLE IF NOT EXISTS terminal_counters (
+                    branch_id TEXT NOT NULL,
+                    register_number INTEGER NOT NULL,
+                    last_sequence INTEGER NOT NULL,
+                    PRIMARY KEY (branch_id, register_number)
+                );
+                """;
+            create.ExecuteNonQuery();
+        }
+
+        var existing = new HashSet<string>(StringComparer.Ordinal);
+        using (var check = _connection.CreateCommand())
+        {
+            check.CommandText = "PRAGMA table_info(sale_effects);";
+            using var reader = check.ExecuteReader();
+            while (reader.Read())
+            {
+                existing.Add(reader.GetString(1));
+            }
+        }
+
+        foreach (var column in new[] { "branch_code", "register_number", "sale_sequence" }.Where(c => !existing.Contains(c)))
+        {
+            using var alter = _connection.CreateCommand();
+            alter.CommandText = $"ALTER TABLE sale_effects ADD COLUMN {column} INTEGER NULL;";
             alter.ExecuteNonQuery();
         }
     }
@@ -339,8 +382,9 @@ public sealed partial class BranchSyncStore : IDisposable
         alter.ExecuteNonQuery();
     }
 
-    public BranchOutboxCommitResult CommitSaleAtomically(SyncEnvelope envelope, SaleEffect effect, bool requireOpenCashSession = false) =>
-        CommitSaleAtomicallyCore(envelope, effect with { SaleKind = "Manual" }, lines: [], requireOpenCashSession);
+    public BranchOutboxCommitResult CommitSaleAtomically(
+        SyncEnvelope envelope, SaleEffect effect, bool requireOpenCashSession = false, SaleNumbering? numbering = null) =>
+        CommitSaleAtomicallyCore(envelope, effect with { SaleKind = "Manual" }, lines: [], requireOpenCashSession, numbering);
 
     /// <summary>
     /// Task 7.3 (GREEN): the scan-composed sale counterpart to
@@ -349,11 +393,16 @@ public sealed partial class BranchSyncStore : IDisposable
     /// SAME transaction as the sale effect and outbox row (design.md "POS
     /// scan-to-sell": `sale_effects(sale_kind='Scanned') + sale_lines [1 tx]`).
     /// </summary>
-    public BranchOutboxCommitResult CommitScannedSaleAtomically(SyncEnvelope envelope, SaleEffect effect, IReadOnlyList<SaleLine> lines, bool requireOpenCashSession = false) =>
-        CommitSaleAtomicallyCore(envelope, effect with { SaleKind = "Scanned" }, lines, requireOpenCashSession);
+    public BranchOutboxCommitResult CommitScannedSaleAtomically(
+        SyncEnvelope envelope, SaleEffect effect, IReadOnlyList<SaleLine> lines, bool requireOpenCashSession = false, SaleNumbering? numbering = null) =>
+        CommitSaleAtomicallyCore(envelope, effect with { SaleKind = "Scanned" }, lines, requireOpenCashSession, numbering);
 
+    /// <param name="numbering">The terminal's branch code and register number, or null while it does not know them
+    /// (the sale then commits WITHOUT a number). When given, the next sequence of that (branch, register) is taken
+    /// INSIDE this transaction, after the idempotency check and the cash-session check, so a replay or a refused
+    /// sale never burns a number and the number commits or rolls back with the sale.</param>
     private BranchOutboxCommitResult CommitSaleAtomicallyCore(
-        SyncEnvelope envelope, SaleEffect effect, IReadOnlyList<SaleLine> lines, bool requireOpenCashSession)
+        SyncEnvelope envelope, SaleEffect effect, IReadOnlyList<SaleLine> lines, bool requireOpenCashSession, SaleNumbering? numbering)
     {
         lock (_writeGate)
         {
@@ -375,6 +424,16 @@ public sealed partial class BranchSyncStore : IDisposable
                     WasNewlyCommitted: false, effect, Commerce.Domain.CashSessions.SaleCommitRefusal.NoOpenCashSession);
             }
 
+            if (numbering is { } terminal)
+            {
+                var sequence = NextSaleSequence(effect.BranchId, terminal.Register, transaction);
+                effect = effect with
+                {
+                    BranchCode = terminal.Branch.Value, RegisterNumber = terminal.Register.Value, SaleSequence = sequence,
+                };
+                envelope = envelope with { Payload = StampSaleNumber(envelope.Payload, effect) };
+            }
+
             InsertSaleEffectRow(effect, transaction);
             foreach (var line in lines)
             {
@@ -387,6 +446,36 @@ public sealed partial class BranchSyncStore : IDisposable
             return new BranchOutboxCommitResult(WasNewlyCommitted: true, effect);
         }
     }
+
+    /// <summary>
+    /// Takes the next sequence of the (branch, register) counter. A missing counter row is
+    /// seeded from the highest sequence already stored for that pair, so a lost row can never
+    /// make the terminal repeat a number. Must run inside the sale transaction.
+    /// </summary>
+    private int NextSaleSequence(Guid branchId, RegisterNumber register, SqliteTransaction transaction)
+    {
+        using var next = _connection.CreateCommand();
+        next.Transaction = transaction;
+        next.CommandText = """
+            INSERT INTO terminal_counters (branch_id, register_number, last_sequence)
+            VALUES ($branchId, $register,
+                    COALESCE((SELECT MAX(sale_sequence) FROM sale_effects WHERE branch_id = $branchId AND register_number = $register), 0) + 1)
+            ON CONFLICT (branch_id, register_number) DO UPDATE SET last_sequence = MAX(
+                last_sequence,
+                COALESCE((SELECT MAX(sale_sequence) FROM sale_effects WHERE branch_id = $branchId AND register_number = $register), 0)) + 1
+            RETURNING last_sequence;
+            """;
+        next.Parameters.AddWithValue("$branchId", branchId.ToString());
+        next.Parameters.AddWithValue("$register", register.Value);
+        return Convert.ToInt32(next.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>The queued payload carries the number too (additive optional fields of SalePayloadV1).</summary>
+    private static string StampSaleNumber(string payloadJson, SaleEffect effect) =>
+        SyncPayloadCodec.Serialize(SyncPayloadCodec.Deserialize<SalePayloadV1>(payloadJson) with
+        {
+            BranchCode = effect.BranchCode, RegisterNumber = effect.RegisterNumber, SaleSequence = effect.SaleSequence,
+        });
 
     public void SimulateInterruptedCommit(SyncEnvelope envelope, SaleEffect effect)
     {
@@ -412,10 +501,12 @@ public sealed partial class BranchSyncStore : IDisposable
             INSERT INTO sale_effects
                 (sale_id, branch_id, total_amount, occurred_at_utc, sale_kind, customer_id,
                  sale_discount_percent, sale_discount_amount, discount_auth_method, discount_operator_id, discount_pin_version,
-                 tender_method, tender_amount_received, tender_change, cash_session_id)
+                 tender_method, tender_amount_received, tender_change, cash_session_id,
+                 branch_code, register_number, sale_sequence)
             VALUES ($saleId, $branchId, $totalAmount, $occurredAt, $saleKind, $customerId,
                     $saleDiscountPercent, $saleDiscountAmount, $authMethod, $authOperatorId, $authPinVersion,
-                    $tenderMethod, $tenderReceived, $tenderChange, $cashSessionId);
+                    $tenderMethod, $tenderReceived, $tenderChange, $cashSessionId,
+                    $branchCode, $registerNumber, $saleSequence);
             """;
         insertSale.Parameters.AddWithValue("$saleId", effect.SaleId.ToString());
         insertSale.Parameters.AddWithValue("$branchId", effect.BranchId.ToString());
@@ -432,6 +523,9 @@ public sealed partial class BranchSyncStore : IDisposable
         insertSale.Parameters.AddWithValue("$tenderReceived", DecimalOrNull(effect.Tender?.AmountReceived));
         insertSale.Parameters.AddWithValue("$tenderChange", DecimalOrNull(effect.Tender?.ChangeGiven));
         insertSale.Parameters.AddWithValue("$cashSessionId", effect.CashSessionId is { } sessionId ? sessionId.ToString() : DBNull.Value);
+        insertSale.Parameters.AddWithValue("$branchCode", effect.BranchCode is { } branchCode ? branchCode : DBNull.Value);
+        insertSale.Parameters.AddWithValue("$registerNumber", effect.RegisterNumber is { } registerNumber ? registerNumber : DBNull.Value);
+        insertSale.Parameters.AddWithValue("$saleSequence", effect.SaleSequence is { } saleSequence ? saleSequence : DBNull.Value);
         insertSale.ExecuteNonQuery();
     }
 
