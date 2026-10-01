@@ -17,8 +17,12 @@ namespace Commerce.Cloud.Api.Persistence;
 /// Submission, in one transaction: read the order (idempotency is per organization) -> resolve the
 /// branch code (a missing branch is a typed denial) -> take the per-branch advisory lock (seed 3) ->
 /// re-read (a concurrent submit of the same id finished first) -> spend the guest verification ->
-/// <c>MAX(sequence)+1</c> -> insert order and lines -> attempt delivery and persist its state. Any
-/// exception rolls the whole transaction back: no order, no consumed verification and no advanced counter.
+/// <c>MAX(sequence)+1</c> -> insert order and lines -> COMMIT. Any exception rolls the whole transaction
+/// back: no order, no consumed verification and no advanced counter. Delivery to the destination branch
+/// happens only AFTER that commit (a rollback must never leave the branch holding a phantom order); the
+/// order is stored pending/offline first and its delivery state is persisted by a follow-up statement.
+/// A delivery or follow-up failure leaves the stored order honestly pending: the order is never lost
+/// and <see cref="RetryDeliveryAsync"/> repeats the attempt idempotently.
 /// The lock is transaction-scoped (pgbouncer-safe); orders are never deleted, so a committed number is
 /// never reissued, and <c>UNIQUE (organization_id, destination_branch_id, sequence)</c> is the backstop.
 /// </summary>
@@ -114,6 +118,8 @@ public sealed class PostgresOrderStore : IOrderStore
         var order = new Order(
             orderId, scope.OrganizationId, origin, customerId, guestContact, destinationBranchId, lines, submittedAt,
             new OrderNumber(branchCode.Value, sequence));
+        // Stored pending/offline until a delivery is actually attempted after the commit.
+        order.MarkPending(OrderPendingReason.DestinationOffline);
 
         if (!await InsertOrderAsync(connection, tx, order, ct))
         {
@@ -122,12 +128,40 @@ public sealed class PostgresOrderStore : IOrderStore
 
         await InsertLinesAsync(connection, tx, order, ct);
 
-        OrderDelivery.Attempt(order, actorId, correlationId, destination, hasAvailableStock, _clock());
-        await UpdateDeliveryStateAsync(connection, tx, order, ct);
-
         await tx.CommitAsync(ct);
+
+        await DeliverAfterCommitAsync(connection, order, actorId, correlationId, destination, hasAvailableStock, ct);
         return new OrderSubmissionOutcome(
             OrderSubmissionOutcomeStatus.Accepted, OrderSubmissionReasons.Accepted, order, WasNewlyAccepted: true);
+    }
+
+    /// <summary>
+    /// Delivery of a committed order and persistence of its new state. Failures are contained on purpose:
+    /// the order is already durable, so it stays pending/offline and the caller still gets the accepted
+    /// outcome; a retry repeats delivery idempotently (the order id is the envelope operation id).
+    /// </summary>
+    private async Task DeliverAfterCommitAsync(
+        NpgsqlConnection connection, Order order, Guid actorId, Guid correlationId, BranchSyncStore? destination,
+        bool hasAvailableStock, CancellationToken ct)
+    {
+        var storedStatus = order.Status;
+        var storedReason = order.PendingReason;
+        try
+        {
+            OrderDelivery.Attempt(order, actorId, correlationId, destination, hasAvailableStock, _clock());
+            if (order.Status == storedStatus && order.PendingReason == storedReason) return;
+
+            await using var tx = await connection.BeginTransactionAsync(ct);
+            await TenantScopeSql.ApplyAsync(connection, tx, new CloudTenantScope(order.OrganizationId), ct);
+            await UpdateDeliveryStateAsync(connection, tx, order, ct);
+            await tx.CommitAsync(ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Report what is durable, not what the failed attempt wished for.
+            if (storedStatus == OrderDeliveryStatus.DestinationConfirmed) order.MarkDestinationConfirmed();
+            else order.MarkPending(storedReason);
+        }
     }
 
     public async Task<OrderSubmissionOutcome> RetryDeliveryAsync(
@@ -163,16 +197,41 @@ public sealed class PostgresOrderStore : IOrderStore
         return order;
     }
 
-    public async Task<IReadOnlyList<Order>> ListPendingAsync(CloudTenantScope scope, CancellationToken ct)
+    public async Task<IReadOnlyList<Order>> ListPendingAsync(
+        CloudTenantScope scope, CancellationToken ct, int limit = IOrderStore.DefaultPendingLimit)
     {
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
         await TenantScopeSql.ApplyAsync(connection, tx, scope, ct);
 
-        var linesByOrder = new Dictionary<Guid, List<OrderLineSnapshot>>();
-        await using (var linesCmd = new NpgsqlCommand(LinesSelect + " WHERE organization_id = $1 ORDER BY order_id, line_no", connection, tx))
+        // Orders first, then ONLY their lines: an order is committed together with its lines, so any
+        // order this statement saw has its lines visible to the next one (the other way round could
+        // read lines before an order committed, then find that order without them).
+        var headers = new List<OrderRow>();
+        await using (var ordersCmd = new NpgsqlCommand(
+            $"""
+            SELECT {OrderColumns} FROM orders
+            WHERE organization_id = $1 AND status = 'PendingDestination'
+            ORDER BY CASE origin WHEN 'RegisteredCustomer' THEN 0 ELSE 1 END, submitted_at_utc, sequence, order_id
+            LIMIT $2
+            """, connection, tx))
         {
+            ordersCmd.Parameters.AddWithValue(scope.OrganizationId);
+            ordersCmd.Parameters.AddWithValue(Math.Clamp(limit, 1, IOrderStore.MaxPendingLimit));
+            await using var reader = await ordersCmd.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+            {
+                headers.Add(ReadRow(reader));
+            }
+        }
+
+        var linesByOrder = new Dictionary<Guid, List<OrderLineSnapshot>>();
+        if (headers.Count > 0)
+        {
+            await using var linesCmd = new NpgsqlCommand(
+                LinesSelect + " WHERE organization_id = $1 AND order_id = ANY($2) ORDER BY order_id, line_no", connection, tx);
             linesCmd.Parameters.AddWithValue(scope.OrganizationId);
+            linesCmd.Parameters.AddWithValue(headers.Select(h => h.OrderId).ToArray());
             await using var reader = await linesCmd.ExecuteReaderAsync(ct);
             while (await reader.ReadAsync(ct))
             {
@@ -182,24 +241,8 @@ public sealed class PostgresOrderStore : IOrderStore
             }
         }
 
-        var orders = new List<Order>();
-        await using (var ordersCmd = new NpgsqlCommand(
-            $"""
-            SELECT {OrderColumns} FROM orders WHERE organization_id = $1
-            ORDER BY CASE origin WHEN 'RegisteredCustomer' THEN 0 ELSE 1 END, submitted_at_utc, sequence
-            """, connection, tx))
-        {
-            ordersCmd.Parameters.AddWithValue(scope.OrganizationId);
-            await using var reader = await ordersCmd.ExecuteReaderAsync(ct);
-            while (await reader.ReadAsync(ct))
-            {
-                var orderId = reader.GetGuid(0);
-                orders.Add(Rehydrate(reader, scope.OrganizationId, linesByOrder.GetValueOrDefault(orderId) ?? []));
-            }
-        }
-
         await tx.CommitAsync(ct);
-        return orders;
+        return headers.Select(h => Rehydrate(h, scope.OrganizationId, linesByOrder.GetValueOrDefault(h.OrderId) ?? [])).ToList();
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -376,26 +419,30 @@ public sealed class PostgresOrderStore : IOrderStore
         NpgsqlConnection connection, NpgsqlTransaction tx, Guid organizationId, Guid orderId, CancellationToken ct,
         bool forUpdate = false)
     {
-        var lines = new List<OrderLineSnapshot>();
-        await using (var linesCmd = new NpgsqlCommand(
-            LinesSelect + " WHERE organization_id = $1 AND order_id = $2 ORDER BY line_no", connection, tx))
-        {
-            linesCmd.Parameters.AddWithValue(organizationId);
-            linesCmd.Parameters.AddWithValue(orderId);
-            await using var reader = await linesCmd.ExecuteReaderAsync(ct);
-            while (await reader.ReadAsync(ct))
-            {
-                lines.Add(ReadLine(reader, offset: 1));
-            }
-        }
-
-        await using var cmd = new NpgsqlCommand(
+        // The order first, then its lines (see ListPendingAsync: never read lines before the order).
+        OrderRow? row;
+        await using (var cmd = new NpgsqlCommand(
             $"SELECT {OrderColumns} FROM orders WHERE organization_id = $1 AND order_id = $2" + (forUpdate ? " FOR UPDATE" : ""),
-            connection, tx);
-        cmd.Parameters.AddWithValue(organizationId);
-        cmd.Parameters.AddWithValue(orderId);
-        await using var orderReader = await cmd.ExecuteReaderAsync(ct);
-        return await orderReader.ReadAsync(ct) ? Rehydrate(orderReader, organizationId, lines) : null;
+            connection, tx))
+        {
+            cmd.Parameters.AddWithValue(organizationId);
+            cmd.Parameters.AddWithValue(orderId);
+            await using var orderReader = await cmd.ExecuteReaderAsync(ct);
+            row = await orderReader.ReadAsync(ct) ? ReadRow(orderReader) : null;
+        }
+        if (row is null) return null;
+
+        var lines = new List<OrderLineSnapshot>();
+        await using var linesCmd = new NpgsqlCommand(
+            LinesSelect + " WHERE organization_id = $1 AND order_id = $2 ORDER BY line_no", connection, tx);
+        linesCmd.Parameters.AddWithValue(organizationId);
+        linesCmd.Parameters.AddWithValue(orderId);
+        await using var reader = await linesCmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            lines.Add(ReadLine(reader, offset: 1));
+        }
+        return Rehydrate(row, organizationId, lines);
     }
 
     private static OrderLineSnapshot ReadLine(NpgsqlDataReader reader, int offset) => new(
@@ -411,28 +458,44 @@ public sealed class PostgresOrderStore : IOrderStore
         UnitNetPrice: reader.GetDecimal(offset + 9),
         LineTotal: reader.GetDecimal(offset + 10));
 
-    /// <summary>Column order of <see cref="OrderColumns"/>. The constructor re-checks the origin invariant on the way back in.</summary>
-    private static Order Rehydrate(NpgsqlDataReader reader, Guid organizationId, IReadOnlyList<OrderLineSnapshot> lines)
+    /// <summary>One <c>orders</c> row, read completely so the reader can be closed before the lines are queried.</summary>
+    private sealed record OrderRow(
+        Guid OrderId, string Origin, Guid? CustomerId, string? GuestDocumentId, string? GuestChannel,
+        string? GuestContactAddress, string? GuestDisplayName, string? GuestDeliveryNotes, Guid DestinationBranchId,
+        string Status, string PendingReason, short BranchCode, int Sequence, DateTimeOffset SubmittedAtUtc);
+
+    /// <summary>Column order of <see cref="OrderColumns"/>.</summary>
+    private static OrderRow ReadRow(NpgsqlDataReader reader)
     {
-        var origin = Enum.Parse<OrderOrigin>(reader.GetString(1));
+        static string? Text(NpgsqlDataReader r, int i) => r.IsDBNull(i) ? null : r.GetString(i);
+        return new OrderRow(
+            reader.GetGuid(0), reader.GetString(1), reader.IsDBNull(2) ? null : reader.GetGuid(2),
+            Text(reader, 3), Text(reader, 4), Text(reader, 5), Text(reader, 6), Text(reader, 7),
+            reader.GetGuid(8), reader.GetString(9), reader.GetString(10), reader.GetInt16(11), reader.GetInt32(12),
+            reader.GetFieldValue<DateTimeOffset>(13));
+    }
+
+    /// <summary>The constructor re-checks the origin invariant on the way back in.</summary>
+    private static Order Rehydrate(OrderRow row, Guid organizationId, IReadOnlyList<OrderLineSnapshot> lines)
+    {
+        var origin = Enum.Parse<OrderOrigin>(row.Origin);
         GuestContact? guest = origin == OrderOrigin.Guest
             ? new GuestContact(
-                reader.GetString(3), Enum.Parse<GuestContactChannel>(reader.GetString(4)), reader.GetString(5),
-                reader.GetString(6), reader.IsDBNull(7) ? null : reader.GetString(7))
+                row.GuestDocumentId!, Enum.Parse<GuestContactChannel>(row.GuestChannel!), row.GuestContactAddress!,
+                row.GuestDisplayName!, row.GuestDeliveryNotes)
             : null;
 
         var order = new Order(
-            reader.GetGuid(0), organizationId, origin, reader.IsDBNull(2) ? null : reader.GetGuid(2), guest,
-            reader.GetGuid(8), lines, reader.GetFieldValue<DateTimeOffset>(13),
-            new OrderNumber(new BranchCode(reader.GetInt16(11)), reader.GetInt32(12)));
+            row.OrderId, organizationId, origin, row.CustomerId, guest, row.DestinationBranchId, lines, row.SubmittedAtUtc,
+            new OrderNumber(new BranchCode(row.BranchCode), row.Sequence));
 
-        if (Enum.Parse<OrderDeliveryStatus>(reader.GetString(9)) == OrderDeliveryStatus.DestinationConfirmed)
+        if (Enum.Parse<OrderDeliveryStatus>(row.Status) == OrderDeliveryStatus.DestinationConfirmed)
         {
             order.MarkDestinationConfirmed();
         }
         else
         {
-            order.MarkPending(Enum.Parse<OrderPendingReason>(reader.GetString(10)));
+            order.MarkPending(Enum.Parse<OrderPendingReason>(row.PendingReason));
         }
 
         return order;

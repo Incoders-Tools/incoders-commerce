@@ -42,6 +42,12 @@ public sealed record GuestVerificationConsumption(
 /// </summary>
 public interface IOrderStore
 {
+    /// <summary>Rows <see cref="ListPendingAsync"/> returns when the caller does not say.</summary>
+    public const int DefaultPendingLimit = 200;
+
+    /// <summary>Hard ceiling of <see cref="ListPendingAsync"/>; a larger limit is clamped to it.</summary>
+    public const int MaxPendingLimit = 500;
+
     /// <summary>
     /// Accepts an order: stores it with its number (<c>P{branch}-W-{sequence}</c>), spends
     /// <paramref name="verification"/> (guest orders) in the same transaction, then attempts delivery
@@ -77,11 +83,14 @@ public interface IOrderStore
     Task<Order?> FindAsync(CloudTenantScope scope, Guid orderId, CancellationToken ct);
 
     /// <summary>
-    /// The organization's orders as a SORT, never a gate (design.md "Non-priority = ranking"):
-    /// <see cref="Order.DispatchRank"/> ascending (registered customers first), then
-    /// <see cref="Order.SubmittedAtUtc"/> ascending.
+    /// The organization's orders still pending for the destination, as a SORT, never a gate (design.md
+    /// "Non-priority = ranking"): <see cref="Order.DispatchRank"/> ascending (registered customers first),
+    /// then <see cref="Order.SubmittedAtUtc"/> ascending, then the order number. Orders the destination
+    /// already confirmed are not listed. At most <paramref name="limit"/> orders (clamped to 1 and
+    /// <see cref="MaxPendingLimit"/>) so the read stays bounded as the table grows.
     /// </summary>
-    Task<IReadOnlyList<Order>> ListPendingAsync(CloudTenantScope scope, CancellationToken ct);
+    Task<IReadOnlyList<Order>> ListPendingAsync(
+        CloudTenantScope scope, CancellationToken ct, int limit = DefaultPendingLimit);
 }
 
 public static class OrderStoreExtensions

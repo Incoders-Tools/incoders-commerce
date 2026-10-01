@@ -147,6 +147,9 @@ public sealed class InMemoryOrderStore : IOrderStore
     Task<Order?> IOrderStore.FindAsync(CloudTenantScope scope, Guid orderId, CancellationToken ct) =>
         Task.FromResult(Find(scope, orderId));
 
-    Task<IReadOnlyList<Order>> IOrderStore.ListPendingAsync(CloudTenantScope scope, CancellationToken ct) =>
-        Task.FromResult(ListPending(scope));
+    Task<IReadOnlyList<Order>> IOrderStore.ListPendingAsync(CloudTenantScope scope, CancellationToken ct, int limit) =>
+        Task.FromResult<IReadOnlyList<Order>>(ListPending(scope)
+            .Where(order => order.Status == OrderDeliveryStatus.PendingDestination)
+            .Take(Math.Clamp(limit, 1, IOrderStore.MaxPendingLimit))
+            .ToList());
 }

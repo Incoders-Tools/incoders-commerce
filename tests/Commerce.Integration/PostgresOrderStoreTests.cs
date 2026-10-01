@@ -570,4 +570,182 @@ public sealed class PostgresOrderStoreTests : IDisposable
         Assert.Equal(7, outcomes.Count(o => o.Reason == "verification-invalid"));
         Assert.Single(await NewStore().ListPendingAsync(scope, CancellationToken.None));
     }
+
+    // --- review follow-ups (persist-web-orders) -----------------------------------------------------
+
+    private static void DeleteSqlite(string dbPath)
+    {
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        foreach (var path in new[] { dbPath, dbPath + "-wal", dbPath + "-shm" })
+        {
+            if (File.Exists(path)) { try { File.Delete(path); } catch (IOException) { } }
+        }
+    }
+
+    [Fact]
+    public async Task TheSameOrderIdRacingThroughTwoBranches_StoresOneOrder_AndEveryCallerGetsIt()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        // Different branches take different advisory locks, so only the primary key serializes them:
+        // the loser hits ON CONFLICT DO NOTHING, rolls back and re-reads the winner.
+        var org = await SeedOrganizationAsync();
+        var branchA = await SeedBranchAsync(org);
+        var branchB = await SeedBranchAsync(org);
+        var scope = new CloudTenantScope(org);
+        var orderId = Guid.NewGuid();
+        var customerId = Guid.NewGuid();
+
+        var outcomes = await Task.WhenAll(Enumerable.Range(0, 8).Select(i =>
+            Task.Run(() => SubmitRegisteredAsync(NewStore(), scope, orderId, i % 2 == 0 ? branchA : branchB, customerId))));
+
+        Assert.All(outcomes, o => Assert.Equal(OrderSubmissionOutcomeStatus.Accepted, o.Status));
+        Assert.Equal(1, outcomes.Count(o => o.WasNewlyAccepted));
+        Assert.Single(outcomes.Select(o => o.Order!.OrderNumber!.Value.Format()).Distinct());
+        Assert.Single(await NewStore().ListPendingAsync(scope, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Readers_NeverSeeAnOrderWithoutItsLines_WhileOrdersAreBeingSubmitted()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var org = await SeedOrganizationAsync();
+        var branch = await SeedBranchAsync(org);
+        var scope = new CloudTenantScope(org);
+        var store = NewStore();
+        using var stop = new CancellationTokenSource();
+
+        // Best-effort interleaving probe: reading lines and orders as two statements throws on an order
+        // that committed in between (no lines to rehydrate). Orders first, then their lines, never does.
+        var readers = Enumerable.Range(0, 3).Select(_ => Task.Run(async () =>
+        {
+            while (!stop.IsCancellationRequested)
+            {
+                var listed = await store.ListPendingAsync(scope, CancellationToken.None);
+                Assert.All(listed, o => Assert.NotEmpty(o.Lines));
+            }
+        })).ToArray();
+
+        for (var i = 0; i < 40; i++)
+        {
+            await SubmitRegisteredAsync(store, scope, Guid.NewGuid(), branch);
+        }
+        stop.Cancel();
+        await Task.WhenAll(readers);
+
+        Assert.Equal(40, (await store.ListPendingAsync(scope, CancellationToken.None)).Count);
+    }
+
+    [Fact]
+    public async Task APendingList_IsLimitedAndOnlyHoldsOrdersStillPendingForTheDestination()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var org = await SeedOrganizationAsync();
+        var branch = await SeedBranchAsync(org);
+        var scope = new CloudTenantScope(org);
+        var clock = new DateTimeOffset(2026, 10, 1, 12, 0, 0, TimeSpan.Zero);
+        var tick = 0;
+        var store = NewStore(() => clock.AddMinutes(tick++));
+        var ids = new List<Guid>();
+        for (var i = 0; i < 5; i++)
+        {
+            ids.Add(Guid.NewGuid());
+            await SubmitRegisteredAsync(store, scope, ids[i], branch);
+        }
+
+        // One order is delivered: it is no longer "pending destination" and leaves the list.
+        var dbPath = Path.Combine(Path.GetTempPath(), $"branch-pending-{Guid.NewGuid():N}.db");
+        try
+        {
+            using var destination = new BranchSyncStore($"Data Source={dbPath}");
+            await store.RetryDeliveryAsync(scope, ids[0], Guid.NewGuid(), Guid.NewGuid(), destination, hasAvailableStock: true, CancellationToken.None);
+        }
+        finally
+        {
+            DeleteSqlite(dbPath);
+        }
+
+        var all = await store.ListPendingAsync(scope, CancellationToken.None);
+        var limited = await store.ListPendingAsync(scope, CancellationToken.None, limit: 2);
+
+        Assert.Equal(ids.Skip(1), all.Select(o => o.OrderId));
+        Assert.Equal(ids.Skip(1).Take(2), limited.Select(o => o.OrderId));
+        Assert.Single(await store.ListPendingAsync(scope, CancellationToken.None, limit: 0));   // clamped up to 1
+        Assert.Equal(200, IOrderStore.DefaultPendingLimit);
+        Assert.Equal(500, IOrderStore.MaxPendingLimit);
+    }
+
+    [Fact]
+    public async Task ADeliveryThatCannotBePersisted_NeverLeavesAPhantomOrderOnTheBranch()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var org = await SeedOrganizationAsync();
+        var branch = await SeedBranchAsync(org);
+        var scope = new CloudTenantScope(org);
+        var orderId = Guid.NewGuid();
+        var dbPath = Path.Combine(Path.GetTempPath(), $"branch-phantom-{Guid.NewGuid():N}.db");
+        var guard = "orders_no_delivery_" + org.ToString("N");
+        // A trigger that refuses every delivery-state UPDATE of this organization, so persisting the delivery fails.
+        await ExecOwnerAsync(
+            $"CREATE OR REPLACE FUNCTION {guard}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'delivery state refused'; END $$");
+        await ExecOwnerAsync(
+            $"CREATE TRIGGER {guard} BEFORE UPDATE OF status, pending_reason ON orders FOR EACH ROW WHEN (NEW.organization_id = '{org}') EXECUTE FUNCTION {guard}()");
+        try
+        {
+            using var destination = new BranchSyncStore($"Data Source={dbPath}");
+            var outcome = await SubmitRegisteredAsync(NewStore(), scope, orderId, branch, destination: destination, hasStock: true);
+
+            // The order was committed BEFORE delivery was attempted: it exists, honestly pending, and
+            // the branch inbox holds an order that exists (never a phantom from a rolled-back transaction).
+            Assert.Equal(OrderSubmissionOutcomeStatus.Accepted, outcome.Status);
+            var stored = await NewStore().FindAsync(scope, orderId, CancellationToken.None);
+            Assert.NotNull(stored);
+            Assert.Equal(OrderDeliveryStatus.PendingDestination, stored!.Status);
+            Assert.Equal(OrderPendingReason.DestinationOffline, stored.PendingReason);
+            Assert.Equal(OrderDeliveryStatus.PendingDestination, outcome.Order!.Status);
+
+            // A later retry (trigger gone) reaches the same inbox entry idempotently and confirms.
+            await ExecOwnerAsync($"DROP TRIGGER {guard} ON orders");
+            var retried = await NewStore().RetryDeliveryAsync(
+                scope, orderId, Guid.NewGuid(), Guid.NewGuid(), destination, hasAvailableStock: true, CancellationToken.None);
+            Assert.Equal(OrderDeliveryStatus.DestinationConfirmed, retried.Order!.Status);
+        }
+        finally
+        {
+            await ExecOwnerAsync($"DROP TRIGGER IF EXISTS {guard} ON orders");
+            await ExecOwnerAsync($"DROP FUNCTION IF EXISTS {guard}()");
+            DeleteSqlite(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task ARolledBackSubmission_NeverDeliversToTheBranch()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var org = await SeedOrganizationAsync();
+        var branch = await SeedBranchAsync(org);
+        var scope = new CloudTenantScope(org);
+        var dbPath = Path.Combine(Path.GetTempPath(), $"branch-rollback-{Guid.NewGuid():N}.db");
+        try
+        {
+            using var destination = new BranchSyncStore($"Data Source={dbPath}");
+            // The line insert fails, so the transaction rolls back before any delivery.
+            await Assert.ThrowsAsync<PostgresException>(() => SubmitRegisteredAsync(
+                NewStore(), scope, Guid.NewGuid(), branch, lines: [NewLine((QuantityBehavior)99)], destination: destination, hasStock: true));
+
+            await using var sqlite = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath}");
+            await sqlite.OpenAsync();
+            await using var count = sqlite.CreateCommand();
+            count.CommandText = "SELECT COUNT(1) FROM inbound_orders";
+            Assert.Equal(0L, (long)(await count.ExecuteScalarAsync())!);
+        }
+        finally
+        {
+            DeleteSqlite(dbPath);
+        }
+    }
 }
