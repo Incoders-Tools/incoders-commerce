@@ -166,6 +166,8 @@ operator-session activity on that terminal. Current-operator identity
 
 ### Requirement: Register Number
 
+See [Document numbering](../../../docs/document-numbering.md) for the whole scheme.
+
 Every paired POS terminal MUST carry a register number (1 to 999) that is
 unique within its branch, assigned by the server in the same transaction that
 issues the device credential, and shown to people as `Caja {n}` (for example

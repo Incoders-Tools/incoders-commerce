@@ -307,6 +307,8 @@ reference the open session.
 
 ### Requirement: Sale Number
 
+See [Document numbering](../../../docs/document-numbering.md) for the whole scheme.
+
 Every sale committed by a terminal that knows its branch code and register
 number MUST get a human sale number `V{branch}-C{register}-{sequence}` (for
 example `V01-C2-125`): `V` is the document type (venta), `{branch}` is the

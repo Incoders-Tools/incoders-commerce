@@ -226,6 +226,8 @@ organization.
 
 ### Requirement: Branch Short Code
 
+See [Document numbering](../../../docs/document-numbering.md) for the whole scheme.
+
 Every branch MUST carry a short numeric `code` (1 to 999) that is unique within
 its organization, assigned by the server when the branch is created, and never
 changed afterwards. The first branch of an organization (the bootstrap branch)

@@ -305,6 +305,8 @@ never from the request.
 
 ### Requirement: Sale Number Projection
 
+See [Document numbering](../../../docs/document-numbering.md) for the whole scheme.
+
 The inbox transaction MUST project every `sale` envelope into `pos_sales`
 (organization, branch, sale id, register number, sale sequence, operation id,
 occurred-at, total) and MUST verify the human sale number the terminal claimed.
@@ -320,8 +322,9 @@ for numbered sales; unnumbered sales are exempt.
 A claim that fails any check, a number already used, or a claim that cannot be
 verified MUST store the sale with NO number and write an audit row
 `sale.number_conflict` carrying the reason; it MUST NEVER block ingestion, and
-neither may an unreadable sale payload or a missing `pos_sales` table (the
-projection runs in a savepoint and is skipped with a log line, the inbox row is
+neither may an unreadable sale payload, a missing `pos_sales` table or ANY other
+failure of the projection (it runs in a savepoint, is skipped with a log line and,
+except for a missing table, audited as `sale.projection_failed`; the inbox row is
 always kept). A payload without number fields is projected unnumbered with no
 conflict. Redelivery MUST NOT project twice. `pos_sales` is append-only and
 tenant-isolated by row level security.
