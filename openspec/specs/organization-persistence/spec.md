@@ -187,6 +187,7 @@ enforced by no endpoint.
 - WHEN they call the branch-creation endpoint with a branch name and no
   target organization other than their own
 - THEN a new branch row is created under Organization A
+- AND the response carries the branch's short code (see "Branch Short Code")
 
 #### Scenario: Cross-organization branch creation is rejected
 
@@ -214,6 +215,7 @@ organization.
 - WHEN an authenticated caller in Organization A calls the branch-listing
   endpoint
 - THEN both branches are returned
+- AND each branch carries its short code
 
 #### Scenario: Listing does not leak another organization's branches
 
@@ -221,6 +223,56 @@ organization.
 - WHEN an authenticated caller in Organization A calls the branch-listing
   endpoint
 - THEN no branch belonging to Organization B is returned
+
+### Requirement: Branch Short Code
+
+Every branch MUST carry a short numeric `code` (1 to 999) that is unique within
+its organization, assigned by the server when the branch is created, and never
+changed afterwards. The first branch of an organization (the bootstrap branch)
+MUST receive code 1 and each later branch the next unused number; allocation
+MUST be race-free per organization (concurrent creations in one organization
+never share a code, while different organizations number independently).
+Existing branches MUST be backfilled per organization in creation order
+(`created_at`, then `id`). The code is shown to people with at least two digits
+(`01`, `02`, ... `100`) and is the `{branch}` part of human document numbers
+such as `V01-C2-125`. Branch DTOs (listing, creation response, session
+selectable branches, device pairing) MUST carry the code. The branch's GUID is a
+technical identifier shown only to system administrators.
+
+#### Scenario: Codes are sequential within an organization
+
+- GIVEN a new organization bootstrapped with its default branch
+- WHEN two more branches are created in it
+- THEN the branches hold codes 1, 2 and 3 in creation order
+
+#### Scenario: Codes are numbered per organization
+
+- GIVEN Organization A and Organization B each have a bootstrap branch
+- THEN both branches hold code 1
+
+#### Scenario: Existing branches are backfilled in creation order
+
+- GIVEN branches that predate the code column
+- WHEN the migration runs
+- THEN each organization's branches hold 1, 2, 3 ... ordered by `created_at`
+  then `id`, and re-running the migration changes nothing
+
+#### Scenario: A code never changes
+
+- GIVEN a branch with a code
+- WHEN any update tries to change its code
+- THEN the update is rejected and the code is unchanged
+
+#### Scenario: Concurrent creation yields distinct codes
+
+- GIVEN several branches are created at the same time in one organization
+- THEN every branch holds a distinct code and no code is skipped
+
+#### Scenario: The identifier column is for system administrators only
+
+- GIVEN the web Branches screen
+- WHEN a non-system-administrator views it
+- THEN it shows the code (with a tooltip explaining it) and not the branch GUID
 
 ### Requirement: Branch-Owned Business Data
 
@@ -271,7 +323,7 @@ column becomes `NOT NULL` only after the backfill.
 ### Requirement: Selectable Branches In The Session
 
 The signed-in session response (`GET /account/me`) MUST list the branches
-the caller may select, each with id and name: the persisted branches in
+the caller may select, each with id, name and short code: the persisted branches in
 the caller's `BranchScope`, or, for a system administrator acting on a
 selected organization, every branch of that organization. The list MUST
 NOT include a branch outside those rules.
