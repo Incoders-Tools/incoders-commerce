@@ -141,9 +141,7 @@ public static class DeviceEndpoints
             catch (Commerce.Domain.Tenancy.RegisterNumbersExhaustedException)
             {
                 // The whole pairing rolled back; the terminal keeps whatever credential it had.
-                return Results.Json(
-                    new DevicePairResponse("register-numbers-exhausted", null, null, null, null, null, null),
-                    statusCode: StatusCodes.Status409Conflict);
+                return Results.Json(new RegisterNumbersExhaustedResponse(), statusCode: StatusCodes.Status409Conflict);
             }
 
             return Results.Ok(new DevicePairResponse(
@@ -156,7 +154,7 @@ public static class DeviceEndpoints
                 issued.PlaintextToken,
                 selected.Code,
                 issued.RegisterNumber));
-        }).AllowAnonymous();
+        }).AllowAnonymous().RequireRateLimiting(DeviceRateLimitPolicies.Pair);
 
         // Identity of THIS terminal (pos-installation-identity "Register Number"):
         // branch name/code and register number, read from the STORED credential
@@ -184,7 +182,12 @@ public static class DeviceEndpoints
             }
             catch (Commerce.Domain.Tenancy.RegisterNumbersExhaustedException)
             {
-                return Results.Conflict(new { error = "register-numbers-exhausted" });
+                return Results.Json(new RegisterNumbersExhaustedResponse(), statusCode: StatusCodes.Status409Conflict);
+            }
+            catch (DeviceCredentialNotLiveException)
+            {
+                // The terminal re-paired while this call ran: the old credential is dead.
+                return Results.Unauthorized();
             }
 
             return identity is null
@@ -437,6 +440,33 @@ public static class DeviceEndpoints
 
         return group;
     }
+}
+
+/// <summary>
+/// Rate-limit policy of `POST /device/pair` (see the registration in `Program.cs`).
+/// Pairing is anonymous, takes a client-chosen InstallationId and burns a register
+/// number per NEW installation (numbers are never reused), so unbounded pairing
+/// could exhaust a branch's 999 numbers. Residual risk: an attacker rotating IPs
+/// with valid operator credentials is not stopped by the limiter; each new
+/// allocation is audited (`terminal.register.assigned`) so it is visible.
+/// </summary>
+public static class DeviceRateLimitPolicies
+{
+    public const string Pair = "device-pair";
+    public const int DefaultPairPermitLimit = 30;
+    public static readonly TimeSpan PairWindow = TimeSpan.FromMinutes(15);
+}
+
+/// <summary>
+/// The ONE 409 body for "this branch has no register number left", returned by both
+/// `POST /device/pair` and `GET /device/identity`. `Error` is the typed code clients
+/// should read; `Status` repeats it because the pairing client dispatches on `status`.
+/// </summary>
+public sealed record RegisterNumbersExhaustedResponse(
+    string Error = RegisterNumbersExhaustedResponse.Code,
+    string Status = RegisterNumbersExhaustedResponse.Code)
+{
+    public const string Code = "register-numbers-exhausted";
 }
 
 public sealed record DevicePairRequest(string Email, string Password, Guid InstallationId, Guid? BranchId);

@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Logging;
 using Npgsql;
 
 namespace Commerce.Cloud.Api.HealthChecks;
@@ -21,8 +22,13 @@ namespace Commerce.Cloud.Api.HealthChecks;
 public sealed class PostgresReadinessHealthCheck : IHealthCheck
 {
     private readonly NpgsqlDataSource _dataSource;
+    private readonly ILogger<PostgresReadinessHealthCheck>? _logger;
 
-    public PostgresReadinessHealthCheck(NpgsqlDataSource dataSource) => _dataSource = dataSource;
+    public PostgresReadinessHealthCheck(NpgsqlDataSource dataSource, ILogger<PostgresReadinessHealthCheck>? logger = null)
+    {
+        _dataSource = dataSource;
+        _logger = logger;
+    }
 
     public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
     {
@@ -236,7 +242,25 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
                     EXISTS (
                         SELECT 1 FROM pg_policies
                         WHERE tablename = 'rate_components' AND policyname = 'rate_components_tenant_isolation'
-                    ) AS rate_components_policy_exists
+                    ) AS rate_components_policy_exists,
+                    -- Human document numbers (0021/0022). Pairing hard-depends on
+                    -- branches.code and on terminal_registers_assign(): an API
+                    -- deployed ahead of those migrations would answer every
+                    -- POST /device/pair with a 500. Red readiness instead names
+                    -- the migration to run.
+                    EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'branches' AND column_name = 'code'
+                    ) AS branches_code_column_exists,
+                    EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'terminal_registers') AS terminal_registers_table_exists,
+                    EXISTS (
+                        SELECT 1 FROM pg_class
+                        WHERE relname = 'terminal_registers' AND relrowsecurity AND relforcerowsecurity
+                    ) AS terminal_registers_rls_forced,
+                    EXISTS (
+                        SELECT 1 FROM pg_proc
+                        WHERE proname = 'terminal_registers_assign' AND pronargs = 4
+                    ) AS terminal_registers_assign_exists
                 """, connection);
 
             await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
@@ -308,6 +332,10 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
             var rateComponentsTableExists = reader.GetBoolean(61);
             var rateComponentsRlsForced = reader.GetBoolean(62);
             var rateComponentsPolicyExists = reader.GetBoolean(63);
+            var branchesCodeColumnExists = reader.GetBoolean(64);
+            var terminalRegistersTableExists = reader.GetBoolean(65);
+            var terminalRegistersRlsForced = reader.GetBoolean(66);
+            var terminalRegistersAssignExists = reader.GetBoolean(67);
 
             var allHealthy = syncInboxTableExists && syncInboxRlsForced && syncInboxPolicyExists && roleExists
                 && usersTableExists && usersRlsForced && usersPolicyExists
@@ -334,7 +362,8 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
                 && guestOrderVerificationsUpdatePolicyExists
                 && paymentEntriesTableExists && paymentEntriesRlsForced && paymentEntriesPolicyExists
                 && rateComponentSetsTableExists && rateComponentSetsRlsForced && rateComponentSetsPolicyExists
-                && rateComponentsTableExists && rateComponentsRlsForced && rateComponentsPolicyExists;
+                && rateComponentsTableExists && rateComponentsRlsForced && rateComponentsPolicyExists
+                && branchesCodeColumnExists && terminalRegistersTableExists && terminalRegistersRlsForced && terminalRegistersAssignExists;
 
             if (allHealthy)
             {
@@ -342,8 +371,14 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
                     "sync_inbox, users, user_directory, organizations, branches, device_credentials, " +
                     "password_reset_tokens, audit_log, customers, customer_ordering_access, " +
                     "products, presentations, price_lists, price_list_entries, guest_order_verifications, " +
-                    "payment_entries, rate_component_sets, and rate_components tables, forced RLS, " +
+                    "payment_entries, rate_component_sets, rate_components, and terminal_registers tables, forced RLS, " +
                     "tenant-isolation policies, and app_runtime/platform_readonly roles all verified.");
+            }
+
+            if (!(branchesCodeColumnExists && terminalRegistersTableExists && terminalRegistersRlsForced && terminalRegistersAssignExists))
+            {
+                _logger?.LogError("Readiness failed: migration 0021/0022 missing (branches.code={Code}, terminal_registers={Table}, rls_forced={Rls}, terminal_registers_assign={Fn}); device pairing would fail. Apply deploy/db/migrations before this API version.",
+                    branchesCodeColumnExists, terminalRegistersTableExists, terminalRegistersRlsForced, terminalRegistersAssignExists);
             }
 
             return HealthCheckResult.Unhealthy(
@@ -369,8 +404,10 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
                 $"lookup_policy={guestOrderVerificationsLookupPolicyExists}, issue_policy={guestOrderVerificationsIssuePolicyExists}, update_policy={guestOrderVerificationsUpdatePolicyExists}), " +
                 $"payment_entries(table={paymentEntriesTableExists}, rls_forced={paymentEntriesRlsForced}, policy={paymentEntriesPolicyExists}), " +
                 $"rate_component_sets(table={rateComponentSetsTableExists}, rls_forced={rateComponentSetsRlsForced}, policy={rateComponentSetsPolicyExists}), " +
-                $"rate_components(table={rateComponentsTableExists}, rls_forced={rateComponentsRlsForced}, policy={rateComponentsPolicyExists}). " +
-                "Apply deploy/db/migrations/0001_init_rls.sql through 0014_rate_component_tenancy.sql.");
+                $"rate_components(table={rateComponentsTableExists}, rls_forced={rateComponentsRlsForced}, policy={rateComponentsPolicyExists}), " +
+                $"branches.code(column={branchesCodeColumnExists}), terminal_registers(table={terminalRegistersTableExists}, rls_forced={terminalRegistersRlsForced}, " +
+                $"assign_function={terminalRegistersAssignExists}). " +
+                "Apply deploy/db/migrations/0001_init_rls.sql through 0022_terminal_registers.sql (migration 0022 missing means pairing would fail).");
         }
         catch (Exception ex)
         {

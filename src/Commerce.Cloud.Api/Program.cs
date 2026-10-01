@@ -260,6 +260,19 @@ builder.Services.AddRateLimiter(options =>
             QueueLimit = 0,
         }));
 
+    // POST /device/pair is anonymous and accepts a client-chosen InstallationId:
+    // every fresh GUID that pairs consumes one of its branch's 999 register
+    // numbers for good. Per-IP fixed window; the ceiling is far above a real
+    // fit-out (a handful of terminals) and configurable per environment.
+    var devicePairPermitLimit = builder.Configuration.GetValue("RateLimits:DevicePairPermitLimit", DeviceRateLimitPolicies.DefaultPairPermitLimit);
+    options.AddPolicy(DeviceRateLimitPolicies.Pair, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(IpPartitionKey(httpContext), _ => new FixedWindowRateLimiterOptions
+        {
+            Window = DeviceRateLimitPolicies.PairWindow,
+            PermitLimit = devicePairPermitLimit,
+            QueueLimit = 0,
+        }));
+
     options.AddPolicy(PublicRateLimitPolicies.PublicCatalogRead, httpContext =>
         RateLimitPartition.GetFixedWindowLimiter(IpPartitionKey(httpContext), _ => new FixedWindowRateLimiterOptions
         {

@@ -109,7 +109,7 @@ public sealed class PostgresReadinessHealthCheckTests : IClassFixture<WebApplica
                  {
                      "0002_users.sql", "0003_organizations_branches.sql",
                      "0004_device_credentials.sql", "0005_password_recovery.sql",
-                     "0006_role_taxonomy.sql",
+                     "0006_role_taxonomy.sql", "0021_branch_codes.sql", "0022_terminal_registers.sql",
                  })
         {
             var sql = File.ReadAllText(Path.Combine(RepoRoot(), "deploy", "db", "migrations", file));
@@ -537,6 +537,40 @@ public sealed class PostgresReadinessHealthCheckTests : IClassFixture<WebApplica
         {
             var client = _factory.CreateClient();
             var response = await client.GetAsync("/health/ready");
+
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        }
+        finally
+        {
+            using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+            owner.Open();
+            ApplyAllMigrations(owner);
+        }
+    }
+
+    /// <summary>
+    /// R4-001 (human document numbers). Pairing calls `terminal_registers_assign`
+    /// on every request; an API deployed ahead of migration 0022 would answer
+    /// every pairing with a 500. Readiness makes that visible instead.
+    /// </summary>
+    [Theory]
+    [InlineData("DROP FUNCTION IF EXISTS terminal_registers_assign(uuid, uuid, uuid, boolean)")]
+    [InlineData("DROP TABLE IF EXISTS terminal_registers CASCADE")]
+    public async Task HealthReady_IsUnhealthy_BeforeTerminalRegistersMigrationApplied(string drift)
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            owner.Open();
+            ApplyAllMigrations(owner);
+            using var dropCmd = new NpgsqlCommand(drift, owner);
+            dropCmd.ExecuteNonQuery();
+        }
+
+        try
+        {
+            var response = await _factory.CreateClient().GetAsync("/health/ready");
 
             Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
         }

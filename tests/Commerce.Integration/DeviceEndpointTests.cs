@@ -31,6 +31,8 @@ public sealed class DeviceEndpointTests : IClassFixture<WebApplicationFactory<Pr
         _factory = factory.WithWebHostBuilder(builder =>
         {
             builder.UseSetting("ConnectionStrings:Commerce", PostgresTestFixture.DirectConnectionString);
+            // This class shares one client IP across many pairings; the limiter has its own test class.
+            builder.UseSetting("RateLimits:DevicePairPermitLimit", "100000");
         });
 
         if (_postgresAvailable)
@@ -567,4 +569,59 @@ public sealed class DeviceEndpointTests : IClassFixture<WebApplicationFactory<Pr
         OccurredAtUtc: DateTimeOffset.UtcNow,
         PayloadKind: "sale",
         Payload: "{\"v\":1}");
+
+    /// <summary>Takes number 999 of the branch; the returned action removes it again (a re-applied 0022 would otherwise fail to number an unnumbered live terminal of a full branch).</summary>
+    private static Action FillRegisters(Guid orgId, Guid branchId)
+    {
+        using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        owner.Open();
+        using var set = new NpgsqlCommand("SELECT set_config('app.current_org_id', $1, false)", owner);
+        set.Parameters.AddWithValue(orgId.ToString());
+        set.ExecuteNonQuery();
+        using var top = new NpgsqlCommand(
+            "INSERT INTO terminal_registers (organization_id, branch_id, installation_id, register_number) VALUES ($1, $2, $3, 999)", owner);
+        var fillerInstallation = Guid.NewGuid();
+        top.Parameters.AddWithValue(orgId); top.Parameters.AddWithValue(branchId); top.Parameters.AddWithValue(fillerInstallation);
+        top.ExecuteNonQuery();
+        return () => DeviceCredentialStoreTests.ForgetRegisters(fillerInstallation);
+    }
+
+    [Fact]
+    public async Task Pair_WhenTheBranchRanOutOfRegisterNumbers_Returns409_WithTheTypedError()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var (orgId, branchId, _) = await SeedSingleBranchOperatorAsync("pair-exhausted@example.com", "some-password");
+        var unfill = FillRegisters(orgId, branchId);
+        try
+        {
+            var response = await _factory.CreateClient().PostAsJsonAsync("/device/pair",
+                new DevicePairRequest("pair-exhausted@example.com", "some-password", Guid.NewGuid(), null));
+
+            Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+            var body = await response.Content.ReadFromJsonAsync<RegisterNumbersExhaustedResponse>();
+            Assert.Equal("register-numbers-exhausted", body!.Error);
+            Assert.Equal("register-numbers-exhausted", body.Status);
+        }
+        finally { unfill(); }
+    }
+
+    [Fact]
+    public async Task Identity_WhenTheBranchRanOutOfRegisterNumbers_Returns409_WithTheSameTypedError()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var (token, orgId, branchId, installationId) = await PairTerminalAsync("identity-exhausted@example.com");
+        DeviceCredentialStoreTests.ForgetRegisters(installationId);
+        var unfill = FillRegisters(orgId, branchId);
+        try
+        {
+            var response = await GetIdentityAsync(token);
+
+            Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+            var body = await response.Content.ReadFromJsonAsync<RegisterNumbersExhaustedResponse>();
+            Assert.Equal("register-numbers-exhausted", body!.Error);
+        }
+        finally { unfill(); }
+    }
 }
