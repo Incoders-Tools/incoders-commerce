@@ -55,7 +55,7 @@ public sealed class CustomerCatalogAccessService
         var access = await _resolver.ResolveAsync(requestedOrganizationId, credential, ct);
         var result = Evaluate(access, requestedOrganizationId);
 
-        _auditSink.Record(new Domain.Audit.AuditEntry(
+        await _auditSink.RecordAsync(new Domain.Audit.AuditEntry(
             ActorId: result.CustomerId ?? Guid.Empty,
             OrganizationId: requestedOrganizationId,
             BranchId: Guid.Empty,
@@ -63,7 +63,7 @@ public sealed class CustomerCatalogAccessService
             Outcome: result.Allowed ? "allowed" : "denied",
             OccurredAtUtc: _clock(),
             CorrelationId: correlationId,
-            Reason: result.Reason));
+            Reason: result.Reason), ct);
 
         return result;
     }

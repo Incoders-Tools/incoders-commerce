@@ -4,6 +4,7 @@ using Commerce.Application.Management;
 using Commerce.Application.Ordering;
 using Commerce.Application.Payments;
 using Commerce.Cloud.Api;
+using Commerce.Cloud.Api.Auditing;
 using Commerce.Cloud.Api.Authentication;
 using Commerce.Cloud.Api.Email;
 using Commerce.Cloud.Api.Endpoints;
@@ -146,7 +147,8 @@ builder.Services.AddSingleton<PaymentRecordingService>();
 
 // --- Shared application services (Component Reuse Policy: reused, not
 // reimplemented) --------------------------------------------------------
-builder.Services.AddSingleton<IAuditSink, InMemoryAuditSink>();
+// persist-web-orders: access decisions go to the append-only audit_log (they used to vanish on restart).
+builder.Services.AddSingleton<IAuditSink>(sp => new PostgresAuditSink(sp.GetRequiredService<NpgsqlDataSource>()));
 builder.Services.AddSingleton<TenantAuthorizationService>();
 builder.Services.AddSingleton<CatalogManagementService>();
 builder.Services.AddSingleton<CustomerCatalogAccessService>();

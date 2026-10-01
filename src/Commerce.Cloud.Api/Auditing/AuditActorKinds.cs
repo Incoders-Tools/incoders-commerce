@@ -8,4 +8,7 @@ public static class AuditActorKinds
 
     /// <summary>A paired POS terminal acting on its own credential, with no signed-in user.</summary>
     public const string Device = "device";
+
+    /// <summary>A customer acting with an ordering-access credential (no signed-in user, no device).</summary>
+    public const string Customer = "customer";
 }
