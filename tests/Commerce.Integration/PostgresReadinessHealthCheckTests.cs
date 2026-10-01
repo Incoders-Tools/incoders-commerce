@@ -1,5 +1,7 @@
 using System.Net;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Npgsql;
 
 namespace Commerce.Integration;
@@ -580,6 +582,70 @@ public sealed class PostgresReadinessHealthCheckTests : IClassFixture<WebApplica
             using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
             owner.Open();
             ApplyAllMigrations(owner);
+        }
+    }
+
+    /// <summary>
+    /// A database with 0022's scalar `terminal_registers_assign` but without the result shape of
+    /// 0024 must not take traffic: the API reads `newly_allocated` on every pairing.
+    /// </summary>
+    [Fact]
+    public async Task HealthReady_IsUnhealthy_WhenTheAssignFunctionLacksThe0024ResultShape_AndNamesTheMigration()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            owner.Open();
+            ApplyAllMigrations(owner);
+
+            using var downgrade = new NpgsqlCommand(
+                "DROP FUNCTION terminal_registers_assign(uuid, uuid, uuid, boolean); " +
+                "CREATE FUNCTION terminal_registers_assign(p_organization_id uuid, p_branch_id uuid, p_installation_id uuid, p_release_others boolean DEFAULT true) " +
+                "RETURNS smallint LANGUAGE sql AS 'SELECT 1::smallint';", owner);
+            downgrade.ExecuteNonQuery();
+        }
+
+        try
+        {
+            var logs = new CapturedLogs();
+            var client = _factory
+                .WithWebHostBuilder(b => b.ConfigureServices(services => services.AddSingleton<ILoggerProvider>(logs)))
+                .CreateClient();
+
+            var response = await client.GetAsync("/health/ready");
+
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+            Assert.Contains(logs.Errors, message => message.Contains("migration 0021/0022/0024 missing", StringComparison.Ordinal));
+        }
+        finally
+        {
+            using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+            owner.Open();
+            ApplyAllMigrations(owner);
+        }
+    }
+
+    private sealed class CapturedLogs : ILoggerProvider
+    {
+        private readonly System.Collections.Concurrent.ConcurrentQueue<string> _errors = new();
+
+        public IReadOnlyCollection<string> Errors => _errors;
+
+        public ILogger CreateLogger(string categoryName) => new Sink(_errors);
+
+        public void Dispose() { }
+
+        private sealed class Sink(System.Collections.Concurrent.ConcurrentQueue<string> errors) : ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+            public bool IsEnabled(LogLevel logLevel) => true;
+
+            public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+            {
+                if (logLevel == LogLevel.Error) errors.Enqueue(formatter(state, exception));
+            }
         }
     }
 }
