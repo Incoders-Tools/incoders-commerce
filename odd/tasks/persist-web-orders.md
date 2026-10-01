@@ -170,6 +170,38 @@ Trunk on `dev`; work-unit commits under RDD. First review boundary: `84c0f7b`
     warnings); e2e standalone `tsc --noEmit` clean; iconv UTF-8 clean.
     Engram mirror `odd/persist-web-orders/tasks` left for the parent to sync.
 
+- Final orders review (lineage review-23d44c9b050c7efa, approved and
+  acknowledged; next boundary 8222618) follow-ups, 2026-10-01:
+  - Owner decision: the customer-catalog access audit FAILS OPEN with alerting.
+    If the `audit_log` write fails, the access decision proceeds unchanged and
+    the failure is logged at Error level (organization, decision, reason,
+    correlation id, exception); only cancellation still propagates.
+  - Advisories and resolutions: (R4 warning + sync-over-async) `PostgresAuditSink`
+    catches non-cancellation exceptions and logs; `CustomerCatalogAccessService`
+    was already async end to end (`RecordAsync`), so the blocking `Record` bridge
+    was removed and now throws `NotSupportedException`. (R3 warning) the sink is
+    no longer the shared `IAuditSink`: the shared sink is `InMemoryAuditSink`
+    again and the Postgres sink is a keyed registration used only by
+    `CustomerCatalogAccessService` (`AddCustomerCatalogAccessAudit`); a test
+    proves the shared sink writes no `customer` row. Follow-up, out of scope:
+    the staff/branch audit entries of the other consumers still live only in
+    memory and are lost at restart. (R4 warning) a post-commit delivery failure is
+    logged at Error (order id and number, branch, exception) and the order stays
+    pending and retryable; request cancellation after the commit no longer
+    misreports the outcome (accepted, follow-up state write not cancelled).
+    (R2 warnings) `orderNumber.ts` doc names the plain accepted fallback;
+    `OrdersMigrationTests` has separate `OrdersMigration` (0025) and
+    `GuestCheckMigration` (0026) constants. (Suggestions) `ListPendingAsync` takes
+    the cancellation token last and its truncation is documented on the
+    interface; `docs/document-numbering.md` no longer calls 0026 "additive".
+  - Commits: `fix(api)` fail-open audit, scoped sink, delivery logging + tests
+    (~390); `refactor(api)` token order, interface docs, constants, doc fixes
+    (~55).
+  - RED/GREEN: the new tests did not compile (no logger constructors, no
+    registration extension) before the code; after it the focused classes
+    passed 41 of 41.
+  - Checks: `dotnet build Commerce.sln` 0 errors; full `dotnet test tests/Commerce.Integration` 1662 passed, 0 failed, 0 skipped; `npm test` 348 passed (comment-only web change); iconv UTF-8 clean.
+
 ## Next step
 
-Owner manual verification: apply `0026_orders_guest_check.sql` to `commerce_dev` by hand as owner (0025 must already be applied), restart the Cloud API, submit a guest and a registered order from the web order screen and confirm "Pedido P01-W-n recibido" with the tooltip, restart the API and confirm the orders are still listed, then provoke a denied credential and check a `customer-ordering-access.denied` row in `audit_log` (owner role). Follow-up: `StaffOrderScreen` still shows the plain accepted message and a raw GUID form.
+Owner manual verification (after the fail-open audit follow-up): apply `0026_orders_guest_check.sql` to `commerce_dev` by hand as owner (0025 must already be applied), restart the Cloud API, submit a guest and a registered order from the web order screen and confirm "Pedido P01-W-n recibido" with the tooltip, restart the API and confirm the orders are still listed, then provoke a denied credential and check a `customer-ordering-access.denied` row in `audit_log` (owner role). Follow-up: `StaffOrderScreen` still shows the plain accepted message and a raw GUID form.
