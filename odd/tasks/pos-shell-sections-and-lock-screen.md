@@ -380,3 +380,13 @@ of the T3 follow-up and T4 commits (boundary `b936b7d`):
 6. Deactivate the signed-in cashier from another session/web; after the next sync
    the POS returns to the lock screen and the tile is gone. In Personal, Restablecer
    contraseña is now also available on your own row.
+
+- 2026-09-30 review of the contrast follow-ups (`4399e64..29441ca`): lineage
+  `review-41c241c0f5eef02e` approved and acknowledged; next boundary
+  `29441ca`. Advisories left as follow-ups (parent verified, no current
+  impact): the implicit `MenuItem` template drops submenu/check/icon support
+  (no `MenuItem` is used anywhere in the POS today; restore a full template
+  before adding one); `PromptOpenCash` returns to `ApplyLockState` for a signed-in
+  operator with a blank email, which keeps the shell unlocked without a prompt
+  (unreachable: the email always comes from a server-verified operator);
+  window-side teardown expiry is asserted only by source-text checks.
