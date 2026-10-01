@@ -43,10 +43,15 @@ public sealed class PostgresOrderStore : IOrderStore
     private readonly NpgsqlDataSource _dataSource;
     private readonly Func<DateTimeOffset> _clock;
     private readonly ILogger<PostgresOrderStore> _logger;
+    private readonly Action? _afterCommit;
 
+    /// <param name="afterCommit">Test seam, invoked right after the order's transaction committed and before
+    /// delivery starts: the well-defined point at which a client may disconnect.</param>
     public PostgresOrderStore(
-        NpgsqlDataSource dataSource, Func<DateTimeOffset>? clock = null, ILogger<PostgresOrderStore>? logger = null)
+        NpgsqlDataSource dataSource, Func<DateTimeOffset>? clock = null, ILogger<PostgresOrderStore>? logger = null,
+        Action? afterCommit = null)
     {
+        _afterCommit = afterCommit;
         _dataSource = dataSource;
         _clock = clock ?? (() => DateTimeOffset.UtcNow);
         _logger = logger ?? NullLogger<PostgresOrderStore>.Instance;
@@ -135,6 +140,7 @@ public sealed class PostgresOrderStore : IOrderStore
 
         await tx.CommitAsync(ct);
 
+        _afterCommit?.Invoke();
         await DeliverAfterCommitAsync(connection, order, actorId, correlationId, destination, hasAvailableStock);
         return new OrderSubmissionOutcome(
             OrderSubmissionOutcomeStatus.Accepted, OrderSubmissionReasons.Accepted, order, WasNewlyAccepted: true);

@@ -42,8 +42,9 @@ public sealed class PostgresOrderStoreTests : IDisposable
 
     public void Dispose() => _dataSource?.Dispose();
 
-    private PostgresOrderStore NewStore(Func<DateTimeOffset>? clock = null, CapturingLogger<PostgresOrderStore>? logger = null) =>
-        new(_dataSource!, clock, logger);
+    private PostgresOrderStore NewStore(
+        Func<DateTimeOffset>? clock = null, CapturingLogger<PostgresOrderStore>? logger = null, Action? afterCommit = null) =>
+        new(_dataSource!, clock, logger, afterCommit);
 
     private static async Task ExecOwnerAsync(string sql, params object[] args)
     {
@@ -745,18 +746,13 @@ public sealed class PostgresOrderStoreTests : IDisposable
         {
             using var destination = new BranchSyncStore($"Data Source={dbPath}");
             using var cts = new CancellationTokenSource();
-            var calls = 0;
-            // The client disconnects while the delivery runs, i.e. after the order was committed.
-            DateTimeOffset Clock()
-            {
-                if (++calls == 2) cts.Cancel();
-                return DateTimeOffset.UtcNow;
-            }
 
-            var outcome = await NewStore(Clock).SubmitAsync(
+            // The client disconnects at the post-commit seam: the order is durable, delivery has not run yet.
+            var outcome = await NewStore(afterCommit: cts.Cancel).SubmitAsync(
                 scope, orderId, OrderOrigin.RegisteredCustomer, Guid.NewGuid(), null, branch, Guid.NewGuid(),
                 [NewLine()], Guid.NewGuid(), destination, hasAvailableStock: true, verification: null, cts.Token);
 
+            Assert.True(cts.IsCancellationRequested);   // the cancellation really happened after the commit
             Assert.Equal(OrderSubmissionOutcomeStatus.Accepted, outcome.Status);
             var stored = await NewStore().FindAsync(scope, orderId, CancellationToken.None);
             Assert.Equal(OrderDeliveryStatus.DestinationConfirmed, stored!.Status);
