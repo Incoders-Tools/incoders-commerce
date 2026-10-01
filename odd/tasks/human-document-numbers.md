@@ -90,17 +90,14 @@ Forecast about 2000 authored lines over 5 tasks (+T6 if approved); trunk on
   sale_sequence)`; conflicts/missing numbers audited, never block ingestion. POS
   shows "Venta V01-C2-125 registrada" with a composition tooltip; no GUID.
   Route: delegated direct.
-- [ ] T4 GUID cleanup in the POS: identity summary shows branch name + code
-  and register, no GUIDs; sync failure text without operation GUIDs (log keeps
-  them). Route: delegated direct (may join T3). DONE in T3: the sale result
-  line (no sale GUID, no "branch.db"). REMAINING: organization and installation
-  GUIDs in the identity summary (`MainWindow.xaml.cs` identity text) and the
-  operation GUIDs in `SyncRunner.cs` failure text.
-- [ ] T5 Docs: `docs/document-numbering.md` (format, parts, who assigns,
-  offline rules, reports, examples, future types), specs
-  (`organization-persistence`, `pos-installation-identity`, `pos-scan-sale`,
-  `branch-offline-sync`), `deploy/README.md` migration entries.
-  Route: delegated direct (may join each task).
+- [x] T4 GUID cleanup in the POS: the settings identity block shows the terminal
+  label (`Sucursal 01 · Ruta 51 · Caja 1`), the pairing operator and the current
+  operator, no organization/installation GUIDs; the sync summary is Spanish via
+  `PosMessages` and names no operation (the log keeps the ids); the lock screen shows the
+  terminal label with a composition tooltip; source guard test. Route: delegated direct.
+- [x] T5 Docs: `docs/document-numbering.md`, linked from `docs/architecture/README.md` and the
+  four specs (`organization-persistence`, `pos-installation-identity`, `pos-scan-sale`,
+  `branch-offline-sync`), `deploy/README.md` entries for 0022/0024. Route: delegated direct.
 - [ ] T6 (pending decision) Persist web orders in Postgres and number them
   `P{branch}-W-{seq}`.
 
@@ -215,12 +212,17 @@ Forecast about 2000 authored lines over 5 tasks (+T6 if approved); trunk on
     new API against it (needs `0021` first).
 
 ## Next step
-T4 (remaining GUIDs in the POS identity summary and in `SyncRunner` failure text), then T5
-(`docs/document-numbering.md` plus the specs still missing: `organization-persistence` is done,
-`pos-installation-identity`, `pos-scan-sale` and `branch-offline-sync` were updated in T2/T3).
-Parent: apply `0021`, `0022` (edited in place: new 4-argument function) and `0023` by hand to
-`commerce_dev` before running the new API against it. Review boundary for the next native review:
-`c26310b` (T2 review follow-ups and T3 are commits `cc7e79c`..`0d28c69`).
+Owner manual verification, then start `odd/tasks/persist-web-orders.md` (T6: persist web orders,
+number them `P{branch}-W-{seq}`).
+1. Apply by hand to `commerce_dev`, in order: `0021`, `0022`, `0023`, `0024` (parent does this).
+2. Restart the API and the POS (run-all.ps1). Pair or re-open a terminal: the lock screen shows
+   `Sucursal 01 · <branch> · Caja N` and its tooltip explains it.
+3. Make an offline sale: the result line reads "Venta V01-CN-1 registrada ..." (tooltip explains the
+   parts); sync it and check `pos_sales` and that settings > identity shows no GUID.
+4. Web: Branches shows "Código" (hint) and the GUID column only for the sysadmin.
+Review boundary for the next native review: `94551a3` was the end of slices A and B; the T3
+follow-ups, T4 and T5 are commits `3ef3973`..`6d7015b`.
+Follow-up for the orders feature: `StaffOrderScreen.tsx` still takes a raw branch GUID (staff/testing).
 - 2026-10-01: T2 review follow-ups (lineage review-2bc7f10bf36ab9f8, approved) and T3 done (single
   writer, delegated direct). Commits: `cc7e79c` identity refresh never releases (SQL function takes
   `p_release_others`, re-verifies a live credential under the installation lock, returns NULL otherwise;
@@ -274,3 +276,39 @@ Parent: apply `0021`, `0022` (edited in place: new 4-argument function) and `002
   - Residual risks: rotating-IP register exhaustion by an authenticated pairer is limited and audited,
     not prevented; sales received before `0023` is applied have no `pos_sales` row (they stay in
     `sync_inbox`); an unnumbered sale is never numbered later.
+- 2026-10-01: T3 review follow-ups, T4 and T5 done (single writer). Slice A review
+  (review-8e9d46f0f96f5e2e, c26310b..e32254d) and slice B (review-ce02774ce3c02940, e32254d..94551a3)
+  were both approved and acknowledged. Commits: `3ef3973` perf(pos) sale counter bumped by one
+  indexed UPDATE and seeded from MAX(sale_sequence) only when its row is missing, new index
+  `ix_sale_effects_number (branch_id, register_number, sale_sequence)` (finding A: MAX subquery twice
+  per sale under the write gate); `059d027` fix(api) projection savepoint contains ANY
+  non-cancellation exception (finding B), audited as `sale.projection_failed` (not for a missing table),
+  migration `0024_terminal_registers_assign_result.sql` (`terminal_registers_assign` returns
+  `assigned_number, newly_allocated`; finding A "assigned_at = now()" inference removed),
+  `/health/ready` checks the new result shape, constants for the exhausted code
+  (`RegisterNumbersExhaustedException.ErrorCode`), `RegisterNumber.Prefix`, `AuditActorKinds`; test that
+  `GET /device/identity` audits the allocation as actor kind `device` (RLS accepts it: `actor_kind` has
+  no constraint and the policy only pins the organization); `8314117` feat(pos) T4; `6d7015b` docs T5.
+  - RED: `SaleNumberingCommitTests.TheSeedLookup_IsCoveredByAnIndex` failed on a clean HEAD worktree
+    (1 failure); the API tests (`PosSalesProjectionTests`, `DeviceEndpointTests`,
+    `TerminalRegistersAssignResultMigrationTests`) and the POS tests (`PosOperatorTextTests`,
+    `RunSyncAsyncTests`) failed to compile on HEAD (no `FaultInjection`, `AssignedAction`,
+    `AuditActorKinds`, `IdentitySummary`, `PosMessages.Sync*`). GREEN after implementation.
+  - Checks: `dotnet build Commerce.sln` (worktree) 0 errors; focused classes 155 and 94 passed; full
+    `tests/Commerce.Integration` 1587 passed, 0 failed, 0 skipped; UTF-8 verified with iconv on every
+    changed file; web untouched (no `npm test`).
+  - Decision, 0024: a new migration instead of editing 0022 (already applied on dev and the test DB).
+    The function cannot change its return type in place, so 0024 drops and re-creates it; 0022 now also
+    drops the 4-argument signature first so fixtures that replay the whole chain end with the 0024 shape
+    (replaying 0022 after 0024 failed with 42P13 otherwise). The fault-injection seam
+    (`PosSaleProjection.FaultInjection`, `InternalsVisibleTo("Commerce.Integration")`) exists only so a
+    test can raise a non-Postgres exception inside the guarded region.
+  - Decision, T4: the main window has no header terminal label; the label lives on the lock screen
+    (branch eyebrow) and in settings. The lock screen now shows the full label with the composition
+    tooltip (`Sucursal 01 = código de sucursal · Caja 1 = número de esta caja`). "Sync state" stays in the
+    existing settings status block and footer. The `SaleResultMessage` tooltip text and the web "Código"
+    hint were verified unchanged. Web: no GUID is shown to non-sysadmins (the branch id column is
+    sysadmin-only; the web has no sales screen).
+  - Not done: `SaleNumber`'s regex still spells `V`/`C` literally (an attribute cannot use the
+    constants); actor-kind literals elsewhere in the codebase (`"org-user"`) were not migrated, only the
+    new code uses `AuditActorKinds`.
