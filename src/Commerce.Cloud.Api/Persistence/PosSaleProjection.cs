@@ -30,7 +30,8 @@ internal static class PosSaleProjection
     private const string Savepoint = "pos_sale_projection";
 
     public static async Task ProjectAsync(
-        NpgsqlConnection connection, NpgsqlTransaction tx, SyncEnvelope envelope, Guid? installationId, ILogger? logger, CancellationToken ct)
+        NpgsqlConnection connection, NpgsqlTransaction tx, SyncEnvelope envelope, Guid? installationId, ILogger? logger, CancellationToken ct,
+        Func<SalePayloadV1, Task>? fault = null)
     {
         if (envelope.PayloadKind != "sale" || !TryReadPayload(envelope, out var payload))
         {
@@ -40,7 +41,7 @@ internal static class PosSaleProjection
         await tx.SaveAsync(Savepoint, ct);
         try
         {
-            if (FaultInjection is { } inject) await inject(payload);
+            if (fault is not null) await fault(payload);
             await ProjectCoreAsync(connection, tx, envelope, payload, installationId, ct);
             await tx.ReleaseAsync(Savepoint, ct);
         }
@@ -61,9 +62,6 @@ internal static class PosSaleProjection
             }
         }
     }
-
-    /// <summary>Test seam: runs inside the guarded region, before the projection, so a test can make it fail.</summary>
-    internal static Func<SalePayloadV1, Task>? FaultInjection { get; set; }
 
     /// <summary>Best effort and itself savepointed: a failing audit insert must not abort the inbox transaction.</summary>
     private static async Task TryAuditFailureAsync(

@@ -1,6 +1,7 @@
 using Commerce.Cloud.Api.Auditing;
 using Commerce.Cloud.Api.Tenancy;
 using Commerce.Domain.Sync;
+using Commerce.Domain.Sync.Payloads;
 using Microsoft.Extensions.Logging;
 using Npgsql;
 
@@ -33,11 +34,15 @@ public sealed class PostgresCloudInboxStore : ICloudInboxStore
 {
     private readonly NpgsqlDataSource _dataSource;
     private readonly ILogger<PostgresCloudInboxStore>? _logger;
+    private readonly Func<SalePayloadV1, Task>? _projectionFault;
 
-    public PostgresCloudInboxStore(NpgsqlDataSource dataSource, ILogger<PostgresCloudInboxStore>? logger = null)
+    /// <param name="projectionFault">Test seam, null in production: runs inside the guarded sale projection so a test can make it fail.</param>
+    public PostgresCloudInboxStore(NpgsqlDataSource dataSource, ILogger<PostgresCloudInboxStore>? logger = null,
+        Func<SalePayloadV1, Task>? projectionFault = null)
     {
         _dataSource = dataSource;
         _logger = logger;
+        _projectionFault = projectionFault;
     }
 
     public InboundApplyResult TryApplyInbound(CloudTenantScope scope, SyncEnvelope envelope, Guid? installationId = null)
@@ -124,7 +129,7 @@ public sealed class PostgresCloudInboxStore : ICloudInboxStore
 
         // Sale envelopes are also projected into `pos_sales`, and the human sale number they claim
         // is verified, in this same transaction. Never blocks ingestion (savepoint inside).
-        await PosSaleProjection.ProjectAsync(connection, tx, envelope, installationId, _logger, ct);
+        await PosSaleProjection.ProjectAsync(connection, tx, envelope, installationId, _logger, ct, _projectionFault);
 
         await tx.CommitAsync(ct);
         return new InboundApplyResult(InboundApplyOutcome.Applied, envelope.OperationId);

@@ -322,17 +322,12 @@ public sealed class PosSalesProjectionTests : IDisposable
         var terminal = await PairAsync(org, branch, user);
         var envelope = SaleEnvelope(org, branch, code: 1, register: terminal.Register, sequence: 1);
 
-        PosSaleProjection.FaultInjection = _ => throw new InvalidCastException("injected driver failure");
-        try
-        {
-            var result = Store().TryApplyInbound(terminal.Scope, envelope, terminal.InstallationId);
+        var store = new PostgresCloudInboxStore(
+            _dataSource!, projectionFault: _ => throw new InvalidCastException("injected driver failure"));
 
-            Assert.Equal(InboundApplyOutcome.Applied, result.Outcome);
-        }
-        finally
-        {
-            PosSaleProjection.FaultInjection = null;
-        }
+        var result = store.TryApplyInbound(terminal.Scope, envelope, terminal.InstallationId);
+
+        Assert.Equal(InboundApplyOutcome.Applied, result.Outcome);
 
         Assert.Equal(1, Ingested(envelope.OperationId));
         Assert.Equal(0, Scalar<long>("SELECT count(*) FROM pos_sales WHERE operation_id = $1", envelope.OperationId));
