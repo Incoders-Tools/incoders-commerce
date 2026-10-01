@@ -312,3 +312,23 @@ Follow-up for the orders feature: `StaffOrderScreen.tsx` still takes a raw branc
   - Not done: `SaleNumber`'s regex still spells `V`/`C` literally (an attribute cannot use the
     constants); actor-kind literals elsewhere in the codebase (`"org-user"`) were not migrated, only the
     new code uses `AuditActorKinds`.
+- 2026-10-01: final numbering review follow-ups (single writer). Lineage review-fc64e8d1fa77a316
+  (approved and acknowledged, next boundary 7f38033). Advisories and resolutions:
+  1. Process-wide `FaultInjection` static replaced by an optional constructor seam
+     `PostgresCloudInboxStore(..., projectionFault)` passed to `PosSaleProjection.ProjectAsync`
+     (`dd13d3f`). `InternalsVisibleTo("Commerce.Integration")` stays: tests still read
+     `PosSaleProjection.FailureAction`/`ConflictAction`.
+  2. The "is migration 0023 applied?" hint is logged only for UndefinedTable (42P01); other failures log
+     the SqlState or exception type plus message (`492526e`, tests capture the warning).
+  3. Readiness negative test: a 0022-style scalar `terminal_registers_assign` reports 503 and logs
+     `migration 0021/0022/0024 missing` (`78c9d4f`). Characterization test: the behavior already existed,
+     so it had no RED.
+  4. 0024 deploy window documented in `deploy/README.md` and `docs/document-numbering.md` (`01f08cb`):
+     not backward compatible, apply 0024 and the matching API together. API tolerance not attempted.
+  5. `BranchSyncStore.NextSaleSequence` now bumps to `MAX(counter, highest stored sequence) + 1` in the
+     single UPDATE (one seek on `ix_sale_effects_number`) (`79ce93e`).
+  - RED: seam test did not compile (no `projectionFault`); the log assertion failed on the old message;
+    `ACounterBehindTheStoredSales_IsReconciledToTheHighestStoredSequence` failed before the fix. GREEN after.
+  - Checks: `dotnet build Commerce.sln` (worktree) 0 errors; `PosSalesProjectionTests` 16 passed,
+    `PostgresReadinessHealthCheckTests` 18 passed, `SaleNumbering*` 13 passed; full
+    `tests/Commerce.Integration` 1589 passed, 0 failed, 0 skipped; iconv UTF-8 clean on changed files.
