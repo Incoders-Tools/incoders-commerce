@@ -22,9 +22,13 @@ public sealed record OrderLinePayloadV1(
 /// literal <c>"{}"</c> that <c>CloudOrderStore.AttemptDelivery</c> previously
 /// produced. Additive-evolution rule (Requirement: Payload-Kind Versioning):
 /// a field may be added later, never removed, renamed, or repurposed.
+/// <see cref="OrderNumber"/> is such an addition: the human number (`P01-W-37`) as plain text,
+/// an optional trailing field that is null on a payload written before orders were numbered.
+/// A branch stores the payload as it arrived, so older branches simply ignore it.
 /// </summary>
 public sealed record OrderPayloadV1(
     Guid OrderId,
     Guid DestinationBranchId,
     string Origin,
-    IReadOnlyList<OrderLinePayloadV1> Lines);
+    IReadOnlyList<OrderLinePayloadV1> Lines,
+    string? OrderNumber = null);

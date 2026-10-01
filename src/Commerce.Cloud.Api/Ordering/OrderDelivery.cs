@@ -66,5 +66,6 @@ public static class OrderDelivery
             .Select(line => new OrderLinePayloadV1(
                 line.ProductId, line.ProductName, line.PresentationId, line.PresentationName,
                 line.Quantity, line.UnitNetPrice, line.LineTotal))
-            .ToList());
+            .ToList(),
+        OrderNumber: order.OrderNumber?.Format());
 }

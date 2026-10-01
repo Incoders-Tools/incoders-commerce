@@ -748,4 +748,35 @@ public sealed class PostgresOrderStoreTests : IDisposable
             DeleteSqlite(dbPath);
         }
     }
+
+    [Fact]
+    public async Task TheDeliveredPayload_CarriesTheOrderNumber()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var org = await SeedOrganizationAsync();
+        var branch = await SeedBranchAsync(org);
+        var scope = new CloudTenantScope(org);
+        var dbPath = Path.Combine(Path.GetTempPath(), $"branch-number-{Guid.NewGuid():N}.db");
+        try
+        {
+            using var destination = new BranchSyncStore($"Data Source={dbPath}");
+            var orderId = Guid.NewGuid();
+            var outcome = await SubmitRegisteredAsync(NewStore(), scope, orderId, branch, destination: destination, hasStock: true);
+            Assert.Equal(OrderDeliveryStatus.DestinationConfirmed, outcome.Order!.Status);
+
+            await using var sqlite = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath}");
+            await sqlite.OpenAsync();
+            await using var read = sqlite.CreateCommand();
+            read.CommandText = "SELECT payload FROM inbound_orders WHERE order_id = $id";
+            read.Parameters.AddWithValue("$id", orderId.ToString());
+            var payload = Commerce.Domain.Sync.SyncPayloadCodec.Deserialize<Commerce.Domain.Sync.Payloads.OrderPayloadV1>((string)(await read.ExecuteScalarAsync())!);
+
+            Assert.Equal("P01-W-1", payload.OrderNumber);
+        }
+        finally
+        {
+            DeleteSqlite(dbPath);
+        }
+    }
 }
