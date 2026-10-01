@@ -72,12 +72,12 @@ Trunk on `dev`; work-unit commits under RDD. First review boundary: `84c0f7b`
   Route: delegated direct.
 - [x] T2 Guest verification consumed in the order transaction (no burned
   verification on failure). Route: delegated direct (with T1 or after).
-- [ ] T3 Number on the wire and in the web: `OrderPayloadV1.OrderNumber`,
+- [x] T3 Number on the wire and in the web: `OrderPayloadV1.OrderNumber`,
   outcome type fix, number + tooltip in `OrderScreen` (guest and registered),
   i18n es/en. Route: delegated direct.
-- [ ] T4 Persist the access-denial audit (`InMemoryAuditSink` →
+- [x] T4 Persist the access-denial audit (`InMemoryAuditSink` →
   `audit_log`). Route: delegated direct.
-- [ ] T5 Docs/specs: `docs/document-numbering.md` (web orders now live),
+- [x] T5 Docs/specs: `docs/document-numbering.md` (web orders now live),
   `order-payment-lifecycle`, `guest-ordering`, `private-customer-ordering`,
   `public-order-surface`, `deploy/README.md`. Route: with each task.
 
@@ -126,6 +126,50 @@ Trunk on `dev`; work-unit commits under RDD. First review boundary: `84c0f7b`
     0 skipped (Postgres + pgbouncer up); iconv UTF-8 clean on changed files.
     Engram mirror `odd/persist-web-orders/tasks` left for the parent to sync.
 
+- 2026-10-01: review follow-ups and T3-T5 done in a throwaway worktree
+  (`wt-orders2`), integrated into `dev` by fast-forward. Route: delegated direct
+  (one writer). Review: slice A lineage `review-e3ff0d3e4c4ad43f`
+  (`7f38033..5320fe9`) and slice B lineage `review-12950e47dc7a944c`
+  (`5320fe9..0cdc096`), both approved and acknowledged; next review boundary
+  `0cdc096`.
+  - Review findings and resolutions: (1) guest CHECK let NULL pass -> new
+    migration `0026_orders_guest_check.sql` (0025 is applied, never edited);
+    (2) torn reads -> orders are read first, then only their lines;
+    (3) delivery before commit -> delivery runs after the commit and its state
+    is persisted by a follow-up transaction; a failure there leaves the order
+    stored and pending; (4) unbounded pending list -> only
+    `PendingDestination`, deterministic order, limit 200 (max 500);
+    (5) docs: 0024 deploy-window wording, `pos_sales` vs `orders`, tooltip now
+    shipped; (6) suggestions: `OrderNumber` length constant, Spanish `Describe`
+    removed from the domain (tooltip is web i18n), UndefinedTable branch
+    deduplicated in `PosSaleProjection`, conflict-retry test added.
+  - Commits (changed lines): `fix(db)` 0026 + tests + init-rls + README (~155);
+    `fix(api)` store reads/delivery/limit + tests (~367); `refactor` (~26);
+    `feat(sync)` `OrderPayloadV1.OrderNumber` (~57); `feat(web)` number +
+    tooltip, outcome type fix, i18n, e2e regex (~239); `feat(api)`
+    `PostgresAuditSink` (~192); `docs` specs and guides (~133).
+  - RED/GREEN: 0026 tests RED 2 of 6 (NULL/blank guest parts accepted, replay)
+    before the migration; store tests RED 3 (list limit and status filter, torn
+    read probe, phantom delivery) before the fixes; payload tests did not compile
+    until the field existed. Web lib and component tests were written with the
+    implementation in one step (no separate observed RED), screen tests updated
+    to the real `orderId`/`orderNumber` shape.
+  - Decisions: (1) delivery after commit; the stored initial state is
+    pending/`DestinationOffline`, and delivery or follow-up failures are
+    contained (order never lost, retry is idempotent); (2) the pending list keeps
+    its endpoint contract, the limit is an optional store parameter; (3) the
+    audit sink is `IAuditSink.RecordAsync` (default interface method) with a
+    Postgres implementation, fail-closed, one transaction per decision under the
+    organization scope, actor kind `customer`; every decision (allowed and
+    denied) is written, as the in-memory sink did; (4) the number tooltip is
+    built from es/en i18n keys by `lib/orderNumber.ts`; the domain no longer
+    holds display text.
+  - Checks: `dotnet build Commerce.sln` 0 errors; full
+    `dotnet test tests/Commerce.Integration` 1657 passed, 0 failed, 0 skipped;
+    `npm test` 348 passed; `npm run build` ok; `npm run lint` exit 0 (existing
+    warnings); e2e standalone `tsc --noEmit` clean; iconv UTF-8 clean.
+    Engram mirror `odd/persist-web-orders/tasks` left for the parent to sync.
+
 ## Next step
 
-T3 (number on the wire and in the web: `OrderPayloadV1.OrderNumber`, outcome type fix, `OrderScreen` number + tooltip, i18n). The outcome JSON already carries `order.orderNumber` as plain text (`P01-W-37`).
+Owner manual verification: apply `0026_orders_guest_check.sql` to `commerce_dev` by hand as owner (0025 must already be applied), restart the Cloud API, submit a guest and a registered order from the web order screen and confirm "Pedido P01-W-n recibido" with the tooltip, restart the API and confirm the orders are still listed, then provoke a denied credential and check a `customer-ordering-access.denied` row in `audit_log` (owner role). Follow-up: `StaffOrderScreen` still shows the plain accepted message and a raw GUID form.
