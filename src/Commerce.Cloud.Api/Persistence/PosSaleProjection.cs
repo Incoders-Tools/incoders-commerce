@@ -51,7 +51,9 @@ internal static class PosSaleProjection
         catch (Exception ex) when (!ct.IsCancellationRequested && ex is not OutOfMemoryException)
         {
             await tx.RollbackAsync(Savepoint, ct);
-            if (ex is PostgresException { SqlState: PostgresErrorCodes.UndefinedTable })
+            // A missing table (API ahead of 0023) is a deployment state, not a per-sale event.
+            var tableMissing = ex is PostgresException { SqlState: PostgresErrorCodes.UndefinedTable };
+            if (tableMissing)
             {
                 logger?.LogWarning(ex,
                     "Sale {SaleId} was ingested but not projected into pos_sales: the table is missing, is migration 0023 applied?",
@@ -64,8 +66,7 @@ internal static class PosSaleProjection
                     payload.SaleId, ex is PostgresException pg ? pg.SqlState : ex.GetType().Name, ex.Message);
             }
 
-            // A missing table (API ahead of 0023) is a deployment state, not a per-sale event.
-            if (ex is not PostgresException { SqlState: PostgresErrorCodes.UndefinedTable })
+            if (!tableMissing)
             {
                 await TryAuditFailureAsync(connection, tx, envelope, payload, installationId, ex, logger, ct);
             }

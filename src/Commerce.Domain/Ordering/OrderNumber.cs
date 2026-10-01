@@ -9,14 +9,17 @@ namespace Commerce.Domain.Ordering;
 /// The human number of a web order: `P{branch}-W-{sequence}`, for example `P01-W-37`. `P` is the
 /// document type (pedido), the branch is its two-digit-minimum <see cref="BranchCode"/>, `W` is the
 /// web origin and the sequence counts the orders of that branch from 1 (not zero-padded). The server
-/// assigns the sequence when the order is stored; this type is the single place that formats,
-/// parses and explains it. On the wire it is its plain text.
+/// assigns the sequence when the order is stored; this type is the single place that formats and
+/// parses it (the customer-facing explanation of each part is web i18n, not domain text). On the wire it is its plain text.
 /// </summary>
 [JsonConverter(typeof(OrderNumberJsonConverter))]
 public readonly record struct OrderNumber
 {
     public const char TypeLetter = 'P';
     public const char OriginLetter = 'W';
+
+    /// <summary>Shortest possible text: `P` + two-digit branch + `-W-` + one-digit sequence.</summary>
+    private const int MinTextLength = 7;
 
     public BranchCode Branch { get; }
     public int Sequence { get; }
@@ -37,14 +40,10 @@ public readonly record struct OrderNumber
 
     public override string ToString() => Format();
 
-    /// <summary>The tooltip that explains each part to the customer.</summary>
-    public string Describe() =>
-        $"{TypeLetter} = Pedido · {Branch.Format()} = Sucursal · {OriginLetter} = Web · {Sequence.ToString(CultureInfo.InvariantCulture)} = número de pedido de la sucursal";
-
     public static bool TryParse(string? text, out OrderNumber number)
     {
         number = default;
-        if (text is null || text.Length < 7 || text[0] != TypeLetter) return false;
+        if (text is null || text.Length < MinTextLength || text[0] != TypeLetter) return false;
 
         var parts = text.Split('-');
         if (parts.Length != 3

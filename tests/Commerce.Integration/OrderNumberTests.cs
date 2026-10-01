@@ -59,12 +59,6 @@ public sealed class OrderNumberTests
         Assert.Throws<ArgumentOutOfRangeException>(() => new OrderNumber(new BranchCode(1), 0));
 
     [Fact]
-    public void Describe_ExplainsEveryPartInSpanish() =>
-        Assert.Equal(
-            "P = Pedido · 01 = Sucursal · W = Web · 37 = número de pedido de la sucursal",
-            new OrderNumber(new BranchCode(1), 37).Describe());
-
-    [Fact]
     public void Json_WritesAndReadsTheFormattedText()
     {
         var number = new OrderNumber(new BranchCode(1), 37);
