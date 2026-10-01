@@ -277,6 +277,7 @@ public sealed class BranchSelectionTests : IClassFixture<WebApplicationFactory<P
         var branch = Assert.Single(body!.SelectableBranches);
         Assert.Equal(branchId, branch.Id);
         Assert.Equal("HQ", branch.Name);
+        Assert.Equal(1, branch.Code);
     }
 
     [Fact]
@@ -306,8 +307,8 @@ public sealed class BranchSelectionTests : IClassFixture<WebApplicationFactory<P
         var body = await response.Content.ReadFromJsonAsync<SignedInResponse>();
 
         Assert.Equal(2, body!.SelectableBranches.Count);
-        Assert.Contains(body.SelectableBranches, b => b.Id == firstBranchId);
-        Assert.Contains(body.SelectableBranches, b => b.Id == secondBranchId);
+        Assert.Contains(body.SelectableBranches, b => b.Id == firstBranchId && b.Code == 1);
+        Assert.Contains(body.SelectableBranches, b => b.Id == secondBranchId && b.Code == 2);
     }
 
     [Fact]

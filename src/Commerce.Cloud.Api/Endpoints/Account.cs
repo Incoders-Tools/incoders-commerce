@@ -161,7 +161,7 @@ public static class AccountEndpoints
                 credential.Email,
                 permissions,
                 signedInActor?.IsSystemAdmin ?? false,
-                selectableBranches.Select(b => new SelectableBranch(b.Id, b.Name)).ToList()));
+                selectableBranches.Select(b => new SelectableBranch(b.Id, b.Name, b.Code)).ToList()));
         });
 
         // --- Renew: authenticated, self-service, known-current-password
@@ -464,8 +464,8 @@ public static class AccountEndpoints
             var audit = scope.IsActingOnSelectedOrganization
                 ? new UserManagementAuditEntry("org-user", callerId, scope.OrganizationId, "branch", branchId, "branch.created", null, JsonSerializer.Serialize(new { name = request.BranchName }))
                 : null;
-            await organizationStore.CreateBranchAsync(scope, new NewBranch(branchId, request.BranchName), audit, ct);
-            return Results.Created($"/account/branches/{branchId}", new CreateBranchResponse(branchId));
+            var code = await organizationStore.CreateBranchAsync(scope, new NewBranch(branchId, request.BranchName), audit, ct);
+            return Results.Created($"/account/branches/{branchId}", new CreateBranchResponse(branchId, code));
         });
 
         branchGroup.MapGet("", async (HttpContext httpContext, PostgresUserAccountStore userStore, PostgresOrganizationStore organizationStore, CancellationToken ct) =>
@@ -476,7 +476,7 @@ public static class AccountEndpoints
             var caller = await userStore.LoadActorAsync(scope.IdentityScope, callerId, ct);
             if (caller is null || caller.IsRevoked || !ActingPermissions.For(caller, scope).HasFlag(Permission.ManageBranchSettings)) return Results.StatusCode(StatusCodes.Status403Forbidden);
             var branches = await organizationStore.ListBranchesAsync(scope, ct);
-            return Results.Ok(branches.Select(branch => new BranchSummaryDto(branch.Id, branch.Name)));
+            return Results.Ok(branches.Select(branch => new BranchSummaryDto(branch.Id, branch.Name, branch.Code)));
         });
         // --- Admin-forced reset: authenticated, ManageUsers-gated, same-org
         // only (commerce-password-recovery design.md "Admin-forced reset" /
@@ -922,7 +922,7 @@ public static class AccountEndpoints
                 displayName ?? string.Empty,
                 permissions,
                 actor?.IsSystemAdmin ?? false,
-                selectableBranches.Select(b => new SelectableBranch(b.Id, b.Name)).ToList()));
+                selectableBranches.Select(b => new SelectableBranch(b.Id, b.Name, b.Code)).ToList()));
         }).AddEndpointFilter<TenantScopeEndpointFilter>();
 
         // --- Bootstrap: one-time first-admin creation gated by a log-only
@@ -1036,7 +1036,7 @@ public sealed record SignedInResponse(
     bool IsSystemAdmin,
     IReadOnlyList<SelectableBranch> SelectableBranches);
 
-public sealed record SelectableBranch(Guid Id, string Name);
+public sealed record SelectableBranch(Guid Id, string Name, int Code);
 
 public sealed record BootstrapTokenRequest(Guid OrganizationId);
 
@@ -1058,8 +1058,8 @@ public sealed record CreateUserResponse(Guid UserId);
 
 public sealed record UserSummaryDto(Guid UserId, string Email, IReadOnlyList<string> RoleNames, bool IsRevoked, IReadOnlyList<Guid> BranchIds);
 public sealed record CreateBranchRequest(string BranchName);
-public sealed record CreateBranchResponse(Guid BranchId);
-public sealed record BranchSummaryDto(Guid BranchId, string BranchName);
+public sealed record CreateBranchResponse(Guid BranchId, int Code);
+public sealed record BranchSummaryDto(Guid BranchId, string BranchName, int Code);
 public sealed record OrganizationSummary(Guid Id, string Name, DateTimeOffset CreatedAt);
 public sealed record CreateOrganizationRequest(string OrganizationName, string? BranchName, string AdminEmail, string AdminPassword);
 public sealed record CreateOrganizationResponse(Guid OrganizationId, Guid BranchId, Guid UserId);

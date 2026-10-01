@@ -116,7 +116,7 @@ public static class DeviceEndpoints
             {
                 return Results.Ok(new DevicePairResponse(
                     "branch-selection-required",
-                    branches.Select(b => new DeviceBranchOption(b.Id, b.Name)).ToList(),
+                    branches.Select(b => new DeviceBranchOption(b.Id, b.Name, b.Code)).ToList(),
                     null, null, null, null, null));
             }
 
@@ -142,7 +142,8 @@ public static class DeviceEndpoints
                 selected.Id,
                 selected.Name,
                 request.InstallationId,
-                issued.PlaintextToken));
+                issued.PlaintextToken,
+                selected.Code));
         }).AllowAnonymous();
 
         // Operator provisioning/status (design.md "Provisioning endpoint" and
@@ -393,7 +394,7 @@ public static class DeviceEndpoints
 
 public sealed record DevicePairRequest(string Email, string Password, Guid InstallationId, Guid? BranchId);
 
-public sealed record DeviceBranchOption(Guid Id, string Name);
+public sealed record DeviceBranchOption(Guid Id, string Name, int Code);
 
 /// <summary>
 /// status: "paired" | "branch-selection-required" | "no-branches-assigned" | "branch-not-in-scope" | "operator-not-permitted".
@@ -407,7 +408,8 @@ public sealed record DevicePairResponse(
     Guid? BranchId,
     string? BranchName,
     Guid? InstallationId,
-    string? DeviceToken);
+    string? DeviceToken,
+    int? BranchCode = null);
 
 public sealed record OperatorVerifyRequest(string Email, string Password);
 

@@ -71,6 +71,7 @@ public sealed class DeviceEndpointTests : IClassFixture<WebApplicationFactory<Pr
 
         var orgsSql = File.ReadAllText(Path.Combine(repoRoot, "deploy", "db", "migrations", "0003_organizations_branches.sql"));
         using (var cmd = new NpgsqlCommand(orgsSql, owner)) cmd.ExecuteNonQuery();
+        PostgresTestFixture.ApplyMigration(owner, "0021_branch_codes.sql");
 
         var deviceSql = File.ReadAllText(Path.Combine(repoRoot, "deploy", "db", "migrations", "0004_device_credentials.sql"));
         using (var cmd = new NpgsqlCommand(deviceSql, owner)) cmd.ExecuteNonQuery();
@@ -276,6 +277,7 @@ public sealed class DeviceEndpointTests : IClassFixture<WebApplicationFactory<Pr
         Assert.Equal("paired", body!.Status);
         Assert.Equal(orgId, body.OrganizationId);
         Assert.Equal(branchId, body.BranchId);
+        Assert.Equal(1, body.BranchCode);
         Assert.Equal(installationId, body.InstallationId);
         Assert.False(string.IsNullOrEmpty(body.DeviceToken));
     }
@@ -297,8 +299,8 @@ public sealed class DeviceEndpointTests : IClassFixture<WebApplicationFactory<Pr
         Assert.Null(body.DeviceToken);
         Assert.NotNull(body.Branches);
         Assert.Equal(2, body.Branches!.Count);
-        Assert.Contains(body.Branches, b => b.Id == branchAId);
-        Assert.Contains(body.Branches, b => b.Id == branchBId);
+        Assert.Contains(body.Branches, b => b.Id == branchAId && b.Code == 1);
+        Assert.Contains(body.Branches, b => b.Id == branchBId && b.Code == 2);
     }
 
     [Fact]

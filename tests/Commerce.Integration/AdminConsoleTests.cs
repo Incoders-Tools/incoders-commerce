@@ -144,6 +144,8 @@ public sealed class AdminConsoleTests : IClassFixture<WebApplicationFactory<Prog
         var create = await client.PostAsJsonAsync("/account/branches", new CreateBranchRequest("Downtown"));
         Assert.Equal(HttpStatusCode.Created, create.StatusCode);
         var created = await create.Content.ReadFromJsonAsync<CreateBranchResponse>();
+        // The bootstrap branch holds code 1, so the first created branch is 2.
+        Assert.Equal(2, created!.Code);
 
         var otherOrganizationId = Guid.NewGuid(); var otherBranchId = Guid.NewGuid();
         using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
@@ -157,7 +159,8 @@ public sealed class AdminConsoleTests : IClassFixture<WebApplicationFactory<Prog
         var list = await client.GetAsync("/account/branches");
         Assert.Equal(HttpStatusCode.OK, list.StatusCode);
         var branches = await list.Content.ReadFromJsonAsync<List<BranchSummaryDto>>();
-        Assert.Contains(branches!, branch => branch.BranchId == created!.BranchId && branch.BranchName == "Downtown");
+        Assert.Contains(branches!, branch => branch.BranchId == created!.BranchId && branch.BranchName == "Downtown" && branch.Code == 2);
+        Assert.Contains(branches!, branch => branch.Code == 1);
         Assert.DoesNotContain(branches!, branch => branch.BranchId == otherBranchId);
     }
 
