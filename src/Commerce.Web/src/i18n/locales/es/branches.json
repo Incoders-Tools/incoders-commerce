@@ -21,6 +21,8 @@
   },
   "columns": {
     "branchName": "Nombre de la sucursal",
+    "code": "Código",
+    "codeHint": "Código corto de la sucursal. Se asigna automáticamente y no cambia. Se usa en los números de venta (p. ej. V01-C2-125).",
     "identifier": "Identificador"
   },
   "discountPin": {

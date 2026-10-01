@@ -143,7 +143,7 @@ describe('AppLayout', () => {
   it('shows every tenant module to a system admin who has selected an organization', () => {
     window.localStorage.setItem(
       'sysadmin-organization:user-1',
-      JSON.stringify({ id: 'org-target', name: 'Target Org' }),
+      JSON.stringify({ id: 'org-target', name: 'Target Org', code: 1 }),
     )
 
     render(
@@ -227,19 +227,19 @@ describe('AppLayout', () => {
     renderLayout(
       buildUser({
         selectableBranches: [
-          { id: 'b1', name: 'Ruta 51' },
-          { id: 'b2', name: 'Centro' },
+          { id: 'b1', name: 'Ruta 51', code: 1 },
+          { id: 'b2', name: 'Centro', code: 2 },
         ],
       }),
     )
 
     const select = screen.getByRole('combobox', { name: 'Sucursal' })
     expect(select).toHaveValue('b1')
-    expect(screen.getByRole('option', { name: 'Centro' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: '02 · Centro' })).toBeInTheDocument()
   })
 
   it('shows a static branch label instead of a dropdown for a single selectable branch', () => {
-    renderLayout(buildUser({ selectableBranches: [{ id: 'b1', name: 'Ruta 51' }] }))
+    renderLayout(buildUser({ selectableBranches: [{ id: 'b1', name: 'Ruta 51', code: 1 }] }))
 
     expect(screen.getByText('Ruta 51')).toBeInTheDocument()
     expect(screen.queryByRole('combobox', { name: 'Sucursal' })).not.toBeInTheDocument()
@@ -281,8 +281,8 @@ describe('AppLayout', () => {
           value={{
             user: buildUser({
               selectableBranches: [
-                { id: 'b1', name: 'Ruta 51' },
-                { id: 'b2', name: 'Centro' },
+                { id: 'b1', name: 'Ruta 51', code: 1 },
+                { id: 'b2', name: 'Centro', code: 2 },
               ],
             }),
             error: null,

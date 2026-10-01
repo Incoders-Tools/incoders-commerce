@@ -20,9 +20,9 @@ describe('CatalogScreen — copy catalog to another branch', () => {
   const centroId = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
   const norteId = 'cccccccc-cccc-cccc-cccc-cccccccccccc'
   const branches = [
-    { id: rutaId, name: 'Ruta 51' },
-    { id: centroId, name: 'Centro' },
-    { id: norteId, name: 'Norte' },
+    { id: rutaId, name: 'Ruta 51', code: 1 },
+    { id: centroId, name: 'Centro', code: 1 },
+    { id: norteId, name: 'Norte', code: 1 },
   ]
 
   const presentation: PresentationRecord = {

@@ -9,8 +9,8 @@ import { BranchSwitcher } from './BranchSwitcher'
 // several.
 
 function renderWithBranches(
-  selectableBranches: { id: string; name: string }[],
-  selectedBranch: { id: string; name: string } | null,
+  selectableBranches: { id: string; name: string; code: number }[],
+  selectedBranch: { id: string; name: string; code: number } | null,
   selectBranch = vi.fn(),
 ) {
   return render(
@@ -27,7 +27,7 @@ describe('BranchSwitcher', () => {
   })
 
   it('shows a static label instead of a dropdown for a single branch', () => {
-    renderWithBranches([{ id: 'b1', name: 'Ruta 51' }], { id: 'b1', name: 'Ruta 51' })
+    renderWithBranches([{ id: 'b1', name: 'Ruta 51', code: 1 }], { id: 'b1', name: 'Ruta 51', code: 1 })
 
     expect(screen.getByText('Ruta 51')).toBeInTheDocument()
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
@@ -36,16 +36,16 @@ describe('BranchSwitcher', () => {
   it('lists every selectable branch and shows the current one selected', () => {
     renderWithBranches(
       [
-        { id: 'b1', name: 'Ruta 51' },
-        { id: 'b2', name: 'Centro' },
+        { id: 'b1', name: 'Ruta 51', code: 1 },
+        { id: 'b2', name: 'Centro', code: 2 },
       ],
-      { id: 'b2', name: 'Centro' },
+      { id: 'b2', name: 'Centro', code: 2 },
     )
 
     const select = screen.getByRole('combobox', { name: 'Sucursal' })
     expect(select).toHaveValue('b2')
-    expect(screen.getByRole('option', { name: 'Ruta 51' })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: 'Centro' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: '01 · Ruta 51' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: '02 · Centro' })).toBeInTheDocument()
   })
 
   it('calls selectBranch with the chosen branch on switch', async () => {
@@ -53,15 +53,15 @@ describe('BranchSwitcher', () => {
     const selectBranch = vi.fn()
     renderWithBranches(
       [
-        { id: 'b1', name: 'Ruta 51' },
-        { id: 'b2', name: 'Centro' },
+        { id: 'b1', name: 'Ruta 51', code: 1 },
+        { id: 'b2', name: 'Centro', code: 2 },
       ],
-      { id: 'b1', name: 'Ruta 51' },
+      { id: 'b1', name: 'Ruta 51', code: 1 },
       selectBranch,
     )
 
     await user.selectOptions(screen.getByRole('combobox', { name: 'Sucursal' }), 'b2')
 
-    expect(selectBranch).toHaveBeenCalledWith({ id: 'b2', name: 'Centro' })
+    expect(selectBranch).toHaveBeenCalledWith({ id: 'b2', name: 'Centro', code: 2 })
   })
 })

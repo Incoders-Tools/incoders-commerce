@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Store } from 'lucide-react'
 import { Select } from '@/components/ui/select'
 import { useOptionalBranchContext } from '@/branch/BranchContext'
+import { formatBranchCode } from '@/lib/branchCode'
 
 /**
  * admin-console spec, "Top Navbar Branch Switcher": populated from the
@@ -25,6 +26,7 @@ export function BranchSwitcher() {
     return (
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <Store aria-hidden="true" className="size-4 shrink-0" />
+        <span className="font-mono text-xs">{formatBranchCode(selectableBranches[0].code)}</span>
         <span className="font-medium text-foreground">{selectableBranches[0].name}</span>
       </div>
     )
@@ -47,7 +49,7 @@ export function BranchSwitcher() {
       >
         {selectableBranches.map((branch) => (
           <option key={branch.id} value={branch.id}>
-            {branch.name}
+            {`${formatBranchCode(branch.code)} · ${branch.name}`}
           </option>
         ))}
       </Select>

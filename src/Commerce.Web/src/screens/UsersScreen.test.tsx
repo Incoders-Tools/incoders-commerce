@@ -6,11 +6,11 @@ import { AuthContext } from '@/auth/AuthContext'
 import { BranchContext } from '@/branch/BranchContext'
 import type { UserSummary } from '@/api/types'
 
-const ruta51 = { id: 'branch-a', name: 'Ruta 51' }
-const centro = { id: 'branch-b', name: 'Centro' }
+const ruta51 = { id: 'branch-a', name: 'Ruta 51', code: 1 }
+const centro = { id: 'branch-b', name: 'Centro', code: 1 }
 
 /** Renders the screen inside a branch context, as the app shell does. */
-function renderScreen(selected: { id: string; name: string } | null = ruta51) {
+function renderScreen(selected: { id: string; name: string; code: number } | null = ruta51) {
   return render(
     <BranchContext.Provider
       value={{ selectedBranch: selected, selectableBranches: [ruta51, centro], selectBranch: () => {} }}

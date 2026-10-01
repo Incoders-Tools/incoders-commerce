@@ -86,7 +86,7 @@ afterEach(() => {
 describe('BranchProvider auto-selection', () => {
   it('auto-selects the only selectable branch', () => {
     render(
-      <Harness user={buildUser({ selectableBranches: [{ id: 'b1', name: 'Ruta 51' }] })}>
+      <Harness user={buildUser({ selectableBranches: [{ id: 'b1', name: 'Ruta 51', code: 1 }] })}>
         <BranchProbe />
       </Harness>,
     )
@@ -101,8 +101,8 @@ describe('BranchProvider auto-selection', () => {
       <Harness
         user={buildUser({
           selectableBranches: [
-            { id: 'b1', name: 'Ruta 51' },
-            { id: 'b2', name: 'Centro' },
+            { id: 'b1', name: 'Ruta 51', code: 1 },
+            { id: 'b2', name: 'Centro', code: 1 },
           ],
         })}
       >
@@ -120,8 +120,8 @@ describe('BranchProvider auto-selection', () => {
       <Harness
         user={buildUser({
           selectableBranches: [
-            { id: 'b1', name: 'Ruta 51' },
-            { id: 'b2', name: 'Centro' },
+            { id: 'b1', name: 'Ruta 51', code: 1 },
+            { id: 'b2', name: 'Centro', code: 1 },
           ],
         })}
       >
@@ -149,7 +149,7 @@ describe('BranchProvider header mirror', () => {
     const seen: (string | null)[] = []
 
     render(
-      <Harness user={buildUser({ selectableBranches: [{ id: 'b1', name: 'Ruta 51' }] })}>
+      <Harness user={buildUser({ selectableBranches: [{ id: 'b1', name: 'Ruta 51', code: 1 }] })}>
         <FirstEffectProbe onFirstEffect={(id) => seen.push(id)} />
       </Harness>,
     )
@@ -164,12 +164,12 @@ describe('BranchProvider header mirror', () => {
       <Harness
         user={buildUser({
           selectableBranches: [
-            { id: 'b1', name: 'Ruta 51' },
-            { id: 'b2', name: 'Centro' },
+            { id: 'b1', name: 'Ruta 51', code: 1 },
+            { id: 'b2', name: 'Centro', code: 1 },
           ],
         })}
       >
-        <SelectThenMount branch={{ id: 'b2', name: 'Centro' }} onFirstEffect={(id) => seen.push(id)} />
+        <SelectThenMount branch={{ id: 'b2', name: 'Centro', code: 1 }} onFirstEffect={(id) => seen.push(id)} />
       </Harness>,
     )
 
@@ -186,8 +186,8 @@ describe('BranchProvider switching', () => {
       <Harness
         user={buildUser({
           selectableBranches: [
-            { id: 'b1', name: 'Ruta 51' },
-            { id: 'b2', name: 'Centro' },
+            { id: 'b1', name: 'Ruta 51', code: 1 },
+            { id: 'b2', name: 'Centro', code: 1 },
           ],
         })}
       >
@@ -208,12 +208,12 @@ describe('BranchProvider for a sysadmin acting on a selected organization', () =
     vi.spyOn(accountApi, 'currentUser').mockResolvedValue(
       buildUser({
         isSystemAdmin: true,
-        selectableBranches: [{ id: 'org-branch-1', name: 'Sucursal Norte' }],
+        selectableBranches: [{ id: 'org-branch-1', name: 'Sucursal Norte', code: 1 }],
       }),
     )
     window.localStorage.setItem(
       'sysadmin-organization:sysadmin-1',
-      JSON.stringify({ id: 'org-target', name: 'Target Org' }),
+      JSON.stringify({ id: 'org-target', name: 'Target Org', code: 1 }),
     )
 
     render(
@@ -237,8 +237,8 @@ describe('BranchProvider for a sysadmin acting on a selected organization', () =
   })
 
   it('clears the previous organization branch selection once the organization changes', async () => {
-    const listForOrgTarget = [{ id: 'org-branch-1', name: 'Sucursal Norte' }]
-    const listForOrgOther = [{ id: 'org-branch-2', name: 'Sucursal Sur' }]
+    const listForOrgTarget = [{ id: 'org-branch-1', name: 'Sucursal Norte', code: 1 }]
+    const listForOrgOther = [{ id: 'org-branch-2', name: 'Sucursal Sur', code: 1 }]
     vi.spyOn(accountApi, 'currentUser').mockImplementation(async () => {
       const stored = window.localStorage.getItem('sysadmin-organization:sysadmin-1')
       const orgId = stored ? (JSON.parse(stored) as { id: string }).id : null
@@ -259,7 +259,7 @@ describe('BranchProvider for a sysadmin acting on a selected organization', () =
 
     window.localStorage.setItem(
       'sysadmin-organization:sysadmin-1',
-      JSON.stringify({ id: 'org-target', name: 'Target Org' }),
+      JSON.stringify({ id: 'org-target', name: 'Target Org', code: 1 }),
     )
 
     render(

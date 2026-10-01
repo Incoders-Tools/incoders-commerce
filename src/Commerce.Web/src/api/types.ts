@@ -27,6 +27,10 @@ export interface SignedInResponse {
 export interface SelectableBranch {
   id: string
   name: string
+  // Short per-organization code, assigned by the server and never changed
+  // (organization-persistence "Branch Short Code"); show it with
+  // `formatBranchCode`.
+  code: number
 }
 
 // Mirrors Commerce.Domain.Identity.Permission's [Flags] bit layout exactly —
@@ -521,9 +525,9 @@ export interface CustomerSignedInResponse {
 export interface UserSummary { userId: string; email: string; roleNames: string[]; isRevoked: boolean; branchIds: string[] }
 export interface CreateUserRequest { email: string; password: string; roleNames: string[]; branchIds: string[]; customerId?: string | null }
 export interface CreateUserResponse { userId: string }
-export interface BranchSummary { branchId: string; branchName: string }
+export interface BranchSummary { branchId: string; branchName: string; code: number }
 export interface CreateBranchRequest { branchName: string }
-export interface CreateBranchResponse { branchId: string }
+export interface CreateBranchResponse { branchId: string; code: number }
 export interface OrganizationSummary { id: string; name: string; createdAt: string }
 export interface CreateOrganizationRequest { organizationName: string; branchName?: string | null; adminEmail: string; adminPassword: string }
 export interface CreateOrganizationResponse { organizationId: string; branchId: string; userId: string }

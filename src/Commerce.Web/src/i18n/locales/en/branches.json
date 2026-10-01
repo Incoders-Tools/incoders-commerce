@@ -21,6 +21,8 @@
   },
   "columns": {
     "branchName": "Branch name",
+    "code": "Code",
+    "codeHint": "Short code of the branch. It is assigned automatically and never changes. It is used in sale numbers (e.g. V01-C2-125).",
     "identifier": "Identifier"
   },
   "discountPin": {

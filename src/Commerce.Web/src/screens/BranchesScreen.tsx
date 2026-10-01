@@ -4,6 +4,8 @@ import { createBranch, listBranches } from '@/api/account'
 import type { BranchSummary } from '@/api/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { useOptionalAuth } from '@/auth/AuthContext'
+import { formatBranchCode } from '@/lib/branchCode'
 import { DataToolbar } from '@/components/data/DataToolbar'
 import { DataView, type DataViewColumn } from '@/components/data/DataView'
 import { PageHeader } from '@/components/data/PageHeader'
@@ -25,6 +27,8 @@ import { DiscountPinPanel } from './DiscountPinPanel'
  */
 export function BranchesScreen() {
   const { t } = useTranslation('branches')
+  // The branch GUID is a technical identifier: only system administrators see it.
+  const isSystemAdmin = Boolean(useOptionalAuth()?.user?.isSystemAdmin)
   const [branches, setBranches] = useState<BranchSummary[]>([])
   const [name, setName] = useState('')
   /** Why the last load failed, if it did. Never set by an action: an action
@@ -72,11 +76,27 @@ export function BranchesScreen() {
   const columns: DataViewColumn<BranchSummary>[] = [
     { key: 'branchName', header: t('columns.branchName'), cell: (branch) => branch.branchName },
     {
-      key: 'branchId',
-      header: t('columns.identifier'),
-      cell: (branch) => <span className="font-mono text-xs text-muted-foreground">{branch.branchId}</span>,
-      hideOnMobile: true,
+      key: 'code',
+      header: t('columns.code'),
+      headerHint: t('columns.codeHint'),
+      cell: (branch) => (
+        <span className="font-mono" title={t('columns.codeHint')}>
+          {formatBranchCode(branch.code)}
+        </span>
+      ),
     },
+    ...(isSystemAdmin
+      ? [
+          {
+            key: 'branchId',
+            header: t('columns.identifier'),
+            cell: (branch: BranchSummary) => (
+              <span className="font-mono text-xs text-muted-foreground">{branch.branchId}</span>
+            ),
+            hideOnMobile: true,
+          },
+        ]
+      : []),
   ]
 
   return (

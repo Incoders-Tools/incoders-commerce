@@ -2,10 +2,27 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { BranchesScreen } from './BranchesScreen'
-import type { BranchSummary } from '@/api/types'
+import { AuthContext } from '@/auth/AuthContext'
+import type { BranchSummary, SignedInResponse } from '@/api/types'
 
-const central: BranchSummary = { branchId: 'branch-1', branchName: 'Central warehouse' }
-const downtown: BranchSummary = { branchId: 'branch-2', branchName: 'Downtown store' }
+const central: BranchSummary = { branchId: 'branch-1', branchName: 'Central warehouse', code: 1 }
+const downtown: BranchSummary = { branchId: 'branch-2', branchName: 'Downtown store', code: 2 }
+
+const signedIn = (isSystemAdmin: boolean): SignedInResponse => ({
+  organizationId: 'org-1',
+  userId: 'user-1',
+  displayName: 'Ana',
+  permissions: 15,
+  isSystemAdmin,
+  selectableBranches: [],
+})
+
+const renderAs = (isSystemAdmin: boolean) =>
+  render(
+    <AuthContext.Provider value={{ user: signedIn(isSystemAdmin), error: null, signIn: vi.fn(), signOut: vi.fn() }}>
+      <BranchesScreen />
+    </AuthContext.Provider>,
+  )
 
 describe('BranchesScreen', () => {
   const fetchMock = vi.fn()
@@ -30,7 +47,7 @@ describe('BranchesScreen', () => {
   })
 
   it('creates a branch and refreshes the list', async () => {
-    listOnce([]).mockResolvedValueOnce(new Response(JSON.stringify({ branchId: 'branch-1' }), { status: 201 }))
+    listOnce([]).mockResolvedValueOnce(new Response(JSON.stringify({ branchId: 'branch-1', code: 1 }), { status: 201 }))
     listOnce([central])
 
     const user = userEvent.setup()
@@ -85,7 +102,7 @@ describe('BranchesScreen', () => {
   it('stops reporting a load failure once a later load succeeds', async () => {
     fetchMock
       .mockRejectedValueOnce(new TypeError('Failed to fetch')) // initial load
-      .mockResolvedValueOnce(new Response(JSON.stringify({ branchId: 'branch-1' }), { status: 201 })) // create
+      .mockResolvedValueOnce(new Response(JSON.stringify({ branchId: 'branch-1', code: 1 }), { status: 201 })) // create
     listOnce([central]) // refreshed list
 
     const user = userEvent.setup()
@@ -119,7 +136,43 @@ describe('BranchesScreen', () => {
 
     const row = within(await screen.findByRole('table')).getAllByRole('row')[1]
     expect(within(row).getByText('Downtown store')).toBeInTheDocument()
-    expect(within(row).getByText('branch-2')).toBeInTheDocument()
+    expect(within(row).getByText('02')).toBeInTheDocument()
+    // The technical GUID is for system administrators only.
+    expect(within(row).queryByText('branch-2')).not.toBeInTheDocument()
+  })
+
+  it('shows the short code padded to two digits, with a tooltip explaining it', async () => {
+    listOnce([central, { branchId: 'branch-100', branchName: 'Hundredth', code: 100 }])
+
+    render(<BranchesScreen />)
+
+    const table = await screen.findByRole('table')
+    const header = within(table).getByRole('columnheader', { name: 'Código' })
+    const hint =
+      'Código corto de la sucursal. Se asigna automáticamente y no cambia. Se usa en los números de venta (p. ej. V01-C2-125).'
+    expect(header).toHaveAttribute('title', hint)
+    expect(within(table).getByText('01')).toHaveAttribute('title', hint)
+    expect(within(table).getByText('100')).toBeInTheDocument()
+  })
+
+  it('hides the identifier column from users who are not system administrators', async () => {
+    listOnce([central])
+
+    renderAs(false)
+
+    const table = await screen.findByRole('table')
+    expect(within(table).queryByRole('columnheader', { name: 'Identificador' })).not.toBeInTheDocument()
+    expect(within(table).queryByText('branch-1')).not.toBeInTheDocument()
+  })
+
+  it('shows the identifier column to system administrators', async () => {
+    listOnce([central])
+
+    renderAs(true)
+
+    const table = await screen.findByRole('table')
+    expect(within(table).getByRole('columnheader', { name: 'Identificador' })).toBeInTheDocument()
+    expect(within(table).getByText('branch-1')).toBeInTheDocument()
   })
 
   it('shows an empty state when there are no branches', async () => {

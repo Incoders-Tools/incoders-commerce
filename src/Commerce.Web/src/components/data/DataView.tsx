@@ -7,6 +7,8 @@ export interface DataViewColumn<T> {
   /** Stable key, also used as the field label in the card layout. */
   key: string
   header: string
+  /** Optional tooltip explaining the column, shown on its header (`title`). */
+  headerHint?: string
   cell: (item: T) => ReactNode
   /** Hide this column below `md:` in the table layout. */
   hideOnMobile?: boolean
@@ -109,7 +111,7 @@ export function DataView<T>({
                   .filter((column) => !column.hideInCards)
                   .map((column) => (
                     <div key={column.key} className="flex items-baseline justify-between gap-3">
-                      <dt className="text-xs text-muted-foreground">{column.header}</dt>
+                      <dt className="text-xs text-muted-foreground" title={column.headerHint}>{column.header}</dt>
                       <dd className="text-right break-words">{column.cell(item)}</dd>
                     </div>
                   ))}
@@ -131,6 +133,7 @@ export function DataView<T>({
               <th
                 key={column.key}
                 scope="col"
+                title={column.headerHint}
                 className={cn('px-4 py-3 font-medium', column.hideOnMobile && 'hidden md:table-cell')}
               >
                 {column.header}
