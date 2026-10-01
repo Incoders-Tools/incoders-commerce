@@ -126,6 +126,11 @@ public static class PosHostBuilder
         {
             client.BaseAddress = new Uri(cloudApiBaseUrl);
         });
+        builder.Services.AddHttpClient<DeviceIdentityClient>(client =>
+        {
+            client.BaseAddress = new Uri(cloudApiBaseUrl);
+        });
+        builder.Services.AddSingleton<TerminalIdentityRefresher>();
 
         // TRANSIENT, not a shared typed HttpClient (design.md "Desktop
         // authorization for customer create/edit"): the admin cookie lives in

@@ -50,7 +50,8 @@ public sealed class DevicePairingClient
                     && body.OrganizationId is not null && body.BranchId is not null
                     && body.BranchName is not null && body.DeviceToken is not null:
                     return PairingOutcome.Paired(
-                        body.OrganizationId.Value, body.BranchId.Value, body.BranchName, email, body.DeviceToken);
+                        body.OrganizationId.Value, body.BranchId.Value, body.BranchName, email, body.DeviceToken,
+                        body.BranchCode, body.RegisterNumber);
                 case "branch-selection-required":
                     return PairingOutcome.BranchSelectionRequired(body.Branches ?? []);
                 case "no-branches-assigned":
@@ -59,6 +60,8 @@ public sealed class DevicePairingClient
                     return PairingOutcome.Failed(PosMessages.SelectedBranchNotInScope);
                 case "operator-not-permitted":
                     return PairingOutcome.Failed(PosMessages.OperatorNotPermitted);
+                case "register-numbers-exhausted":
+                    return PairingOutcome.Failed(PosMessages.RegisterNumbersExhausted);
                 default:
                     PosHttp.LogFailure(endpoint, response, $"unrecognized pairing status '{body.Status}'");
                     return PairingOutcome.Failed(PosMessages.UnexpectedResponse);
@@ -83,7 +86,9 @@ public sealed record DevicePairResponseDto(
     Guid? BranchId,
     string? BranchName,
     Guid? InstallationId,
-    string? DeviceToken);
+    string? DeviceToken,
+    int? BranchCode = null,
+    int? RegisterNumber = null);
 
 /// <summary>
 /// Discriminated pairing result (design.md "Interfaces / Contracts") — the
@@ -96,9 +101,11 @@ public sealed record PairingOutcome(
     IReadOnlyList<DeviceBranchOptionDto>? Branches,
     string? ErrorMessage)
 {
-    public static PairingOutcome Paired(Guid organizationId, Guid branchId, string branchName, string operatorEmail, string deviceToken) =>
+    public static PairingOutcome Paired(
+        Guid organizationId, Guid branchId, string branchName, string operatorEmail, string deviceToken,
+        int? branchCode = null, int? registerNumber = null) =>
         new(PairingOutcomeKind.Paired,
-            new DevicePairing(organizationId, branchId, branchName, operatorEmail, deviceToken),
+            new DevicePairing(organizationId, branchId, branchName, operatorEmail, deviceToken, branchCode, registerNumber),
             null, null);
 
     public static PairingOutcome BranchSelectionRequired(IReadOnlyList<DeviceBranchOptionDto> branches) =>

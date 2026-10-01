@@ -53,6 +53,7 @@ public partial class MainWindow : Window
     private UpdateCheckResult _updateCheckResult;
     private readonly SingleFlight _updateCheckFlight = new();
     private readonly Guid _installationId;
+    private readonly TerminalIdentityRefresher _terminalIdentityRefresher;
     private readonly SaleCart _cart;
     private readonly ObservableCollection<ProductCardViewModel> _catalogCards = new();
     private readonly System.Windows.Threading.DispatcherTimer _searchDebounce;
@@ -88,6 +89,7 @@ public partial class MainWindow : Window
         UpdateChecker updateChecker,
         UpdateInstallWorkflowFactory updateWizardFactory,
         PendingUpgradeStore pendingUpgradeStore,
+        TerminalIdentityRefresher terminalIdentityRefresher,
         LocalInstallationRecord identity)
     {
         InitializeComponent();
@@ -110,6 +112,7 @@ public partial class MainWindow : Window
         _branding = branding;
         _updateChecker = updateChecker;
         _updateWizardFactory = updateWizardFactory;
+        _terminalIdentityRefresher = terminalIdentityRefresher;
         _localVersion = ReadLocalVersion();
         _updateCheckResult = new UpdateCheckResult(UpdateCheckStatus.Checking, _localVersion);
         // The previous run may have handed an update to Windows: report how it ended.
@@ -165,6 +168,30 @@ public partial class MainWindow : Window
         // Flow — the sale path, and window startup, never await a sync).
         _ = _syncScheduler.StartAsync();
         _ = RunUpdateCheckAsync();
+        _ = RefreshTerminalIdentityAsync();
+    }
+
+    /// <summary>
+    /// A terminal paired before registers existed (or one that was offline when it paired) learns its
+    /// branch code and register number from the server. Fire-and-forget like the other startup work:
+    /// offline it simply stays unknown and the sale path keeps working.
+    /// </summary>
+    private async Task RefreshTerminalIdentityAsync()
+    {
+        try
+        {
+            var current = _pairing;
+            var updated = await _terminalIdentityRefresher.EnsureAsync(_installationId, current);
+            if (!ReferenceEquals(updated, current) && ReferenceEquals(_pairing, current))
+            {
+                _pairing = updated;
+                RefreshIdentityText();
+            }
+        }
+        catch (Exception ex)
+        {
+            PosLog.Error("App", "Could not refresh the terminal identity.", ex);
+        }
     }
 
     /// <summary>
@@ -460,7 +487,7 @@ public partial class MainWindow : Window
 
         return
             $"Organización: {_pairing.OrganizationId}\n" +
-            $"Sucursal: {_pairing.BranchName} ({_pairing.BranchId})\n" +
+            $"Terminal: {TerminalLabel.Format(_pairing)}\n" +
             $"Operador de emparejamiento: {_pairing.OperatorEmail}\n" +
             $"Instalación: {_installationId}\n" +
             $"{operatorLine}";

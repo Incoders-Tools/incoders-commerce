@@ -54,6 +54,9 @@ public static class PosMessages
     public const string SelectedBranchNotInScope =
         "La sucursal elegida no está asignada a este usuario.";
 
+    public const string RegisterNumbersExhausted =
+        "Esta sucursal ya usó todos los números de caja disponibles. Avisá a soporte técnico.";
+
     // ---- Pairing window -----------------------------------------------------
 
     public const string SelectBranchFirst = "Seleccioná una sucursal primero.";
