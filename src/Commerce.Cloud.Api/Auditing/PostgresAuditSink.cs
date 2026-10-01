@@ -10,23 +10,27 @@ using Npgsql;
 namespace Commerce.Cloud.Api.Auditing;
 
 /// <summary>
-/// The cloud's <see cref="IAuditSink"/> (persist-web-orders): the access decisions of a customer
-/// ordering credential are appended to `audit_log` instead of an in-memory queue that was lost on every
-/// restart. Each write is its own transaction under the entry's organization scope (the table's RLS
-/// insert policy requires it) through <see cref="AuditLogWriter"/>.
+/// The cloud's <see cref="IAuditSink"/>: the shared sink of every consumer (staff authorization and catalog
+/// management as `org-user`, customer catalog access as `customer`) appends to `audit_log` instead of an
+/// in-memory queue that was lost on every restart. Each write is its own transaction under the entry's
+/// organization scope (the table's RLS insert policy requires it) through <see cref="AuditLogWriter"/>.
+/// Every <see cref="AuditEntry"/> carries an organization, so no entry is skipped for lack of one.
 ///
-/// FAIL OPEN with alerting (owner decision 2026-10-01): if the row cannot be written the customer's
-/// access decision proceeds unchanged and the failure is logged at Error level (organization, decision,
-/// correlation id, exception) so it can be investigated; catalog access is never blocked by the audit
-/// write. Only cancellation still propagates (the caller is gone).
+/// FAIL OPEN with alerting (owner decision 2026-10-01): if the row cannot be written the decision proceeds
+/// unchanged and the failure is logged at Error level (organization, decision, correlation id, exception)
+/// so it can be investigated; the audited action is never blocked by the audit write. Only cancellation
+/// of the caller's own token still propagates (the caller is gone); any other cancellation, such as a
+/// timeout, fails open like every other failure.
 ///
-/// Registered ONLY for the customer catalog access path (<see cref="CustomerCatalogAccessAuditRegistration"/>);
-/// it hardcodes actor kind `customer`, so it must never be the shared <see cref="IAuditSink"/>.
+/// Mapping: actor kind from <see cref="AuditEntry.ActorKind"/>, actor = <see cref="AuditEntry.ActorId"/>
+/// (the nil id for an unknown customer credential), entity = the decision itself (its correlation id),
+/// action = <c>{entry.Action}.{entry.Outcome}</c>, and the reason, branch, time and correlation id as the
+/// JSON new value.
 ///
-/// Mapping: actor kind <see cref="AuditActorKinds.Customer"/>, actor = the customer when the credential
-/// resolved to one (the nil id for an unknown credential), entity = the access decision itself (its
-/// correlation id), action = <c>{entry.Action}.{entry.Outcome}</c>, and the reason, branch, time and
-/// correlation id as the JSON new value.
+/// The synchronous <see cref="Record"/> performs the same durable, fail-open write and blocks the calling
+/// thread while it runs. Async callers (the cloud endpoints) use <see cref="RecordAsync"/> through
+/// <c>TenantAuthorizationService.AuthorizeAsync</c>; the blocking form exists only because the shared
+/// contract is also implemented synchronously by the local branch and updater paths.
 /// </summary>
 public sealed class PostgresAuditSink : IAuditSink
 {
@@ -39,12 +43,8 @@ public sealed class PostgresAuditSink : IAuditSink
         _logger = logger ?? NullLogger<PostgresAuditSink>.Instance;
     }
 
-    /// <summary>
-    /// Not supported on purpose: a blocking bridge over the database call would park a request thread.
-    /// The only consumer (<c>CustomerCatalogAccessService</c>) is async end to end and uses <see cref="RecordAsync"/>.
-    /// </summary>
     public void Record(AuditEntry entry) =>
-        throw new NotSupportedException("PostgresAuditSink is asynchronous only; use RecordAsync.");
+        RecordAsync(entry, CancellationToken.None).GetAwaiter().GetResult();
 
     public async Task RecordAsync(AuditEntry entry, CancellationToken ct)
     {
@@ -52,14 +52,22 @@ public sealed class PostgresAuditSink : IAuditSink
         {
             await WriteAsync(entry, ct);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!(ex is OperationCanceledException && ct.IsCancellationRequested))
         {
             _logger.LogError(
                 ex,
-                "Customer access audit write failed; the decision proceeds (fail-open). Organization {OrganizationId}, decision {Action}.{Outcome}, reason {Reason}, correlation {CorrelationId}",
+                "Audit write failed; the decision proceeds (fail-open). Organization {OrganizationId}, decision {Action}.{Outcome}, reason {Reason}, correlation {CorrelationId}",
                 entry.OrganizationId, entry.Action, entry.Outcome, entry.Reason, entry.CorrelationId);
         }
     }
+
+    private static string ActorKindOf(AuditActorKind kind) => kind switch
+    {
+        AuditActorKind.OrgUser => AuditActorKinds.OrgUser,
+        AuditActorKind.Device => AuditActorKinds.Device,
+        AuditActorKind.Customer => AuditActorKinds.Customer,
+        _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unknown audit actor kind."),
+    };
 
     private async Task WriteAsync(AuditEntry entry, CancellationToken ct)
     {
@@ -68,7 +76,7 @@ public sealed class PostgresAuditSink : IAuditSink
         await TenantScopeSql.ApplyAsync(connection, tx, new CloudTenantScope(entry.OrganizationId), ct);
 
         await AuditLogWriter.InsertAsync(connection, tx, new UserManagementAuditEntry(
-            ActorKind: AuditActorKinds.Customer,
+            ActorKind: ActorKindOf(entry.ActorKind),
             ActorId: entry.ActorId,
             OrganizationId: entry.OrganizationId,
             EntityType: entry.Action,

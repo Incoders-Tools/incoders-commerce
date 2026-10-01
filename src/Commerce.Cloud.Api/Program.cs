@@ -147,12 +147,12 @@ builder.Services.AddSingleton<PaymentRecordingService>();
 
 // --- Shared application services (Component Reuse Policy: reused, not
 // reimplemented) --------------------------------------------------------
-builder.Services.AddSingleton<IAuditSink, InMemoryAuditSink>();
-// persist-web-orders: customer catalog access decisions go to the append-only audit_log (fail-open); every
-// other IAuditSink consumer keeps the shared sink above (its decisions are not customer actions).
+// Durable audit: every IAuditSink consumer (staff authorization, catalog management, customer catalog access)
+// writes to the append-only audit_log, fail-open with Error logging; each entry carries its own actor kind.
+builder.Services.AddDurableAuditSink();
 builder.Services.AddSingleton<TenantAuthorizationService>();
 builder.Services.AddSingleton<CatalogManagementService>();
-builder.Services.AddCustomerCatalogAccessAudit();
+builder.Services.AddSingleton<CustomerCatalogAccessService>();
 builder.Services.AddSingleton<CustomerOrderingAccessService>();
 
 // --- Cloud.Api-local composition --------------------------------------------

@@ -57,6 +57,7 @@ public sealed class CustomerCatalogAccessService
 
         await _auditSink.RecordAsync(new Domain.Audit.AuditEntry(
             ActorId: result.CustomerId ?? Guid.Empty,
+            ActorKind: Domain.Audit.AuditActorKind.Customer,
             OrganizationId: requestedOrganizationId,
             BranchId: Guid.Empty,
             Action: "customer-ordering-access",

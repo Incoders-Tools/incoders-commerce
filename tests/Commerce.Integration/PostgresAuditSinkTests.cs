@@ -1,7 +1,13 @@
+using Commerce.Application.Access;
 using Commerce.Application.Audit;
+using Commerce.Application.Management;
 using Commerce.Application.Ordering;
 using Commerce.Cloud.Api.Auditing;
+using Commerce.Cloud.Api.Management;
+using Commerce.Cloud.Api.Tenancy;
 using Commerce.Domain.Audit;
+using Commerce.Domain.Catalog;
+using Commerce.Domain.Identity;
 using Commerce.Domain.Ordering;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
@@ -9,10 +15,11 @@ using Npgsql;
 namespace Commerce.Integration;
 
 /// <summary>
-/// persist-web-orders T4: the customer catalog / ordering access decisions (denials above all) used to
-/// be kept by an in-memory sink and vanished on every restart. <see cref="PostgresAuditSink"/> writes
-/// them to the append-only `audit_log`; every test reads the rows back with the owner role (app_runtime
-/// has no SELECT by design) and through a brand-new data source where the point is surviving a restart.
+/// Durable audit: every decision of the shared <see cref="IAuditSink"/> (staff authorization and catalog
+/// management as `org-user`, customer catalog access as `customer`) used to be kept by an in-memory sink and
+/// vanished on every restart. <see cref="PostgresAuditSink"/> writes them to the append-only `audit_log`;
+/// every test reads the rows back with the owner role (app_runtime has no SELECT by design) and through a
+/// brand-new data source where the point is surviving a restart.
 /// </summary>
 [Collection("Postgres")]
 public sealed class PostgresAuditSinkTests
@@ -51,6 +58,15 @@ public sealed class PostgresAuditSinkTests
         }
         return rows;
     }
+
+    private static AuditEntry Entry(Guid org, AuditActorKind kind = AuditActorKind.OrgUser, string outcome = "denied") =>
+        new(Guid.NewGuid(), kind, org, Guid.Empty, "customer-ordering-access", outcome, DateTimeOffset.UtcNow, Guid.NewGuid(), "not-found");
+
+    private static UserAccount Staff(Guid org, Guid branch, Permission permissions) =>
+        new(Guid.NewGuid(), org, new[] { branch }, new[] { new Role("catalog-manager", permissions) });
+
+    private static Product ProductOf(Guid org) =>
+        new(Guid.NewGuid(), org, "Original", Guid.NewGuid(), Guid.NewGuid());
 
     [Fact]
     public async Task ADeniedAccess_IsWrittenToTheAuditLog_AndSurvivesANewDataSource()
@@ -100,13 +116,93 @@ public sealed class PostgresAuditSinkTests
     }
 
     [Fact]
-    public void TheSynchronousRecord_IsNotSupported_SoNoRequestThreadBlocksOnTheDatabase()
+    public async Task TheSynchronousRecord_IsDurable_NotATrap()
     {
-        using var source = NpgsqlDataSource.Create("Host=127.0.0.1;Port=1;Timeout=1");
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var org = await SeedOrganizationAsync();
+        using var source = NpgsqlDataSource.Create(PostgresTestFixture.DirectConnectionString);
         IAuditSink sink = new PostgresAuditSink(source);
 
-        Assert.Throws<NotSupportedException>(() => sink.Record(
-            new AuditEntry(Guid.NewGuid(), Guid.NewGuid(), Guid.Empty, "customer-ordering-access", "denied", DateTimeOffset.UtcNow, Guid.NewGuid(), "not-found")));
+        sink.Record(Entry(org));   // sync callers get the same durable, fail-open behaviour
+
+        var row = Assert.Single(await ReadRowsAsync(org));
+        Assert.Equal(AuditActorKinds.OrgUser, row.ActorKind);
+    }
+
+    [Fact]
+    public void TheSynchronousRecord_FailsOpen_AndLogsAnError()
+    {
+        var logger = new CapturingLogger<PostgresAuditSink>();
+        using var source = NpgsqlDataSource.Create("Host=127.0.0.1;Port=1;Timeout=1");
+        IAuditSink sink = new PostgresAuditSink(source, logger);
+
+        sink.Record(Entry(Guid.NewGuid()));   // does not throw
+
+        Assert.Equal(Microsoft.Extensions.Logging.LogLevel.Error, Assert.Single(logger.Entries).Level);
+    }
+
+    [Fact]
+    public async Task AStaffDecision_IsWrittenAsAnOrgUserRow_AndSurvivesANewDataSource()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var org = await SeedOrganizationAsync();
+        var branch = Guid.NewGuid();
+        var actor = Staff(org, branch, Permission.ManageCatalog);
+        var correlationId = Guid.NewGuid();
+
+        using (var source = NpgsqlDataSource.Create(PostgresTestFixture.DirectConnectionString))
+        {
+            var adapter = new CloudCatalogManagementAdapter(new CatalogManagementService(
+                new TenantAuthorizationService(new PostgresAuditSink(source))));
+            var outcome = await adapter.RenameProductAsync(
+                new CloudTenantScope(org), actor, ProductOf(org), branch, "Renamed", false, correlationId, CancellationToken.None);
+            Assert.Equal(ManagementOutcomeStatus.Allowed, outcome.Status);
+        }
+
+        var row = Assert.Single(await ReadRowsAsync(org));
+        Assert.Equal(AuditActorKinds.OrgUser, row.ActorKind);
+        Assert.Equal(actor.Id, row.ActorId);
+        Assert.Equal("update-product-name.allowed", row.Action);
+        Assert.Contains(correlationId.ToString(), row.NewValue);
+    }
+
+    [Fact]
+    public async Task ADeniedStaffDecision_IsWrittenToo()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var org = await SeedOrganizationAsync();
+        var branch = Guid.NewGuid();
+        using var source = NpgsqlDataSource.Create(PostgresTestFixture.DirectConnectionString);
+        var auth = new TenantAuthorizationService(new PostgresAuditSink(source));
+
+        var outcome = await new CatalogManagementService(auth).RenameProductAsync(
+            Staff(org, branch, Permission.None), ProductOf(org),
+            new ManagementRequest(org, branch, Guid.NewGuid(), "x", false, Guid.NewGuid()), CancellationToken.None);
+
+        Assert.Equal(ManagementOutcomeStatus.Denied, outcome.Status);
+        var row = Assert.Single(await ReadRowsAsync(org));
+        Assert.Equal("update-product-name.denied", row.Action);
+        Assert.Contains("insufficient-permission", row.NewValue);
+    }
+
+    [Fact]
+    public async Task AFailingAuditWrite_NeverChangesAStaffDecision_AndIsLoggedAtError()
+    {
+        var org = Guid.NewGuid();
+        var branch = Guid.NewGuid();
+        var logger = new CapturingLogger<PostgresAuditSink>();
+        using var source = NpgsqlDataSource.Create("Host=127.0.0.1;Port=1;Timeout=1");
+        var service = new CatalogManagementService(new TenantAuthorizationService(new PostgresAuditSink(source, logger)));
+
+        var outcome = await service.RenameProductAsync(
+            Staff(org, branch, Permission.ManageCatalog), ProductOf(org),
+            new ManagementRequest(org, branch, Guid.NewGuid(), "x", false, Guid.NewGuid()), CancellationToken.None);
+
+        Assert.Equal(ManagementOutcomeStatus.Allowed, outcome.Status);
+        Assert.Equal(Microsoft.Extensions.Logging.LogLevel.Error, Assert.Single(logger.Entries).Level);
     }
 
     [Theory]
@@ -140,49 +236,37 @@ public sealed class PostgresAuditSinkTests
         using var cts = new CancellationTokenSource();
         cts.Cancel();
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => sink.RecordAsync(
-            new AuditEntry(Guid.NewGuid(), Guid.NewGuid(), Guid.Empty, "customer-ordering-access", "denied", DateTimeOffset.UtcNow, Guid.NewGuid(), "not-found"), cts.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => sink.RecordAsync(Entry(Guid.NewGuid()), cts.Token));
         Assert.Empty(logger.Entries);
     }
 
     [Fact]
-    public async Task OnlyTheCustomerAccessPath_GetsThePostgresSink_EveryOtherConsumerKeepsTheSharedOne()
+    public async Task TheSharedAuditSink_IsDurable_AndEachConsumerGetsItsOwnActorKind()
     {
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
 
         var org = await SeedOrganizationAsync();
+        var branch = Guid.NewGuid();
         using var source = NpgsqlDataSource.Create(PostgresTestFixture.DirectConnectionString);
         var services = new ServiceCollection();
         services.AddSingleton(source);
         services.AddLogging();
-        services.AddSingleton<IAuditSink, InMemoryAuditSink>();   // the shared sink, as Program registers it
+        services.AddDurableAuditSink();   // what Program registers as THE IAuditSink
         services.AddSingleton<ICustomerOrderingAccessResolver>(new StubResolver(null));
-        services.AddCustomerCatalogAccessAudit();
+        services.AddSingleton<TenantAuthorizationService>();
+        services.AddSingleton<CatalogManagementService>();
+        services.AddSingleton<CustomerCatalogAccessService>();
         using var provider = services.BuildServiceProvider();
 
-        // Shared consumers (TenantAuthorizationService, CatalogManagementService, ...) still get the in-memory sink.
-        var shared = provider.GetRequiredService<IAuditSink>();
-        Assert.IsType<InMemoryAuditSink>(shared);
-        shared.Record(new AuditEntry(Guid.NewGuid(), org, Guid.Empty, "catalog.update", "allowed", DateTimeOffset.UtcNow, Guid.NewGuid(), "ok"));
-        Assert.Empty(await ReadRowsAsync(org));   // a staff decision never becomes a `customer` row
+        Assert.IsType<PostgresAuditSink>(provider.GetRequiredService<IAuditSink>());
 
-        // The customer path writes to audit_log.
+        await provider.GetRequiredService<CatalogManagementService>().RenameProductAsync(
+            Staff(org, branch, Permission.ManageCatalog), ProductOf(org),
+            new ManagementRequest(org, branch, Guid.NewGuid(), "x", false, Guid.NewGuid()), CancellationToken.None);
         await provider.GetRequiredService<CustomerCatalogAccessService>()
             .AuthorizeAsync(org, Guid.NewGuid(), Guid.NewGuid(), CancellationToken.None);
-        var row = Assert.Single(await ReadRowsAsync(org));
-        Assert.Equal(AuditActorKinds.Customer, row.ActorKind);
+
+        var rows = await ReadRowsAsync(org);
+        Assert.Equal([AuditActorKinds.OrgUser, AuditActorKinds.Customer], rows.Select(r => r.ActorKind));
     }
-}
-
-internal sealed class CapturingLogger<T> : Microsoft.Extensions.Logging.ILogger<T>
-{
-    public List<(Microsoft.Extensions.Logging.LogLevel Level, string Message, Exception? Exception)> Entries { get; } = [];
-
-    public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-
-    public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
-
-    public void Log<TState>(Microsoft.Extensions.Logging.LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId,
-        TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
-        Entries.Add((logLevel, formatter(state, exception), exception));
 }

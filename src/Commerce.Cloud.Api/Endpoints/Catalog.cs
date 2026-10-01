@@ -215,14 +215,15 @@ public static class CatalogEndpoints
             // impossible because `existing`/the later UPDATE are both
             // scoped by this same branch under RLS, but the authorization
             // decision itself must agree, not merely the storage layer.
-            var outcome = adapter.RenameProduct(
+            var outcome = await adapter.RenameProductAsync(
                 scope,
                 actor,
                 existing.ToDomain(),
                 scope.BranchId!.Value,
                 request.NewName,
                 request.IsOffline,
-                request.CorrelationId);
+                request.CorrelationId,
+                ct);
 
             if (outcome.Status != ManagementOutcomeStatus.Allowed || outcome.UpdatedProduct is null)
             {
