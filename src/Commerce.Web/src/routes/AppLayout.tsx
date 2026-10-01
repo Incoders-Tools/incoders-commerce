@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import {
   Building2,
   ClipboardList,
+  LayoutDashboard,
   LayoutGrid,
   Menu,
   Package,
@@ -104,6 +105,11 @@ export function AppLayout() {
           )}
         >
           <nav aria-label={t('primary')} className="flex flex-1 flex-col gap-1 overflow-y-auto p-3">
+            {/* Home of a business admin: first in the sidebar, outside any section.
+                UI-only gate, like its siblings; RequireAdmin guards the route. */}
+            {showTenantNav && (
+              <NavItem to="/app/dashboard" icon={LayoutDashboard} onNavigate={closeMobileNav}>{t('items.dashboard')}</NavItem>
+            )}
             {showCatalogAndOrdersNav && (
               <NavSection title={t('sections.operations')}>
                 <NavItem to="/app/catalog" icon={Package} onNavigate={closeMobileNav}>{t('items.catalog')}</NavItem>

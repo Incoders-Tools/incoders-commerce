@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router'
-import { AuthProvider, useOptionalAuth } from '@/auth/AuthContext'
+import { AuthProvider, hasPermission, useOptionalAuth } from '@/auth/AuthContext'
+import { Permission } from '@/api/types'
 import { OrganizationProvider, useOptionalOrganizationContext } from '@/organization/OrganizationContext'
 import { OrganizationBrandingProvider } from '@/theme/OrganizationBrandingProvider'
 import { ThemeProvider } from '@/theme/ThemeProvider'
@@ -21,18 +22,24 @@ import { UsersScreen } from '@/screens/UsersScreen'
 import { BranchesScreen } from '@/screens/BranchesScreen'
 import { PriceListsScreen } from '@/screens/PriceListsScreen'
 import { OrganizationsScreen } from '@/screens/OrganizationsScreen'
+import { DashboardScreen } from '@/screens/DashboardScreen'
 
 /**
  * `/app` landing. A system administrator with no real org permissions and no
  * selected organization only has platform screens (platform-administration
- * spec, "Sysadmin Acts On A Selected Organization"), so the catalog would be
- * a hidden, 403-answering page for them; everyone else keeps the catalog.
+ * spec, "Sysadmin Acts On A Selected Organization"), so every tenant screen
+ * would be a hidden, 403-answering page for them: they land on Organizations.
+ * A business admin (or a sysadmin acting on an organization) lands on the
+ * dashboard, the same population `RequireAdmin` lets in; everyone else keeps
+ * the catalog.
  */
 function AppIndexRedirect() {
-  const user = useOptionalAuth()?.user
+  const user = useOptionalAuth()?.user ?? null
   const selectedOrganization = useOptionalOrganizationContext()?.selectedOrganization
   const platformOnly = Boolean(user?.isSystemAdmin) && user?.permissions === 0 && selectedOrganization == null
-  return <Navigate to={platformOnly ? 'organizations' : 'catalog'} replace />
+  const isAdmin =
+    hasPermission(user, Permission.ManageUsers) || (Boolean(user?.isSystemAdmin) && selectedOrganization != null)
+  return <Navigate to={platformOnly ? 'organizations' : isAdmin ? 'dashboard' : 'catalog'} replace />
 }
 
 /**
@@ -77,6 +84,7 @@ function App() {
                   <Route path="orders" element={<StaffOrderScreen />} />
                   <Route path="password" element={<RenewPasswordScreen />} />
                   <Route element={<RequireAdmin />}>
+                    <Route path="dashboard" element={<DashboardScreen />} />
                     <Route path="customers" element={<CustomersScreen />} />
                     <Route path="users" element={<UsersScreen />} />
                     <Route path="branches" element={<BranchesScreen />} />

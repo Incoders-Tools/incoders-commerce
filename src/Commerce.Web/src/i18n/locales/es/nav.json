@@ -2,6 +2,7 @@
   "primary": "Principal",
   "toggleNavigation": "Alternar navegación",
   "items": {
+    "dashboard": "Tablero",
     "catalog": "Catálogo",
     "categories": "Categorías",
     "orders": "Pedidos",

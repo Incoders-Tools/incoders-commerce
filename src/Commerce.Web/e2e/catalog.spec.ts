@@ -60,7 +60,8 @@ test.describe('catalog screen', () => {
     await page.getByRole('button', { name: /iniciar sesión/i }).click()
     await expectSignedIn(page)
 
-    // Catalog is the default tab.
+    // A business admin lands on the dashboard (/app), so open the catalog.
+    await page.getByRole('link', { name: 'Catálogo' }).click()
     await expect(page.getByText('Todavía no hay presentaciones.')).toBeVisible()
     await expect(page.getByText('Other Org Presentation')).toHaveCount(0)
   })

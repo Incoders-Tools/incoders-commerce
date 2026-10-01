@@ -21,6 +21,9 @@ test.describe('sign-in', () => {
     // Real /account/sign-in issued a real cookie and returned a real
     // SignedInResponse; the SPA renders the authenticated shell.
     await expectSignedIn(page)
+    // A business admin lands on the dashboard at /app.
+    await expect(page).toHaveURL(/\/app\/dashboard$/)
+    await expect(page.getByRole('heading', { name: 'Tablero' })).toBeVisible()
     await expect(page.getByText(user.email)).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Commerce' })).toBeVisible()
   })

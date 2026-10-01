@@ -131,12 +131,36 @@ describe('App route table', () => {
     expect(screen.queryByRole('heading', { name: 'Catálogo' })).not.toBeInTheDocument()
   })
 
-  it('lands a system administrator acting on an organization on the catalog', async () => {
+  it('lands a system administrator acting on an organization on the dashboard', async () => {
     window.localStorage.setItem('sysadmin-organization:user-1', JSON.stringify({ id: 'org-a', name: 'Org A' }))
 
     renderAppAt('/app', buildUser({ isSystemAdmin: true }))
 
+    expect(await screen.findByRole('heading', { name: 'Tablero' })).toBeInTheDocument()
+  })
+
+  it('lands a business admin on the dashboard', async () => {
+    renderAppAt('/app', buildUser({ permissions: Permission.ManageUsers }))
+
+    expect(await screen.findByRole('heading', { name: 'Tablero' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Catálogo' })).not.toBeInTheDocument()
+  })
+
+  it('mounts the dashboard at /app/dashboard for an admin and links it first from the sidebar', async () => {
+    renderAppAt('/app/dashboard', buildUser({ permissions: Permission.ManageUsers }))
+
+    expect(await screen.findByRole('heading', { name: 'Tablero' })).toBeInTheDocument()
+    const nav = within(screen.getByRole('navigation', { name: 'Principal' }))
+    const links = nav.getAllByRole('link')
+    expect(links[0]).toHaveAttribute('href', '/app/dashboard')
+    expect(links[0]).toHaveAccessibleName('Tablero')
+  })
+
+  it('redirects a non-admin away from /app/dashboard to the catalog', async () => {
+    renderAppAt('/app/dashboard', buildUser({ permissions: Permission.ViewSales }))
+
     expect(await screen.findByRole('heading', { name: 'Catálogo' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Tablero' })).not.toBeInTheDocument()
   })
 
   it('still lands staff on the catalog', async () => {

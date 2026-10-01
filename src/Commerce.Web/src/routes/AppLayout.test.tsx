@@ -68,6 +68,7 @@ describe('AppLayout', () => {
     expect(nav.queryByRole('link', { name: /usuarios/i })).not.toBeInTheDocument()
     expect(nav.queryByRole('link', { name: /sucursales/i })).not.toBeInTheDocument()
     expect(nav.queryByRole('link', { name: /organizaciones/i })).not.toBeInTheDocument()
+    expect(nav.queryByRole('link', { name: /tablero/i })).not.toBeInTheDocument()
     // Change password moved into the account menu, not the nav bar.
     expect(nav.queryByRole('link', { name: /cambiar contraseña/i })).not.toBeInTheDocument()
   })
@@ -76,7 +77,7 @@ describe('AppLayout', () => {
     renderLayout(buildUser({ permissions: Permission.ManageUsers, isSystemAdmin: true }))
 
     const nav = within(screen.getByRole('navigation'))
-    for (const name of ['Catálogo', 'Pedidos', 'Clientes', 'Usuarios', 'Sucursales', 'Listas de precios', 'Organizaciones']) {
+    for (const name of ['Tablero', 'Catálogo', 'Pedidos', 'Clientes', 'Usuarios', 'Sucursales', 'Listas de precios', 'Organizaciones']) {
       const link = nav.getByRole('link', { name })
       const icon = link.querySelector('svg')
       expect(icon).not.toBeNull()
@@ -105,6 +106,18 @@ describe('AppLayout', () => {
     expect(nav.getByRole('link', { name: /usuarios/i })).toBeInTheDocument()
     expect(nav.getByRole('link', { name: /sucursales/i })).toBeInTheDocument()
     expect(nav.queryByRole('link', { name: /organizaciones/i })).not.toBeInTheDocument()
+  })
+
+  it('puts the dashboard first in the sidebar for an admin, and hides it from a system admin with no organization', () => {
+    const { unmount } = renderLayout(buildUser({ permissions: Permission.ManageUsers }))
+
+    const links = within(screen.getByRole('navigation')).getAllByRole('link')
+    expect(links[0]).toHaveAccessibleName('Tablero')
+    expect(links[0]).toHaveAttribute('href', '/app/dashboard')
+    unmount()
+
+    renderLayout(buildUser({ isSystemAdmin: true }))
+    expect(within(screen.getByRole('navigation')).queryByRole('link', { name: /tablero/i })).not.toBeInTheDocument()
   })
 
   it('shows Organizations to a system admin', () => {
