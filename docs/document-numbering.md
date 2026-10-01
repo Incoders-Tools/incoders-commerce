@@ -86,6 +86,8 @@ GUIDs remain the internal identity of organizations, branches, installations, sa
 
 Apply them in order, by hand, to every existing environment before deploying the API. Details are in `deploy/README.md`.
 
+`0024` is not backward compatible: it changes the result type of `terminal_registers_assign`, so an API built before it breaks at pairing once it is applied. Apply `0024` and deploy the matching API together. The new API also fails `/health/ready` against a database without `0024`, so neither order can serve traffic half-migrated. Nothing is in production yet.
+
 ## Related
 
 - Specs: `organization-persistence` (Branch Short Code), `pos-installation-identity` (Register Number), `pos-scan-sale` (Sale Number), `branch-offline-sync` (Sale Number Projection).
