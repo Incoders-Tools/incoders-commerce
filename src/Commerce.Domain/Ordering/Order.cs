@@ -38,6 +38,13 @@ public sealed class Order
     public Guid DestinationBranchId { get; }
     public IReadOnlyList<OrderLineSnapshot> Lines { get; }
     public DateTimeOffset SubmittedAtUtc { get; }
+
+    /// <summary>
+    /// The human number (`P01-W-37`) the server assigns when the order is
+    /// stored (document-numbering). Null only for an order that was never
+    /// persisted (in-memory test doubles).
+    /// </summary>
+    public OrderNumber? OrderNumber { get; }
     public OrderDeliveryStatus Status { get; private set; }
     public OrderPendingReason PendingReason { get; private set; }
 
@@ -57,7 +64,8 @@ public sealed class Order
         GuestContact? guestContact,
         Guid destinationBranchId,
         IReadOnlyList<OrderLineSnapshot> lines,
-        DateTimeOffset submittedAtUtc)
+        DateTimeOffset submittedAtUtc,
+        OrderNumber? orderNumber = null)
     {
         if (origin == OrderOrigin.RegisteredCustomer &&
             (customerId is null || customerId == Guid.Empty || guestContact is not null))
@@ -84,6 +92,7 @@ public sealed class Order
         DestinationBranchId = destinationBranchId;
         Lines = lines;
         SubmittedAtUtc = submittedAtUtc;
+        OrderNumber = orderNumber;
         Status = OrderDeliveryStatus.PendingDestination;
         PendingReason = OrderPendingReason.None;
     }
