@@ -23,8 +23,11 @@ public readonly record struct RegisterNumber
         Value = value;
     }
 
+    /// <summary>The letter that precedes the register in a document number (`C2`).</summary>
+    public const string Prefix = "C";
+
     /// <summary>`C2`: the origin segment of a POS document number.</summary>
-    public string Format() => "C" + Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    public string Format() => Prefix + Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
     public override string ToString() => Format();
 }

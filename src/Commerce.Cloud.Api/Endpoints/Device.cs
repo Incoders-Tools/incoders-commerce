@@ -466,7 +466,7 @@ public sealed record RegisterNumbersExhaustedResponse(
     string Error = RegisterNumbersExhaustedResponse.Code,
     string Status = RegisterNumbersExhaustedResponse.Code)
 {
-    public const string Code = "register-numbers-exhausted";
+    public const string Code = Commerce.Domain.Tenancy.RegisterNumbersExhaustedException.ErrorCode;
 }
 
 public sealed record DevicePairRequest(string Email, string Password, Guid InstallationId, Guid? BranchId);

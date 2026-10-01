@@ -31,7 +31,7 @@ public sealed class PosSalesProjectionTests : IDisposable
             foreach (var file in new[]
                      {
                          "0001_init_rls.sql", "0002_users.sql", "0003_organizations_branches.sql", "0021_branch_codes.sql",
-                         "0004_device_credentials.sql", "0022_terminal_registers.sql", "0023_pos_sales.sql",
+                         "0004_device_credentials.sql", "0022_terminal_registers.sql", "0024_terminal_registers_assign_result.sql", "0023_pos_sales.sql",
                      })
             {
                 PostgresTestFixture.ApplyMigration(owner, file);
@@ -311,6 +311,33 @@ public sealed class PosSalesProjectionTests : IDisposable
         Assert.Equal(InboundApplyOutcome.Applied, result.Outcome);
         Assert.Equal(1, Ingested(envelope.OperationId));
         Assert.Equal(0, Scalar<long>("SELECT count(*) FROM pos_sales WHERE operation_id = $1", envelope.OperationId));
+    }
+
+    [Fact]
+    public async Task AnyProjectionFailure_NotOnlyAPostgresOne_StillIngestsTheSale_AndLeavesAnAuditRow()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var (org, branch, user) = await SeedAsync();
+        var terminal = await PairAsync(org, branch, user);
+        var envelope = SaleEnvelope(org, branch, code: 1, register: terminal.Register, sequence: 1);
+
+        PosSaleProjection.FaultInjection = _ => throw new InvalidCastException("injected driver failure");
+        try
+        {
+            var result = Store().TryApplyInbound(terminal.Scope, envelope, terminal.InstallationId);
+
+            Assert.Equal(InboundApplyOutcome.Applied, result.Outcome);
+        }
+        finally
+        {
+            PosSaleProjection.FaultInjection = null;
+        }
+
+        Assert.Equal(1, Ingested(envelope.OperationId));
+        Assert.Equal(0, Scalar<long>("SELECT count(*) FROM pos_sales WHERE operation_id = $1", envelope.OperationId));
+        Assert.Equal(1, Scalar<long>(
+            "SELECT count(*) FROM audit_log WHERE entity_id = $1 AND action = $2", envelope.AggregateId, PosSaleProjection.FailureAction));
     }
 
     [Fact]

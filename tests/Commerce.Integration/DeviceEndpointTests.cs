@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using Commerce.Cloud.Api.Auditing;
 using Commerce.Cloud.Api.Endpoints;
 using Commerce.Cloud.Api.Persistence;
 using Commerce.Cloud.Api.Tenancy;
@@ -78,6 +79,7 @@ public sealed class DeviceEndpointTests : IClassFixture<WebApplicationFactory<Pr
         var deviceSql = File.ReadAllText(Path.Combine(repoRoot, "deploy", "db", "migrations", "0004_device_credentials.sql"));
         using (var cmd = new NpgsqlCommand(deviceSql, owner)) cmd.ExecuteNonQuery();
         PostgresTestFixture.ApplyMigration(owner, "0022_terminal_registers.sql");
+        PostgresTestFixture.ApplyMigration(owner, "0024_terminal_registers_assign_result.sql");
         PostgresTestFixture.ApplyMigration(owner, "0023_pos_sales.sql");
 
         var recoverySql = File.ReadAllText(Path.Combine(repoRoot, "deploy", "db", "migrations", "0005_password_recovery.sql"));
@@ -358,6 +360,32 @@ public sealed class DeviceEndpointTests : IClassFixture<WebApplicationFactory<Pr
 
         Assert.Equal(1, body!.RegisterNumber);
         Assert.Equal(1, again!.RegisterNumber);
+    }
+
+    [Fact]
+    public async Task Identity_AuditsTheNumberItAllocated_AsTheDevice_AndOnlyOnce()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var (token, orgId, _, installationId) = await PairTerminalAsync("identity-audit@example.com");
+        DeviceCredentialStoreTests.ForgetRegisters(installationId);
+
+        await GetIdentityAsync(token);
+        await GetIdentityAsync(token);
+
+        using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        owner.Open();
+        using var cmd = new NpgsqlCommand(
+            "SELECT actor_kind, actor_id, organization_id FROM audit_log " +
+            "WHERE entity_type = 'terminal-register' AND entity_id = $1 AND action = $2 AND actor_kind = $3", owner);
+        cmd.Parameters.AddWithValue(installationId);
+        cmd.Parameters.AddWithValue(PostgresTerminalRegisterStore.AssignedAction);
+        cmd.Parameters.AddWithValue(AuditActorKinds.Device);
+        using var reader = cmd.ExecuteReader();
+        Assert.True(reader.Read(), "no audit row written by the device");
+        Assert.Equal(installationId, reader.GetGuid(1));
+        Assert.Equal(orgId, reader.GetGuid(2));
+        Assert.False(reader.Read(), "the second call must not audit again");
     }
 
     [Fact]

@@ -36,7 +36,7 @@ public sealed class DeviceIdentityClient
                 {
                     // Only the typed body means "no register numbers left"; any other 409 is a generic failure.
                     var conflict = await PosHttp.TryReadJsonAsync<DeviceErrorDto>(response, endpoint, ct);
-                    if (conflict?.Error == "register-numbers-exhausted") return DeviceIdentityOutcome.Failed(PosMessages.RegisterNumbersExhausted);
+                    if (conflict?.Error == Commerce.Domain.Tenancy.RegisterNumbersExhaustedException.ErrorCode) return DeviceIdentityOutcome.Failed(PosMessages.RegisterNumbersExhausted);
                 }
                 return DeviceIdentityOutcome.Failed($"HTTP {(int)response.StatusCode}");
             }

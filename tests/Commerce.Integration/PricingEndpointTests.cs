@@ -87,6 +87,7 @@ public sealed class PricingEndpointTests : IClassFixture<WebApplicationFactory<P
         Apply("0021_branch_codes.sql");
         Apply("0004_device_credentials.sql");
         Apply("0022_terminal_registers.sql");
+        Apply("0024_terminal_registers_assign_result.sql");
         Apply("0009_catalog_and_pricing.sql");
         Apply("0016_catalog_branch_ownership.sql");
         Apply("0017_pricing_branch_ownership.sql");

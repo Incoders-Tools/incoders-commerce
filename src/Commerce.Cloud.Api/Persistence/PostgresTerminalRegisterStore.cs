@@ -24,6 +24,8 @@ public sealed class DeviceCredentialNotLiveException : Exception
 /// </summary>
 public sealed class PostgresTerminalRegisterStore
 {
+    public const string AssignedAction = "terminal.register.assigned";
+
     private readonly NpgsqlDataSource _dataSource;
 
     public PostgresTerminalRegisterStore(NpgsqlDataSource dataSource) => _dataSource = dataSource;
@@ -46,7 +48,9 @@ public sealed class PostgresTerminalRegisterStore
         bool releaseOthers, string actorKind, Guid actorId, CancellationToken ct)
     {
         short? number;
-        await using (var cmd = new NpgsqlCommand("SELECT terminal_registers_assign($1, $2, $3, $4)", connection, tx))
+        bool allocated;
+        await using (var cmd = new NpgsqlCommand(
+            "SELECT assigned_number, newly_allocated FROM terminal_registers_assign($1, $2, $3, $4)", connection, tx))
         {
             cmd.Parameters.AddWithValue(organizationId);
             cmd.Parameters.AddWithValue(branchId);
@@ -54,34 +58,24 @@ public sealed class PostgresTerminalRegisterStore
             cmd.Parameters.AddWithValue(releaseOthers);
             try
             {
-                var scalar = await cmd.ExecuteScalarAsync(ct);
-                number = scalar is short value ? value : null;
+                await using var reader = await cmd.ExecuteReaderAsync(ct);
+                await reader.ReadAsync(ct);
+                number = reader.IsDBNull(0) ? null : reader.GetInt16(0);
+                allocated = reader.GetBoolean(1);
             }
             catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.CheckViolation && ex.ConstraintName == "terminal_registers_number_ck")
             {
                 throw new RegisterNumbersExhaustedException();
             }
         }
-        if (number is null) return null;
 
-        // A row stamped by THIS transaction (assigned_at defaults to now(), the
-        // transaction start) is a new allocation; a re-activation or an
-        // already-live number is not audited.
-        await using (var freshCmd = new NpgsqlCommand(
-            """
-            SELECT assigned_at = now() FROM terminal_registers
-             WHERE organization_id = $1 AND branch_id = $2 AND installation_id = $3
-            """, connection, tx))
+        // The function itself says whether THIS call allocated the number (0024); a re-activation or
+        // an already-live number is not audited.
+        if (number is not null && allocated)
         {
-            freshCmd.Parameters.AddWithValue(organizationId);
-            freshCmd.Parameters.AddWithValue(branchId);
-            freshCmd.Parameters.AddWithValue(installationId);
-            if (await freshCmd.ExecuteScalarAsync(ct) is true)
-            {
-                await AuditLogWriter.InsertAsync(connection, tx, new UserManagementAuditEntry(
-                    actorKind, actorId, organizationId, "terminal-register", installationId, "terminal.register.assigned",
-                    null, $"{{\"branchId\":\"{branchId}\",\"registerNumber\":{number}}}"), ct);
-            }
+            await AuditLogWriter.InsertAsync(connection, tx, new UserManagementAuditEntry(
+                actorKind, actorId, organizationId, "terminal-register", installationId, AssignedAction,
+                null, $"{{\"branchId\":\"{branchId}\",\"registerNumber\":{number}}}"), ct);
         }
         return number;
     }
@@ -117,7 +111,7 @@ public sealed class PostgresTerminalRegisterStore
         if (name is null) return null;
 
         var register = await AssignAsync(
-            connection, tx, scope.OrganizationId, branchId, installationId, releaseOthers: false, "device", installationId, ct)
+            connection, tx, scope.OrganizationId, branchId, installationId, releaseOthers: false, AuditActorKinds.Device, installationId, ct)
             ?? throw new DeviceCredentialNotLiveException();
         await tx.CommitAsync(ct);
         return new TerminalIdentity(name, code, register);

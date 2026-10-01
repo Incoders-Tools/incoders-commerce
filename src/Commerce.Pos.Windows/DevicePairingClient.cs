@@ -60,7 +60,7 @@ public sealed class DevicePairingClient
                     return PairingOutcome.Failed(PosMessages.SelectedBranchNotInScope);
                 case "operator-not-permitted":
                     return PairingOutcome.Failed(PosMessages.OperatorNotPermitted);
-                case "register-numbers-exhausted":
+                case Commerce.Domain.Tenancy.RegisterNumbersExhaustedException.ErrorCode:
                     return PairingOutcome.Failed(PosMessages.RegisterNumbersExhausted);
                 default:
                     PosHttp.LogFailure(endpoint, response, $"unrecognized pairing status '{body.Status}'");

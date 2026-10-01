@@ -6,4 +6,8 @@ namespace Commerce.Domain.Tenancy;
 /// a typed 409 (`register-numbers-exhausted`).
 /// </summary>
 public sealed class RegisterNumbersExhaustedException()
-    : InvalidOperationException($"The branch has no register numbers left (maximum {RegisterNumber.MaxValue}).");
+    : InvalidOperationException($"The branch has no register numbers left (maximum {RegisterNumber.MaxValue}).")
+{
+    /// <summary>The typed error code of that 409, shared by the API and the POS clients.</summary>
+    public const string ErrorCode = "register-numbers-exhausted";
+}

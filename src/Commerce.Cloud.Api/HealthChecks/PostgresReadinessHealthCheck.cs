@@ -260,6 +260,7 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
                     EXISTS (
                         SELECT 1 FROM pg_proc
                         WHERE proname = 'terminal_registers_assign' AND pronargs = 4
+                          AND 'newly_allocated' = ANY(proargnames)  -- result shape of 0024
                     ) AS terminal_registers_assign_exists
                 """, connection);
 
@@ -377,7 +378,7 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
 
             if (!(branchesCodeColumnExists && terminalRegistersTableExists && terminalRegistersRlsForced && terminalRegistersAssignExists))
             {
-                _logger?.LogError("Readiness failed: migration 0021/0022 missing (branches.code={Code}, terminal_registers={Table}, rls_forced={Rls}, terminal_registers_assign={Fn}); device pairing would fail. Apply deploy/db/migrations before this API version.",
+                _logger?.LogError("Readiness failed: migration 0021/0022/0024 missing (branches.code={Code}, terminal_registers={Table}, rls_forced={Rls}, terminal_registers_assign={Fn}); device pairing would fail. Apply deploy/db/migrations before this API version.",
                     branchesCodeColumnExists, terminalRegistersTableExists, terminalRegistersRlsForced, terminalRegistersAssignExists);
             }
 

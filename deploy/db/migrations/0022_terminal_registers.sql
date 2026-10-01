@@ -127,6 +127,10 @@ CREATE TRIGGER terminal_registers_identity_immutable
 -- An earlier draft of this migration had a 3-argument signature; drop it so a
 -- database that ran the draft does not end up with two overloads (ambiguous calls).
 DROP FUNCTION IF EXISTS terminal_registers_assign(uuid, uuid, uuid);
+-- Also drop the 4-argument form: 0024 changes its result type, and CREATE OR
+-- REPLACE cannot go back, so re-running this migration after 0024 (test
+-- fixtures replay the whole chain) must start from nothing. 0024 re-creates it.
+DROP FUNCTION IF EXISTS terminal_registers_assign(uuid, uuid, uuid, boolean);
 
 CREATE OR REPLACE FUNCTION terminal_registers_assign(
     p_organization_id uuid, p_branch_id uuid, p_installation_id uuid, p_release_others boolean DEFAULT true)

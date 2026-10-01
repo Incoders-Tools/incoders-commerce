@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Commerce.Cloud.Api.Auditing;
+using Commerce.Domain.Sales;
 using Commerce.Domain.Sync;
 using Commerce.Domain.Sync.Payloads;
 using Commerce.Domain.Tenancy;
@@ -24,6 +25,7 @@ namespace Commerce.Cloud.Api.Persistence;
 internal static class PosSaleProjection
 {
     public const string ConflictAction = "sale.number_conflict";
+    public const string FailureAction = "sale.projection_failed";
 
     private const string Savepoint = "pos_sale_projection";
 
@@ -38,15 +40,55 @@ internal static class PosSaleProjection
         await tx.SaveAsync(Savepoint, ct);
         try
         {
+            if (FaultInjection is { } inject) await inject(payload);
             await ProjectCoreAsync(connection, tx, envelope, payload, installationId, ct);
             await tx.ReleaseAsync(Savepoint, ct);
         }
-        catch (PostgresException ex)
+        // Numbering must never block ingestion, so ANY failure of the projection (a Postgres error, a
+        // driver or cast error, ...) is contained. Only a cancelled request, which abandons the whole
+        // inbox transaction anyway, and a dead process are allowed through.
+        catch (Exception ex) when (!ct.IsCancellationRequested && ex is not OutOfMemoryException)
         {
             await tx.RollbackAsync(Savepoint, ct);
             logger?.LogWarning(ex,
-                "Sale {SaleId} was ingested but not projected into pos_sales ({SqlState}); is migration 0023 applied?",
-                payload.SaleId, ex.SqlState);
+                "Sale {SaleId} was ingested but not projected into pos_sales ({Failure}); is migration 0023 applied?",
+                payload.SaleId, ex is PostgresException pg ? pg.SqlState : ex.GetType().Name);
+
+            // A missing table (API ahead of 0023) is a deployment state, not a per-sale event.
+            if (ex is not PostgresException { SqlState: PostgresErrorCodes.UndefinedTable })
+            {
+                await TryAuditFailureAsync(connection, tx, envelope, payload, installationId, ex, logger, ct);
+            }
+        }
+    }
+
+    /// <summary>Test seam: runs inside the guarded region, before the projection, so a test can make it fail.</summary>
+    internal static Func<SalePayloadV1, Task>? FaultInjection { get; set; }
+
+    /// <summary>Best effort and itself savepointed: a failing audit insert must not abort the inbox transaction.</summary>
+    private static async Task TryAuditFailureAsync(
+        NpgsqlConnection connection, NpgsqlTransaction tx, SyncEnvelope envelope, SalePayloadV1 payload,
+        Guid? installationId, Exception failure, ILogger? logger, CancellationToken ct)
+    {
+        const string auditSavepoint = "pos_sale_projection_audit";
+        await tx.SaveAsync(auditSavepoint, ct);
+        try
+        {
+            var entry = Audit(envelope, payload, installationId, FailureAction, new
+            {
+                reason = "projection-error",
+                error = failure.GetType().Name,
+                branchId = envelope.BranchId,
+                installationId,
+                operationId = envelope.OperationId,
+            });
+            await AuditLogWriter.InsertAsync(connection, tx, entry, ct);
+            await tx.ReleaseAsync(auditSavepoint, ct);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested && ex is not OutOfMemoryException)
+        {
+            await tx.RollbackAsync(auditSavepoint, ct);
+            logger?.LogWarning(ex, "The projection failure of sale {SaleId} could not be audited.", payload.SaleId);
         }
     }
 
@@ -167,9 +209,9 @@ internal static class PosSaleProjection
     private static UserManagementAuditEntry ConflictAudit(SyncEnvelope envelope, SalePayloadV1 payload, Guid? installationId, string reason)
     {
         var claimedNumber = payload.BranchCode is { } b && payload.RegisterNumber is { } r && payload.SaleSequence is { } s
-            ? $"V{b:00}-C{r}-{s}"
+            ? $"{SaleNumber.TypeLetter}{b:00}-{RegisterNumber.Prefix}{r}-{s}"
             : null;
-        var detail = JsonSerializer.Serialize(new
+        return Audit(envelope, payload, installationId, ConflictAction, new
         {
             reason,
             claimedNumber,
@@ -177,14 +219,17 @@ internal static class PosSaleProjection
             installationId,
             operationId = envelope.OperationId,
         });
-        return new UserManagementAuditEntry(
-            ActorKind: "org-user",
+    }
+
+    private static UserManagementAuditEntry Audit(
+        SyncEnvelope envelope, SalePayloadV1 payload, Guid? installationId, string action, object detail) =>
+        new(
+            ActorKind: AuditActorKinds.OrgUser,
             ActorId: envelope.ActorId,
             OrganizationId: envelope.OrganizationId,
             EntityType: "sale",
             EntityId: payload.SaleId,
-            Action: ConflictAction,
+            Action: action,
             OldValueJson: null,
-            NewValueJson: detail);
-    }
+            NewValueJson: JsonSerializer.Serialize(detail));
 }
