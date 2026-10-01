@@ -6,14 +6,6 @@ using Commerce.Domain.Sync.Payloads;
 
 namespace Commerce.Cloud.Api.Ordering;
 
-public enum OrderSubmissionOutcomeStatus
-{
-    Accepted,
-    Denied
-}
-
-public sealed record OrderSubmissionOutcome(OrderSubmissionOutcomeStatus Status, string Reason, Order? Order, bool WasNewlyAccepted);
-
 /// <summary>
 /// Cloud-side order acceptance and destination delivery (design.md data flow:
 /// "Customer web -> Cloud order/outbox -> Branch inbox/effect -> ACK"). Reuses
