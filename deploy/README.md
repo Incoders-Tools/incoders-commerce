@@ -682,3 +682,11 @@ Apply `0025_orders.sql` after `0021`. It adds `orders` and `order_lines`, so web
 - `FORCE ROW LEVEL SECURITY` with the tenant-isolation policy on both tables. `app_runtime` has SELECT and INSERT, plus UPDATE on `orders.status` and `orders.pending_reason` only; no DELETE.
 - Deploy order: apply `0025` BEFORE the API version that stores orders. `/health/ready` requires both tables, forced RLS and the policies and logs `migration 0025 missing`, so an API deployed ahead of it never takes traffic. There is no backfill: orders held only in the memory of a previous API process are lost at the restart that deploys this version (nothing is in production yet).
 - Idempotent (a re-run changes nothing). The inverse is documented as a comment at the top of the file. `deploy/dev/db/init-rls.sql` carries a verbatim copy. The dev database has no migration tracking: apply the file by hand, as owner.
+
+### persist-web-orders — `0026_orders_guest_check.sql`
+
+Apply `0026_orders_guest_check.sql` after `0025`. The guest branch of `orders_origin_identity_ck` (0025) compared `btrim(x) <> ''` without `IS NOT NULL`, so a guest order with a NULL document id, contact address or display name passed the CHECK (a NULL result passes). `0026` drops and re-adds the constraint with every mandatory guest part written as `IS NOT NULL AND btrim(x) <> ''`; the registered-customer branch is unchanged.
+
+- A shipped migration is never edited, so `0025` stays as applied and `0026` corrects it. Re-adding the constraint validates the existing rows; every stored order came through the domain constructor, so none can fail.
+- Deploy order: apply it after `0025` and before or together with the API version that reads orders; the API behaves the same either way (the domain already rejected those rows), so `/health/ready` does not check it.
+- Idempotent (a re-run drops and re-adds the same constraint). The inverse is documented as a comment at the top of the file. `deploy/dev/db/init-rls.sql` carries a verbatim copy. Apply by hand, as owner.

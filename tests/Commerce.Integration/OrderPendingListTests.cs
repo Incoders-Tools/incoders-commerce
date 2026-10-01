@@ -97,6 +97,7 @@ public sealed class OrderPendingListTests : IDisposable
         Apply("0009_catalog_and_pricing.sql");
         Apply("0010_guest_ordering.sql");
         Apply("0025_orders.sql");
+        Apply("0026_orders_guest_check.sql");
 
         using var resetCmd = new NpgsqlCommand(
             "TRUNCATE TABLE order_lines, orders, guest_order_verifications, price_import_rows, price_import_batches, " +

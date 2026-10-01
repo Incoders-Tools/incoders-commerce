@@ -3,14 +3,14 @@ using Npgsql;
 namespace Commerce.Integration;
 
 /// <summary>
-/// `0025_orders.sql`: web orders live in Postgres (`orders`, `order_lines`) and carry the human
+/// `0025_orders.sql` and `0026_orders_guest_check.sql`: web orders live in Postgres (`orders`, `order_lines`) and carry the human
 /// number `P{branch}-W-{sequence}` as (branch_code, sequence). Runs in a throwaway database on top
 /// of every earlier migration so the schema contract is proven independently of the store.
 /// </summary>
 [Collection("Postgres")]
 public sealed class OrdersMigrationTests
 {
-    private const string MigrationFile = "0025_orders.sql";
+    private const string MigrationFile = "0026_orders_guest_check.sql";
     private readonly bool _postgresAvailable = PostgresTestFixture.TryPing(PostgresTestFixture.OwnerConnectionString);
 
     private static void Exec(NpgsqlConnection conn, string sql, params object[] args)
@@ -29,7 +29,7 @@ public sealed class OrdersMigrationTests
 
     private static void WithScratchDatabase(Action<NpgsqlConnection> body)
     {
-        var dbName = "or0025_" + Guid.NewGuid().ToString("N");
+        var dbName = "or0026_" + Guid.NewGuid().ToString("N");
         using (var admin = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
         {
             admin.Open();
@@ -82,6 +82,19 @@ public sealed class OrdersMigrationTests
             (object?)customerId ?? DBNull.Value, (object?)guestDocument ?? DBNull.Value, branchCode, sequence);
     }
 
+    private static void InsertGuestOrder(NpgsqlConnection conn, Guid org, Guid branch, int sequence,
+        string? document, string? channel, string? address, string? name)
+    {
+        Exec(conn,
+            """
+            INSERT INTO orders (organization_id, order_id, destination_branch_id, origin, guest_document_id, guest_channel,
+                                guest_contact_address, guest_display_name, status, pending_reason, branch_code, sequence, submitted_at_utc)
+            VALUES ($1, $2, $3, 'Guest', $4, $5, $6, $7, 'PendingDestination', 'DestinationOffline', 1, $8, now())
+            """,
+            org, Guid.NewGuid(), branch, (object?)document ?? DBNull.Value, (object?)channel ?? DBNull.Value,
+            (object?)address ?? DBNull.Value, (object?)name ?? DBNull.Value, sequence);
+    }
+
     [Fact]
     public void BothTables_AreForcedRls_AndAppRuntimeGrantsAreMinimal()
     {
@@ -119,6 +132,7 @@ public sealed class OrdersMigrationTests
             var (org, branch) = SeedOrgAndBranch(conn);
             InsertOrder(conn, org, branch, Guid.NewGuid(), 1, customerId: Guid.NewGuid());
 
+            PostgresTestFixture.ApplyMigration(conn, "0025_orders.sql");
             PostgresTestFixture.ApplyMigration(conn, MigrationFile);
 
             Assert.Equal(1L, Scalar<long>(conn, "SELECT count(*) FROM orders"));
@@ -202,6 +216,34 @@ public sealed class OrdersMigrationTests
             finally
             {
                 Exec(conn, "RESET ROLE");
+            }
+        });
+    }
+
+    [Fact]
+    public void AGuestOrder_NeedsEveryMandatoryPart_NullAndBlankAreRejectedIndividually()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        WithScratchDatabase(conn =>
+        {
+            var (org, branch) = SeedOrgAndBranch(conn);
+
+            // A complete guest contact is accepted.
+            InsertGuestOrder(conn, org, branch, 1, "30111222", "Email", "ana@example.com", "Ana");
+
+            var seq = 2;
+            foreach (var (document, channel, address, name) in new (string?, string?, string?, string?)[]
+                     {
+                         (null, "Email", "a@b.c", "Ana"), ("  ", "Email", "a@b.c", "Ana"),
+                         ("30111222", null, "a@b.c", "Ana"),
+                         ("30111222", "Email", null, "Ana"), ("30111222", "Email", "", "Ana"),
+                         ("30111222", "Email", "a@b.c", null), ("30111222", "Email", "a@b.c", "  "),
+                     })
+            {
+                var sequence = seq++;
+                AssertViolation(PostgresErrorCodes.CheckViolation,
+                    () => InsertGuestOrder(conn, org, branch, sequence, document, channel, address, name));
             }
         });
     }
