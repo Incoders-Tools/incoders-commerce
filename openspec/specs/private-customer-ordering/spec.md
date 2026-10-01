@@ -274,3 +274,46 @@ stored and never an unhandled error.
 - WHEN an order is submitted to it
 - THEN the outcome is denied as `destination-branch-not-found` and nothing
   is stored
+
+### Requirement: Delivery Follows the Commit
+
+Delivery of an accepted order to its destination branch MUST happen only
+after the order's transaction has committed, so a rolled-back submission
+never leaves the branch holding an order the cloud does not have. The order
+is stored pending (`DestinationOffline`) first and its delivery state is
+persisted afterwards; a failure at that step leaves the order stored and
+pending, never lost, and a later retry repeats the delivery idempotently.
+The pending list MUST contain only orders still pending for the destination,
+in deterministic order, and MUST be bounded (default 200, at most 500).
+
+#### Scenario: A rolled-back submission delivers nothing
+
+- GIVEN an order whose line insert fails inside the transaction
+- WHEN the submission is attempted with a reachable destination
+- THEN no order is stored and the destination branch received nothing
+
+#### Scenario: A delivery that cannot be persisted keeps the order
+
+- GIVEN the delivery state of an accepted order cannot be written
+- WHEN the order is read back
+- THEN it exists, pending as `DestinationOffline`, and a later retry confirms it
+
+#### Scenario: The pending list is bounded
+
+- GIVEN more pending orders than the requested limit and one confirmed order
+- WHEN the pending list is read
+- THEN at most the limit is returned, ordered by dispatch rank, submission
+  time and number, and the confirmed order is not listed
+
+### Requirement: Order Payload Carries the Number
+
+The order delivered to a branch MUST carry its human number as an optional
+trailing `OrderNumber` field of the order payload (additive evolution: null
+on an order written before numbering, ignored by a branch that does not know
+it).
+
+#### Scenario: A delivered order carries its number
+
+- GIVEN an accepted order numbered `P01-W-1` and a reachable destination
+- WHEN the branch inbox is read
+- THEN the stored payload carries `OrderNumber` `P01-W-1`

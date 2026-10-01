@@ -142,3 +142,41 @@ branch, which MUST belong to its configured organization.
 - GIVEN the guest surface is configured for Vaca Verde's "Ruta 51"
 - WHEN a guest browses the catalog
 - THEN only Ruta 51's presentations and prices are shown
+
+### Requirement: Guest Verification Is Spent With the Order
+
+A guest's confirmed email verification MUST be consumed in the same database
+transaction that stores the order, so a submission that fails (unknown
+branch, failed insert) never burns the verification, and one confirmation
+admits exactly one order, even when submissions race. Resubmitting an order
+id that was already admitted MUST return the stored order without spending
+anything, but only when the request presents the very ticket that admitted
+it; any other ticket MUST be rejected as `verification-invalid`, so a stray
+ticket cannot read orders back. The database MUST also reject a guest order
+whose document id, contact address or display name is NULL or blank.
+
+#### Scenario: A failed submission leaves the verification usable
+
+- GIVEN a confirmed verification and an order whose destination branch does
+  not exist
+- WHEN the order is submitted
+- THEN the outcome is denied as `destination-branch-not-found` and the
+  verification is still unconsumed
+
+#### Scenario: One verification admits one order
+
+- GIVEN one confirmed verification
+- WHEN several different orders are submitted with it at the same time
+- THEN exactly one is accepted and the others are `verification-invalid`
+
+#### Scenario: A retry with the admitting ticket returns the same order
+
+- GIVEN a guest order admitted with a verification
+- WHEN the same order id is submitted again with that verification
+- THEN the same order and number are returned and nothing is spent again
+
+#### Scenario: A guest order without a contact part is rejected by the database
+
+- GIVEN an insert of a guest order whose contact address is NULL
+- WHEN the database evaluates it
+- THEN it fails the check constraint (as does a blank document id or display name)

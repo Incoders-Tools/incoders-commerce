@@ -191,3 +191,18 @@ recording a payment for a subject owned by another branch MUST be rejected.
 - GIVEN payments recorded for orders of "Ruta 51" and "Centro"
 - WHEN a settlement is queried with "Ruta 51" selected
 - THEN only Ruta 51's payment entries contribute
+
+### Requirement: Payments Reference a Durable Order by Id, Never by Number
+
+A payment MUST reference its order by the order's id. The human order number
+(`P01-W-37`) is a display and reporting label only: it MUST NOT be used as a
+payment's reference or key. Orders are durable (stored in the database with
+their number when accepted), so a payment recorded before an API restart
+still resolves its order afterwards.
+
+#### Scenario: A payment survives a restart with its order
+
+- GIVEN a payment recorded against an accepted, numbered order
+- WHEN the API restarts
+- THEN the payment still resolves its order by id and the order keeps the
+  same number
