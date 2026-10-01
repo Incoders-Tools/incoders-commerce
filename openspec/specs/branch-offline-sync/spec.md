@@ -195,6 +195,11 @@ lets the contract evolve, or the shape is frozen with that freeze
 decision and its reasoning recorded. A payload kind's shape MUST NOT
 change silently underneath rows already in flight.
 
+The `sale` payload (`SalePayloadV1`) evolves ADDITIVELY: the human sale number
+travels as the optional trailing fields `BranchCode`, `RegisterNumber` and
+`SaleSequence`, all absent on a payload written before numbering existed or by a
+terminal that did not know its register, and an older reader ignores them.
+
 #### Scenario: In-flight rows survive a payload-kind evolution decision
 
 - GIVEN an outbox or inbox row is enqueued under one version of a
@@ -297,3 +302,57 @@ never from the request.
   "Ruta 51" and "Centro"
 - WHEN the POS runs its catalog sync
 - THEN only Ruta 51's products and prices are delivered
+
+### Requirement: Sale Number Projection
+
+The inbox transaction MUST project every `sale` envelope into `pos_sales`
+(organization, branch, sale id, register number, sale sequence, operation id,
+occurred-at, total) and MUST verify the human sale number the terminal claimed.
+The terminal generates numbers offline, so the server verifies and never
+assigns: a claim is accepted only when it is complete and in range, the branch
+code matches the branch, the calling installation (read from the device
+credential's claims, never from the envelope) held that register in that
+branch according to the register registry (a released row still counts, because
+a sale may sync after its terminal moved), and no other sale of the branch holds
+the number. The pair (organization, branch, register, sequence) MUST be unique
+for numbered sales; unnumbered sales are exempt.
+
+A claim that fails any check, a number already used, or a claim that cannot be
+verified MUST store the sale with NO number and write an audit row
+`sale.number_conflict` carrying the reason; it MUST NEVER block ingestion, and
+neither may an unreadable sale payload or a missing `pos_sales` table (the
+projection runs in a savepoint and is skipped with a log line, the inbox row is
+always kept). A payload without number fields is projected unnumbered with no
+conflict. Redelivery MUST NOT project twice. `pos_sales` is append-only and
+tenant-isolated by row level security.
+
+#### Scenario: A verified number is stored
+
+- GIVEN a terminal that holds register 2 of Branch 1
+- WHEN it syncs a sale claiming `V01-C2-125`
+- THEN `pos_sales` holds the sale with register 2 and sequence 125
+
+#### Scenario: A register of another terminal is a conflict, not a block
+
+- GIVEN a sale claims a register held by a different installation
+- WHEN it is ingested
+- THEN the sale is accepted and stored without a number
+- AND an audit row `sale.number_conflict` records the reason
+
+#### Scenario: A duplicate number keeps the first sale
+
+- GIVEN a sale already holds `V01-C2-5`
+- WHEN another sale claims `V01-C2-5`
+- THEN the second is ingested without a number and a conflict is audited
+
+#### Scenario: A sale synced after the terminal moved keeps its number
+
+- GIVEN a sale was made under register 1 of Branch A and the terminal then moved to Branch B
+- WHEN the sale is synced
+- THEN its number is stored, because the registry kept that installation's row
+
+#### Scenario: Ingestion survives a missing projection table
+
+- GIVEN `pos_sales` does not exist yet
+- WHEN a sale envelope is delivered
+- THEN it is ingested and acknowledged as usual

@@ -304,3 +304,75 @@ reference the open session.
 - GIVEN the terminal has no open cash session
 - WHEN a sale is committed by either path
 - THEN it is refused and nothing is recorded
+
+### Requirement: Sale Number
+
+Every sale committed by a terminal that knows its branch code and register
+number MUST get a human sale number `V{branch}-C{register}-{sequence}` (for
+example `V01-C2-125`): `V` is the document type (venta), `{branch}` is the
+branch code with at least two digits, `C{register}` is the terminal's register
+number (not zero-padded) and `{sequence}` counts that register's sales from 1
+without padding. The sequence MUST come from a local counter keyed by (branch,
+register) that lives in the SAME local transaction as the sale, taken AFTER the
+idempotency check and the open-cash-session check, so the number commits or rolls
+back with the sale, an idempotent retry returns the ORIGINAL number without
+advancing the counter, and a refused sale never burns one. A missing counter row
+MUST be seeded from the highest sequence already stored for that (branch,
+register), so a lost row can never repeat a number. Numbering works offline.
+
+A terminal that does not know its register yet (paired before numbering existed
+and not refreshed since) MUST still commit the sale, WITHOUT a number; the
+number MUST NEVER be assigned or changed afterwards, and sales made before
+numbering existed keep no number. The sale record carries the branch code,
+register number and sequence as nullable columns, and the queued `sale` payload
+carries them as optional trailing fields (see branch-offline-sync, "Payload-Kind
+Versioning").
+
+After a sale the POS MUST name it by its number and never by its GUID or by the
+local database file: `Venta V01-C1-125 registrada por $X (Efectivo).`, or, while
+the number is pending, `Venta registrada por $X (Efectivo, número pendiente).`.
+The result line MUST carry a tooltip explaining the composition: `V = Venta ·
+01 = Sucursal · C1 = Caja 1 · 125 = número de venta de esta caja`. The terminal
+MUST NOT wait for the network to commit a sale: when its identity is still
+unknown the sale is committed unnumbered and a background refresh is started so
+the next sale is numbered.
+
+#### Scenario: Consecutive sales get consecutive numbers
+
+- GIVEN a terminal of Branch 1 holding register 2
+- WHEN it commits two sales
+- THEN they are numbered `V01-C2-1` and `V01-C2-2`
+- AND the numbers are stored with the sales and carried in the queued payloads
+
+#### Scenario: The counter is per branch and register
+
+- GIVEN a terminal that sold under register 2 and is later paired as register 3
+- WHEN it commits a sale
+- THEN the sale is `V01-C3-1`
+- AND going back to register 2 continues that register's own sequence
+
+#### Scenario: An idempotent retry keeps its number
+
+- GIVEN a sale committed as `V01-C2-1`
+- WHEN the same operation is committed again
+- THEN the original sale and number are returned and the counter does not advance
+
+#### Scenario: Unknown register means no number
+
+- GIVEN a terminal that does not know its register number
+- WHEN it commits a sale
+- THEN the sale is committed with no number and no counter is created
+- AND the message says the number is pending
+- AND once the register is known later sales are numbered and earlier ones stay unnumbered
+
+#### Scenario: A lost counter is seeded from the stored maximum
+
+- GIVEN the counter row of a register is missing and its highest stored sequence is 3
+- WHEN a sale is committed
+- THEN it is numbered with sequence 4
+
+#### Scenario: The sale message never shows a GUID
+
+- WHEN a sale is committed
+- THEN the message shows the sale number (or that it is pending), the total and the tender
+- AND it contains neither the sale GUID nor the local database file name

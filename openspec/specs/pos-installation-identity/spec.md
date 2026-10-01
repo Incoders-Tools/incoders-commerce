@@ -191,6 +191,19 @@ the identity simply stays unknown: the terminal keeps working and the screens
 show only what is known. Terminals paired before this requirement are
 backfilled per branch in credential issue order.
 
+Only a pairing releases a register: `GET /device/identity` MUST re-verify, in
+its own transaction, that a live credential still binds the installation to the
+branch it answers for, only fills in a missing number for that branch, and
+answers 401 (writing nothing, releasing nothing) when a re-pairing revoked the
+credential meanwhile. Both `register-numbers-exhausted` conflicts (pairing and
+identity) share one typed body (`{ "error": "register-numbers-exhausted" }`;
+the pairing body also repeats it as `status`), and a terminal maps a `409` to
+the exhausted message ONLY when the body carries that error. Every newly
+allocated number is audited (`terminal.register.assigned`) and `POST
+/device/pair` is rate limited per client IP, because each new installation id
+consumes a number for good (residual risk: rotating IPs with valid operator
+credentials can still exhaust a branch; the audit makes it visible).
+
 #### Scenario: First pairing gets the next number of its branch
 
 - GIVEN Branch 1 already has terminals holding registers 1 and 2
@@ -240,3 +253,19 @@ backfilled per branch in credential issue order.
 - THEN pairing answers `409` with status `register-numbers-exhausted`
 - AND no credential is issued and the installation's previous credential
   stays valid
+
+#### Scenario: A late identity call cannot undo a re-pairing
+
+- GIVEN an identity call authenticated with the Branch B credential is still
+  running
+- WHEN the terminal re-pairs to Branch A (revoking the Branch B credential)
+- THEN the late call answers 401, allocates nothing in Branch B and releases
+  nothing in Branch A
+
+#### Scenario: A failed re-pairing keeps the previous registration intact
+
+- GIVEN an installation holds a live credential and register 2 in Branch A
+- AND Branch B has no register numbers left
+- WHEN the installation is paired to Branch B
+- THEN pairing answers `409` and the Branch A credential stays live
+- AND its register in Branch A is not released
