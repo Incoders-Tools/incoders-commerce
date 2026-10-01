@@ -112,7 +112,7 @@ public sealed class PostgresReadinessHealthCheckTests : IClassFixture<WebApplica
                      "0002_users.sql", "0003_organizations_branches.sql",
                      "0004_device_credentials.sql", "0005_password_recovery.sql",
                      "0006_role_taxonomy.sql", "0021_branch_codes.sql", "0022_terminal_registers.sql",
-                     "0024_terminal_registers_assign_result.sql",
+                     "0024_terminal_registers_assign_result.sql", "0025_orders.sql",
                  })
         {
             var sql = File.ReadAllText(Path.Combine(RepoRoot(), "deploy", "db", "migrations", file));
@@ -617,6 +617,49 @@ public sealed class PostgresReadinessHealthCheckTests : IClassFixture<WebApplica
 
             Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
             Assert.Contains(logs.Errors, message => message.Contains("migration 0021/0022/0024 missing", StringComparison.Ordinal));
+        }
+        finally
+        {
+            using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+            owner.Open();
+            ApplyAllMigrations(owner);
+        }
+    }
+
+    /// <summary>
+    /// persist-web-orders. Every order submission reads and writes `orders`/`order_lines`; an API
+    /// deployed ahead of migration 0025 would answer each one with a 500 (and lose the order).
+    /// Readiness makes that visible instead and names the migration.
+    /// </summary>
+    [Theory]
+    [InlineData("DROP TABLE IF EXISTS order_lines, orders CASCADE")]
+    [InlineData("DROP TABLE IF EXISTS order_lines")]
+    [InlineData("DROP POLICY IF EXISTS orders_tenant_isolation ON orders")]
+    [InlineData("DROP POLICY IF EXISTS order_lines_tenant_isolation ON order_lines")]
+    [InlineData("ALTER TABLE orders NO FORCE ROW LEVEL SECURITY")]
+    public async Task HealthReady_IsUnhealthy_BeforeOrdersMigrationApplied_AndNamesTheMigration(string drift)
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            owner.Open();
+            ApplyAllMigrations(owner);
+            using var dropCmd = new NpgsqlCommand(drift, owner);
+            dropCmd.ExecuteNonQuery();
+        }
+
+        try
+        {
+            var logs = new CapturedLogs();
+            var client = _factory
+                .WithWebHostBuilder(b => b.ConfigureServices(services => services.AddSingleton<ILoggerProvider>(logs)))
+                .CreateClient();
+
+            var response = await client.GetAsync("/health/ready");
+
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+            Assert.Contains(logs.Errors, message => message.Contains("migration 0025 missing", StringComparison.Ordinal));
         }
         finally
         {

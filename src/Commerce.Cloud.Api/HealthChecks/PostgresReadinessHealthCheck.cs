@@ -261,7 +261,27 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
                         SELECT 1 FROM pg_proc
                         WHERE proname = 'terminal_registers_assign' AND pronargs = 4
                           AND 'newly_allocated' = ANY(proargnames)  -- result shape of 0024
-                    ) AS terminal_registers_assign_exists
+                    ) AS terminal_registers_assign_exists,
+                    -- Web orders (0025). Every submission writes orders/order_lines;
+                    -- an API deployed ahead of the migration would 500 on each order.
+                    EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'orders') AS orders_table_exists,
+                    EXISTS (
+                        SELECT 1 FROM pg_class
+                        WHERE relname = 'orders' AND relrowsecurity AND relforcerowsecurity
+                    ) AS orders_rls_forced,
+                    EXISTS (
+                        SELECT 1 FROM pg_policies
+                        WHERE tablename = 'orders' AND policyname = 'orders_tenant_isolation'
+                    ) AS orders_policy_exists,
+                    EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'order_lines') AS order_lines_table_exists,
+                    EXISTS (
+                        SELECT 1 FROM pg_class
+                        WHERE relname = 'order_lines' AND relrowsecurity AND relforcerowsecurity
+                    ) AS order_lines_rls_forced,
+                    EXISTS (
+                        SELECT 1 FROM pg_policies
+                        WHERE tablename = 'order_lines' AND policyname = 'order_lines_tenant_isolation'
+                    ) AS order_lines_policy_exists
                 """, connection);
 
             await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
@@ -337,6 +357,14 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
             var terminalRegistersTableExists = reader.GetBoolean(65);
             var terminalRegistersRlsForced = reader.GetBoolean(66);
             var terminalRegistersAssignExists = reader.GetBoolean(67);
+            var ordersTableExists = reader.GetBoolean(68);
+            var ordersRlsForced = reader.GetBoolean(69);
+            var ordersPolicyExists = reader.GetBoolean(70);
+            var orderLinesTableExists = reader.GetBoolean(71);
+            var orderLinesRlsForced = reader.GetBoolean(72);
+            var orderLinesPolicyExists = reader.GetBoolean(73);
+            var ordersSchemaOk = ordersTableExists && ordersRlsForced && ordersPolicyExists
+                && orderLinesTableExists && orderLinesRlsForced && orderLinesPolicyExists;
 
             var allHealthy = syncInboxTableExists && syncInboxRlsForced && syncInboxPolicyExists && roleExists
                 && usersTableExists && usersRlsForced && usersPolicyExists
@@ -364,7 +392,8 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
                 && paymentEntriesTableExists && paymentEntriesRlsForced && paymentEntriesPolicyExists
                 && rateComponentSetsTableExists && rateComponentSetsRlsForced && rateComponentSetsPolicyExists
                 && rateComponentsTableExists && rateComponentsRlsForced && rateComponentsPolicyExists
-                && branchesCodeColumnExists && terminalRegistersTableExists && terminalRegistersRlsForced && terminalRegistersAssignExists;
+                && branchesCodeColumnExists && terminalRegistersTableExists && terminalRegistersRlsForced && terminalRegistersAssignExists
+                && ordersSchemaOk;
 
             if (allHealthy)
             {
@@ -372,7 +401,7 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
                     "sync_inbox, users, user_directory, organizations, branches, device_credentials, " +
                     "password_reset_tokens, audit_log, customers, customer_ordering_access, " +
                     "products, presentations, price_lists, price_list_entries, guest_order_verifications, " +
-                    "payment_entries, rate_component_sets, rate_components, and terminal_registers tables, forced RLS, " +
+                    "payment_entries, rate_component_sets, rate_components, terminal_registers, orders, and order_lines tables, forced RLS, " +
                     "tenant-isolation policies, and app_runtime/platform_readonly roles all verified.");
             }
 
@@ -380,6 +409,12 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
             {
                 _logger?.LogError("Readiness failed: migration 0021/0022/0024 missing (branches.code={Code}, terminal_registers={Table}, rls_forced={Rls}, terminal_registers_assign={Fn}); device pairing would fail. Apply deploy/db/migrations before this API version.",
                     branchesCodeColumnExists, terminalRegistersTableExists, terminalRegistersRlsForced, terminalRegistersAssignExists);
+            }
+
+            if (!ordersSchemaOk)
+            {
+                _logger?.LogError("Readiness failed: migration 0025 missing (orders={Orders}, orders_rls_forced={OrdersRls}, orders_policy={OrdersPolicy}, order_lines={Lines}, order_lines_rls_forced={LinesRls}, order_lines_policy={LinesPolicy}); web orders could not be stored. Apply deploy/db/migrations/0025_orders.sql before this API version.",
+                    ordersTableExists, ordersRlsForced, ordersPolicyExists, orderLinesTableExists, orderLinesRlsForced, orderLinesPolicyExists);
             }
 
             return HealthCheckResult.Unhealthy(
@@ -407,8 +442,10 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
                 $"rate_component_sets(table={rateComponentSetsTableExists}, rls_forced={rateComponentSetsRlsForced}, policy={rateComponentSetsPolicyExists}), " +
                 $"rate_components(table={rateComponentsTableExists}, rls_forced={rateComponentsRlsForced}, policy={rateComponentsPolicyExists}), " +
                 $"branches.code(column={branchesCodeColumnExists}), terminal_registers(table={terminalRegistersTableExists}, rls_forced={terminalRegistersRlsForced}, " +
-                $"assign_function={terminalRegistersAssignExists}). " +
-                "Apply deploy/db/migrations/0001_init_rls.sql through 0022_terminal_registers.sql (migration 0022 missing means pairing would fail).");
+                $"assign_function={terminalRegistersAssignExists}), " +
+                $"orders(table={ordersTableExists}, rls_forced={ordersRlsForced}, policy={ordersPolicyExists}), " +
+                $"order_lines(table={orderLinesTableExists}, rls_forced={orderLinesRlsForced}, policy={orderLinesPolicyExists}). " +
+                "Apply deploy/db/migrations/0001_init_rls.sql through 0025_orders.sql (0022/0024 missing means pairing would fail, 0025 missing means orders could not be stored).");
         }
         catch (Exception ex)
         {
