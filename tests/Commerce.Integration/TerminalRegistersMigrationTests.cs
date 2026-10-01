@@ -171,6 +171,36 @@ public sealed class TerminalRegistersMigrationTests
     }
 
     [Fact]
+    public void AssignWithoutRelease_ReturnsNull_WhenNoLiveCredentialBindsTheInstallationToTheBranch_AndWritesNothing()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        WithScratchDatabase(applyMigration: true, conn =>
+        {
+            var org = Guid.NewGuid();
+            var (branchA, branchB) = (Guid.NewGuid(), Guid.NewGuid());
+            SeedOrg(conn, org);
+            SeedBranch(conn, org, branchA);
+            SeedBranch(conn, org, branchB);
+            var installation = Guid.NewGuid();
+            var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+            // The re-pairing already happened: the branch-B credential is revoked, branch A is live.
+            SeedCredential(conn, org, branchB, installation, t0, revoked: true);
+            SeedCredential(conn, org, branchA, installation, t0.AddDays(1));
+            Assert.Equal((short)1, Assign(conn, org, branchA, installation));
+
+            // A late identity refresh for the OLD branch must neither allocate there nor release A.
+            Exec(conn, "SELECT set_config('app.current_org_id', $1, false)", org.ToString());
+            Assert.True(Scalar<object>(conn, "SELECT terminal_registers_assign($1, $2, $3, false)", org, branchB, installation) is DBNull);
+            Assert.Equal(0L, Scalar<long>(conn, "SELECT count(*) FROM terminal_registers WHERE branch_id = $1", branchB));
+            Assert.Equal(1L, Scalar<long>(conn, "SELECT count(*) FROM terminal_registers WHERE installation_id = $1 AND released_at IS NULL", installation));
+
+            // For the branch its live credential names, the refresh is a plain idempotent read.
+            Assert.Equal((short)1, Scalar<short>(conn, "SELECT terminal_registers_assign($1, $2, $3, false)", org, branchA, installation));
+        });
+    }
+
+    [Fact]
     public void Assign_IntoAnotherOrganization_ReleasesTheRowOfTheFormerOne()
     {
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }

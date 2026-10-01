@@ -117,7 +117,8 @@ public sealed class PostgresDeviceCredentialStore
 
         // Same transaction: a pairing that cannot get a register number (branch
         // exhausted) rolls back as a whole and the prior credential stays live.
-        var registerNumber = await PostgresTerminalRegisterStore.AssignAsync(connection, tx, scope.OrganizationId, branchId, installationId, ct);
+        var registerNumber = (await PostgresTerminalRegisterStore.AssignAsync(
+            connection, tx, scope.OrganizationId, branchId, installationId, releaseOthers: true, "org-user", issuedToUserId, ct))!.Value;
 
         await tx.CommitAsync(ct);
 

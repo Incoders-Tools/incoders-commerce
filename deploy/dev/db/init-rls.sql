@@ -1785,8 +1785,9 @@ COMMIT;
 -- Allocation has ONE source of truth, the function terminal_registers_assign():
 --   1. serialize on the installation and on the branch (transaction-scoped
 --      advisory locks, always taken in that order, pgbouncer-safe);
---   2. release the installation's live register in any OTHER branch or
---      organization (re-pairing to another branch frees the old slot);
+--   2. when p_release_others (pairing only), release the installation's live
+--      register in any OTHER branch or organization (re-pairing to another
+--      branch frees the old slot); the identity refresh passes false;
 --   3. keep the live register of this branch, or re-activate the one the
 --      installation held here before, or allocate MAX+1.
 -- Exhaustion (number 1000) fails the CHECK `terminal_registers_number_ck`; the
@@ -1809,7 +1810,7 @@ COMMIT;
 --
 -- INVERSE (rollback), shipped as a comment - NOT executed by this file:
 --   BEGIN;
---   DROP FUNCTION IF EXISTS terminal_registers_assign(uuid, uuid, uuid);
+--   DROP FUNCTION IF EXISTS terminal_registers_assign(uuid, uuid, uuid, boolean);
 --   DROP TABLE IF EXISTS terminal_registers;
 --   DROP FUNCTION IF EXISTS terminal_registers_reject_identity_change();
 --   COMMIT;
@@ -1885,15 +1886,39 @@ CREATE TRIGGER terminal_registers_identity_immutable
         OR OLD.register_number IS DISTINCT FROM NEW.register_number)
     EXECUTE FUNCTION terminal_registers_reject_identity_change();
 
-CREATE OR REPLACE FUNCTION terminal_registers_assign(p_organization_id uuid, p_branch_id uuid, p_installation_id uuid)
+-- An earlier draft of this migration had a 3-argument signature; drop it so a
+-- database that ran the draft does not end up with two overloads (ambiguous calls).
+DROP FUNCTION IF EXISTS terminal_registers_assign(uuid, uuid, uuid);
+
+CREATE OR REPLACE FUNCTION terminal_registers_assign(
+    p_organization_id uuid, p_branch_id uuid, p_installation_id uuid, p_release_others boolean DEFAULT true)
 RETURNS smallint AS $$
 DECLARE
     v_number   smallint;
     v_released timestamptz;
     v_exists   boolean;
 BEGIN
+    -- The second argument of hashtextextended() is a fixed seed that gives each
+    -- lock family its own key space: seed 1 = per-branch allocation (shared with
+    -- no other family), seed 2 = per-installation. 0021 uses seed 0 for the
+    -- per-organization branch-code lock. Taking installation then branch, always
+    -- in this order, keeps two concurrent callers from deadlocking.
     PERFORM pg_advisory_xact_lock(hashtextextended(p_installation_id::text, 2));
     PERFORM pg_advisory_xact_lock(hashtextextended(p_branch_id::text, 1));
+
+    -- The identity refresh (p_release_others = false) acts for a bearer
+    -- credential checked at the START of the request. Re-verify, now that the
+    -- installation is locked, that a live credential still binds this
+    -- installation to this branch; a re-pairing that revoked it wins and the
+    -- caller gets NULL (nothing written, nothing released).
+    IF NOT p_release_others AND NOT EXISTS (
+        SELECT 1 FROM device_credentials
+         WHERE organization_id = p_organization_id
+           AND branch_id = p_branch_id
+           AND installation_id = p_installation_id
+           AND NOT is_revoked) THEN
+        RETURN NULL;
+    END IF;
 
     SELECT register_number, released_at INTO v_number, v_released
       FROM terminal_registers
@@ -1902,11 +1927,17 @@ BEGIN
        AND installation_id = p_installation_id;
     v_exists := FOUND;
 
-    UPDATE terminal_registers
-       SET released_at = now()
-     WHERE installation_id = p_installation_id
-       AND released_at IS NULL
-       AND NOT (organization_id = p_organization_id AND branch_id = p_branch_id);
+    -- Only the PAIRING releases other branches (p_release_others = true).
+    -- `GET /device/identity` passes false: it only fills in a missing number for
+    -- the branch its still-live credential names and never frees anything, so a
+    -- slow identity call carrying an old credential cannot undo a re-pairing.
+    IF p_release_others THEN
+        UPDATE terminal_registers
+           SET released_at = now()
+         WHERE installation_id = p_installation_id
+           AND released_at IS NULL
+           AND NOT (organization_id = p_organization_id AND branch_id = p_branch_id);
+    END IF;
 
     IF v_exists THEN
         IF v_released IS NOT NULL THEN
@@ -1929,8 +1960,8 @@ BEGIN
 END
 $$ LANGUAGE plpgsql;
 
-REVOKE ALL ON FUNCTION terminal_registers_assign(uuid, uuid, uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION terminal_registers_assign(uuid, uuid, uuid) TO app_runtime;
+REVOKE ALL ON FUNCTION terminal_registers_assign(uuid, uuid, uuid, boolean) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION terminal_registers_assign(uuid, uuid, uuid, boolean) TO app_runtime;
 
 ALTER TABLE terminal_registers NO FORCE ROW LEVEL SECURITY;
 
