@@ -42,7 +42,8 @@ public sealed class PostgresOrderStoreTests : IDisposable
 
     public void Dispose() => _dataSource?.Dispose();
 
-    private PostgresOrderStore NewStore(Func<DateTimeOffset>? clock = null) => new(_dataSource!, clock);
+    private PostgresOrderStore NewStore(Func<DateTimeOffset>? clock = null, CapturingLogger<PostgresOrderStore>? logger = null) =>
+        new(_dataSource!, clock, logger);
 
     private static async Task ExecOwnerAsync(string sql, params object[] args)
     {
@@ -696,7 +697,16 @@ public sealed class PostgresOrderStoreTests : IDisposable
         try
         {
             using var destination = new BranchSyncStore($"Data Source={dbPath}");
-            var outcome = await SubmitRegisteredAsync(NewStore(), scope, orderId, branch, destination: destination, hasStock: true);
+            var logger = new CapturingLogger<PostgresOrderStore>();
+            var outcome = await SubmitRegisteredAsync(NewStore(logger: logger), scope, orderId, branch, destination: destination, hasStock: true);
+
+            // The swallowed failure is observable: order id, number, branch and the exception are logged.
+            var logged = Assert.Single(logger.Entries);
+            Assert.Equal(Microsoft.Extensions.Logging.LogLevel.Error, logged.Level);
+            Assert.NotNull(logged.Exception);
+            Assert.Contains(orderId.ToString(), logged.Message);
+            Assert.Contains(branch.ToString(), logged.Message);
+            Assert.Contains(outcome.Order.OrderNumber.ToString(), logged.Message);
 
             // The order was committed BEFORE delivery was attempted: it exists, honestly pending, and
             // the branch inbox holds an order that exists (never a phantom from a rolled-back transaction).
@@ -717,6 +727,42 @@ public sealed class PostgresOrderStoreTests : IDisposable
         {
             await ExecOwnerAsync($"DROP TRIGGER IF EXISTS {guard} ON orders");
             await ExecOwnerAsync($"DROP FUNCTION IF EXISTS {guard}()");
+            DeleteSqlite(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task ACancellationAfterTheCommit_StillReportsAcceptedAndPersistsTheDeliveryState()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var org = await SeedOrganizationAsync();
+        var branch = await SeedBranchAsync(org);
+        var scope = new CloudTenantScope(org);
+        var orderId = Guid.NewGuid();
+        var dbPath = Path.Combine(Path.GetTempPath(), $"branch-cancel-{Guid.NewGuid():N}.db");
+        try
+        {
+            using var destination = new BranchSyncStore($"Data Source={dbPath}");
+            using var cts = new CancellationTokenSource();
+            var calls = 0;
+            // The client disconnects while the delivery runs, i.e. after the order was committed.
+            DateTimeOffset Clock()
+            {
+                if (++calls == 2) cts.Cancel();
+                return DateTimeOffset.UtcNow;
+            }
+
+            var outcome = await NewStore(Clock).SubmitAsync(
+                scope, orderId, OrderOrigin.RegisteredCustomer, Guid.NewGuid(), null, branch, Guid.NewGuid(),
+                [NewLine()], Guid.NewGuid(), destination, hasAvailableStock: true, verification: null, cts.Token);
+
+            Assert.Equal(OrderSubmissionOutcomeStatus.Accepted, outcome.Status);
+            var stored = await NewStore().FindAsync(scope, orderId, CancellationToken.None);
+            Assert.Equal(OrderDeliveryStatus.DestinationConfirmed, stored!.Status);
+        }
+        finally
+        {
             DeleteSqlite(dbPath);
         }
     }

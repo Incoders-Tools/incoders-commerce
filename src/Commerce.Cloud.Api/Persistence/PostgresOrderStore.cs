@@ -5,6 +5,8 @@ using Commerce.Cloud.Api.Tenancy;
 using Commerce.Domain.Catalog;
 using Commerce.Domain.Ordering;
 using Commerce.Domain.Tenancy;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
 
 namespace Commerce.Cloud.Api.Persistence;
@@ -40,11 +42,14 @@ public sealed class PostgresOrderStore : IOrderStore
 
     private readonly NpgsqlDataSource _dataSource;
     private readonly Func<DateTimeOffset> _clock;
+    private readonly ILogger<PostgresOrderStore> _logger;
 
-    public PostgresOrderStore(NpgsqlDataSource dataSource, Func<DateTimeOffset>? clock = null)
+    public PostgresOrderStore(
+        NpgsqlDataSource dataSource, Func<DateTimeOffset>? clock = null, ILogger<PostgresOrderStore>? logger = null)
     {
         _dataSource = dataSource;
         _clock = clock ?? (() => DateTimeOffset.UtcNow);
+        _logger = logger ?? NullLogger<PostgresOrderStore>.Instance;
     }
 
     public async Task<OrderSubmissionOutcome> SubmitAsync(
@@ -130,7 +135,7 @@ public sealed class PostgresOrderStore : IOrderStore
 
         await tx.CommitAsync(ct);
 
-        await DeliverAfterCommitAsync(connection, order, actorId, correlationId, destination, hasAvailableStock, ct);
+        await DeliverAfterCommitAsync(connection, order, actorId, correlationId, destination, hasAvailableStock);
         return new OrderSubmissionOutcome(
             OrderSubmissionOutcomeStatus.Accepted, OrderSubmissionReasons.Accepted, order, WasNewlyAccepted: true);
     }
@@ -138,12 +143,17 @@ public sealed class PostgresOrderStore : IOrderStore
     /// <summary>
     /// Delivery of a committed order and persistence of its new state. Failures are contained on purpose:
     /// the order is already durable, so it stays pending/offline and the caller still gets the accepted
-    /// outcome; a retry repeats delivery idempotently (the order id is the envelope operation id).
+    /// outcome; a retry repeats delivery idempotently (the order id is the envelope operation id). A failure
+    /// is logged at Error level (order id and number, branch, exception) so an order stuck pending is
+    /// visible. Request cancellation is deliberately NOT honoured here: the order is committed, so a
+    /// disconnecting client must not turn an accepted order into a reported failure or skip persisting
+    /// the delivery state (the follow-up write is short and bounded by the connection timeouts).
     /// </summary>
     private async Task DeliverAfterCommitAsync(
         NpgsqlConnection connection, Order order, Guid actorId, Guid correlationId, BranchSyncStore? destination,
-        bool hasAvailableStock, CancellationToken ct)
+        bool hasAvailableStock)
     {
+        var ct = CancellationToken.None;
         var storedStatus = order.Status;
         var storedReason = order.PendingReason;
         try
@@ -156,8 +166,13 @@ public sealed class PostgresOrderStore : IOrderStore
             await UpdateDeliveryStateAsync(connection, tx, order, ct);
             await tx.CommitAsync(ct);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex)
         {
+            _logger.LogError(
+                ex,
+                "Delivery of committed order {OrderId} ({OrderNumber}) to branch {BranchId} failed; the order stays pending and can be retried",
+                order.OrderId, order.OrderNumber, order.DestinationBranchId);
+
             // Report what is durable, not what the failed attempt wished for.
             if (storedStatus == OrderDeliveryStatus.DestinationConfirmed) order.MarkDestinationConfirmed();
             else order.MarkPending(storedReason);

@@ -147,11 +147,12 @@ builder.Services.AddSingleton<PaymentRecordingService>();
 
 // --- Shared application services (Component Reuse Policy: reused, not
 // reimplemented) --------------------------------------------------------
-// persist-web-orders: access decisions go to the append-only audit_log (they used to vanish on restart).
-builder.Services.AddSingleton<IAuditSink>(sp => new PostgresAuditSink(sp.GetRequiredService<NpgsqlDataSource>()));
+builder.Services.AddSingleton<IAuditSink, InMemoryAuditSink>();
+// persist-web-orders: customer catalog access decisions go to the append-only audit_log (fail-open); every
+// other IAuditSink consumer keeps the shared sink above (its decisions are not customer actions).
 builder.Services.AddSingleton<TenantAuthorizationService>();
 builder.Services.AddSingleton<CatalogManagementService>();
-builder.Services.AddSingleton<CustomerCatalogAccessService>();
+builder.Services.AddCustomerCatalogAccessAudit();
 builder.Services.AddSingleton<CustomerOrderingAccessService>();
 
 // --- Cloud.Api-local composition --------------------------------------------
