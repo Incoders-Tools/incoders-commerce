@@ -116,7 +116,7 @@ public sealed class CustomerOrderingAccessTests : IDisposable
         var accessStore = new PostgresCustomerOrderingAccessStore(_dataSource!);
         var accessService = new CustomerCatalogAccessService(accessStore, auditSink);
         var customerStore = new PostgresCustomerStore(_dataSource!);
-        var orderStore = new CloudOrderStore();
+        var orderStore = new InMemoryOrderStore();
         var catalogStore = new PostgresCatalogStore(_dataSource!);
         var priceListStore = new PostgresPriceListStore(_dataSource!);
         var submissionService = new CloudOrderSubmissionService(

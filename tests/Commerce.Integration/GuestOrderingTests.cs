@@ -197,14 +197,14 @@ public sealed class GuestOrderingTests : IDisposable
         return (verificationId, contact);
     }
 
-    private (CloudOrderStore OrderStore, CloudOrderSubmissionService SubmissionService, GuestVerificationService VerificationService, FakeEmailSender Sender, PostgresCustomerOrderingAccessStore AccessStore)
+    private (InMemoryOrderStore OrderStore, CloudOrderSubmissionService SubmissionService, GuestVerificationService VerificationService, FakeEmailSender Sender, PostgresCustomerOrderingAccessStore AccessStore)
         NewServicesWithSharedSender()
     {
         var auditSink = new InMemoryAuditSink();
         var accessStore = new PostgresCustomerOrderingAccessStore(_dataSource!);
         var accessService = new CustomerCatalogAccessService(accessStore, auditSink);
         var customerStore = new PostgresCustomerStore(_dataSource!);
-        var orderStore = new CloudOrderStore();
+        var orderStore = new InMemoryOrderStore();
         var catalogStore = new PostgresCatalogStore(_dataSource!);
         var priceListStore = new PostgresPriceListStore(_dataSource!);
         var verificationStore = new PostgresGuestVerificationStore(_dataSource!);
@@ -368,7 +368,7 @@ public sealed class GuestOrderingTests : IDisposable
         var accessStore = new PostgresCustomerOrderingAccessStore(_dataSource!);
         var accessService = new CustomerCatalogAccessService(accessStore, new InMemoryAuditSink());
         var customerStore = new PostgresCustomerStore(_dataSource!);
-        var orderStore = new CloudOrderStore();
+        var orderStore = new InMemoryOrderStore();
         var catalogStore = new PostgresCatalogStore(_dataSource!);
         var priceListStore = new PostgresPriceListStore(_dataSource!);
         var verificationStore = new PostgresGuestVerificationStore(_dataSource!);

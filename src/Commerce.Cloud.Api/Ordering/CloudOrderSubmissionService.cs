@@ -17,7 +17,7 @@ namespace Commerce.Cloud.Api.Ordering;
 ///
 /// commerce-customer-identity design.md "Order.CustomerId referential
 /// integrity, given no orders table exists": every denial happens BEFORE
-/// <see cref="CloudOrderStore.Submit"/> is reached, so an <see cref="Order"/>
+/// <see cref="IOrderStore.SubmitAsync"/> is reached, so an <see cref="Order"/>
 /// with a dangling/unbound <c>CustomerId</c> is never constructed. Order of
 /// checks: (1) credential resolves to an enabled row in this organization,
 /// (2) that row is actually bound to the customer id the caller declared
@@ -31,7 +31,7 @@ namespace Commerce.Cloud.Api.Ordering;
 /// checks above (the customer's <c>DiscountPercentage</c> is only known
 /// after the customer read, and an unauthorized caller must not be able to
 /// probe catalog/price existence through a reason-code difference) and
-/// BEFORE <see cref="CloudOrderStore.Submit"/>. A <c>NoEffectivePrice</c>
+/// BEFORE <see cref="IOrderStore.SubmitAsync"/>. A <c>NoEffectivePrice</c>
 /// outcome on ANY line denies the WHOLE order with reason
 /// <c>"no-effective-price"</c> — no partial acceptance.
 /// </summary>
@@ -39,7 +39,7 @@ public sealed class CloudOrderSubmissionService
 {
     private readonly CustomerCatalogAccessService _accessService;
     private readonly PostgresCustomerStore _customerStore;
-    private readonly CloudOrderStore _orderStore;
+    private readonly IOrderStore _orderStore;
     private readonly PostgresCatalogStore _catalogStore;
     private readonly PostgresPriceListStore _priceListStore;
     private readonly PostgresRateComponentStore _rateComponentStore;
@@ -55,7 +55,7 @@ public sealed class CloudOrderSubmissionService
     public CloudOrderSubmissionService(
         CustomerCatalogAccessService accessService,
         PostgresCustomerStore customerStore,
-        CloudOrderStore orderStore,
+        IOrderStore orderStore,
         PostgresCatalogStore catalogStore,
         PostgresPriceListStore priceListStore,
         PostgresRateComponentStore rateComponentStore,
@@ -112,7 +112,7 @@ public sealed class CloudOrderSubmissionService
         }
 
         // commerce-pricing-engine: resolution runs here, strictly AFTER the
-        // four checks above and BEFORE _orderStore.Submit — REGISTERED path,
+        // four checks above and BEFORE _orderStore.SubmitAsync — REGISTERED path,
         // customer.DiscountPercentage applied.
         var (deniedReason, snapshots) = await ResolveLinesAsync(scope, lines, customer.DiscountPercentage, ct);
         if (deniedReason is not null)
@@ -120,7 +120,8 @@ public sealed class CloudOrderSubmissionService
             return new OrderSubmissionOutcome(OrderSubmissionOutcomeStatus.Denied, deniedReason, Order: null, WasNewlyAccepted: false);
         }
 
-        return _orderStore.Submit(scope, orderId, customerId, destinationBranchId, actorId, snapshots!, correlationId, destination, hasAvailableStock);
+        return await _orderStore.SubmitRegisteredAsync(
+            scope, orderId, customerId, destinationBranchId, actorId, snapshots!, correlationId, destination, hasAvailableStock, ct);
     }
 
     /// <summary>
@@ -166,7 +167,7 @@ public sealed class CloudOrderSubmissionService
         }
 
         // commerce-pricing-engine: resolution runs here, strictly AFTER the
-        // checks above and BEFORE _orderStore.Submit — REGISTERED path,
+        // checks above and BEFORE _orderStore.SubmitAsync — REGISTERED path,
         // customer.DiscountPercentage applied, identical to SubmitAsync.
         var (deniedReason, snapshots) = await ResolveLinesAsync(scope, lines, customer.DiscountPercentage, ct);
         if (deniedReason is not null)
@@ -174,7 +175,8 @@ public sealed class CloudOrderSubmissionService
             return new OrderSubmissionOutcome(OrderSubmissionOutcomeStatus.Denied, deniedReason, Order: null, WasNewlyAccepted: false);
         }
 
-        return _orderStore.Submit(scope, orderId, customerId, destinationBranchId, actorId, snapshots!, correlationId, destination, hasAvailableStock);
+        return await _orderStore.SubmitRegisteredAsync(
+            scope, orderId, customerId, destinationBranchId, actorId, snapshots!, correlationId, destination, hasAvailableStock, ct);
     }
 
     /// <summary>
@@ -188,7 +190,7 @@ public sealed class CloudOrderSubmissionService
     /// "Guest Price Resolution"): list price, never a discount. The
     /// confirmed verification is consumed via
     /// <see cref="GuestVerificationService.TryConsumeAsync"/> IMMEDIATELY
-    /// BEFORE <see cref="CloudOrderStore.Submit"/> — a pricing denial on any
+    /// BEFORE <see cref="IOrderStore.SubmitAsync"/> — a pricing denial on any
     /// line (<c>"no-effective-price"</c>) returns before that consumption
     /// call is ever made, so the guest's one-time verification is not burned
     /// by a denial that was never their fault (public-order-surface spec.md
@@ -228,9 +230,9 @@ public sealed class CloudOrderSubmissionService
             return new OrderSubmissionOutcome(OrderSubmissionOutcomeStatus.Denied, "verification-invalid", Order: null, WasNewlyAccepted: false);
         }
 
-        return _orderStore.Submit(
+        return await _orderStore.SubmitAsync(
             scope, orderId, OrderOrigin.Guest, customerId: null, guestContact, destinationBranchId,
-            OrderActors.PublicGuest, snapshots!, correlationId, destination, hasAvailableStock);
+            OrderActors.PublicGuest, snapshots!, correlationId, destination, hasAvailableStock, ct);
     }
 
     /// <summary>

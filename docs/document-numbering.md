@@ -9,7 +9,7 @@ People never see GUIDs. Branches, terminals and documents carry short, readable 
 | Document | Number | Reads as |
 | --- | --- | --- |
 | POS sale | `V01-C2-125` | Sale (`V`), branch `01`, register 2, sale 125 of that register |
-| Web order (planned) | `P01-W-37` | Order (`P`), branch `01`, web origin, order 37 of that branch |
+| Web order | `P01-W-37` | Order (`P`), branch `01`, web origin, order 37 of that branch |
 | Notes (future) | `N...` | Reserved for later document types |
 
 ```
@@ -30,7 +30,7 @@ The letter goes first so a number is never read as a date. The origin keeps POS 
 | Branch code | The server | When the branch is created | Numeric 1 to 999, unique per organization, never editable. The database trigger `branches_code_allocate` takes the next free number under a per-organization lock |
 | Register | The server | When the terminal is paired | Numeric 1 to 999, unique per branch, kept for that installation, never reused for another one |
 | Sequence (POS) | The terminal | At the moment of the sale, offline | Local counter per (branch, register), taken inside the same SQLite transaction that saves the sale |
-| Sequence (web) | The server | When the order is stored | Counter per branch. Pending: web orders are still in memory, see `odd/tasks/persist-web-orders.md` |
+| Sequence (web) | The server | When the order is stored (`orders`, migration `0025`) | Counter per branch, taken in the same transaction that inserts the order, under a per-branch advisory lock. Resubmitting the same order id returns the stored order and its number without advancing the counter |
 
 Numbers are never reused. A branch that has handed out register 7 will never hand out 7 to a different installation, even after the first one is gone, because sales are numbered offline from (branch, register, sequence) and two machines must never produce the same number. Reinstalling the POS creates a new installation, so it gets a new register.
 
@@ -61,7 +61,7 @@ The server verifies the number a terminal claims when the sale arrives. It accep
 
 Every numbered sale is stored in `pos_sales` with branch, register and sequence as separate columns, so reports filter by:
 
-- type: sales (`V`) today, orders (`P`) once they are stored;
+- type: sales (`V`) and orders (`P`);
 - branch: the branch code;
 - origin: register for a POS terminal, or web.
 
@@ -69,11 +69,11 @@ Every numbered sale is stored in `pos_sales` with branch, register and sequence 
 
 - `V01-C1-1`: the first sale of register 1 in branch 01.
 - `V03-C2-410`: sale 410 of register 2 in branch 03. Register 2 of branch 03 is unrelated to register 2 of branch 01.
-- `P01-W-37` (planned): web order 37 of branch 01.
+- `P01-W-37`: web order 37 of branch 01. `P01-W-1` and `P02-W-1` are unrelated: the sequence counts per branch.
 
 ## GUIDs
 
-GUIDs remain the internal identity of organizations, branches, installations, sales and operations. They appear only in sysadmin technical views (for example the branch id column of the Branches screen) and in log files. The POS log keeps the operation and installation ids for support. Staff order entry by raw branch GUID (`StaffOrderScreen`) is a known leftover for the orders feature.
+GUIDs remain the internal identity of organizations, branches, installations, sales and operations. They appear only in sysadmin technical views (for example the branch id column of the Branches screen) and in log files. The POS log keeps the operation and installation ids for support. Staff order entry by raw branch GUID (`StaffOrderScreen`) is a known leftover: it is a staff and testing tool, not the customer flow.
 
 ## Migrations
 
@@ -83,12 +83,21 @@ GUIDs remain the internal identity of organizations, branches, installations, sa
 | `0022_terminal_registers.sql` | `terminal_registers` and the allocation function `terminal_registers_assign`, backfill from live credentials |
 | `0023_pos_sales.sql` | `pos_sales` projection with the partial unique index on the sale number |
 | `0024_terminal_registers_assign_result.sql` | `terminal_registers_assign` reports whether it allocated a new number |
+| `0025_orders.sql` | `orders` and `order_lines`: web orders stored in Postgres with their `(branch_code, sequence)` number |
 
 Apply them in order, by hand, to every existing environment before deploying the API. Details are in `deploy/README.md`.
 
-`0024` is not backward compatible: it changes the result type of `terminal_registers_assign`, so an API built before it breaks at pairing once it is applied. Apply `0024` and deploy the matching API together. The new API also fails `/health/ready` against a database without `0024`, so neither order can serve traffic half-migrated. Nothing is in production yet.
+`0024` is not backward compatible: it changes the result type of `terminal_registers_assign`, so an API built before it breaks at pairing once it is applied. Apply `0024` and deploy the matching API together. The new API also fails `/health/ready` against a database without `0024` (or `0025`), so neither order can serve traffic half-migrated. Nothing is in production yet.
+
+`0025` is additive: apply it before the API version that stores orders. Orders held only in the memory of an older API process are lost at that restart (nothing is in production yet), and an order sent to a branch that does not exist in the organization is denied (`destination-branch-not-found`) instead of being stored.
+
+## Web orders
+
+- A web order (registered customer or guest) is stored in `orders` when it is accepted. Its number is `P{branch code}-W-{sequence}`; the branch code is the destination branch's own `branches.code`.
+- The order id the client sends is idempotent per organization. Sending it again returns the same order and number, never a second one.
+- The order response carries the number (`order.orderNumber`), and the customer-facing screens explain it with the same kind of tooltip as the POS (planned in `odd/tasks/persist-web-orders.md`).
 
 ## Related
 
 - Specs: `organization-persistence` (Branch Short Code), `pos-installation-identity` (Register Number), `pos-scan-sale` (Sale Number), `branch-offline-sync` (Sale Number Projection).
-- Feature record: `odd/tasks/human-document-numbers.md`.
+- Feature records: `odd/tasks/human-document-numbers.md`, `odd/tasks/persist-web-orders.md`.

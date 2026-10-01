@@ -110,7 +110,7 @@ public sealed class GuestVerificationService
 
     /// <summary>
     /// Consumes a confirmed ticket immediately before
-    /// <c>CloudOrderStore.Submit</c> (design.md Data Flow), so one
+    /// <c>IOrderStore.SubmitAsync</c> (design.md Data Flow), so one
     /// confirmation admits exactly one order. Requires the confirmed ticket's
     /// document id and contact address to MATCH the submitted ones, and the
     /// 30-minute confirm-to-submit TTL to not have elapsed. Returns false —

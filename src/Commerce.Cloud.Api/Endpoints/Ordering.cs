@@ -6,7 +6,7 @@ namespace Commerce.Cloud.Api.Endpoints;
 
 /// <summary>
 /// Thin mapping onto <see cref="CloudOrderSubmissionService"/> (bound-access
-/// check + <see cref="CloudOrderStore"/> acceptance/delivery — no
+/// check + <see cref="IOrderStore"/> acceptance/delivery — no
 /// authorization or business logic duplicated here, per Component Reuse
 /// Policy). The organization id is always
 /// <see cref="CloudTenantScope.OrganizationId"/>, never a request field.
@@ -14,7 +14,7 @@ namespace Commerce.Cloud.Api.Endpoints;
 /// NOTE (deviation, documented): no persisted destination-branch registry
 /// exists in this host yet, so delivery always targets `destination: null`
 /// (branch offline) and `hasAvailableStock: false`, which
-/// <see cref="CloudOrderStore"/> already handles as an honest "pending"
+/// <see cref="IOrderStore"/> already handles as an honest "pending"
 /// outcome (ADR-003) rather than a false accept. Wiring a live branch
 /// connection registry is follow-up work outside Unit 2's scope.
 /// </summary>
@@ -58,10 +58,10 @@ public static class OrderingEndpoints
                 : Results.Json(outcome, statusCode: StatusCodes.Status403Forbidden);
         });
 
-        group.MapGet("/{orderId:guid}", (Guid orderId, HttpContext httpContext, CloudOrderStore store) =>
+        group.MapGet("/{orderId:guid}", async (Guid orderId, HttpContext httpContext, IOrderStore store, CancellationToken ct) =>
         {
             var scope = TenantScopeEndpointFilter.GetScope(httpContext);
-            var order = store.Find(scope, orderId);
+            var order = await store.FindAsync(scope, orderId, ct);
             return order is null ? Results.NotFound() : Results.Ok(order);
         });
 
@@ -72,10 +72,10 @@ public static class OrderingEndpoints
         // SubmittedAtUtc"). Registered-customer orders (rank 0) sort before
         // guest orders (rank 1) regardless of submission order; ties break
         // by submission time.
-        group.MapGet("/pending", (HttpContext httpContext, CloudOrderStore store) =>
+        group.MapGet("/pending", async (HttpContext httpContext, IOrderStore store, CancellationToken ct) =>
         {
             var scope = TenantScopeEndpointFilter.GetScope(httpContext);
-            return Results.Ok(store.ListPending(scope));
+            return Results.Ok(await store.ListPendingAsync(scope, ct));
         });
 
         return group;

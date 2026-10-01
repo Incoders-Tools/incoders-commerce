@@ -1,29 +1,23 @@
 using Commerce.BranchNode;
+using Commerce.Cloud.Api.Ordering;
 using Commerce.Cloud.Api.Tenancy;
 using Commerce.Domain.Ordering;
-using Commerce.Domain.Sync;
-using Commerce.Domain.Sync.Payloads;
 
-namespace Commerce.Cloud.Api.Ordering;
+namespace Commerce.Integration;
 
 /// <summary>
-/// Cloud-side order acceptance and destination delivery (design.md data flow:
-/// "Customer web -> Cloud order/outbox -> Branch inbox/effect -> ACK"). Reuses
-/// the exact Unit 3 sync primitives — <see cref="SyncEnvelope"/> and
-/// <see cref="BranchSyncStore.ApplyInbound"/> — instead of a parallel delivery
-/// pipeline. The order's business identity (<see cref="Order.OrderId"/>) is
-/// used as the envelope's <c>OperationId</c>, so retries and offline replays
-/// are idempotent through the exact same mechanism already proven by
-/// <c>SyncTests.DuplicateInboundDelivery_IsIgnoredAfterFirstApply</c>.
-/// Settlement/final stock effect is explicitly out of scope (ADR-003).
+/// In-memory <see cref="IOrderStore"/> for unit-level tests that do not need a database (delivery,
+/// idempotency and ranking semantics). Production uses <c>PostgresOrderStore</c>; persistence, numbering
+/// and guest verification are proven against Postgres, so this fake assigns no order number and
+/// ignores the verification. Keeps the synchronous API the pre-persistence tests were written against.
 /// </summary>
-public sealed class CloudOrderStore
+public sealed class InMemoryOrderStore : IOrderStore
 {
     private readonly object _gate = new();
     private readonly Dictionary<Guid, Order> _orders = new();
     private readonly Func<DateTimeOffset> _clock;
 
-    public CloudOrderStore(Func<DateTimeOffset>? clock = null) => _clock = clock ?? (() => DateTimeOffset.UtcNow);
+    public InMemoryOrderStore(Func<DateTimeOffset>? clock = null) => _clock = clock ?? (() => DateTimeOffset.UtcNow);
 
     /// <summary>
     /// Registered/staff-submitted path. Delegates to the general overload
@@ -51,7 +45,7 @@ public sealed class CloudOrderStore
     /// General submission path (commerce-guest-ordering design.md "File
     /// Changes": <c>Submit</c> takes <c>OrderOrigin</c>, nullable
     /// <c>customerId</c>, and <c>GuestContact?</c>). Used directly by
-    /// <see cref="CloudOrderSubmissionService.SubmitGuestAsync"/> for
+    /// <c>CloudOrderSubmissionService.SubmitGuestAsync</c> for
     /// <see cref="OrderOrigin.Guest"/> orders.
     /// </summary>
     public OrderSubmissionOutcome Submit(
@@ -73,7 +67,7 @@ public sealed class CloudOrderStore
             {
                 // Idempotent: the same business order id never creates a
                 // second acceptance or a second delivery attempt.
-                return new OrderSubmissionOutcome(OrderSubmissionOutcomeStatus.Accepted, "existing-order", existing, WasNewlyAccepted: false);
+                return new OrderSubmissionOutcome(OrderSubmissionOutcomeStatus.Accepted, OrderSubmissionReasons.ExistingOrder, existing, WasNewlyAccepted: false);
             }
 
             var order = new Order(orderId, scope.OrganizationId, origin, customerId, guestContact, destinationBranchId, lines, _clock());
@@ -81,7 +75,7 @@ public sealed class CloudOrderStore
 
             AttemptDelivery(order, actorId, correlationId, destination, hasAvailableStock);
 
-            return new OrderSubmissionOutcome(OrderSubmissionOutcomeStatus.Accepted, "accepted", order, WasNewlyAccepted: true);
+            return new OrderSubmissionOutcome(OrderSubmissionOutcomeStatus.Accepted, OrderSubmissionReasons.Accepted, order, WasNewlyAccepted: true);
         }
     }
 
@@ -98,11 +92,11 @@ public sealed class CloudOrderStore
         {
             if (!_orders.TryGetValue(orderId, out var order))
             {
-                return new OrderSubmissionOutcome(OrderSubmissionOutcomeStatus.Denied, "not-found", null, WasNewlyAccepted: false);
+                return new OrderSubmissionOutcome(OrderSubmissionOutcomeStatus.Denied, OrderSubmissionReasons.NotFound, null, WasNewlyAccepted: false);
             }
 
             AttemptDelivery(order, actorId, correlationId, destination, hasAvailableStock);
-            return new OrderSubmissionOutcome(OrderSubmissionOutcomeStatus.Accepted, "retried", order, WasNewlyAccepted: false);
+            return new OrderSubmissionOutcome(OrderSubmissionOutcomeStatus.Accepted, OrderSubmissionReasons.Retried, order, WasNewlyAccepted: false);
         }
     }
 
@@ -132,52 +126,27 @@ public sealed class CloudOrderStore
         }
     }
 
-    private void AttemptDelivery(Order order, Guid actorId, Guid correlationId, BranchSyncStore? destination, bool hasAvailableStock)
-    {
-        if (destination is null)
-        {
-            // Destination branch offline at this attempt (ADR-003): the order
-            // stays honestly pending — no stock promise, no silent accept.
-            order.MarkPending(OrderPendingReason.DestinationOffline);
-            return;
-        }
+    private void AttemptDelivery(Order order, Guid actorId, Guid correlationId, BranchSyncStore? destination, bool hasAvailableStock) =>
+        OrderDelivery.Attempt(order, actorId, correlationId, destination, hasAvailableStock, _clock());
 
-        if (!hasAvailableStock)
-        {
-            order.MarkPending(OrderPendingReason.StockUnconfirmed);
-            return;
-        }
+    // --- IOrderStore -----------------------------------------------------------------------------
 
-        var payload = new OrderPayloadV1(
-            OrderId: order.OrderId,
-            DestinationBranchId: order.DestinationBranchId,
-            Origin: order.Origin.ToString(),
-            Lines: order.Lines
-                .Select(line => new OrderLinePayloadV1(
-                    line.ProductId, line.ProductName, line.PresentationId, line.PresentationName,
-                    line.Quantity, line.UnitNetPrice, line.LineTotal))
-                .ToList());
+    Task<OrderSubmissionOutcome> IOrderStore.SubmitAsync(
+        CloudTenantScope scope, Guid orderId, OrderOrigin origin, Guid? customerId, GuestContact? guestContact,
+        Guid destinationBranchId, Guid actorId, IReadOnlyList<OrderLineSnapshot> lines, Guid correlationId,
+        BranchSyncStore? destination, bool hasAvailableStock, CancellationToken ct) =>
+        Task.FromResult(Submit(
+            scope, orderId, origin, customerId, guestContact, destinationBranchId, actorId, lines, correlationId,
+            destination, hasAvailableStock));
 
-        var envelope = new SyncEnvelope(
-            OperationId: order.OrderId,
-            ContractVersion: 1,
-            OrganizationId: order.OrganizationId,
-            BranchId: order.DestinationBranchId,
-            AggregateId: order.OrderId,
-            AggregateVersion: 1,
-            ActorId: actorId,
-            CorrelationId: correlationId,
-            OccurredAtUtc: _clock(),
-            PayloadKind: "order",
-            Payload: SyncPayloadCodec.Serialize(payload));
+    Task<OrderSubmissionOutcome> IOrderStore.RetryDeliveryAsync(
+        CloudTenantScope scope, Guid orderId, Guid actorId, Guid correlationId,
+        BranchSyncStore destination, bool hasAvailableStock, CancellationToken ct) =>
+        Task.FromResult(RetryDelivery(orderId, actorId, correlationId, destination, hasAvailableStock));
 
-        var result = destination.ApplyInbound(envelope);
-        // Task 3.8/3.9: an UnknownKind outcome is treated as not-confirmed —
-        // the order stays Pending, never Applied/DuplicateIgnored (design.md
-        // File Changes: "treat UnknownKind as not-confirmed").
-        if (result.Outcome is InboundApplyOutcome.Applied or InboundApplyOutcome.DuplicateIgnored)
-        {
-            order.MarkDestinationConfirmed();
-        }
-    }
+    Task<Order?> IOrderStore.FindAsync(CloudTenantScope scope, Guid orderId, CancellationToken ct) =>
+        Task.FromResult(Find(scope, orderId));
+
+    Task<IReadOnlyList<Order>> IOrderStore.ListPendingAsync(CloudTenantScope scope, CancellationToken ct) =>
+        Task.FromResult(ListPending(scope));
 }

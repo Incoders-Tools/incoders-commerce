@@ -155,7 +155,7 @@ public sealed class PostgresGuestVerificationStore
 
     /// <summary>
     /// Sets `consumed_at`/`consumed_order_id` — the ticket is spent
-    /// immediately before <c>CloudOrderStore.Submit</c>, so one confirmation
+    /// immediately before <c>IOrderStore.SubmitAsync</c>, so one confirmation
     /// admits exactly one order (design.md "Verification state shape").
     /// </summary>
     public async Task ConsumeAsync(CloudTenantScope scope, Guid verificationId, Guid orderId, CancellationToken ct)

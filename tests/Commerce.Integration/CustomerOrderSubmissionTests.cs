@@ -23,6 +23,8 @@ namespace Commerce.Integration;
 public sealed class CustomerOrderSubmissionTests : IClassFixture<WebApplicationFactory<Program>>, IDisposable
 {
     private readonly bool _postgresAvailable = PostgresTestFixture.TryPing(PostgresTestFixture.DirectConnectionString);
+    // A real branch is seeded for it in every bootstrapped organization: an unknown destination is a denial.
+    private static readonly Guid DestinationBranchId = Guid.NewGuid();
     private readonly WebApplicationFactory<Program> _factory;
 
     public CustomerOrderSubmissionTests(WebApplicationFactory<Program> factory)
@@ -38,7 +40,7 @@ public sealed class CustomerOrderSubmissionTests : IClassFixture<WebApplicationF
             // customer cookie's org_id claim). Any configured value works;
             // this test does not assert on it.
             builder.UseSetting("GuestOrdering:OrganizationId", Guid.NewGuid().ToString());
-            builder.UseSetting("GuestOrdering:BranchId", Guid.NewGuid().ToString());
+            builder.UseSetting("GuestOrdering:BranchId", DestinationBranchId.ToString());
         });
 
         if (_postgresAvailable)
@@ -101,9 +103,10 @@ public sealed class CustomerOrderSubmissionTests : IClassFixture<WebApplicationF
         Apply("0008_customer_registry.sql");
         Apply("0009_catalog_and_pricing.sql");
         Apply("0010_guest_ordering.sql");
+        Apply("0025_orders.sql");
 
         using var resetCmd = new NpgsqlCommand(
-            "TRUNCATE TABLE guest_order_verifications, price_import_rows, price_import_batches, " +
+            "TRUNCATE TABLE order_lines, orders, guest_order_verifications, price_import_rows, price_import_batches, " +
             "supplier_price_mappings, price_list_entries, price_lists, presentations, products, " +
             "customer_ordering_access, customers, password_reset_tokens, user_directory, users, " +
             "device_credentials, branches, organizations, platform_admins, audit_log RESTART IDENTITY CASCADE",
@@ -127,6 +130,16 @@ public sealed class CustomerOrderSubmissionTests : IClassFixture<WebApplicationF
             "/account/bootstrap",
             new BootstrapRequest(organizationId, token, "Org " + organizationId, "HQ", adminEmail, adminPassword));
         response.EnsureSuccessStatusCode();
+
+        await using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            await owner.OpenAsync();
+            await using var seed = new NpgsqlCommand(
+                "INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, 'Order destination')", owner);
+            seed.Parameters.AddWithValue(DestinationBranchId);
+            seed.Parameters.AddWithValue(organizationId);
+            await seed.ExecuteNonQueryAsync();
+        }
 
         var signIn = await client.PostAsJsonAsync("/account/sign-in", new SignInRequest(adminEmail, adminPassword));
         signIn.EnsureSuccessStatusCode();

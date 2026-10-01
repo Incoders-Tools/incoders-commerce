@@ -24,6 +24,7 @@ public sealed class OrderPendingListTests : IDisposable
 {
     private readonly bool _postgresAvailable = PostgresTestFixture.TryPing(PostgresTestFixture.DirectConnectionString);
     private readonly Guid _organizationId = Guid.NewGuid();
+    private readonly Guid _destinationBranchId = Guid.NewGuid();
     private readonly WebApplicationFactory<Program> _factory;
 
     public OrderPendingListTests()
@@ -36,7 +37,7 @@ public sealed class OrderPendingListTests : IDisposable
             // so both the guest order and the registered order land in one
             // organization's pending list.
             builder.UseSetting("GuestOrdering:OrganizationId", _organizationId.ToString());
-            builder.UseSetting("GuestOrdering:BranchId", Guid.NewGuid().ToString());
+            builder.UseSetting("GuestOrdering:BranchId", _destinationBranchId.ToString());
         });
 
         if (_postgresAvailable)
@@ -95,9 +96,10 @@ public sealed class OrderPendingListTests : IDisposable
         Apply("0008_customer_registry.sql");
         Apply("0009_catalog_and_pricing.sql");
         Apply("0010_guest_ordering.sql");
+        Apply("0025_orders.sql");
 
         using var resetCmd = new NpgsqlCommand(
-            "TRUNCATE TABLE guest_order_verifications, price_import_rows, price_import_batches, " +
+            "TRUNCATE TABLE order_lines, orders, guest_order_verifications, price_import_rows, price_import_batches, " +
             "supplier_price_mappings, price_list_entries, price_lists, presentations, products, " +
             "customer_ordering_access, customers, password_reset_tokens, user_directory, users, " +
             "device_credentials, branches, organizations RESTART IDENTITY CASCADE",
@@ -111,7 +113,7 @@ public sealed class OrderPendingListTests : IDisposable
         BaseAddress = new Uri("https://localhost"),
     };
 
-    private async Task<HttpClient> BootstrapOrgAsync(string adminEmail, string adminPassword)
+    private async Task<HttpClient> BootstrapOrgAsync(string adminEmail, string adminPassword, bool seedDestinationBranch = true)
     {
         var adminClient = _factory.CreateClient(CookieClientOptions());
         var registry = _factory.Services.GetRequiredService<BootstrapTokenRegistry>();
@@ -122,6 +124,18 @@ public sealed class OrderPendingListTests : IDisposable
             new BootstrapRequest(_organizationId, token, "Org " + _organizationId, "HQ", adminEmail, adminPassword));
         response.EnsureSuccessStatusCode();
 
+        // Orders are stored against a real branch of the organization (an unknown destination is a denial).
+        if (seedDestinationBranch)
+        await using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            await owner.OpenAsync();
+            await using var seed = new NpgsqlCommand(
+                "INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, 'Order destination')", owner);
+            seed.Parameters.AddWithValue(_destinationBranchId);
+            seed.Parameters.AddWithValue(_organizationId);
+            await seed.ExecuteNonQueryAsync();
+        }
+
         var signIn = await adminClient.PostAsJsonAsync("/account/sign-in", new SignInRequest(adminEmail, adminPassword));
         signIn.EnsureSuccessStatusCode();
 
@@ -129,6 +143,13 @@ public sealed class OrderPendingListTests : IDisposable
     }
 
     private async Task<Guid> SubmitGuestOrderAsync(string email)
+    {
+        var (orderId, response) = await SubmitGuestOrderRawAsync(email);
+        response.EnsureSuccessStatusCode();
+        return orderId;
+    }
+
+    private async Task<(Guid OrderId, HttpResponseMessage Response)> SubmitGuestOrderRawAsync(string email)
     {
         var client = _factory.CreateClient();
 
@@ -152,9 +173,7 @@ public sealed class OrderPendingListTests : IDisposable
             "/public/guest-orders",
             new SubmitGuestOrderRequest(
                 orderId, verification.VerificationId, "30111222333", email, "Guest Buyer", null, [], Guid.NewGuid()));
-        submitResponse.EnsureSuccessStatusCode();
-
-        return orderId;
+        return (orderId, submitResponse);
     }
 
     private async Task<Guid> SubmitRegisteredOrderAsync(HttpClient adminClient, string customerEmail, string customerPassword)
@@ -211,5 +230,46 @@ public sealed class OrderPendingListTests : IDisposable
         Assert.Equal(OrderOrigin.RegisteredCustomer, pending[0].Origin);
         Assert.Equal(guestOrderId, pending[1].OrderId);
         Assert.Equal(OrderOrigin.Guest, pending[1].Origin);
+    }
+
+    [Fact]
+    public async Task StoredOrders_ArePendingListedWithTheirNumbers_AndSurviveARestartOfTheApi()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var adminClient = await BootstrapOrgAsync("numbered-admin@example.com", "admin-password");
+        var guestOrderId = await SubmitGuestOrderAsync("numbered-guest@example.com");
+        var registeredOrderId = await SubmitRegisteredOrderAsync(adminClient, "numbered-customer@example.com", "customer-password");
+
+        // (The HQ branch is 01, the destination seeded after it is 02.) A second host over the same database stands for the API after a restart.
+        using var restarted = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        {
+            builder.UseSetting("ConnectionStrings:Commerce", PostgresTestFixture.DirectConnectionString);
+        });
+        var restartedAdmin = restarted.CreateClient(CookieClientOptions());
+        var signIn = await restartedAdmin.PostAsJsonAsync("/account/sign-in", new SignInRequest("numbered-admin@example.com", "admin-password"));
+        signIn.EnsureSuccessStatusCode();
+
+        var pending = await restartedAdmin.GetFromJsonAsync<List<Order>>("/orders/pending");
+
+        Assert.Equal([registeredOrderId, guestOrderId], pending!.Select(o => o.OrderId));
+        Assert.Equal(["P02-W-2", "P02-W-1"], pending.Select(o => o.OrderNumber!.Value.Format()));
+
+        var found = await restartedAdmin.GetFromJsonAsync<Order>($"/orders/{guestOrderId}");
+        Assert.Equal("P02-W-1", found!.OrderNumber!.Value.Format());
+    }
+
+    [Fact]
+    public async Task GuestOrder_ToAnUnknownDestinationBranch_IsADeniedOutcome_NotAServerError()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        await BootstrapOrgAsync("unknown-branch-admin@example.com", "admin-password", seedDestinationBranch: false);
+
+        var (_, response) = await SubmitGuestOrderRawAsync("unknown-branch-guest@example.com");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("destination-branch-not-found", body);
     }
 }

@@ -155,7 +155,8 @@ builder.Services.AddSingleton<CustomerOrderingAccessService>();
 // --- Cloud.Api-local composition --------------------------------------------
 builder.Services.AddSingleton<CloudSyncReceiver>();
 builder.Services.AddSingleton<CloudCatalogManagementAdapter>();
-builder.Services.AddSingleton<CloudOrderStore>();
+// persist-web-orders: orders live in Postgres (survive restarts, carry P{branch}-W-{seq} numbers).
+builder.Services.AddSingleton<IOrderStore>(sp => new PostgresOrderStore(sp.GetRequiredService<NpgsqlDataSource>()));
 // commerce-price-composition slice 2: resolution composes the effective rate
 // components onto the entry's base price, so the submission service needs the
 // component store. Registered here rather than defaulted to null inside the
