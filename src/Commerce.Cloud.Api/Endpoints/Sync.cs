@@ -19,7 +19,9 @@ public static class SyncEndpoints
         group.MapPost("/inbox", (SyncEnvelope envelope, HttpContext httpContext, CloudSyncReceiver receiver) =>
         {
             var scope = TenantScopeEndpointFilter.GetScope(httpContext);
-            var result = receiver.Receive(scope, envelope);
+            // The calling installation comes from the device credential's claims; it lets the store verify a claimed sale number.
+            Guid? installationId = DeviceIdentity.TryResolve(httpContext.User, out var device) && device is not null ? device.InstallationId : null;
+            var result = receiver.Receive(scope, envelope, installationId);
             return Results.Ok(result);
         });
 

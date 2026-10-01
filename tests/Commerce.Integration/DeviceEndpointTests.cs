@@ -78,6 +78,7 @@ public sealed class DeviceEndpointTests : IClassFixture<WebApplicationFactory<Pr
         var deviceSql = File.ReadAllText(Path.Combine(repoRoot, "deploy", "db", "migrations", "0004_device_credentials.sql"));
         using (var cmd = new NpgsqlCommand(deviceSql, owner)) cmd.ExecuteNonQuery();
         PostgresTestFixture.ApplyMigration(owner, "0022_terminal_registers.sql");
+        PostgresTestFixture.ApplyMigration(owner, "0023_pos_sales.sql");
 
         var recoverySql = File.ReadAllText(Path.Combine(repoRoot, "deploy", "db", "migrations", "0005_password_recovery.sql"));
         using (var cmd = new NpgsqlCommand(recoverySql, owner)) cmd.ExecuteNonQuery();
@@ -623,5 +624,49 @@ public sealed class DeviceEndpointTests : IClassFixture<WebApplicationFactory<Pr
             Assert.Equal("register-numbers-exhausted", body!.Error);
         }
         finally { unfill(); }
+    }
+
+    [Fact]
+    public async Task Sync_ANumberedSale_IsVerifiedAgainstTheInstallationOfTheDeviceCredential()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var (token, orgId, branchId, _) = await PairTerminalAsync("sync-number@example.com");
+        var identity = (await (await GetIdentityAsync(token)).Content.ReadFromJsonAsync<DeviceIdentityResponse>())!;
+
+        async Task<InboundApplyResult> SendSaleAsync(Guid saleId, int register, int sequence)
+        {
+            var payload = new Commerce.Domain.Sync.Payloads.SalePayloadV1(
+                saleId, 10m, "Manual", DateTimeOffset.UtcNow, [], BranchCode: identity.BranchCode, RegisterNumber: register, SaleSequence: sequence);
+            var envelope = SampleEnvelope(orgId, branchId) with { AggregateId = saleId, Payload = SyncPayloadCodec.Serialize(payload) };
+            var request = new HttpRequestMessage(HttpMethod.Post, "/sync/inbox") { Content = JsonContent.Create(envelope) };
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            var response = await _factory.CreateClient().SendAsync(request);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            return (await response.Content.ReadFromJsonAsync<InboundApplyResult>())!;
+        }
+
+        var own = Guid.NewGuid();
+        var foreign = Guid.NewGuid();
+        Assert.Equal(InboundApplyOutcome.Applied, (await SendSaleAsync(own, identity.RegisterNumber, 7)).Outcome);
+        // A register that belongs to nobody: the sale is still accepted, without a number.
+        Assert.Equal(InboundApplyOutcome.Applied, (await SendSaleAsync(foreign, identity.RegisterNumber + 1, 8)).Outcome);
+
+        using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        owner.Open();
+        using (var set = new NpgsqlCommand("SELECT set_config('app.current_org_id', $1, false)", owner))
+        {
+            set.Parameters.AddWithValue(orgId.ToString());
+            set.ExecuteNonQuery();
+        }
+        short? NumberedRegister(Guid saleId)
+        {
+            using var cmd = new NpgsqlCommand("SELECT register_number FROM pos_sales WHERE sale_id = $1", owner);
+            cmd.Parameters.AddWithValue(saleId);
+            var value = cmd.ExecuteScalar();
+            return value is DBNull ? null : (short?)value;
+        }
+        Assert.Equal((short?)identity.RegisterNumber, NumberedRegister(own));
+        Assert.Null(NumberedRegister(foreign));
     }
 }

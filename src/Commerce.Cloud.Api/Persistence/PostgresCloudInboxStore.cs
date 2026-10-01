@@ -1,6 +1,7 @@
 using Commerce.Cloud.Api.Auditing;
 using Commerce.Cloud.Api.Tenancy;
 using Commerce.Domain.Sync;
+using Microsoft.Extensions.Logging;
 using Npgsql;
 
 namespace Commerce.Cloud.Api.Persistence;
@@ -31,10 +32,15 @@ namespace Commerce.Cloud.Api.Persistence;
 public sealed class PostgresCloudInboxStore : ICloudInboxStore
 {
     private readonly NpgsqlDataSource _dataSource;
+    private readonly ILogger<PostgresCloudInboxStore>? _logger;
 
-    public PostgresCloudInboxStore(NpgsqlDataSource dataSource) => _dataSource = dataSource;
+    public PostgresCloudInboxStore(NpgsqlDataSource dataSource, ILogger<PostgresCloudInboxStore>? logger = null)
+    {
+        _dataSource = dataSource;
+        _logger = logger;
+    }
 
-    public InboundApplyResult TryApplyInbound(CloudTenantScope scope, SyncEnvelope envelope)
+    public InboundApplyResult TryApplyInbound(CloudTenantScope scope, SyncEnvelope envelope, Guid? installationId = null)
     {
         if (scope.OrganizationId != envelope.OrganizationId)
         {
@@ -44,7 +50,7 @@ public sealed class PostgresCloudInboxStore : ICloudInboxStore
             return new InboundApplyResult(InboundApplyOutcome.Denied, envelope.OperationId);
         }
 
-        return TryApplyInboundAsync(scope, envelope, CancellationToken.None).GetAwaiter().GetResult();
+        return TryApplyInboundAsync(scope, envelope, CancellationToken.None, installationId).GetAwaiter().GetResult();
     }
 
     public bool Acknowledge(CloudTenantScope scope, Guid operationId) =>
@@ -56,7 +62,8 @@ public sealed class PostgresCloudInboxStore : ICloudInboxStore
     public IReadOnlyList<SyncEnvelope> GetInboxFor(CloudTenantScope scope) =>
         GetInboxForAsync(scope, CancellationToken.None).GetAwaiter().GetResult();
 
-    public async Task<InboundApplyResult> TryApplyInboundAsync(CloudTenantScope scope, SyncEnvelope envelope, CancellationToken ct)
+    public async Task<InboundApplyResult> TryApplyInboundAsync(
+        CloudTenantScope scope, SyncEnvelope envelope, CancellationToken ct, Guid? installationId = null)
     {
         if (scope.OrganizationId != envelope.OrganizationId)
         {
@@ -114,6 +121,10 @@ public sealed class PostgresCloudInboxStore : ICloudInboxStore
         {
             await AuditLogWriter.InsertAsync(connection, tx, sessionAudit, ct);
         }
+
+        // Sale envelopes are also projected into `pos_sales`, and the human sale number they claim
+        // is verified, in this same transaction. Never blocks ingestion (savepoint inside).
+        await PosSaleProjection.ProjectAsync(connection, tx, envelope, installationId, _logger, ct);
 
         await tx.CommitAsync(ct);
         return new InboundApplyResult(InboundApplyOutcome.Applied, envelope.OperationId);

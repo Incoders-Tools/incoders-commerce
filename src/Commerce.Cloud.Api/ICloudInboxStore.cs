@@ -15,7 +15,9 @@ namespace Commerce.Cloud.Api;
 /// </summary>
 public interface ICloudInboxStore
 {
-    InboundApplyResult TryApplyInbound(CloudTenantScope scope, SyncEnvelope envelope);
+    /// <param name="installationId">The installation of the calling device credential (a claim, never part of the envelope), or null
+    /// when unknown. Used to verify the human sale number the terminal claims; ingestion never depends on it.</param>
+    InboundApplyResult TryApplyInbound(CloudTenantScope scope, SyncEnvelope envelope, Guid? installationId = null);
 
     bool Acknowledge(CloudTenantScope scope, Guid operationId);
 
