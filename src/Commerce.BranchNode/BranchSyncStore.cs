@@ -328,6 +328,11 @@ public sealed partial class BranchSyncStore : IDisposable
             alter.CommandText = $"ALTER TABLE sale_effects ADD COLUMN {column} INTEGER NULL;";
             alter.ExecuteNonQuery();
         }
+
+        // Covers the one-off MAX(sale_sequence) seed of NextSaleSequence.
+        using var index = _connection.CreateCommand();
+        index.CommandText = "CREATE INDEX IF NOT EXISTS ix_sale_effects_number ON sale_effects (branch_id, register_number, sale_sequence);";
+        index.ExecuteNonQuery();
     }
 
     /// <summary>
@@ -454,20 +459,36 @@ public sealed partial class BranchSyncStore : IDisposable
     /// </summary>
     private int NextSaleSequence(Guid branchId, RegisterNumber register, SqliteTransaction transaction)
     {
-        using var next = _connection.CreateCommand();
-        next.Transaction = transaction;
-        next.CommandText = """
+        // Hot path: the counter row exists, one indexed UPDATE, no scan of sale_effects.
+        using (var bump = _connection.CreateCommand())
+        {
+            bump.Transaction = transaction;
+            bump.CommandText = """
+                UPDATE terminal_counters SET last_sequence = last_sequence + 1
+                 WHERE branch_id = $branchId AND register_number = $register
+                RETURNING last_sequence;
+                """;
+            bump.Parameters.AddWithValue("$branchId", branchId.ToString());
+            bump.Parameters.AddWithValue("$register", register.Value);
+            if (bump.ExecuteScalar() is { } bumped)
+            {
+                return Convert.ToInt32(bumped, System.Globalization.CultureInfo.InvariantCulture);
+            }
+        }
+
+        // First sale of the pair (or a lost row): seed once from the highest stored sequence,
+        // served by ix_sale_effects_number.
+        using var seed = _connection.CreateCommand();
+        seed.Transaction = transaction;
+        seed.CommandText = """
             INSERT INTO terminal_counters (branch_id, register_number, last_sequence)
             VALUES ($branchId, $register,
                     COALESCE((SELECT MAX(sale_sequence) FROM sale_effects WHERE branch_id = $branchId AND register_number = $register), 0) + 1)
-            ON CONFLICT (branch_id, register_number) DO UPDATE SET last_sequence = MAX(
-                last_sequence,
-                COALESCE((SELECT MAX(sale_sequence) FROM sale_effects WHERE branch_id = $branchId AND register_number = $register), 0)) + 1
             RETURNING last_sequence;
             """;
-        next.Parameters.AddWithValue("$branchId", branchId.ToString());
-        next.Parameters.AddWithValue("$register", register.Value);
-        return Convert.ToInt32(next.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture);
+        seed.Parameters.AddWithValue("$branchId", branchId.ToString());
+        seed.Parameters.AddWithValue("$register", register.Value);
+        return Convert.ToInt32(seed.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture);
     }
 
     /// <summary>The queued payload carries the number too (additive optional fields of SalePayloadV1).</summary>

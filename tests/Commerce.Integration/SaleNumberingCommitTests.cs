@@ -188,6 +188,34 @@ public sealed class SaleNumberingCommitTests : IDisposable
     }
 
     [Fact]
+    public void AnExistingCounterRow_IsBumpedWithoutReseeding()
+    {
+        using var store = new BranchSyncStore(ConnectionString);
+        var service = Service(store);
+        Manual(service, Register2);
+        using (var connection = new SqliteConnection(ConnectionString))
+        {
+            connection.Open();
+            using var ahead = connection.CreateCommand();
+            ahead.CommandText = "UPDATE terminal_counters SET last_sequence = 10;";
+            ahead.ExecuteNonQuery();
+        }
+
+        var next = Manual(service, Register2);
+
+        Assert.Equal("V01-C2-11", next.Effect.Number!.Value.Format());
+        Assert.Equal(11, Scalar("SELECT last_sequence FROM terminal_counters WHERE register_number = 2"));
+    }
+
+    [Fact]
+    public void TheSeedLookup_IsCoveredByAnIndex()
+    {
+        using var store = new BranchSyncStore(ConnectionString);
+
+        Assert.Equal(1, Scalar("SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'ix_sale_effects_number'"));
+    }
+
+    [Fact]
     public void ASaleRefusedForWantOfACashSession_DoesNotBurnANumber()
     {
         using var store = new BranchSyncStore(ConnectionString);
