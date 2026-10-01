@@ -202,6 +202,41 @@ Trunk on `dev`; work-unit commits under RDD. First review boundary: `84c0f7b`
     passed 41 of 41.
   - Checks: `dotnet build Commerce.sln` 0 errors; full `dotnet test tests/Commerce.Integration` 1662 passed, 0 failed, 0 skipped; `npm test` 348 passed (comment-only web change); iconv UTF-8 clean.
 
+- Final audit review (lineage review-a81c593e458087c1, approved and acknowledged;
+  next boundary bafd604) follow-ups, 2026-10-01, throwaway worktree `wt-audit`:
+  - R1-001 (warning): the shared `IAuditSink` was in-memory again. Now ONE durable
+    sink is the shared `IAuditSink` (`AddDurableAuditSink`); the keyed customer-only
+    registration is gone. `AuditEntry` gained a required `ActorKind`
+    (`AuditActorKind`: OrgUser, Device, Customer) so every call site states who
+    acted: `TenantAuthorizationService` and `UpdaterService` use OrgUser,
+    `CustomerCatalogAccessService` uses Customer. `PostgresAuditSink` maps it to
+    `AuditActorKinds`. Every entry carries an organization, so none is skipped; RLS
+    insert policy is satisfied by the per-entry org scope. Fail-open with Error
+    logging for all consumers. Scope note: the POS/branch host
+    (`PosHostBuilder`) keeps `InMemoryAuditSink` on purpose (local node, no cloud
+    `audit_log`; a branch outbox is a separate unit); `CustomerOrderingAccessService`
+    (Enable/Revoke) is registered but not called by any cloud endpoint, and its sync
+    path is durable through the blocking `Record`.
+  - R2 (warning): `Record` no longer throws. Async-only was rejected because
+    `TenantAuthorizationService.Authorize` and its branch, updater and POS callers
+    are synchronous end to end and would cascade. Instead the cloud's only live
+    staff path (catalog rename endpoint) is now async
+    (`TenantAuthorizationService.AuthorizeAsync`, `CatalogManagementService.RenameProductAsync`,
+    adapter and endpoint), and the sync `Record` is the same durable fail-open
+    write, documented as blocking.
+  - R2/R3 (warning): the cancellation-after-commit test uses a post-commit seam
+    (`PostgresOrderStore` optional `afterCommit` hook), asserts the token was
+    cancelled, the outcome is Accepted and the delivery state is persisted.
+  - Suggestions: OCE filter now propagates only cancellation of the caller's own
+    token (a timeout fails open); `CapturingLogger` moved to its own test file;
+    Program comment sits on the registration; sink name was already generic.
+  - Commits: `test(api)` seam (~52); `feat(api)` durable audit for every consumer
+    (~367); this note.
+  - RED/GREEN: the new tests did not compile (no `AuditActorKind`,
+    `AddDurableAuditSink`, `RenameProductAsync`, hook parameter) before the code;
+    after it the focused classes passed 87 of 87.
+  - Checks: `dotnet build Commerce.sln` 0 errors; full `dotnet test tests/Commerce.Integration` 1666 passed, 0 failed, 0 skipped; iconv UTF-8 clean.
+
 ## Next step
 
 Owner manual verification (after the fail-open audit follow-up): apply `0026_orders_guest_check.sql` to `commerce_dev` by hand as owner (0025 must already be applied), restart the Cloud API, submit a guest and a registered order from the web order screen and confirm "Pedido P01-W-n recibido" with the tooltip, restart the API and confirm the orders are still listed, then provoke a denied credential and check a `customer-ordering-access.denied` row in `audit_log` (owner role). Follow-up: `StaffOrderScreen` still shows the plain accepted message and a raw GUID form.
