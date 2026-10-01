@@ -69,6 +69,7 @@ public sealed class OrderPricingTests : IDisposable
         Apply("0002_users.sql");
         Apply("0003_organizations_branches.sql");
         Apply("0004_device_credentials.sql");
+        Apply("0022_terminal_registers.sql");
         Apply("0005_password_recovery.sql");
         Apply("0006_role_taxonomy.sql");
         Apply("0007_platform_administration.sql", "__PLATFORM_READONLY_PASSWORD__", "dev-only-platform-readonly-password");

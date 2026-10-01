@@ -133,7 +133,18 @@ public static class DeviceEndpoints
 
             // Step 11: issue the credential — identity claims will be read
             // exclusively from THIS row going forward, never from the request.
-            var issued = await credentialStore.IssueAsync(scope, request.InstallationId, selected.Id, credential.Id, ct);
+            IssuedDeviceCredential issued;
+            try
+            {
+                issued = await credentialStore.IssueAsync(scope, request.InstallationId, selected.Id, credential.Id, ct);
+            }
+            catch (Commerce.Domain.Tenancy.RegisterNumbersExhaustedException)
+            {
+                // The whole pairing rolled back; the terminal keeps whatever credential it had.
+                return Results.Json(
+                    new DevicePairResponse("register-numbers-exhausted", null, null, null, null, null, null),
+                    statusCode: StatusCodes.Status409Conflict);
+            }
 
             return Results.Ok(new DevicePairResponse(
                 "paired",
@@ -143,8 +154,44 @@ public static class DeviceEndpoints
                 selected.Name,
                 request.InstallationId,
                 issued.PlaintextToken,
-                selected.Code));
+                selected.Code,
+                issued.RegisterNumber));
         }).AllowAnonymous();
+
+        // Identity of THIS terminal (pos-installation-identity "Register Number"):
+        // branch name/code and register number, read from the STORED credential
+        // row via the minted claims, never from the request. A terminal paired
+        // before registers existed gets its number allocated here.
+        var identityGroup = group.MapGroup("/identity")
+            .RequireAuthorization("DeviceBearer")
+            .AddEndpointFilter<TenantScopeEndpointFilter>();
+
+        identityGroup.MapGet("", async (
+            HttpContext httpContext,
+            PostgresTerminalRegisterStore registerStore,
+            CancellationToken ct) =>
+        {
+            var scope = TenantScopeEndpointFilter.GetScope(httpContext);
+            if (!DeviceIdentity.TryResolve(httpContext.User, out var deviceIdentity) || deviceIdentity is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            TerminalIdentity? identity;
+            try
+            {
+                identity = await registerStore.GetIdentityAsync(scope, deviceIdentity.BranchId, deviceIdentity.InstallationId, ct);
+            }
+            catch (Commerce.Domain.Tenancy.RegisterNumbersExhaustedException)
+            {
+                return Results.Conflict(new { error = "register-numbers-exhausted" });
+            }
+
+            return identity is null
+                ? Results.NotFound()
+                : Results.Ok(new DeviceIdentityResponse(
+                    scope.OrganizationId, deviceIdentity.BranchId, identity.BranchName, identity.BranchCode, identity.RegisterNumber));
+        });
 
         // Operator provisioning/status (design.md "Provisioning endpoint" and
         // "Staleness TTL and reconciliation trigger"): both device-bearer
@@ -397,7 +444,7 @@ public sealed record DevicePairRequest(string Email, string Password, Guid Insta
 public sealed record DeviceBranchOption(Guid Id, string Name, int Code);
 
 /// <summary>
-/// status: "paired" | "branch-selection-required" | "no-branches-assigned" | "branch-not-in-scope" | "operator-not-permitted".
+/// status: "paired" | "branch-selection-required" | "no-branches-assigned" | "branch-not-in-scope" | "operator-not-permitted" | "register-numbers-exhausted" (409).
 /// `DeviceToken` is the plaintext secret, returned in exactly this one
 /// response and never again — the server never stores it.
 /// </summary>
@@ -409,7 +456,14 @@ public sealed record DevicePairResponse(
     string? BranchName,
     Guid? InstallationId,
     string? DeviceToken,
-    int? BranchCode = null);
+    int? BranchCode = null,
+    int? RegisterNumber = null);
+
+/// <summary>
+/// `GET /device/identity` response: who this terminal is, in human terms
+/// (branch name + short code, register number). Never carries a secret.
+/// </summary>
+public sealed record DeviceIdentityResponse(Guid OrganizationId, Guid BranchId, string BranchName, int BranchCode, int RegisterNumber);
 
 public sealed record OperatorVerifyRequest(string Email, string Password);
 

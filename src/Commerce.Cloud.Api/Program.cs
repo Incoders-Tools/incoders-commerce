@@ -40,6 +40,7 @@ builder.Services.AddSingleton<ICloudInboxStore, PostgresCloudInboxStore>();
 builder.Services.AddSingleton<PostgresUserAccountStore>();
 builder.Services.AddSingleton<PostgresOrganizationStore>();
 builder.Services.AddSingleton<PostgresDeviceCredentialStore>();
+builder.Services.AddSingleton<PostgresTerminalRegisterStore>();
 builder.Services.AddSingleton<PostgresPasswordRecoveryStore>();
 builder.Services.AddSingleton<PostgresCustomerStore>();
 builder.Services.AddSingleton<PostgresCatalogStore>();

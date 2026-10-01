@@ -20,9 +20,10 @@ public sealed record DeviceCredentialRecord(
 /// <summary>
 /// Result of <c>PostgresDeviceCredentialStore.IssueAsync</c>: carries the
 /// plaintext secret exactly once — it is never stored and never
-/// reconstructable from the persisted row.
+/// reconstructable from the persisted row. <c>RegisterNumber</c> is the terminal's
+/// per-branch register, allocated in the same transaction.
 /// </summary>
-public sealed record IssuedDeviceCredential(DeviceCredentialRecord Record, string PlaintextToken);
+public sealed record IssuedDeviceCredential(DeviceCredentialRecord Record, string PlaintextToken, int RegisterNumber);
 
 /// <summary>
 /// The only crypto surface for device credentials (design.md "Hashing

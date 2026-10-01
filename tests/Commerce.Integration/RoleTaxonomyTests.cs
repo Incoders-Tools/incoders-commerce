@@ -72,6 +72,7 @@ public sealed class RoleTaxonomyTests : IClassFixture<WebApplicationFactory<Prog
                      "0003_organizations_branches.sql",
                      "0021_branch_codes.sql",
                      "0004_device_credentials.sql",
+                     "0022_terminal_registers.sql",
                      "0005_password_recovery.sql",
                      "0006_role_taxonomy.sql",
                      "0007_platform_administration.sql",

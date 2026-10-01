@@ -75,6 +75,7 @@ public sealed class DeviceEndpointTests : IClassFixture<WebApplicationFactory<Pr
 
         var deviceSql = File.ReadAllText(Path.Combine(repoRoot, "deploy", "db", "migrations", "0004_device_credentials.sql"));
         using (var cmd = new NpgsqlCommand(deviceSql, owner)) cmd.ExecuteNonQuery();
+        PostgresTestFixture.ApplyMigration(owner, "0022_terminal_registers.sql");
 
         var recoverySql = File.ReadAllText(Path.Combine(repoRoot, "deploy", "db", "migrations", "0005_password_recovery.sql"));
         using (var cmd = new NpgsqlCommand(recoverySql, owner)) cmd.ExecuteNonQuery();
@@ -280,6 +281,80 @@ public sealed class DeviceEndpointTests : IClassFixture<WebApplicationFactory<Pr
         Assert.Equal(1, body.BranchCode);
         Assert.Equal(installationId, body.InstallationId);
         Assert.False(string.IsNullOrEmpty(body.DeviceToken));
+    }
+
+    [Fact]
+    public async Task Pair_ReturnsTheRegisterNumber_TheNextOneForANewInstallation_AndTheSameOneOnRepair()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        await SeedSingleBranchOperatorAsync("register-pair@example.com", "some-password");
+        var (first, second) = (Guid.NewGuid(), Guid.NewGuid());
+        var client = _factory.CreateClient();
+
+        async Task<DevicePairResponse> PairAsync(Guid installationId) =>
+            (await (await client.PostAsJsonAsync("/device/pair",
+                new DevicePairRequest("register-pair@example.com", "some-password", installationId, null)))
+                .Content.ReadFromJsonAsync<DevicePairResponse>())!;
+
+        Assert.Equal(1, (await PairAsync(first)).RegisterNumber);
+        Assert.Equal(2, (await PairAsync(second)).RegisterNumber);
+        Assert.Equal(1, (await PairAsync(first)).RegisterNumber);
+    }
+
+    private async Task<(string Token, Guid OrgId, Guid BranchId, Guid InstallationId)> PairTerminalAsync(string email)
+    {
+        var (orgId, branchId, _) = await SeedSingleBranchOperatorAsync(email, "some-password");
+        var installationId = Guid.NewGuid();
+        var response = await _factory.CreateClient().PostAsJsonAsync("/device/pair",
+            new DevicePairRequest(email, "some-password", installationId, null));
+        var body = await response.Content.ReadFromJsonAsync<DevicePairResponse>();
+        return (body!.DeviceToken!, orgId, branchId, installationId);
+    }
+
+    private Task<HttpResponseMessage> GetIdentityAsync(string? token)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, "/device/identity");
+        if (token is not null) request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        return _factory.CreateClient().SendAsync(request);
+    }
+
+    [Fact]
+    public async Task Identity_WithoutADeviceBearer_Returns401()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        Assert.Equal(HttpStatusCode.Unauthorized, (await GetIdentityAsync(null)).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await GetIdentityAsync("not-a-real-token")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Identity_ReturnsTheBranchCodeNameAndRegisterOfTheStoredCredential()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var (token, orgId, branchId, _) = await PairTerminalAsync("identity-ok@example.com");
+
+        var response = await GetIdentityAsync(token);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<DeviceIdentityResponse>();
+        Assert.Equal(new DeviceIdentityResponse(orgId, branchId, "Main", 1, 1), body);
+    }
+
+    [Fact]
+    public async Task Identity_AllocatesARegister_ForATerminalPairedBeforeRegistersExisted()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var (token, _, _, installationId) = await PairTerminalAsync("identity-legacy@example.com");
+        DeviceCredentialStoreTests.ForgetRegisters(installationId);
+
+        var body = await (await GetIdentityAsync(token)).Content.ReadFromJsonAsync<DeviceIdentityResponse>();
+        var again = await (await GetIdentityAsync(token)).Content.ReadFromJsonAsync<DeviceIdentityResponse>();
+
+        Assert.Equal(1, body!.RegisterNumber);
+        Assert.Equal(1, again!.RegisterNumber);
     }
 
     [Fact]
