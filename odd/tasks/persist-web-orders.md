@@ -65,12 +65,12 @@ Trunk on `dev`; work-unit commits under RDD. First review boundary: `84c0f7b`
 (previous slice `7f38033..84c0f7b` pending).
 
 ## Tasks
-- [ ] T1 Persistence: migration `0025_orders.sql`, `IOrderStore`,
+- [x] T1 Persistence: migration `0025_orders.sql`, `IOrderStore`,
   `PostgresOrderStore` (submit idempotent per org, find, list pending),
   `P{branch}-W-{seq}` allocation at insert, DI swap, readiness, fixture
   chains; guest branch without a `branches` row → typed denial.
   Route: delegated direct.
-- [ ] T2 Guest verification consumed in the order transaction (no burned
+- [x] T2 Guest verification consumed in the order transaction (no burned
   verification on failure). Route: delegated direct (with T1 or after).
 - [ ] T3 Number on the wire and in the web: `OrderPayloadV1.OrderNumber`,
   outcome type fix, number + tooltip in `OrderScreen` (guest and registered),
@@ -93,6 +93,39 @@ Trunk on `dev`; work-unit commits under RDD. First review boundary: `84c0f7b`
 - 2026-10-01: planned after delegated mapping (4-file trigger). Also found:
   `InMemoryAuditSink` (now T4) and `BootstrapTokenRegistry` (ephemeral by
   design, left in memory).
+- 2026-10-01: T1 and T2 done in a throwaway worktree, integrated into `dev`
+  by fast-forward. Route: delegated direct (writers; first writer cut off by a
+  usage limit, resumed and its WIP reviewed critically).
+  - Commits: `feat(db)` 0025 migration (+readiness, init-rls, README, ~590
+    lines); `feat(domain)` OrderNumber (~190); `feat(api)` IOrderStore +
+    PostgresOrderStore + OrderDelivery + store tests (~900, one coherent unit:
+    the store and its tests cannot be split without a non-building commit);
+    `feat(api)` DI swap, async endpoints, in-memory store moved to tests,
+    endpoint tests seed a real branch (~280); `feat(api)` guest verification
+    spent in the order transaction (~520 with specs and docs).
+  - RED: after the DI swap the full suite failed exactly 2 tests
+    (`OrderPendingListTests`, `CustomerOrderSubmissionTests`: random
+    destination branch GUID, now a typed denial); T2 tests were RED 8 of 21
+    (verification not consumed / not atomic) before the store spent it.
+  - Reviewed and fixed in the inherited work: duplicate
+    `OrderSubmissionOutcome` types (build break), branch-name collision in the
+    store test seed, missing endpoint-level restart and unknown-branch tests;
+    0025 itself (idempotent guard block, FORCE RLS + NULLIF policy, composite
+    FK, init-rls verbatim, readiness negative test) checked and left as is.
+  - Decisions: (1) the guest verification is spent by one conditional UPDATE
+    inside the order transaction, after the branch check and the branch lock;
+    (2) resubmitting an existing order id returns that order without spending
+    anything, but a guest retry must present the ticket that admitted it
+    (consumed_order_id match) or gets `verification-invalid`, so a stray ticket
+    cannot read orders back; (3) `TryConsumeAsync` and the store's separate
+    `ConsumeAsync` were removed (non-atomic, no remaining caller);
+    (4) in-memory store kept only as a test fake (no number, ignores the
+    verification).
+  - Checks: `dotnet build Commerce.sln` 0 errors; `PostgresOrderStoreTests`
+    21/21; full `dotnet test tests/Commerce.Integration` 1647 passed, 0 failed,
+    0 skipped (Postgres + pgbouncer up); iconv UTF-8 clean on changed files.
+    Engram mirror `odd/persist-web-orders/tasks` left for the parent to sync.
 
 ## Next step
-T1.
+
+T3 (number on the wire and in the web: `OrderPayloadV1.OrderNumber`, outcome type fix, `OrderScreen` number + tooltip, i18n). The outcome JSON already carries `order.orderNumber` as plain text (`P01-W-37`).
