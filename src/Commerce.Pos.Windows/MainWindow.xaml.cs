@@ -178,6 +178,7 @@ public partial class MainWindow : Window
     /// </summary>
     private async Task RefreshTerminalIdentityAsync()
     {
+        _identityRefreshRunning = true;
         try
         {
             var current = _pairing;
@@ -193,6 +194,43 @@ public partial class MainWindow : Window
         {
             PosLog.Error("App", "Could not refresh the terminal identity.", ex);
         }
+        finally
+        {
+            _identityRefreshRunning = false;
+        }
+    }
+
+    private bool _identityRefreshRunning;
+
+    /// <summary>
+    /// A sale committed while the terminal does not know its register is saved without a number. The
+    /// sale path never waits for the network (ADR-002), so instead of awaiting the identity this nudges a
+    /// background refresh (at most one at a time) and the NEXT sale is numbered once it arrives.
+    /// </summary>
+    private void RetryTerminalIdentityIfUnknown()
+    {
+        if (!TerminalIdentityRefresher.IsComplete(_pairing) && !_identityRefreshRunning)
+        {
+            _ = RefreshTerminalIdentityAsync();
+        }
+    }
+
+    /// <summary>
+    /// The sale result line: the human number (no GUID, no file name) and, as a tooltip, how the number is
+    /// composed. Any other message written to the same line clears the tooltip (<see cref="ShowResultText"/>).
+    /// </summary>
+    private void ShowSaleResult(BranchOutboxCommitResult result, SaleTender tender)
+    {
+        SaleResultText.Text = result.WasNewlyCommitted
+            ? SaleResultMessage.Registered(result.Effect, TenderInput.Describe(tender))
+            : SaleResultMessage.AlreadyRegistered(result.Effect);
+        SaleResultText.ToolTip = SaleResultMessage.Composition(result.Effect);
+    }
+
+    private void ShowResultText(string text)
+    {
+        SaleResultText.Text = text;
+        SaleResultText.ToolTip = null;
     }
 
     /// <summary>
@@ -263,7 +301,7 @@ public partial class MainWindow : Window
             };
             if (result.Outcome == CashSessionOpenOutcome.Opened)
             {
-                SaleResultText.Text = $"Caja abierta con {openingFloat:C} iniciales.";
+                ShowResultText($"Caja abierta con {openingFloat:C} iniciales.");
                 RefreshStatus();
                 _ = RunSyncAsync(SyncTrigger.PostSale);
             }
@@ -371,7 +409,7 @@ public partial class MainWindow : Window
         {
             var summaryText =
                 $"Caja cerrada. Esperado {closure.Summary.ExpectedCash:C}, contado {closure.CountedCash:C}: {CashSessionInput.DifferenceLabel(closure.Difference)}.";
-            SaleResultText.Text = summaryText;
+            ShowResultText(summaryText);
             CashClosedMessageText.Text = summaryText + " Abra la caja con el efectivo inicial para seguir vendiendo.";
             RefreshStatus();
             _ = RunSyncAsync(SyncTrigger.PostSale);
@@ -510,13 +548,13 @@ public partial class MainWindow : Window
         // silently mixing the two flows in one transaction.
         if (!_cart.IsEmpty)
         {
-            SaleResultText.Text = "No se puede cobrar una venta manual mientras hay productos escaneados pendientes. Cobre la venta escaneada o vacíe la lista primero.";
+            ShowResultText("No se puede cobrar una venta manual mientras hay productos escaneados pendientes. Cobre la venta escaneada o vacíe la lista primero.");
             return;
         }
 
         if (!decimal.TryParse(AmountTextBox.Text, NumberStyles.Number, CultureInfo.InvariantCulture, out var amount) || amount <= 0m)
         {
-            SaleResultText.Text = "Importe inválido.";
+            ShowResultText("Importe inválido.");
             return;
         }
 
@@ -539,7 +577,8 @@ public partial class MainWindow : Window
             operationId: Guid.NewGuid(),
             correlationId: Guid.NewGuid(),
             customerId: customerId,
-            tender: tender);
+            tender: tender,
+            numbering: TerminalIdentityRefresher.NumberingOf(_pairing));
 
         if (result.Refusal is SaleCommitRefusal.NoOpenCashSession)
         {
@@ -547,9 +586,8 @@ public partial class MainWindow : Window
             return;
         }
 
-        SaleResultText.Text = result.WasNewlyCommitted
-            ? $"Venta {result.Effect.SaleId} registrada por {result.Effect.TotalAmount:C} ({TenderInput.Describe(tender)}) en branch.db."
-            : $"La venta {result.Effect.SaleId} ya estaba registrada (reintento idempotente).";
+        ShowSaleResult(result, tender);
+        RetryTerminalIdentityIfUnknown();
 
         RefreshStatus();
 
@@ -844,7 +882,8 @@ public partial class MainWindow : Window
             customerId: customerId,
             saleDiscount: _cart.SaleDiscount,
             discountAuthorization: _cart.Authorization,
-            tender: tender);
+            tender: tender,
+            numbering: TerminalIdentityRefresher.NumberingOf(_pairing));
 
         if (result.Refusal is SaleCommitRefusal.NoOpenCashSession)
         {
@@ -852,9 +891,8 @@ public partial class MainWindow : Window
             return;
         }
 
-        SaleResultText.Text = result.WasNewlyCommitted
-            ? $"Venta escaneada {result.Effect.SaleId} registrada por {result.Effect.TotalAmount:C} ({TenderInput.Describe(tender)}) en branch.db."
-            : $"La venta {result.Effect.SaleId} ya estaba registrada (reintento idempotente).";
+        ShowSaleResult(result, tender);
+        RetryTerminalIdentityIfUnknown();
 
         _cart.Clear();
         RefreshScannedTotal();
@@ -1036,7 +1074,7 @@ public partial class MainWindow : Window
         if (_shell.TeardownPending)
         {
             // The previous operator's section is still finishing a request: say so instead of ignoring the click.
-            SaleResultText.Text = PosMessages.PreviousOperationRunning;
+            ShowResultText(PosMessages.PreviousOperationRunning);
             return;
         }
 

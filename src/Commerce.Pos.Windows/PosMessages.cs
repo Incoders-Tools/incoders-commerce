@@ -54,6 +54,9 @@ public static class PosMessages
     public const string SelectedBranchNotInScope =
         "La sucursal elegida no está asignada a este usuario.";
 
+    /// <summary>Shown inside the sale result while the terminal does not know its register yet.</summary>
+    public const string SaleNumberPending = "número pendiente";
+
     public const string RegisterNumbersExhausted =
         "Esta sucursal ya usó todos los números de caja disponibles. Avisá a soporte técnico.";
 

@@ -1,3 +1,4 @@
+using Commerce.Domain.Sales;
 using Commerce.Domain.Tenancy;
 
 namespace Commerce.Pos.Windows;
@@ -23,6 +24,17 @@ public sealed class TerminalIdentityRefresher
     }
 
     public static bool IsComplete(DevicePairing pairing) => pairing.BranchCode is not null && pairing.RegisterNumber is not null;
+
+    /// <summary>
+    /// What the terminal numbers its sales with: its branch code and register number, or null while it
+    /// does not know them (the sale then commits without a number). A stored value outside the valid
+    /// range is treated as unknown rather than crashing the sale.
+    /// </summary>
+    public static SaleNumbering? NumberingOf(DevicePairing pairing) =>
+        pairing.BranchCode is { } code and >= BranchCode.MinValue and <= BranchCode.MaxValue
+        && pairing.RegisterNumber is { } register and >= RegisterNumber.MinValue and <= RegisterNumber.MaxValue
+            ? new SaleNumbering(new BranchCode(code), new RegisterNumber(register))
+            : null;
 
     /// <summary>
     /// Fetches the missing identity. <see cref="TerminalIdentityRefresh.Persisted"/> is true ONLY when the
