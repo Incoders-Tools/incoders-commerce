@@ -179,7 +179,8 @@ public sealed class TerminalIdentityTests : IDisposable
 
         var result = await refresher.EnsureAsync(installationId, complete);
 
-        Assert.Same(complete, result);
+        Assert.Same(complete, result.Pairing);
+        Assert.False(result.Persisted);
         Assert.Empty(handler.Requests);
     }
 
@@ -190,8 +191,9 @@ public sealed class TerminalIdentityTests : IDisposable
 
         var result = await refresher.EnsureAsync(installationId, OldPairing());
 
-        Assert.Equal(4, result.BranchCode);
-        Assert.Equal(7, result.RegisterNumber);
+        Assert.True(result.Persisted);
+        Assert.Equal(4, result.Pairing.BranchCode);
+        Assert.Equal(7, result.Pairing.RegisterNumber);
         Assert.Single(handler.Requests);
         var persisted = store.LoadOrCreate().Pairing!;
         Assert.Equal(4, persisted.BranchCode);
@@ -210,7 +212,8 @@ public sealed class TerminalIdentityTests : IDisposable
 
         var result = await refresher.EnsureAsync(installationId, pairing);
 
-        Assert.Same(pairing, result);
+        Assert.Same(pairing, result.Pairing);
+        Assert.False(result.Persisted);
         Assert.Null(store.LoadOrCreate().Pairing!.RegisterNumber);
     }
 
@@ -221,7 +224,8 @@ public sealed class TerminalIdentityTests : IDisposable
 
         var result = await refresher.EnsureAsync(installationId, OldPairing());
 
-        Assert.Null(result.RegisterNumber);
+        Assert.False(result.Persisted);
+        Assert.Null(result.Pairing.RegisterNumber);
         Assert.Null(store.LoadOrCreate().Pairing!.RegisterNumber);
     }
 
@@ -241,11 +245,40 @@ public sealed class TerminalIdentityTests : IDisposable
         });
         var refresher = new TerminalIdentityRefresher(new DeviceIdentityClient(Client(handler)), store);
 
-        await refresher.EnsureAsync(installationId, stale);
+        var result = await refresher.EnsureAsync(installationId, stale);
 
+        // Nothing was persisted, so the result says so and carries the pairing it was asked about:
+        // the caller must not apply a stale identity to the window either.
+        Assert.False(result.Persisted);
+        Assert.Same(stale, result.Pairing);
         var persisted = store.LoadOrCreate().Pairing!;
         Assert.Equal("token-2", persisted.DeviceToken);
         Assert.Equal(9, persisted.RegisterNumber);
+    }
+
+    [Fact]
+    public async Task IdentityClient_MapsTheTypedExhaustedConflictToTheSpanishMessage()
+    {
+        var handler = new RecordingHandler(_ => Json(HttpStatusCode.Conflict, """{"error":"register-numbers-exhausted"}"""));
+
+        var outcome = await new DeviceIdentityClient(Client(handler)).FetchAsync("the-token");
+
+        Assert.False(outcome.Success);
+        Assert.Equal(PosMessages.RegisterNumbersExhausted, outcome.Error);
+    }
+
+    [Theory]
+    [InlineData("""{"error":"something-else"}""")]
+    [InlineData("not json")]
+    [InlineData("")]
+    public async Task IdentityClient_AnUnknownConflict_IsAGenericFailure_NotTheExhaustedMessage(string body)
+    {
+        var handler = new RecordingHandler(_ => Json(HttpStatusCode.Conflict, body));
+
+        var outcome = await new DeviceIdentityClient(Client(handler)).FetchAsync("the-token");
+
+        Assert.False(outcome.Success);
+        Assert.Equal("HTTP 409", outcome.Error);
     }
 
     [Theory]

@@ -181,10 +181,11 @@ public partial class MainWindow : Window
         try
         {
             var current = _pairing;
-            var updated = await _terminalIdentityRefresher.EnsureAsync(_installationId, current);
-            if (!ReferenceEquals(updated, current) && ReferenceEquals(_pairing, current))
+            var refresh = await _terminalIdentityRefresher.EnsureAsync(_installationId, current);
+            // Apply only what was actually saved, and only to the pairing it was computed for.
+            if (refresh.Persisted && ReferenceEquals(_pairing, current))
             {
-                _pairing = updated;
+                _pairing = refresh.Pairing;
                 RefreshIdentityText();
             }
         }

@@ -25,30 +25,39 @@ public sealed class TerminalIdentityRefresher
     public static bool IsComplete(DevicePairing pairing) => pairing.BranchCode is not null && pairing.RegisterNumber is not null;
 
     /// <summary>
-    /// Returns <paramref name="pairing"/> itself when nothing changed, otherwise a copy
-    /// carrying the branch code and register number (already persisted).
+    /// Fetches the missing identity. <see cref="TerminalIdentityRefresh.Persisted"/> is true ONLY when the
+    /// enriched pairing was saved to disk; then <see cref="TerminalIdentityRefresh.Pairing"/> is that copy.
+    /// In every other case (complete already, offline, another branch, or the stored pairing changed while
+    /// the request was in flight) it is the pairing that was passed in, unchanged.
     /// </summary>
-    public async Task<DevicePairing> EnsureAsync(Guid installationId, DevicePairing pairing, CancellationToken ct = default)
+    public async Task<TerminalIdentityRefresh> EnsureAsync(Guid installationId, DevicePairing pairing, CancellationToken ct = default)
     {
-        if (IsComplete(pairing)) return pairing;
+        if (IsComplete(pairing)) return new TerminalIdentityRefresh(pairing, Persisted: false);
 
         var outcome = await _client.FetchAsync(pairing.DeviceToken, ct);
         // A credential bound to another branch than the stored pairing is not ours to apply.
-        if (!outcome.Success || outcome.Body is null || outcome.Body.BranchId != pairing.BranchId) return pairing;
+        if (!outcome.Success || outcome.Body is null || outcome.Body.BranchId != pairing.BranchId)
+        {
+            return new TerminalIdentityRefresh(pairing, Persisted: false);
+        }
 
         var updated = pairing with { BranchCode = outcome.Body.BranchCode, RegisterNumber = outcome.Body.RegisterNumber };
 
         // The request took time: the terminal may have been re-paired meanwhile, and a stale
-        // answer must never overwrite the newer pairing on disk.
+        // answer must never overwrite the newer pairing on disk (nor be applied to the window).
         var stored = _store.LoadOrCreate().Pairing;
-        if (stored is not null && stored.DeviceToken == pairing.DeviceToken && stored.BranchId == pairing.BranchId)
+        if (stored is null || stored.DeviceToken != pairing.DeviceToken || stored.BranchId != pairing.BranchId)
         {
-            _store.Save(new LocalInstallationRecord(installationId, updated));
+            return new TerminalIdentityRefresh(pairing, Persisted: false);
         }
 
-        return updated;
+        _store.Save(new LocalInstallationRecord(installationId, updated));
+        return new TerminalIdentityRefresh(updated, Persisted: true);
     }
 }
+
+/// <summary>Result of <see cref="TerminalIdentityRefresher.EnsureAsync"/>; see there for the meaning of <paramref name="Persisted"/>.</summary>
+public sealed record TerminalIdentityRefresh(DevicePairing Pairing, bool Persisted);
 
 /// <summary>
 /// The human label of a terminal: `Sucursal 01 · Ruta 51 · Caja 2`. Parts that are not

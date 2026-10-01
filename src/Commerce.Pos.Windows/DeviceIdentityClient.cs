@@ -32,9 +32,13 @@ public sealed class DeviceIdentityClient
             {
                 PosHttp.LogFailure(endpoint, response, "terminal identity fetch failed");
                 if (PosHttp.IsTerminalNotRecognized(response)) return DeviceIdentityOutcome.Failed(PosMessages.TerminalNotRecognized);
-                return DeviceIdentityOutcome.Failed(response.StatusCode == System.Net.HttpStatusCode.Conflict
-                    ? PosMessages.RegisterNumbersExhausted
-                    : $"HTTP {(int)response.StatusCode}");
+                if (response.StatusCode == System.Net.HttpStatusCode.Conflict)
+                {
+                    // Only the typed body means "no register numbers left"; any other 409 is a generic failure.
+                    var conflict = await PosHttp.TryReadJsonAsync<DeviceErrorDto>(response, endpoint, ct);
+                    if (conflict?.Error == "register-numbers-exhausted") return DeviceIdentityOutcome.Failed(PosMessages.RegisterNumbersExhausted);
+                }
+                return DeviceIdentityOutcome.Failed($"HTTP {(int)response.StatusCode}");
             }
 
             var body = await PosHttp.TryReadJsonAsync<DeviceIdentityDto>(response, endpoint, ct);
@@ -49,6 +53,9 @@ public sealed class DeviceIdentityClient
         }
     }
 }
+
+/// <summary>Mirrors the typed error body of `Commerce.Cloud.Api.Endpoints.RegisterNumbersExhaustedResponse`.</summary>
+internal sealed record DeviceErrorDto(string? Error);
 
 /// <summary>Mirrors `Commerce.Cloud.Api.Endpoints.DeviceIdentityResponse`.</summary>
 public sealed record DeviceIdentityDto(Guid OrganizationId, Guid BranchId, string BranchName, int BranchCode, int RegisterNumber);
