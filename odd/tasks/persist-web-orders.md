@@ -240,3 +240,12 @@ Trunk on `dev`; work-unit commits under RDD. First review boundary: `84c0f7b`
 ## Next step
 
 Owner manual verification (after the fail-open audit follow-up): apply `0026_orders_guest_check.sql` to `commerce_dev` by hand as owner (0025 must already be applied), restart the Cloud API, submit a guest and a registered order from the web order screen and confirm "Pedido P01-W-n recibido" with the tooltip, restart the API and confirm the orders are still listed, then provoke a denied credential and check a `customer-ordering-access.denied` row in `audit_log` (owner role). Follow-up: `StaffOrderScreen` still shows the plain accepted message and a raw GUID form.
+
+- 2026-10-01 review of the durable-audit slice (`bafd604..069690e`): lineage
+  `review-766f2b8f5e6d4db7` approved and acknowledged; next boundary
+  `069690e`. Advisories left as follow-ups: the synchronous `Record` bridge in
+  `PostgresAuditSink` blocks a thread-pool thread for the write (accepted
+  trade-off: making `Authorize` async cascades into branch/updater/POS
+  callers; migrate remaining sync callers to `RecordAsync` over time); no test
+  proves a non-caller `OperationCanceledException` (timeout) fails open; POS
+  local audit stays in memory (needs a branch outbox to reach `audit_log`).
