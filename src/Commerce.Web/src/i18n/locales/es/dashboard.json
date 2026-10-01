@@ -1,0 +1,59 @@
+{
+  "title": "Tablero",
+  "description": "El estado del negocio de un vistazo.",
+  "sampleNotice": "Datos de muestra: las cifras de este tablero son de ejemplo y no reflejan la operación real.",
+  "period": {
+    "label": "Período",
+    "today": "Hoy",
+    "7d": "7 días",
+    "30d": "30 días"
+  },
+  "kpis": {
+    "posOrders": "Pedidos POS",
+    "webOrders": "Pedidos web",
+    "grandTotal": "Total general",
+    "moneyOnHand": "Dinero en caja",
+    "receivables": "Por cobrar",
+    "orderCount_one": "{{count}} pedido",
+    "orderCount_other": "{{count}} pedidos",
+    "accountCount_one": "{{count}} cuenta",
+    "accountCount_other": "{{count}} cuentas"
+  },
+  "channels": {
+    "counter": "Mostrador",
+    "delivery": "Reparto",
+    "web": "Web",
+    "split": "Reparto vs. mostrador"
+  },
+  "trend": {
+    "title": "Ventas por canal",
+    "period": "Fecha",
+    "viewTable": "Ver como tabla",
+    "viewChart": "Ver gráfico",
+    "empty": "Sin ventas en este período."
+  },
+  "topProducts": {
+    "title": "Productos más vendidos",
+    "empty": "Sin ventas en este período."
+  },
+  "stockRisk": {
+    "title": "Stock en riesgo",
+    "minimum": "Mínimo {{value}}",
+    "empty": "Ningún producto bajo el mínimo."
+  },
+  "accounts": {
+    "title": "Cuentas corrientes",
+    "customer": "Cliente",
+    "balance": "Saldo",
+    "overdue": "Atraso",
+    "daysOverdue_one": "{{count}} día",
+    "daysOverdue_other": "{{count}} días",
+    "onTime": "Al día",
+    "empty": "Sin cuentas pendientes."
+  },
+  "states": {
+    "loading": "Cargando tablero…",
+    "error": "No se pudo cargar el tablero.",
+    "retry": "Reintentar"
+  }
+}
