@@ -82,17 +82,20 @@ Forecast about 2000 authored lines over 5 tasks (+T6 if approved); trunk on
   same branch; backfill from live credentials; `DevicePairResponse` +
   `GET /device/identity` return branch code + register; POS persists them in
   `installation.json` and refreshes when missing. Route: delegated direct.
-- [ ] T3 POS sale numbers: local `terminal_counters` keyed by
+- [x] T3 POS sale numbers: local `terminal_counters` keyed by
   (branch, register) seeded from local max; number assigned in the sale
   transaction after idempotency; `SaleEffect`/`SalePayloadV1` optional
-  trailing fields; server `pos_sales` projection (or equivalent) in the inbox
-  transaction with `UNIQUE (organization_id, branch_id, register_number,
-  sequence)`; conflicts/missing numbers logged, never block ingestion. POS
+  trailing fields; server `pos_sales` projection in the inbox transaction with
+  a partial `UNIQUE (organization_id, branch_id, register_number,
+  sale_sequence)`; conflicts/missing numbers audited, never block ingestion. POS
   shows "Venta V01-C2-125 registrada" with a composition tooltip; no GUID.
   Route: delegated direct.
 - [ ] T4 GUID cleanup in the POS: identity summary shows branch name + code
   and register, no GUIDs; sync failure text without operation GUIDs (log keeps
-  them). Route: delegated direct (may join T3).
+  them). Route: delegated direct (may join T3). DONE in T3: the sale result
+  line (no sale GUID, no "branch.db"). REMAINING: organization and installation
+  GUIDs in the identity summary (`MainWindow.xaml.cs` identity text) and the
+  operation GUIDs in `SyncRunner.cs` failure text.
 - [ ] T5 Docs: `docs/document-numbering.md` (format, parts, who assigns,
   offline rules, reports, examples, future types), specs
   (`organization-persistence`, `pos-installation-identity`, `pos-scan-sale`,
@@ -212,4 +215,62 @@ Forecast about 2000 authored lines over 5 tasks (+T6 if approved); trunk on
     new API against it (needs `0021` first).
 
 ## Next step
-T3 (POS sale numbers). Read the identity from `DevicePairing.BranchCode/RegisterNumber`; reuse `BranchCode.Format()` and `RegisterNumber.Format()`.
+T4 (remaining GUIDs in the POS identity summary and in `SyncRunner` failure text), then T5
+(`docs/document-numbering.md` plus the specs still missing: `organization-persistence` is done,
+`pos-installation-identity`, `pos-scan-sale` and `branch-offline-sync` were updated in T2/T3).
+Parent: apply `0021`, `0022` (edited in place: new 4-argument function) and `0023` by hand to
+`commerce_dev` before running the new API against it. Review boundary for the next native review:
+`c26310b` (T2 review follow-ups and T3 are commits `cc7e79c`..`0d28c69`).
+- 2026-10-01: T2 review follow-ups (lineage review-2bc7f10bf36ab9f8, approved) and T3 done (single
+  writer, delegated direct). Commits: `cc7e79c` identity refresh never releases (SQL function takes
+  `p_release_others`, re-verifies a live credential under the installation lock, returns NULL otherwise;
+  `DeviceCredentialNotLiveException` -> 401), each NEW allocation audited as `terminal.register.assigned`,
+  lock seeds documented, the earlier 3-argument overload dropped (0022 edited in place: not yet applied
+  anywhere but the test DB); `aa189aa` `/device/pair` per-IP rate limit
+  (`DeviceRateLimitPolicies.Pair`, default 30 per 15 min, `RateLimits:DevicePairPermitLimit`),
+  `/health/ready` also checks `branches.code`, `terminal_registers` (forced RLS) and the 4-argument
+  assign function and logs "migration 0021/0022 missing", one typed 409 body
+  `RegisterNumbersExhaustedResponse` for pairing and identity, deploy order in `deploy/README.md`;
+  `49e21ec` POS maps a 409 only when the body says `register-numbers-exhausted`, and
+  `TerminalIdentityRefresher.EnsureAsync` returns `TerminalIdentityRefresh(Pairing, Persisted)` that
+  `MainWindow` applies only when persisted and still current; `495de8e` T3 domain + local store;
+  `e32254d` T3 POS message and wiring; `92dcdfd` migration `0023_pos_sales.sql` + projection;
+  `0d28c69` specs.
+  - RED: follow-ups: tests failed to compile on HEAD (no `DeviceCredentialNotLiveException`,
+    `RegisterNumbersExhaustedResponse`, `DeviceRateLimitPolicies`, `TerminalIdentityRefresh`); T3: tests
+    failed to compile (`SaleNumber`, `SaleNumbering`, 3-argument `TryApplyInbound`). The new tests were
+    copied into a clean worktree of HEAD for the observation. GREEN after implementation (one test, a
+    stale live row in another branch, was dropped: that state is unreachable because only pairing
+    changes credentials and pairing releases in the same transaction).
+  - Checks: `dotnet build Commerce.sln` (worktree) 0 errors; focused classes green; full
+    `tests/Commerce.Integration` 1574 passed, 0 failed, 0 skipped; UTF-8 verified with iconv on every
+    changed file; `0023` is a verbatim substring of `init-rls.sql`.
+  - Decision, sale numbering: `SaleNumber` (domain, `Format`/`Parse`/`TryParse`, sequence unpadded,
+    branch two digits minimum) and `SaleNumbering(BranchCode, RegisterNumber)` (the terminal identity).
+    `BranchSyncStore` takes the next sequence of `terminal_counters(branch_id, register_number)` with one
+    `INSERT .. ON CONFLICT DO UPDATE .. RETURNING`, seeded from `MAX(sale_sequence)` of that pair, AFTER
+    the idempotency and open-cash-session checks, then stamps the effect and re-serializes the queued
+    `SalePayloadV1` (additive optional `BranchCode`, `RegisterNumber`, `SaleSequence`). `sale_effects` gets
+    nullable `branch_code`, `register_number`, `sale_sequence`. Unknown register -> no number, no counter.
+  - Decision, server: `pos_sales` is append-only (SELECT, INSERT), FORCE RLS, composite FK to branches,
+    CHECK that register and sequence are both present or both absent, partial unique number index.
+    `ICloudInboxStore.TryApplyInbound` gained an optional `installationId` (from the device claims, via
+    `CloudSyncReceiver.Receive`). `PosSaleProjection` validates (complete/in range, branch code, registry
+    row for installation+branch+register released rows included, number unused) and uses
+    `INSERT .. ON CONFLICT DO NOTHING`; any rejection stores the sale unnumbered plus an audit row
+    `sale.number_conflict` (reason in the payload). It runs in a savepoint: a missing `pos_sales` table
+    (API deployed before `0023`) or any projection error only logs a warning and the sale is still
+    ingested. For that reason `/health/ready` does NOT require `pos_sales`.
+  - Decision, UI: `SaleResultMessage` (UI-free) builds "Venta V01-C1-125 registrada por $X (Efectivo)."
+    and, while pending, "Venta registrada por $X (Efectivo, número pendiente)." (the tender is kept, a
+    deviation from the literal text of the request), "La venta V01-C1-125 ya estaba registrada..." for
+    retries; the result `TextBlock` carries the composition tooltip. The sale path still never awaits the
+    network (existing markup tests forbid it): when the identity is unknown the sale commits unnumbered
+    and `RetryTerminalIdentityIfUnknown` starts one background refresh so the NEXT sale is numbered,
+    instead of awaiting `EnsureAsync` before the first sale; the startup refresh already covers the
+    normal case.
+  - Not applied: the `MainWindow.xaml.cs:171` suggestion (the finding text was not available to the
+    writer; that line is the fire-and-forget identity refresh, which was reworked anyway).
+  - Residual risks: rotating-IP register exhaustion by an authenticated pairer is limited and audited,
+    not prevented; sales received before `0023` is applied have no `pos_sales` row (they stay in
+    `sync_inbox`); an unnumbered sale is never numbered later.
