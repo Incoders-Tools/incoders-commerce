@@ -70,7 +70,7 @@ Forecast about 2000 authored lines over 5 tasks (+T6 if approved); trunk on
 `dev`; work-unit commits reviewed under RDD. First review boundary: `18a9046`.
 
 ## Tasks
-- [ ] T1 Branch codes: `branches.code smallint` (unique per org, NOT NULL after
+- [x] T1 Branch codes: `branches.code smallint` (unique per org, NOT NULL after
   backfill ordered by `created_at, id`, immutable via trigger), allocation in
   `CreateBranchAsync` and bootstrap under a per-org lock, DTOs
   (`BranchOption`, `BranchSummaryDto`, `SelectableBranch`, device branch
@@ -111,6 +111,38 @@ Forecast about 2000 authored lines over 5 tasks (+T6 if approved); trunk on
 
 ## Progress
 - 2026-09-30: document created after delegated mapping (4-file trigger).
+- 2026-09-30: T1 done (delegated direct writer). Commits: `2f1cf98`
+  migration `0021_branch_codes.sql` + `BranchCode` + store + init-rls/README;
+  `63fc076` DTOs (`BranchOption`, `SelectableBranch`, `BranchSummaryDto`,
+  `CreateBranchResponse`, `DeviceBranchOption`, `DevicePairResponse.BranchCode`);
+  `c22afcd` web Code column + tooltip, GUID column sysadmin-only, switcher
+  `01 · name`; `06d6d71` spec `organization-persistence` "Branch Short Code".
+  - RED: `BranchCodesMigrationTests` failed on HEAD (migration missing: 3
+    failures); domain/store/endpoint tests failed to compile (no `BranchCode`,
+    no `Code` members); web column/tooltip/sysadmin/switcher tests failed (4).
+    GREEN after implementation.
+  - Checks: `dotnet build Commerce.sln` (worktree) 0 errors; full
+    `tests/Commerce.Integration` 1461 passed, 0 failed, 0 skipped; `npm test`
+    330 passed; `tsc -b` clean; `npm run build` ok; `npm run lint` only the
+    pre-existing warnings; e2e standalone `tsc --noEmit` clean.
+  - Decision, allocation: ONE source of truth in the database. A BEFORE INSERT
+    trigger (`branches_allocate_code`) takes `pg_advisory_xact_lock(
+    hashtextextended(org_id::text, 0))` and assigns `MAX(code)+1` when the
+    insert omits `code`. The app insert (bootstrap and `CreateBranchAsync`)
+    omits it and reads it back with `RETURNING code`; raw-SQL test/seed inserts
+    keep working. Chosen over app-side `SELECT MAX` + retry (racy, duplicated
+    logic) and a counter table (extra state to backfill). Lock is per org,
+    transaction-scoped (pgbouncer-safe); branches are never deleted so a
+    committed code is never reissued.
+  - Decision, immutability: BEFORE UPDATE trigger rejects any change to `code`;
+    CHECK 1..999 and `UNIQUE (organization_id, code)` back it up.
+  - Decision, type: `Commerce.Domain.Tenancy.BranchCode` (validated 1..999,
+    `Format()` = at least 2 digits). DTOs carry the plain `int`; web mirrors the
+    formatting in `src/lib/branchCode.ts`.
+  - Fixture chains: `0021` added after `0003` in the inline-chain fixtures that
+    exercise branches via the store/endpoints; glob-based fixtures pick it up.
+  - Pending (parent): apply `0021` by hand to `commerce_dev` before running the
+    new API against it.
 
 ## Next step
-T1.
+T2 (register numbers). Reuse `BranchCode` and read the code from `branches.code`.
