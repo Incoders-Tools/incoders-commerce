@@ -94,6 +94,21 @@ public sealed class PosSalesProjectionTests : IDisposable
             DateTimeOffset.UtcNow, "sale", SyncPayloadCodec.Serialize(payload));
     }
 
+    private sealed class CapturingLogger : Microsoft.Extensions.Logging.ILogger<PostgresCloudInboxStore>
+    {
+        public List<string> Warnings { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+
+        public void Log<TState>(Microsoft.Extensions.Logging.LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId,
+            TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel == Microsoft.Extensions.Logging.LogLevel.Warning) Warnings.Add(formatter(state, exception));
+        }
+    }
+
     private PostgresCloudInboxStore Store() => new(_dataSource!);
 
     private T Scalar<T>(string sql, params object[] args)
@@ -322,12 +337,17 @@ public sealed class PosSalesProjectionTests : IDisposable
         var terminal = await PairAsync(org, branch, user);
         var envelope = SaleEnvelope(org, branch, code: 1, register: terminal.Register, sequence: 1);
 
+        var log = new CapturingLogger();
         var store = new PostgresCloudInboxStore(
-            _dataSource!, projectionFault: _ => throw new InvalidCastException("injected driver failure"));
+            _dataSource!, log, projectionFault: _ => throw new InvalidCastException("injected driver failure"));
 
         var result = store.TryApplyInbound(terminal.Scope, envelope, terminal.InstallationId);
 
         Assert.Equal(InboundApplyOutcome.Applied, result.Outcome);
+        var warning = Assert.Single(log.Warnings);
+        Assert.Contains("InvalidCastException", warning);
+        Assert.Contains("injected driver failure", warning);
+        Assert.DoesNotContain("0023", warning);
 
         Assert.Equal(1, Ingested(envelope.OperationId));
         Assert.Equal(0, Scalar<long>("SELECT count(*) FROM pos_sales WHERE operation_id = $1", envelope.OperationId));
@@ -355,10 +375,12 @@ public sealed class PosSalesProjectionTests : IDisposable
         Rename("pos_sales", "pos_sales_hidden");
         try
         {
-            var result = Store().TryApplyInbound(terminal.Scope, envelope, terminal.InstallationId);
+            var log = new CapturingLogger();
+            var result = new PostgresCloudInboxStore(_dataSource!, log).TryApplyInbound(terminal.Scope, envelope, terminal.InstallationId);
 
             Assert.Equal(InboundApplyOutcome.Applied, result.Outcome);
             Assert.Equal(1, Ingested(envelope.OperationId));
+            Assert.Contains("0023", Assert.Single(log.Warnings));
         }
         finally
         {
