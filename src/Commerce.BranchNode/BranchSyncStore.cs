@@ -453,18 +453,23 @@ public sealed partial class BranchSyncStore : IDisposable
     }
 
     /// <summary>
-    /// Takes the next sequence of the (branch, register) counter. A missing counter row is
-    /// seeded from the highest sequence already stored for that pair, so a lost row can never
-    /// make the terminal repeat a number. Must run inside the sale transaction.
+    /// Takes the next sequence of the (branch, register) counter, never below the highest sequence
+    /// already stored for that pair: a lost row is seeded from it and a counter that fell behind
+    /// is lifted to it, so the terminal can never repeat a number. Must run inside the sale transaction.
     /// </summary>
     private int NextSaleSequence(Guid branchId, RegisterNumber register, SqliteTransaction transaction)
     {
-        // Hot path: the counter row exists, one indexed UPDATE, no scan of sale_effects.
+        // Hot path: the counter row exists, one UPDATE. The counter is reconciled with the highest
+        // stored sequence (a restored or merged database can hold a higher one); that lookup is a
+        // single seek on ix_sale_effects_number, not a scan.
         using (var bump = _connection.CreateCommand())
         {
             bump.Transaction = transaction;
             bump.CommandText = """
-                UPDATE terminal_counters SET last_sequence = last_sequence + 1
+                UPDATE terminal_counters SET last_sequence = MAX(
+                        last_sequence,
+                        COALESCE((SELECT MAX(sale_sequence) FROM sale_effects
+                                   WHERE branch_id = $branchId AND register_number = $register), 0)) + 1
                  WHERE branch_id = $branchId AND register_number = $register
                 RETURNING last_sequence;
                 """;

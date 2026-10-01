@@ -208,6 +208,28 @@ public sealed class SaleNumberingCommitTests : IDisposable
     }
 
     [Fact]
+    public void ACounterBehindTheStoredSales_IsReconciledToTheHighestStoredSequence()
+    {
+        using var store = new BranchSyncStore(ConnectionString);
+        var service = Service(store);
+        Manual(service, Register2);
+        Manual(service, Register2);
+        Manual(service, Register2);
+        using (var connection = new SqliteConnection(ConnectionString))
+        {
+            connection.Open();
+            using var behind = connection.CreateCommand();
+            behind.CommandText = "UPDATE terminal_counters SET last_sequence = 1;";
+            behind.ExecuteNonQuery();
+        }
+
+        var next = Manual(service, Register2);
+
+        Assert.Equal("V01-C2-4", next.Effect.Number!.Value.Format());
+        Assert.Equal(4, Scalar("SELECT last_sequence FROM terminal_counters WHERE register_number = 2"));
+    }
+
+    [Fact]
     public void TheSeedLookup_IsCoveredByAnIndex()
     {
         using var store = new BranchSyncStore(ConnectionString);
