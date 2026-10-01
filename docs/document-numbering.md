@@ -91,7 +91,7 @@ Apply them in order, by hand, to every existing environment before deploying the
 
 `0024` is not backward compatible: it changes the result type of `terminal_registers_assign`, so an API built before it breaks at pairing once it is applied. Apply `0024` and deploy the matching API together. The new API fails `/health/ready` against a database without `0024` (or `0025`), so it never takes traffic before its schema is there. The reverse is not guarded: an API built before `0024` has no such check, so it stays ready in front of an already migrated database and fails every pairing. Nothing is in production yet.
 
-`0025` is additive: apply it before the API version that stores orders. `0026` corrects its guest check and is also additive: apply it right after `0025`; no API version depends on it. Orders held only in the memory of an older API process are lost at that restart (nothing is in production yet), and an order sent to a branch that does not exist in the organization is denied (`destination-branch-not-found`) instead of being stored.
+`0025` is additive: apply it before the API version that stores orders. `0026` is not purely additive: it replaces the guest check constraint of `orders` (drops and recreates it, rejecting NULL guest parts); apply it right after `0025`; no API version depends on it. Orders held only in the memory of an older API process are lost at that restart (nothing is in production yet), and an order sent to a branch that does not exist in the organization is denied (`destination-branch-not-found`) instead of being stored.
 
 ## Web orders
 

@@ -88,9 +88,12 @@ public interface IOrderStore
     /// then <see cref="Order.SubmittedAtUtc"/> ascending, then the order number. Orders the destination
     /// already confirmed are not listed. At most <paramref name="limit"/> orders (clamped to 1 and
     /// <see cref="MaxPendingLimit"/>) so the read stays bounded as the table grows.
+    /// The list is TRUNCATED: when more orders are pending than the limit, the tail (the newest and the
+    /// lowest-ranked) is not returned and nothing says so. It is a bounded work queue, not a complete
+    /// report; the rest appears as the head is delivered and confirmed. There is no paging yet.
     /// </summary>
     Task<IReadOnlyList<Order>> ListPendingAsync(
-        CloudTenantScope scope, CancellationToken ct, int limit = DefaultPendingLimit);
+        CloudTenantScope scope, int limit = DefaultPendingLimit, CancellationToken ct = default);
 }
 
 public static class OrderStoreExtensions

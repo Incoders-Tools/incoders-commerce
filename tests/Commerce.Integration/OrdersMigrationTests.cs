@@ -10,7 +10,8 @@ namespace Commerce.Integration;
 [Collection("Postgres")]
 public sealed class OrdersMigrationTests
 {
-    private const string MigrationFile = "0026_orders_guest_check.sql";
+    private const string OrdersMigration = "0025_orders.sql";
+    private const string GuestCheckMigration = "0026_orders_guest_check.sql";
     private readonly bool _postgresAvailable = PostgresTestFixture.TryPing(PostgresTestFixture.OwnerConnectionString);
 
     private static void Exec(NpgsqlConnection conn, string sql, params object[] args)
@@ -42,7 +43,7 @@ public sealed class OrdersMigrationTests
             conn.Open();
             var dir = Path.Combine(PostgresTestFixture.RepoRoot(), "deploy", "db", "migrations");
             foreach (var file in Directory.GetFiles(dir, "*.sql").Select(Path.GetFileName).OfType<string>()
-                         .Where(f => string.CompareOrdinal(f, MigrationFile) <= 0).OrderBy(f => f, StringComparer.Ordinal))
+                         .Where(f => string.CompareOrdinal(f, GuestCheckMigration) <= 0).OrderBy(f => f, StringComparer.Ordinal))
             {
                 PostgresTestFixture.ApplyMigration(conn, file);
             }
@@ -132,8 +133,8 @@ public sealed class OrdersMigrationTests
             var (org, branch) = SeedOrgAndBranch(conn);
             InsertOrder(conn, org, branch, Guid.NewGuid(), 1, customerId: Guid.NewGuid());
 
-            PostgresTestFixture.ApplyMigration(conn, "0025_orders.sql");
-            PostgresTestFixture.ApplyMigration(conn, MigrationFile);
+            PostgresTestFixture.ApplyMigration(conn, OrdersMigration);
+            PostgresTestFixture.ApplyMigration(conn, GuestCheckMigration);
 
             Assert.Equal(1L, Scalar<long>(conn, "SELECT count(*) FROM orders"));
         });

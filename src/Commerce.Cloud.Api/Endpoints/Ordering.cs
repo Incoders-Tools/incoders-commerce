@@ -75,7 +75,7 @@ public static class OrderingEndpoints
         group.MapGet("/pending", async (HttpContext httpContext, IOrderStore store, CancellationToken ct) =>
         {
             var scope = TenantScopeEndpointFilter.GetScope(httpContext);
-            return Results.Ok(await store.ListPendingAsync(scope, ct));
+            return Results.Ok(await store.ListPendingAsync(scope, ct: ct));
         });
 
         return group;

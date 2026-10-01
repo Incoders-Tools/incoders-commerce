@@ -231,7 +231,7 @@ public sealed class PostgresOrderStoreTests : IDisposable
         Assert.All(outcomes, o => Assert.Equal(OrderSubmissionOutcomeStatus.Accepted, o.Status));
         Assert.Equal(1, outcomes.Count(o => o.WasNewlyAccepted));
         Assert.Single(outcomes.Select(o => o.Order!.OrderNumber).Distinct());
-        Assert.Single(await NewStore().ListPendingAsync(scope, CancellationToken.None));
+        Assert.Single(await NewStore().ListPendingAsync(scope));
         var next = await SubmitRegisteredAsync(NewStore(), scope, Guid.NewGuid(), branch);
         Assert.Equal(2, next.Order!.OrderNumber!.Value.Sequence);
     }
@@ -253,7 +253,7 @@ public sealed class PostgresOrderStoreTests : IDisposable
         await SubmitRegisteredAsync(store, scopeA, orderId, branchA);
 
         Assert.Null(await store.FindAsync(scopeB, orderId, CancellationToken.None));
-        Assert.Empty(await store.ListPendingAsync(scopeB, CancellationToken.None));
+        Assert.Empty(await store.ListPendingAsync(scopeB));
 
         // The same business id in another organization is a different order (idempotency is per org).
         var other = await SubmitRegisteredAsync(store, scopeB, orderId, branchB);
@@ -265,7 +265,7 @@ public sealed class PostgresOrderStoreTests : IDisposable
         var crossed = await SubmitRegisteredAsync(store, scopeB, Guid.NewGuid(), branchA);
         Assert.Equal(OrderSubmissionOutcomeStatus.Denied, crossed.Status);
         Assert.Equal("destination-branch-not-found", crossed.Reason);
-        Assert.Single(await store.ListPendingAsync(scopeA, CancellationToken.None));
+        Assert.Single(await store.ListPendingAsync(scopeA));
     }
 
     [Fact]
@@ -283,7 +283,7 @@ public sealed class PostgresOrderStoreTests : IDisposable
         Assert.Equal("destination-branch-not-found", outcome.Reason);
         Assert.Null(outcome.Order);
         Assert.False(outcome.WasNewlyAccepted);
-        Assert.Empty(await store.ListPendingAsync(scope, CancellationToken.None));
+        Assert.Empty(await store.ListPendingAsync(scope));
     }
 
     [Fact]
@@ -308,7 +308,7 @@ public sealed class PostgresOrderStoreTests : IDisposable
             new GuestContact("1", GuestContactChannel.Email, "late@example.com", "Late", null));
         await SubmitRegisteredAsync(store, scope, registeredSecond, branch);
 
-        var listed = await NewStore().ListPendingAsync(scope, CancellationToken.None);
+        var listed = await NewStore().ListPendingAsync(scope);
 
         Assert.Equal([registeredFirst, registeredSecond, guestEarly, guestLate], listed.Select(o => o.OrderId));
         Assert.All(listed, o => Assert.Single(o.Lines));
@@ -374,7 +374,7 @@ public sealed class PostgresOrderStoreTests : IDisposable
         await Assert.ThrowsAsync<PostgresException>(() =>
             SubmitRegisteredAsync(store, scope, Guid.NewGuid(), branch, lines: [broken]));
 
-        Assert.Empty(await store.ListPendingAsync(scope, CancellationToken.None));
+        Assert.Empty(await store.ListPendingAsync(scope));
         var next = await SubmitRegisteredAsync(store, scope, Guid.NewGuid(), branch);
         Assert.Equal(1, next.Order!.OrderNumber!.Value.Sequence);
     }
@@ -525,7 +525,7 @@ public sealed class PostgresOrderStoreTests : IDisposable
         {
             await SubmitGuestAsync(store, scope, Guid.NewGuid(), branch, VerifiedGuest, ticket);
         }
-        var before = (await store.ListPendingAsync(scope, CancellationToken.None)).Count;
+        var before = (await store.ListPendingAsync(scope)).Count;
         var orderId = Guid.NewGuid();
 
         var outcome = await SubmitGuestAsync(store, scope, orderId, branch, VerifiedGuest, ticket);
@@ -534,7 +534,7 @@ public sealed class PostgresOrderStoreTests : IDisposable
         Assert.Equal("verification-invalid", outcome.Reason);
         Assert.Null(outcome.Order);
         Assert.Null(await store.FindAsync(scope, orderId, CancellationToken.None));
-        Assert.Equal(before, (await store.ListPendingAsync(scope, CancellationToken.None)).Count);
+        Assert.Equal(before, (await store.ListPendingAsync(scope)).Count);
         var next = await SubmitRegisteredAsync(store, scope, Guid.NewGuid(), branch);
         Assert.Equal(before + 1, next.Order!.OrderNumber!.Value.Sequence);
     }
@@ -569,7 +569,7 @@ public sealed class PostgresOrderStoreTests : IDisposable
 
         Assert.Equal(1, outcomes.Count(o => o.Status == OrderSubmissionOutcomeStatus.Accepted));
         Assert.Equal(7, outcomes.Count(o => o.Reason == "verification-invalid"));
-        Assert.Single(await NewStore().ListPendingAsync(scope, CancellationToken.None));
+        Assert.Single(await NewStore().ListPendingAsync(scope));
     }
 
     // --- review follow-ups (persist-web-orders) -----------------------------------------------------
@@ -603,7 +603,7 @@ public sealed class PostgresOrderStoreTests : IDisposable
         Assert.All(outcomes, o => Assert.Equal(OrderSubmissionOutcomeStatus.Accepted, o.Status));
         Assert.Equal(1, outcomes.Count(o => o.WasNewlyAccepted));
         Assert.Single(outcomes.Select(o => o.Order!.OrderNumber!.Value.Format()).Distinct());
-        Assert.Single(await NewStore().ListPendingAsync(scope, CancellationToken.None));
+        Assert.Single(await NewStore().ListPendingAsync(scope));
     }
 
     [Fact]
@@ -623,7 +623,7 @@ public sealed class PostgresOrderStoreTests : IDisposable
         {
             while (!stop.IsCancellationRequested)
             {
-                var listed = await store.ListPendingAsync(scope, CancellationToken.None);
+                var listed = await store.ListPendingAsync(scope);
                 Assert.All(listed, o => Assert.NotEmpty(o.Lines));
             }
         })).ToArray();
@@ -635,7 +635,7 @@ public sealed class PostgresOrderStoreTests : IDisposable
         stop.Cancel();
         await Task.WhenAll(readers);
 
-        Assert.Equal(40, (await store.ListPendingAsync(scope, CancellationToken.None)).Count);
+        Assert.Equal(40, (await store.ListPendingAsync(scope)).Count);
     }
 
     [Fact]
@@ -668,12 +668,12 @@ public sealed class PostgresOrderStoreTests : IDisposable
             DeleteSqlite(dbPath);
         }
 
-        var all = await store.ListPendingAsync(scope, CancellationToken.None);
-        var limited = await store.ListPendingAsync(scope, CancellationToken.None, limit: 2);
+        var all = await store.ListPendingAsync(scope);
+        var limited = await store.ListPendingAsync(scope, limit: 2);
 
         Assert.Equal(ids.Skip(1), all.Select(o => o.OrderId));
         Assert.Equal(ids.Skip(1).Take(2), limited.Select(o => o.OrderId));
-        Assert.Single(await store.ListPendingAsync(scope, CancellationToken.None, limit: 0));   // clamped up to 1
+        Assert.Single(await store.ListPendingAsync(scope, limit: 0));   // clamped up to 1
         Assert.Equal(200, IOrderStore.DefaultPendingLimit);
         Assert.Equal(500, IOrderStore.MaxPendingLimit);
     }

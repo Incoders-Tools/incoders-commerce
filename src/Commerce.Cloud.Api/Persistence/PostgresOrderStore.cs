@@ -213,7 +213,7 @@ public sealed class PostgresOrderStore : IOrderStore
     }
 
     public async Task<IReadOnlyList<Order>> ListPendingAsync(
-        CloudTenantScope scope, CancellationToken ct, int limit = IOrderStore.DefaultPendingLimit)
+        CloudTenantScope scope, int limit = IOrderStore.DefaultPendingLimit, CancellationToken ct = default)
     {
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
