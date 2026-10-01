@@ -76,7 +76,7 @@ Forecast about 2000 authored lines over 5 tasks (+T6 if approved); trunk on
   (`BranchOption`, `BranchSummaryDto`, `SelectableBranch`, device branch
   options) carry the code, web Branches screen shows "Código" and hides the
   GUID column unless sysadmin. Route: delegated direct.
-- [ ] T2 Register numbers: `terminal_registers(organization_id, branch_id,
+- [x] T2 Register numbers: `terminal_registers(organization_id, branch_id,
   installation_id, register_number)` unique per branch and per installation,
   allocated in `IssueAsync` under a per-branch lock, reused on re-pair to the
   same branch; backfill from live credentials; `DevicePairResponse` +
@@ -143,6 +143,73 @@ Forecast about 2000 authored lines over 5 tasks (+T6 if approved); trunk on
     exercise branches via the store/endpoints; glob-based fixtures pick it up.
   - Pending (parent): apply `0021` by hand to `commerce_dev` before running the
     new API against it.
+- 2026-09-30: T1 review follow-ups (lineage review-bbe00c52ade4b9da, approved)
+  resolved. Commits: `545f1d4` exhausted branch codes map to `409
+  {"error":"branch-codes-exhausted"}` (`BranchCodesExhaustedException`, store +
+  endpoint tests), trigger name corrected to `branches_code_allocate` (function
+  `branches_allocate_code()`) in README/comments/doc, `hashtextextended`
+  collision comment fixed in 0021 and init-rls.sql, spec scenario added;
+  `a27ffd1` web fixtures: no `code` on organization objects, codes unique per
+  organization. `BranchCode` stays the single .NET formatter and is now used by
+  the POS label; the web `branchCode.ts` remains its documented mirror.
+- 2026-09-30: T2 done (delegated direct writer). Commits: `9915d16` migration
+  `0022_terminal_registers.sql` + init-rls/README + migration tests; `879f32e`
+  API (`PostgresTerminalRegisterStore`, `IssueAsync` assigns in the pairing
+  transaction, `DevicePairResponse.RegisterNumber`, `GET /device/identity`) +
+  store/endpoint tests + fixture chains; `8b434fe` POS (pairing DTOs,
+  `installation.json` fields, `DeviceIdentityClient`, `TerminalIdentityRefresher`,
+  `TerminalLabel`, identity summary line); `881f9a1` spec "Register Number".
+  - RED: `TerminalRegistersMigrationTests` 6 failures (migration missing);
+    store/endpoint tests failed to compile (no `RegisterNumber`,
+    `PostgresTerminalRegisterStore`, `DeviceIdentityResponse`,
+    `RegisterNumbersExhaustedException`); POS tests failed to compile
+    (`TerminalIdentityRefresher`). Note: the POS implementation draft existed
+    before its tests ran; RED was observed against a clean HEAD worktree. GREEN
+    after implementation.
+  - Checks: `dotnet build Commerce.sln` (worktree) 0 errors; focused classes
+    green (36 + 43); full `tests/Commerce.Integration` 1498 passed, 0 failed, 0 skipped;
+    `npm test` 330 passed; `tsc -b` clean.
+  - Decision, table: one row per (branch, installation) kept FOREVER with
+    `released_at` (history) instead of deleting freed rows. `UNIQUE
+    (organization_id, branch_id, register_number)` + `UNIQUE (organization_id,
+    branch_id, installation_id)` + partial unique index on `installation_id
+    WHERE released_at IS NULL` (one live register per installation). FORCE RLS,
+    asymmetric like `device_credentials` (unscoped SELECT/release for the
+    cross-org re-pair, INSERT/re-activation pinned to the org); an immutability
+    trigger protects identity columns.
+  - Decision, reuse policy: NUMBERS ARE NEVER REUSED. Sale numbers are
+    generated offline from (branch, register, seq); handing a freed number to
+    another installation could duplicate a sale number. Next number is
+    `MAX(ever assigned)+1` per branch. An installation returning to a branch it
+    already held gets its OWN old number back (re-activates its row), which is
+    safe because (branch, register) names one installation forever.
+  - Decision, width: 1..999 (not 1..99). Every POS reinstall is a new
+    installation and numbers are never freed, so a long-lived branch needs
+    headroom; `C{n}` is not zero-padded so the width is free. Exhaustion fails
+    `terminal_registers_number_ck` and maps to `409` (`register-numbers-exhausted`
+    in pairing and identity); the pairing transaction rolls back whole (old
+    credential stays live).
+  - Decision, allocation: ONE SQL function `terminal_registers_assign` (advisory
+    xact locks, installation then branch, pgbouncer-safe) called by `IssueAsync`
+    inside the pairing transaction and by `GET /device/identity`, which also
+    covers terminals paired before the feature. Backfill numbers live
+    credentials per branch by `issued_at, installation_id`.
+  - Decision, POS offline: identity (`BranchCode`, `RegisterNumber`) is stored
+    in `installation.json` (nullable for old files). `MainWindow` refreshes it
+    fire-and-forget at startup through `TerminalIdentityRefresher` (UI-free; no
+    request when complete; offline keeps it unknown; never overwrites a newer
+    pairing). The label `Sucursal 01 · Ruta 51 · Caja 2` omits unknown parts and
+    never shows a GUID; the settings identity summary now has a "Terminal" line
+    instead of the branch GUID (organization/installation GUIDs stay for T4).
+  - Notes for T3: sales without a known register must still commit; show a
+    friendly "Número pendiente" (no GUID) and assign the number when the
+    identity arrives (call `TerminalIdentityRefresher.EnsureAsync` before the
+    first sale and retry later); the local counter must be keyed by (branch,
+    register) and never created before the register is known. Add the
+    `PosMessages` text then. Format with `BranchCode.Format()` and
+    `RegisterNumber.Format()` (`C2`).
+  - Pending (parent): apply `0022` by hand to `commerce_dev` before running the
+    new API against it (needs `0021` first).
 
 ## Next step
-T2 (register numbers). Reuse `BranchCode` and read the code from `branches.code`.
+T3 (POS sale numbers). Read the identity from `DevicePairing.BranchCode/RegisterNumber`; reuse `BranchCode.Format()` and `RegisterNumber.Format()`.
