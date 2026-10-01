@@ -102,7 +102,7 @@ describe('BranchProvider auto-selection', () => {
         user={buildUser({
           selectableBranches: [
             { id: 'b1', name: 'Ruta 51', code: 1 },
-            { id: 'b2', name: 'Centro', code: 1 },
+            { id: 'b2', name: 'Centro', code: 2 },
           ],
         })}
       >
@@ -121,7 +121,7 @@ describe('BranchProvider auto-selection', () => {
         user={buildUser({
           selectableBranches: [
             { id: 'b1', name: 'Ruta 51', code: 1 },
-            { id: 'b2', name: 'Centro', code: 1 },
+            { id: 'b2', name: 'Centro', code: 2 },
           ],
         })}
       >
@@ -165,11 +165,11 @@ describe('BranchProvider header mirror', () => {
         user={buildUser({
           selectableBranches: [
             { id: 'b1', name: 'Ruta 51', code: 1 },
-            { id: 'b2', name: 'Centro', code: 1 },
+            { id: 'b2', name: 'Centro', code: 2 },
           ],
         })}
       >
-        <SelectThenMount branch={{ id: 'b2', name: 'Centro', code: 1 }} onFirstEffect={(id) => seen.push(id)} />
+        <SelectThenMount branch={{ id: 'b2', name: 'Centro', code: 2 }} onFirstEffect={(id) => seen.push(id)} />
       </Harness>,
     )
 
@@ -187,7 +187,7 @@ describe('BranchProvider switching', () => {
         user={buildUser({
           selectableBranches: [
             { id: 'b1', name: 'Ruta 51', code: 1 },
-            { id: 'b2', name: 'Centro', code: 1 },
+            { id: 'b2', name: 'Centro', code: 2 },
           ],
         })}
       >
@@ -213,7 +213,7 @@ describe('BranchProvider for a sysadmin acting on a selected organization', () =
     )
     window.localStorage.setItem(
       'sysadmin-organization:sysadmin-1',
-      JSON.stringify({ id: 'org-target', name: 'Target Org', code: 1 }),
+      JSON.stringify({ id: 'org-target', name: 'Target Org' }),
     )
 
     render(
@@ -259,7 +259,7 @@ describe('BranchProvider for a sysadmin acting on a selected organization', () =
 
     window.localStorage.setItem(
       'sysadmin-organization:sysadmin-1',
-      JSON.stringify({ id: 'org-target', name: 'Target Org', code: 1 }),
+      JSON.stringify({ id: 'org-target', name: 'Target Org' }),
     )
 
     render(

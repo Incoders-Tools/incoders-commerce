@@ -143,7 +143,7 @@ describe('AppLayout', () => {
   it('shows every tenant module to a system admin who has selected an organization', () => {
     window.localStorage.setItem(
       'sysadmin-organization:user-1',
-      JSON.stringify({ id: 'org-target', name: 'Target Org', code: 1 }),
+      JSON.stringify({ id: 'org-target', name: 'Target Org' }),
     )
 
     render(
