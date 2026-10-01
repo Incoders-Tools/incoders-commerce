@@ -35,6 +35,8 @@
     },
     "outcome": {
       "accepted": "Pedido aceptado.",
+      "received": "Pedido <number>{{number}}</number> recibido",
+      "numberHint": "{{type}} = Pedido · {{branch}} = Sucursal · {{origin}} = Web · {{sequence}} = número de pedido de la sucursal",
       "denied": "Rechazado: {{reason}}"
     },
     "submitting": "Enviando…",

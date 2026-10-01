@@ -5,10 +5,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { OrderLinesEditor } from '@/components/OrderLinesEditor'
+import { OrderOutcomeMessage } from '@/components/OrderOutcomeMessage'
 import { listPublicPresentations, requestGuestVerification, confirmGuestVerification, submitGuestOrder } from '@/api/publicOrdering'
 import { customerSignIn, submitCustomerOrder } from '@/api/customerSession'
 import { ApiError } from '@/api/client'
-import { OrderSubmissionOutcomeStatus, type CustomerSignedInResponse, type OrderSubmissionOutcome, type PresentationRecord, type SubmitOrderLine } from '@/api/types'
+import type { CustomerSignedInResponse, OrderSubmissionOutcome, PresentationRecord, SubmitOrderLine } from '@/api/types'
 
 type Branch = 'guest' | 'registered'
 
@@ -219,13 +220,7 @@ function GuestOrderPanel({ presentations }: { presentations: PresentationRecord[
             {error}
           </p>
         )}
-        {outcome && (
-          <p data-testid="order-outcome" className="text-sm text-neutral-700">
-            {outcome.status === OrderSubmissionOutcomeStatus.Accepted
-              ? t('placeOrder.outcome.accepted')
-              : t('placeOrder.outcome.denied', { reason: outcome.reason })}
-          </p>
-        )}
+        {outcome && <OrderOutcomeMessage outcome={outcome} />}
 
         <Button type="submit" disabled={submitting || !verified || lines.length === 0}>
           {submitting ? t('placeOrder.submitting') : t('placeOrder.submit')}
@@ -311,13 +306,7 @@ function RegisteredOrderPanel({ presentations }: { presentations: PresentationRe
           {error}
         </p>
       )}
-      {outcome && (
-        <p data-testid="order-outcome" className="text-sm text-neutral-700">
-          {outcome.status === OrderSubmissionOutcomeStatus.Accepted
-            ? t('placeOrder.outcome.accepted')
-            : t('placeOrder.outcome.denied', { reason: outcome.reason })}
-        </p>
-      )}
+      {outcome && <OrderOutcomeMessage outcome={outcome} />}
 
       <Button type="submit" disabled={submitting || lines.length === 0}>
         {submitting ? t('placeOrder.submitting') : t('placeOrder.submit')}

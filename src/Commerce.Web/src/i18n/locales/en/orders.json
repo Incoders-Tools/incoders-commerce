@@ -35,6 +35,8 @@
     },
     "outcome": {
       "accepted": "Order accepted.",
+      "received": "Order <number>{{number}}</number> received",
+      "numberHint": "{{type}} = Order · {{branch}} = Branch · {{origin}} = Web · {{sequence}} = branch order number",
       "denied": "Denied: {{reason}}"
     },
     "submitting": "Submitting…",

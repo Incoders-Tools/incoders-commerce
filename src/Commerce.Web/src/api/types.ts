@@ -138,9 +138,12 @@ export interface OrderSubmissionOutcome {
   status: OrderSubmissionOutcomeStatus
   reason: string
   order?: {
-    id: string
+    // The server serializes `Order.OrderId` as `orderId` (never shown to the customer).
+    orderId: string
     organizationId: string
     status: number
+    // The human number (`P01-W-37`), plain text; absent on an order stored before orders were numbered.
+    orderNumber?: string | null
     // commerce-pricing-engine: the frozen, server-resolved total per line —
     // never sent by the client, only ever returned once the order is
     // accepted.

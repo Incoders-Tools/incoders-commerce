@@ -238,6 +238,6 @@ test.describe('guest order submission — full verification cycle (commerce-gues
     await page.getByRole('button', { name: /enviar pedido/i }).click()
 
     await expect(page.getByTestId('order-outcome')).toBeVisible()
-    await expect(page.getByTestId('order-outcome')).toHaveText(/^(Pedido aceptado\.|Rechazado: .+)$/)
+    await expect(page.getByTestId('order-outcome')).toHaveText(/^(Pedido aceptado\.|Pedido P\d{2,3}-W-[1-9]\d* recibido|Rechazado: .+)$/)
   })
 })

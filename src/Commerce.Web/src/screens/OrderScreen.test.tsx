@@ -86,7 +86,7 @@ describe('OrderScreen', () => {
       }
       if (url === '/public/guest-orders' && init?.method === 'POST') {
         return Promise.resolve(
-          new Response(JSON.stringify({ status: 0, reason: 'allowed', order: { id: '1', organizationId: '1', status: 0, lines: [] } }), {
+          new Response(JSON.stringify({ status: 0, reason: 'allowed', order: { orderId: '8f1c0b9e-0000-4000-8000-000000000001', organizationId: '1', status: 0, orderNumber: 'P01-W-37', lines: [] } }), {
             status: 200,
             headers: { 'Content-Type': 'application/json' },
           }),
@@ -135,7 +135,13 @@ describe('OrderScreen', () => {
     expect(body.email).toBe('guest@example.com')
     expect(body.lines).toEqual([{ productId: 'prod-1', presentationId: 'pres-1', quantity: 1 }])
 
-    await screen.findByTestId('order-outcome')
+    const outcome = await screen.findByTestId('order-outcome')
+    expect(outcome).toHaveTextContent('Pedido P01-W-37 recibido')
+    expect(outcome).not.toHaveTextContent('8f1c0b9e')
+    expect(within(outcome).getByText('P01-W-37')).toHaveAttribute(
+      'title',
+      'P = Pedido · 01 = Sucursal · W = Web · 37 = número de pedido de la sucursal',
+    )
   })
 
   it('blocks an unverified submit attempt client-side with a clear message', async () => {
@@ -164,5 +170,81 @@ describe('OrderScreen', () => {
     expect(within(panel).getByLabelText(/contraseña/i)).toBeInTheDocument()
     expect(within(panel).queryByLabelText(/customer id/i)).not.toBeInTheDocument()
     expect(within(panel).queryByLabelText(/access credential/i)).not.toBeInTheDocument()
+  })
+
+  it('shows the received order number to a signed-in customer, with the composition tooltip', async () => {
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === '/public/catalog/presentations') {
+        return Promise.resolve(new Response(JSON.stringify([presentation]), { status: 200 }))
+      }
+      if (url === '/customer/sign-in' && init?.method === 'POST') {
+        return Promise.resolve(
+          new Response(JSON.stringify({ customerId: 'c1', email: 'ana@example.com' }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        )
+      }
+      if (url === '/customer/orders' && init?.method === 'POST') {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              status: 0,
+              reason: 'accepted',
+              order: { orderId: '8f1c0b9e-0000-4000-8000-000000000002', organizationId: '1', status: 0, orderNumber: 'P02-W-5', lines: [] },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        )
+      }
+      return Promise.reject(new Error(`Unexpected fetch: ${url}`))
+    })
+    const user = userEvent.setup()
+    render(<OrderScreen />)
+
+    await user.click(await screen.findByRole('tab', { name: /iniciar sesión para pedir/i }))
+    await user.type(screen.getByLabelText(/^correo/i), 'ana@example.com')
+    await user.type(screen.getByLabelText(/contraseña/i), 'secret')
+    await user.click(screen.getByRole('button', { name: /^iniciar sesión$/i }))
+    await user.selectOptions(await screen.findByRole('combobox', { name: /presentación/i }), 'pres-1')
+    await user.click(screen.getByRole('button', { name: /agregar línea/i }))
+    await user.click(screen.getByRole('button', { name: /enviar pedido/i }))
+
+    const outcome = await screen.findByTestId('order-outcome')
+    expect(outcome).toHaveTextContent('Pedido P02-W-5 recibido')
+    expect(outcome).not.toHaveTextContent('8f1c0b9e')
+    expect(within(outcome).getByText('P02-W-5')).toHaveAttribute(
+      'title',
+      'P = Pedido · 02 = Sucursal · W = Web · 5 = número de pedido de la sucursal',
+    )
+  })
+
+  it('shows the plain accepted message when the server sent no order number', async () => {
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === '/public/catalog/presentations') {
+        return Promise.resolve(new Response(JSON.stringify([presentation]), { status: 200 }))
+      }
+      if (url === '/customer/sign-in' && init?.method === 'POST') {
+        return Promise.resolve(new Response(JSON.stringify({ customerId: 'c1', email: 'ana@example.com' }), { status: 200 }))
+      }
+      if (url === '/customer/orders' && init?.method === 'POST') {
+        return Promise.resolve(
+          new Response(JSON.stringify({ status: 0, reason: 'accepted', order: { orderId: 'x', organizationId: '1', status: 0, lines: [] } }), { status: 200 }),
+        )
+      }
+      return Promise.reject(new Error(`Unexpected fetch: ${url}`))
+    })
+    const user = userEvent.setup()
+    render(<OrderScreen />)
+
+    await user.click(await screen.findByRole('tab', { name: /iniciar sesión para pedir/i }))
+    await user.type(screen.getByLabelText(/^correo/i), 'ana@example.com')
+    await user.type(screen.getByLabelText(/contraseña/i), 'secret')
+    await user.click(screen.getByRole('button', { name: /^iniciar sesión$/i }))
+    await user.selectOptions(await screen.findByRole('combobox', { name: /presentación/i }), 'pres-1')
+    await user.click(screen.getByRole('button', { name: /agregar línea/i }))
+    await user.click(screen.getByRole('button', { name: /enviar pedido/i }))
+
+    expect(await screen.findByTestId('order-outcome')).toHaveTextContent(/^Pedido aceptado\.$/)
   })
 })
