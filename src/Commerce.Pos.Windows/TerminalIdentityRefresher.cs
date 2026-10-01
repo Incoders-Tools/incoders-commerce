@@ -91,4 +91,34 @@ public static class TerminalLabel
         }
         return string.Join(" · ", parts);
     }
+
+    /// <summary>
+    /// The tooltip that explains the label (`Sucursal 01 = código de sucursal · Caja 1 = número de
+    /// esta caja`), limited to the parts the label shows; null when it shows neither.
+    /// </summary>
+    public static string? Composition(DevicePairing pairing)
+    {
+        var parts = new List<string>(2);
+        if (pairing.BranchCode is { } code && code is >= BranchCode.MinValue and <= BranchCode.MaxValue)
+        {
+            parts.Add($"Sucursal {new BranchCode(code).Format()} = código de sucursal");
+        }
+        if (pairing.RegisterNumber is { } register && register is >= RegisterNumber.MinValue and <= RegisterNumber.MaxValue)
+        {
+            parts.Add($"Caja {register} = número de esta caja");
+        }
+        return parts.Count == 0 ? null : string.Join(" · ", parts);
+    }
+}
+
+/// <summary>
+/// The terminal identity block of the settings window: the human label and the operators. No
+/// organization, installation or branch id (those live in the log file).
+/// </summary>
+public static class IdentitySummary
+{
+    public static string Format(DevicePairing pairing, string? currentOperatorEmail) =>
+        $"Terminal: {TerminalLabel.Format(pairing)}\n" +
+        $"Operador de emparejamiento: {pairing.OperatorEmail}\n" +
+        $"Operador actual: {currentOperatorEmail ?? "sin operador activo"}";
 }

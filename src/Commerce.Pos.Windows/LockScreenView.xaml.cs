@@ -14,13 +14,15 @@ namespace Commerce.Pos.Windows;
 public partial class LockScreenView : UserControl
 {
     private readonly Func<string> _branchName;
+    private readonly Func<string?>? _branchToolTip;
     private readonly BusyController _busy;
 
-    public LockScreenView(LockScreenModel model, Func<string> branchName)
+    public LockScreenView(LockScreenModel model, Func<string> branchName, Func<string?>? branchToolTip = null)
     {
         InitializeComponent();
         Model = model;
         _branchName = branchName;
+        _branchToolTip = branchToolTip;
         _busy = new BusyController(ApplyBusy, nameof(LockScreenView), Model.ReportUnexpected);
 
         Model.SignedIn += operatorRecord =>
@@ -62,6 +64,7 @@ public partial class LockScreenView : UserControl
     {
         var mode = Model.Mode;
         BranchText.Text = _branchName();
+        BranchText.ToolTip = _branchToolTip?.Invoke();
         TilesPanel.Visibility = Vis(mode == LockScreenMode.Tiles);
         PinPanel.Visibility = Vis(mode == LockScreenMode.PinEntry);
         CredentialsPanel.Visibility = Vis(mode == LockScreenMode.Credentials);

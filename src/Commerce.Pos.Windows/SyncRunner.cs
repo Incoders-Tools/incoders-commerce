@@ -91,11 +91,11 @@ public sealed class SyncRunner
             var pending = _store.GetPendingOutbox(pairing.BranchId);
             if (pending.Count == 0)
             {
-                return new SyncRunResult("Nothing pending to sync.", CredentialRejected: false);
+                return new SyncRunResult(PosMessages.SyncNothingPending, CredentialRejected: false);
             }
 
             var succeeded = 0;
-            var failures = new List<string>();
+            var failed = 0;
             var credentialRejected = false;
 
             foreach (var envelope in pending)
@@ -108,7 +108,8 @@ public sealed class SyncRunner
                 catch (Exception ex)
                 {
                     _store.RecordAttemptFailure(envelope.OperationId, ex.Message);
-                    failures.Add($"{envelope.OperationId}: {ex.Message}");
+                    PosLog.Warning("Sync", $"Operation {envelope.OperationId} was not sent; it stays pending.", ex);
+                    failed++;
                     continue;
                 }
 
@@ -119,15 +120,16 @@ public sealed class SyncRunner
                 }
                 else
                 {
-                    failures.Add($"{envelope.OperationId}: {pushResult.Error}");
+                    PosLog.Warning("Sync", $"Operation {envelope.OperationId} was rejected: {pushResult.Error}; it stays pending.");
+                    failed++;
                     credentialRejected |= pushResult.CredentialWasRejected;
                     _store.RecordAttemptFailure(envelope.OperationId, pushResult.Error ?? "unknown error");
                 }
             }
 
-            var summary = failures.Count == 0
-                ? $"Synced {succeeded} operation(s) successfully."
-                : $"Synced {succeeded} operation(s); {failures.Count} failed:\n{string.Join("\n", failures)}";
+            var summary = failed == 0
+                ? PosMessages.SyncSucceeded(succeeded)
+                : PosMessages.SyncPartiallyFailed(succeeded, failed);
 
             if (credentialRejected)
             {

@@ -60,6 +60,28 @@ public static class PosMessages
     public const string RegisterNumbersExhausted =
         "Esta sucursal ya usó todos los números de caja disponibles. Avisá a soporte técnico.";
 
+    // ---- Sync summary (never names an operation; the log keeps the ids) -------
+
+    public const string SyncNothingPending = "No hay nada pendiente de sincronizar.";
+
+    public static string SyncSucceeded(int count) =>
+        count == 1 ? "Se sincronizó 1 operación." : $"Se sincronizaron {count} operaciones.";
+
+    public static string SyncPartiallyFailed(int succeeded, int failed)
+    {
+        var failure = failed == 1
+            ? "1 no se pudo enviar y se reintentará automáticamente"
+            : $"{failed} no se pudieron enviar y se reintentarán automáticamente";
+        return succeeded == 0
+            ? failed == 1
+                ? "No se pudo enviar la operación; se reintentará automáticamente."
+                : "No se pudo enviar ninguna operación; se reintentará automáticamente."
+            : $"{SyncSucceededLead(succeeded)}; {failure}.";
+    }
+
+    private static string SyncSucceededLead(int count) =>
+        count == 1 ? "Se sincronizó 1 operación" : $"Se sincronizaron {count} operaciones";
+
     // ---- Pairing window -----------------------------------------------------
 
     public const string SelectBranchFirst = "Seleccioná una sucursal primero.";

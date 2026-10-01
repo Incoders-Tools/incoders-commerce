@@ -92,7 +92,7 @@ public sealed class RunSyncAsyncTests : IDisposable
         var result = await runner.RunAsync(SyncTrigger.Startup);
 
         Assert.NotNull(result);
-        Assert.Equal("Nothing pending to sync.", result!.Summary);
+        Assert.Equal(PosMessages.SyncNothingPending, result!.Summary);
     }
 
     [Fact]
@@ -117,5 +117,8 @@ public sealed class RunSyncAsyncTests : IDisposable
 
         Assert.NotNull(result);
         Assert.Single(store.GetPendingOutbox(branchId));
+        // The operator text names no operation (the log keeps the ids) and is friendly Spanish.
+        Assert.DoesNotContain(envelope.OperationId.ToString(), result!.Summary);
+        Assert.Equal(PosMessages.SyncPartiallyFailed(0, 1), result.Summary);
     }
 }

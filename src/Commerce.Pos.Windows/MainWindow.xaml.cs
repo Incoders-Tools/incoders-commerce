@@ -147,7 +147,8 @@ public partial class MainWindow : Window
         // The lock screen is the first thing the window shows: nobody is signed in yet.
         _lockScreen = new LockScreenView(
             new LockScreenModel(operatorProvisioningClient, localOperatorStore, () => _pairing.DeviceToken),
-            () => _pairing.BranchName);
+            () => TerminalLabel.Format(_pairing),
+            () => TerminalLabel.Composition(_pairing));
         _lockScreen.SignedIn += LockScreen_SignedIn;
         LockHost.Content = _lockScreen;
 
@@ -518,19 +519,7 @@ public partial class MainWindow : Window
             : new Version(0, 0, 0);
     }
 
-    private string BuildIdentitySummary()
-    {
-        var operatorLine = _currentOperator.Value is { } op
-            ? $"Operador actual: {op.Email}"
-            : "Operador actual: sin operador activo";
-
-        return
-            $"Organización: {_pairing.OrganizationId}\n" +
-            $"Terminal: {TerminalLabel.Format(_pairing)}\n" +
-            $"Operador de emparejamiento: {_pairing.OperatorEmail}\n" +
-            $"Instalación: {_installationId}\n" +
-            $"{operatorLine}";
-    }
+    private string BuildIdentitySummary() => IdentitySummary.Format(_pairing, _currentOperator.Value?.Email);
 
     /// <summary>
     /// Manual-total sale, completed with one of the tender buttons in the popup
