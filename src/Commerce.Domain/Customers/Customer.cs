@@ -42,14 +42,12 @@ public sealed class Customer
     public string? BillingInstrumentReference { get; }
     public string? Notes { get; }
 
-    /// <summary>Optional reference to the organization's city catalog.</summary>
+    /// <summary>Optional reference to a city of the global core geography (Georef).</summary>
     public Guid? CityId { get; }
 
     /// <summary>Optional reference to the organization's business type catalog.</summary>
     public Guid? BusinessTypeId { get; }
 
-    /// <summary>The person to talk to at the customer (free text).</summary>
-    public string? ContactName { get; }
     public bool IsEnabled { get; private set; }
     public DateTimeOffset CreatedAtUtc { get; }
     public Guid CreatedByUserId { get; }
@@ -80,8 +78,7 @@ public sealed class Customer
         DateTimeOffset? createdAtUtc = null,
         string? billingInstrumentReference = null,
         Guid? cityId = null,
-        Guid? businessTypeId = null,
-        string? contactName = null)
+        Guid? businessTypeId = null)
     {
         if (string.IsNullOrWhiteSpace(displayName))
         {
@@ -148,7 +145,6 @@ public sealed class Customer
         Notes = notes;
         CityId = cityId;
         BusinessTypeId = businessTypeId;
-        ContactName = contactName;
         CreatedByUserId = createdByUserId;
         IsEnabled = isEnabled;
         CreatedAtUtc = createdAtUtc ?? DateTimeOffset.UtcNow;

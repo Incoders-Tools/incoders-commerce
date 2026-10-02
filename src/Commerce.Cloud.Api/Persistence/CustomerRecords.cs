@@ -33,13 +33,47 @@ public sealed record NewCustomer(
     Guid CreatedByUserId,
     Guid? CityId = null,
     Guid? BusinessTypeId = null,
-    string? ContactName = null);
+    IReadOnlyList<CustomerContactInput>? Contacts = null);
+
+/// <summary>
+/// One contact person of a customer as written by create/update. `Id` is null for
+/// a new contact (a fresh id is generated); a present id is kept: it updates the
+/// customer's existing contact with that id, or inserts a new one with it.
+/// </summary>
+public sealed record CustomerContactInput(
+    Guid? Id,
+    string FirstName,
+    string? LastName,
+    string? Phone,
+    string? Email,
+    string? Role,
+    bool IsPrimary,
+    int SortOrder);
+
+/// <summary>One persisted contact person of a customer, as returned inside <see cref="CustomerRecord"/>.</summary>
+public sealed record CustomerContactRecord(
+    Guid Id,
+    string FirstName,
+    string? LastName,
+    string? Phone,
+    string? Email,
+    string? Role,
+    bool IsPrimary,
+    int SortOrder);
+
+/// <summary>
+/// Thrown by the customer store when a contact id of a create/update cannot be
+/// used: it belongs to another customer or organization. The transaction is rolled
+/// back; the endpoint answers 400 on `contacts`.
+/// </summary>
+public sealed class CustomerContactRejectedException(string message) : Exception(message);
 
 /// <summary>
 /// Fields an edit MAY change. `CustomerKind` is deliberately absent — it is
 /// read-only at edit (design.md "Web form shape (create vs. edit)"): it
 /// drives which price list applies in Phase C, so flipping it retroactively
 /// changes commercial meaning and is a future, deliberate operation.
+/// `Contacts` null keeps the stored contact set; a list REPLACES it.
 /// </summary>
 public sealed record UpdateCustomer(
     string DisplayName,
@@ -62,7 +96,7 @@ public sealed record UpdateCustomer(
     bool IsEnabled,
     ColumnChange<Guid?>? City = null,
     ColumnChange<Guid?>? BusinessType = null,
-    ColumnChange<string?>? ContactName = null,
+    IReadOnlyList<CustomerContactInput>? Contacts = null,
     DateTimeOffset? ExpectedUpdatedAtUtc = null);
 
 /// <summary>
@@ -115,9 +149,12 @@ public sealed record CustomerRecord(
     string? CityName = null,
     Guid? BusinessTypeId = null,
     string? BusinessTypeName = null,
-    string? ContactName = null,
     string? ProvinceId = null,
-    string? ProvinceName = null);
+    string? ProvinceName = null)
+{
+    /// <summary>The customer's contact people (never null), primary first by flag, ordered by `sortOrder`.</summary>
+    public IReadOnlyList<CustomerContactRecord> Contacts { get; init; } = [];
+}
 
 /// <summary>Optional filters of the customer list; every member is optional and they combine with AND.</summary>
 public sealed record CustomerListFilter(string? Search = null, Guid? CityId = null, Guid? BusinessTypeId = null);

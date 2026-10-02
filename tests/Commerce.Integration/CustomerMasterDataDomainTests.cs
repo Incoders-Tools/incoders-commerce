@@ -95,17 +95,16 @@ public sealed class CustomerMasterDataDomainTests
     }
 
     [Fact]
-    public void Customer_CarriesCityBusinessTypeAndContactName()
+    public void Customer_CarriesCityAndBusinessType()
     {
         var cityId = Guid.NewGuid();
         var businessTypeId = Guid.NewGuid();
         var customer = new Customer(
             Guid.NewGuid(), Guid.NewGuid(), CustomerKind.Retail, "Bar Pepe", null, TaxIdType.None, null,
             TaxCondition.ConsumidorFinal, null, null, null, null, null, null, null, null, null, null, null, null,
-            Guid.NewGuid(), cityId: cityId, businessTypeId: businessTypeId, contactName: "Pepe");
+            Guid.NewGuid(), cityId: cityId, businessTypeId: businessTypeId);
 
         Assert.Equal(cityId, customer.CityId);
         Assert.Equal(businessTypeId, customer.BusinessTypeId);
-        Assert.Equal("Pepe", customer.ContactName);
     }
 }

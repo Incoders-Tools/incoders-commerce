@@ -56,9 +56,8 @@ public sealed class PostgresCustomerStore
         CityName: reader.IsDBNull(25) ? null : reader.GetString(25),
         BusinessTypeId: reader.IsDBNull(26) ? null : reader.GetGuid(26),
         BusinessTypeName: reader.IsDBNull(27) ? null : reader.GetString(27),
-        ContactName: reader.IsDBNull(28) ? null : reader.GetString(28),
-        ProvinceId: reader.IsDBNull(29) ? null : reader.GetString(29),
-        ProvinceName: reader.IsDBNull(30) ? null : reader.GetString(30));
+        ProvinceId: reader.IsDBNull(28) ? null : reader.GetString(28),
+        ProvinceName: reader.IsDBNull(29) ? null : reader.GetString(29));
 
     // The LEFT JOINs resolve the display names of the optional city (global
     // geography, with its province) and business type (organization catalog;
@@ -69,7 +68,7 @@ public sealed class PostgresCustomerStore
         c.tax_condition, c.phone, c.email, c.address_street, c.address_number, c.neighborhood, c.locality,
         c.province, c.postal_code, c.delivery_notes, c.discount_percentage, c.payment_terms, c.notes,
         c.is_enabled, c.created_at_utc, c.created_by_user_id, c.updated_at_utc,
-        c.city_id, ci.name, c.business_type_id, bt.name, c.contact_name, ci.province_id, pr.name
+        c.city_id, ci.name, c.business_type_id, bt.name, ci.province_id, pr.name
         """;
 
     private const string FromClause =
@@ -83,10 +82,126 @@ public sealed class PostgresCustomerStore
     private static async Task<CustomerRecord?> SelectByIdAsync(
         NpgsqlConnection connection, NpgsqlTransaction tx, Guid customerId, CancellationToken ct)
     {
-        await using var cmd = new NpgsqlCommand($"SELECT {SelectColumns} FROM {FromClause} WHERE c.id = $1", connection, tx);
-        cmd.Parameters.AddWithValue(customerId);
+        CustomerRecord? record;
+        await using (var cmd = new NpgsqlCommand($"SELECT {SelectColumns} FROM {FromClause} WHERE c.id = $1", connection, tx))
+        {
+            cmd.Parameters.AddWithValue(customerId);
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            record = await reader.ReadAsync(ct) ? Read(reader) : null;
+        }
+
+        if (record is null)
+        {
+            return null;
+        }
+
+        var contacts = await LoadContactsAsync(connection, tx, [customerId], ct);
+        return contacts.TryGetValue(customerId, out var own) ? record with { Contacts = own } : record;
+    }
+
+    /// <summary>The contacts of the given customers in one query, ordered by `sort_order` then creation.</summary>
+    private static async Task<Dictionary<Guid, List<CustomerContactRecord>>> LoadContactsAsync(
+        NpgsqlConnection connection, NpgsqlTransaction tx, Guid[] customerIds, CancellationToken ct)
+    {
+        var byCustomer = new Dictionary<Guid, List<CustomerContactRecord>>();
+        await using var cmd = new NpgsqlCommand(
+            """
+            SELECT customer_id, id, first_name, last_name, phone, email, role, is_primary, sort_order
+            FROM customer_contacts
+            WHERE customer_id = ANY($1)
+            ORDER BY sort_order, created_at_utc, id
+            """, connection, tx);
+        cmd.Parameters.AddWithValue(customerIds);
         await using var reader = await cmd.ExecuteReaderAsync(ct);
-        return await reader.ReadAsync(ct) ? Read(reader) : null;
+        while (await reader.ReadAsync(ct))
+        {
+            var customerId = reader.GetGuid(0);
+            if (!byCustomer.TryGetValue(customerId, out var list))
+            {
+                byCustomer[customerId] = list = [];
+            }
+
+            list.Add(new CustomerContactRecord(
+                reader.GetGuid(1), reader.GetString(2),
+                reader.IsDBNull(3) ? null : reader.GetString(3),
+                reader.IsDBNull(4) ? null : reader.GetString(4),
+                reader.IsDBNull(5) ? null : reader.GetString(5),
+                reader.IsDBNull(6) ? null : reader.GetString(6),
+                reader.GetBoolean(7), reader.GetInt32(8)));
+        }
+
+        return byCustomer;
+    }
+
+    /// <summary>
+    /// REPLACE-SET of one customer's contacts inside the caller's transaction: contacts whose
+    /// id is not sent are deleted, the primary flag is cleared (the partial unique index allows
+    /// one primary, so it is re-applied per contact), then every sent contact is upserted by id.
+    /// An id that belongs to another customer or organization is refused.
+    /// </summary>
+    private static async Task ReplaceContactsAsync(
+        NpgsqlConnection connection, NpgsqlTransaction tx, Guid organizationId, Guid customerId,
+        IReadOnlyList<CustomerContactInput> contacts, CancellationToken ct)
+    {
+        var keptIds = contacts.Where(c => c.Id is not null).Select(c => c.Id!.Value).ToArray();
+        await using (var cmd = new NpgsqlCommand(
+            "DELETE FROM customer_contacts WHERE customer_id = $1 AND NOT (id = ANY($2))", connection, tx))
+        {
+            cmd.Parameters.AddWithValue(customerId);
+            cmd.Parameters.AddWithValue(keptIds);
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+
+        await using (var cmd = new NpgsqlCommand(
+            "UPDATE customer_contacts SET is_primary = false WHERE customer_id = $1 AND is_primary", connection, tx))
+        {
+            cmd.Parameters.AddWithValue(customerId);
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+
+        foreach (var contact in contacts)
+        {
+            await using var cmd = new NpgsqlCommand(
+                """
+                INSERT INTO customer_contacts
+                    (id, organization_id, customer_id, first_name, last_name, phone, email, role, is_primary, sort_order)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                ON CONFLICT (id) DO UPDATE
+                SET first_name = EXCLUDED.first_name, last_name = EXCLUDED.last_name, phone = EXCLUDED.phone,
+                    email = EXCLUDED.email, role = EXCLUDED.role, is_primary = EXCLUDED.is_primary,
+                    sort_order = EXCLUDED.sort_order, updated_at_utc = now()
+                WHERE customer_contacts.customer_id = EXCLUDED.customer_id
+                """, connection, tx);
+            cmd.Parameters.AddWithValue(contact.Id ?? Guid.NewGuid());
+            cmd.Parameters.AddWithValue(organizationId);
+            cmd.Parameters.AddWithValue(customerId);
+            cmd.Parameters.AddWithValue(contact.FirstName);
+            cmd.Parameters.AddWithValue((object?)contact.LastName ?? DBNull.Value);
+            cmd.Parameters.AddWithValue((object?)contact.Phone ?? DBNull.Value);
+            cmd.Parameters.AddWithValue((object?)contact.Email ?? DBNull.Value);
+            cmd.Parameters.AddWithValue((object?)contact.Role ?? DBNull.Value);
+            cmd.Parameters.AddWithValue(contact.IsPrimary);
+            cmd.Parameters.AddWithValue(contact.SortOrder);
+
+            int affected;
+            try
+            {
+                affected = await cmd.ExecuteNonQueryAsync(ct);
+            }
+            catch (PostgresException ex) when (
+                ex.TableName == "customer_contacts"
+                && ex.SqlState is PostgresErrorCodes.InsufficientPrivilege or PostgresErrorCodes.UniqueViolation)
+            {
+                // The id points at a contact this organization cannot see (row level security) or that is taken.
+                throw new CustomerContactRejectedException($"Contact id {contact.Id} cannot be used.");
+            }
+
+            if (affected == 0)
+            {
+                // ON CONFLICT matched a contact of ANOTHER customer of this organization.
+                throw new CustomerContactRejectedException($"Contact id {contact.Id} belongs to another customer.");
+            }
+        }
     }
 
     /// <summary>
@@ -108,10 +223,10 @@ public sealed class PostgresCustomerStore
                 (id, organization_id, customer_kind, display_name, legal_name, tax_id_type, tax_id,
                  tax_condition, phone, email, address_street, address_number, neighborhood, locality,
                  province, postal_code, delivery_notes, discount_percentage, payment_terms, notes,
-                 created_by_user_id, city_id, business_type_id, contact_name)
+                 created_by_user_id, city_id, business_type_id)
             VALUES
                 ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21,
-                 $22, $23, $24)
+                 $22, $23)
             """, connection, tx))
         {
             cmd.Parameters.AddWithValue(customer.Id);
@@ -137,9 +252,13 @@ public sealed class PostgresCustomerStore
             cmd.Parameters.AddWithValue(customer.CreatedByUserId);
             cmd.Parameters.AddWithValue((object?)customer.CityId ?? DBNull.Value);
             cmd.Parameters.AddWithValue((object?)customer.BusinessTypeId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue((object?)customer.ContactName ?? DBNull.Value);
 
             await cmd.ExecuteNonQueryAsync(ct);
+        }
+
+        if (customer.Contacts is { Count: > 0 } contacts)
+        {
+            await ReplaceContactsAsync(connection, tx, scope.OrganizationId, customer.Id, contacts, ct);
         }
 
         // Re-read through the joined select so the record carries the city and business type names.
@@ -194,9 +313,8 @@ public sealed class PostgresCustomerStore
                 discount_percentage = $15, payment_terms = $16, notes = $17, is_enabled = $18,
                 city_id = CASE WHEN $19 THEN $20::uuid ELSE city_id END,
                 business_type_id = CASE WHEN $21 THEN $22::uuid ELSE business_type_id END,
-                contact_name = CASE WHEN $23 THEN $24::text ELSE contact_name END,
                 updated_at_utc = now()
-            WHERE id = $25 AND ($26::timestamptz IS NULL OR updated_at_utc = $26)
+            WHERE id = $23 AND ($24::timestamptz IS NULL OR updated_at_utc = $24)
             """, connection, tx))
         {
             cmd.Parameters.AddWithValue(update.DisplayName);
@@ -221,8 +339,6 @@ public sealed class PostgresCustomerStore
             cmd.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Uuid, (object?)update.City?.Value ?? DBNull.Value);
             cmd.Parameters.AddWithValue(update.BusinessType is not null);
             cmd.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Uuid, (object?)update.BusinessType?.Value ?? DBNull.Value);
-            cmd.Parameters.AddWithValue(update.ContactName is not null);
-            cmd.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Text, (object?)update.ContactName?.Value ?? DBNull.Value);
             cmd.Parameters.AddWithValue(customerId);
             cmd.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.TimestampTz, (object?)update.ExpectedUpdatedAtUtc ?? DBNull.Value);
 
@@ -232,6 +348,12 @@ public sealed class PostgresCustomerStore
                 await tx.RollbackAsync(ct);
                 throw new CustomerModifiedException(customerId);
             }
+        }
+
+        // Same transaction as the token-checked UPDATE above: a stale token rolls the contacts back too.
+        if (update.Contacts is not null)
+        {
+            await ReplaceContactsAsync(connection, tx, scope.OrganizationId, customerId, update.Contacts, ct);
         }
 
         var updated = (await SelectByIdAsync(connection, tx, customerId, ct))!;
@@ -265,8 +387,8 @@ public sealed class PostgresCustomerStore
         ListAsync(scope, null, ct);
 
     /// <summary>
-    /// Ordered by display name. `Search` matches the name, legal name, contact
-    /// name and tax id ignoring case and accents (a plain `translate`/`lower`
+    /// Ordered by display name. `Search` matches the name, legal name, tax id
+    /// and the first/last name of any contact ignoring case and accents (a plain `translate`/`lower`
     /// fold, so no database extension is needed); LIKE wildcards in the term
     /// are escaped, so `%` and `_` only match themselves.
     /// </summary>
@@ -286,10 +408,15 @@ public sealed class PostgresCustomerStore
             FROM {FromClause}
             WHERE ($1::uuid IS NULL OR c.city_id = $1)
               AND ($2::uuid IS NULL OR c.business_type_id = $2)
-              AND ($3::text IS NULL OR translate(lower(
-                      c.display_name || ' ' || coalesce(c.legal_name, '') || ' ' ||
-                      coalesce(c.contact_name, '') || ' ' || coalesce(c.tax_id, '')),
-                  'áéíóúüñàèìòùâêîôûäëïöç', 'aeiouunaeiouaeiouaeioc') LIKE '%' || $3 || '%' ESCAPE '\')
+              AND ($3::text IS NULL
+                   OR translate(lower(
+                          c.display_name || ' ' || coalesce(c.legal_name, '') || ' ' || coalesce(c.tax_id, '')),
+                      'áéíóúüñàèìòùâêîôûäëïöç', 'aeiouunaeiouaeiouaeioc') LIKE '%' || $3 || '%' ESCAPE '\'
+                   OR EXISTS (
+                      SELECT 1 FROM customer_contacts cc
+                      WHERE cc.customer_id = c.id
+                        AND translate(lower(cc.first_name || ' ' || coalesce(cc.last_name, '')),
+                      'áéíóúüñàèìòùâêîôûäëïöç', 'aeiouunaeiouaeiouaeioc') LIKE '%' || $3 || '%' ESCAPE '\'))
             ORDER BY c.display_name, c.id
             """, connection, tx))
         {
@@ -300,6 +427,18 @@ public sealed class PostgresCustomerStore
             while (await reader.ReadAsync(ct))
             {
                 results.Add(Read(reader));
+            }
+        }
+
+        if (results.Count > 0)
+        {
+            var contacts = await LoadContactsAsync(connection, tx, results.Select(r => r.Id).ToArray(), ct);
+            for (var i = 0; i < results.Count; i++)
+            {
+                if (contacts.TryGetValue(results[i].Id, out var own))
+                {
+                    results[i] = results[i] with { Contacts = own };
+                }
             }
         }
 

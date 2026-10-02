@@ -118,7 +118,8 @@ public sealed class CustomerMasterDataEndpointTests : IClassFixture<WebApplicati
         Guid? cityId = null, Guid? businessTypeId = null, string? contactName = null) => new
     {
         customerKind = "Retail", displayName, taxIdType, taxId, taxCondition = "ConsumidorFinal",
-        cityId, businessTypeId, contactName,
+        cityId, businessTypeId,
+        contacts = contactName is null ? null : new[] { new { firstName = contactName, isPrimary = true } },
     };
 
     /// <summary>The first Georef locality named exactly <paramref name="name"/> in Buenos Aires province.</summary>
@@ -271,7 +272,7 @@ public sealed class CustomerMasterDataEndpointTests : IClassFixture<WebApplicati
         Assert.Equal("Moreno", fetched.GetProperty("cityName").GetString());
         Assert.Equal(typeId, fetched.GetProperty("businessTypeId").GetGuid());
         Assert.Equal("Bar", fetched.GetProperty("businessTypeName").GetString());
-        Assert.Equal("Pepe", fetched.GetProperty("contactName").GetString());
+        Assert.Equal("Pepe", fetched.GetProperty("contacts")[0].GetProperty("firstName").GetString());
         Assert.Equal("Dni", fetched.GetProperty("taxIdType").GetString());
         Assert.Equal("12345678", fetched.GetProperty("taxId").GetString()); // stored digits only
 
@@ -367,18 +368,18 @@ public sealed class CustomerMasterDataEndpointTests : IClassFixture<WebApplicati
         var kept = await legacy.Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal(city, kept.GetProperty("cityId").GetGuid());
         Assert.Equal(type, kept.GetProperty("businessTypeId").GetGuid());
-        Assert.Equal("Pepe", kept.GetProperty("contactName").GetString());
+        Assert.Equal("Pepe", kept.GetProperty("contacts")[0].GetProperty("firstName").GetString()); // omitted `contacts` keeps them
         Assert.Equal("Moreno", kept.GetProperty("cityName").GetString());
 
         var cleared = await admin.PutAsJsonAsync($"/customers/{id}", new
         {
             displayName = "Bar Pepe 2", taxIdType = "None", taxCondition = "ConsumidorFinal", isEnabled = true,
-            cityId = Guid.Empty, businessTypeId = Guid.Empty, contactName = "",
+            cityId = Guid.Empty, businessTypeId = Guid.Empty, contacts = Array.Empty<object>(),
         });
         var clearedBody = await cleared.Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal(JsonValueKind.Null, clearedBody.GetProperty("cityId").ValueKind);
         Assert.Equal(JsonValueKind.Null, clearedBody.GetProperty("businessTypeId").ValueKind);
-        Assert.Equal(JsonValueKind.Null, clearedBody.GetProperty("contactName").ValueKind);
+        Assert.Equal(0, clearedBody.GetProperty("contacts").GetArrayLength());
     }
     private static object PutBody(string displayName, DateTimeOffset? expected = null) => new
     {

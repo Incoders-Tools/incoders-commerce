@@ -114,13 +114,18 @@ public static class CustomerEndpoints
                 });
             }
 
+            if (!TryBuildContacts(request.Contacts, out var contacts, out var contactsProblem))
+            {
+                return contactsProblem!;
+            }
+
             var customerId = Guid.NewGuid();
             var newCustomer = new NewCustomer(
                 customerId, customerKind, request.DisplayName.Trim(), request.LegalName, taxIdType, normalizedTaxId,
                 taxCondition, request.Phone, request.Email, request.AddressStreet, request.AddressNumber,
                 request.Neighborhood, request.Locality, request.Province, request.PostalCode, request.DeliveryNotes,
                 request.DiscountPercentage, request.PaymentTerms, request.Notes, caller.Id,
-                NullIfEmpty(request.CityId), NullIfEmpty(request.BusinessTypeId), BlankToNull(request.ContactName));
+                NullIfEmpty(request.CityId), NullIfEmpty(request.BusinessTypeId), contacts);
 
             CustomerRecord created;
             try
@@ -137,6 +142,10 @@ public static class CustomerEndpoints
                 {
                     ["taxId"] = ["taxId is required exactly when taxIdType is not None."],
                 });
+            }
+            catch (CustomerContactRejectedException ex)
+            {
+                return ContactsProblem(ex.Message);
             }
             catch (PostgresException ex) when (MasterDataReferenceProblem(ex) is { } problem)
             {
@@ -190,6 +199,11 @@ public static class CustomerEndpoints
                 });
             }
 
+            if (!TryBuildContacts(request.Contacts, out var contacts, out var contactsProblem))
+            {
+                return contactsProblem!;
+            }
+
             // Master data on update: an omitted property keeps the stored value
             // (so the POS, which predates these fields, never wipes them);
             // Guid.Empty / "" clears it.
@@ -200,7 +214,7 @@ public static class CustomerEndpoints
                 request.DiscountPercentage, request.PaymentTerms, request.Notes, request.IsEnabled,
                 request.CityId is { } city ? new ColumnChange<Guid?>(NullIfEmpty(city)) : null,
                 request.BusinessTypeId is { } type ? new ColumnChange<Guid?>(NullIfEmpty(type)) : null,
-                request.ContactName is { } contact ? new ColumnChange<string?>(BlankToNull(contact)) : null,
+                contacts,
                 request.ExpectedUpdatedAtUtc);
 
             CustomerRecord? updated;
@@ -222,6 +236,10 @@ public static class CustomerEndpoints
             catch (CustomerModifiedException)
             {
                 return Results.Conflict(new { error = "customer-modified" });
+            }
+            catch (CustomerContactRejectedException ex)
+            {
+                return ContactsProblem(ex.Message);
             }
             catch (PostgresException ex) when (MasterDataReferenceProblem(ex) is { } problem)
             {
@@ -296,6 +314,75 @@ public static class CustomerEndpoints
 
     private static string? BlankToNull(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
+    internal const int MaxContacts = 50;
+    private const int MaxContactFieldLength = 200;
+
+    private static IResult ContactsProblem(string message) =>
+        Results.ValidationProblem(new Dictionary<string, string[]> { ["contacts"] = [message] });
+
+    /// <summary>
+    /// Validates and normalizes the request's contact list. A null array (property omitted) yields a null
+    /// list, which on update means "keep the stored contacts"; an empty array yields an empty list (clear).
+    /// Rules: at most 50 contacts, a first name on each, at most one primary, no repeated id. A contact
+    /// without `sortOrder` takes its position in the array.
+    /// </summary>
+    private static bool TryBuildContacts(
+        ContactRequest[]? requested, out IReadOnlyList<CustomerContactInput>? contacts, out IResult? problem)
+    {
+        contacts = null;
+        problem = null;
+        if (requested is null)
+        {
+            return true;
+        }
+
+        if (requested.Length > MaxContacts)
+        {
+            problem = ContactsProblem($"at most {MaxContacts} contacts are allowed.");
+            return false;
+        }
+
+        var result = new List<CustomerContactInput>(requested.Length);
+        var ids = new HashSet<Guid>();
+        for (var i = 0; i < requested.Length; i++)
+        {
+            var contact = requested[i];
+            var firstName = BlankToNull(contact?.FirstName);
+            if (firstName is null)
+            {
+                problem = ContactsProblem($"contacts[{i}].firstName is required.");
+                return false;
+            }
+
+            if (new[] { firstName, contact!.LastName, contact.Phone, contact.Email, contact.Role }
+                .Any(v => v is { Length: > MaxContactFieldLength }))
+            {
+                problem = ContactsProblem($"contacts[{i}] fields must be {MaxContactFieldLength} characters or fewer.");
+                return false;
+            }
+
+            var id = NullIfEmpty(contact.Id);
+            if (id is { } contactId && !ids.Add(contactId))
+            {
+                problem = ContactsProblem($"contacts[{i}].id is repeated.");
+                return false;
+            }
+
+            result.Add(new CustomerContactInput(
+                id, firstName, BlankToNull(contact.LastName), BlankToNull(contact.Phone), BlankToNull(contact.Email),
+                BlankToNull(contact.Role), contact.IsPrimary ?? false, contact.SortOrder ?? i));
+        }
+
+        if (result.Count(c => c.IsPrimary) > 1)
+        {
+            problem = ContactsProblem("at most one contact can be primary.");
+            return false;
+        }
+
+        contacts = result;
+        return true;
+    }
+
     /// <summary>
     /// The foreign keys refuse a city that does not exist (global, 0028) or a
     /// business type that is not in the caller's organization (another
@@ -354,7 +441,7 @@ public sealed record CreateCustomerRequest(
     string? AddressStreet, string? AddressNumber, string? Neighborhood,
     string? Locality, string? Province, string? PostalCode,
     string? DeliveryNotes, decimal? DiscountPercentage, string? PaymentTerms, string? Notes,
-    Guid? CityId = null, Guid? BusinessTypeId = null, string? ContactName = null);
+    Guid? CityId = null, Guid? BusinessTypeId = null, ContactRequest[]? Contacts = null);
 
 /// <summary>
 /// <see cref="CreateCustomerRequest"/> minus <c>CustomerKind</c> (read-only at
@@ -369,8 +456,18 @@ public sealed record UpdateCustomerRequest(
     string? Locality, string? Province, string? PostalCode,
     string? DeliveryNotes, decimal? DiscountPercentage, string? PaymentTerms, string? Notes,
     bool IsEnabled,
-    Guid? CityId = null, Guid? BusinessTypeId = null, string? ContactName = null,
+    Guid? CityId = null, Guid? BusinessTypeId = null, ContactRequest[]? Contacts = null,
     DateTimeOffset? ExpectedUpdatedAtUtc = null);
+
+/// <summary>
+/// One contact person in a customer create/update body. `Id` is optional: a sent id is kept (it updates the
+/// customer's contact with that id, or creates one with it); `FirstName` is required; at most one contact
+/// can be `IsPrimary`; `SortOrder` defaults to the position in the array. On update the whole array
+/// REPLACES the customer's contacts (omitted ones are removed); omit the property to keep them.
+/// </summary>
+public sealed record ContactRequest(
+    Guid? Id = null, string? FirstName = null, string? LastName = null, string? Phone = null, string? Email = null,
+    string? Role = null, bool? IsPrimary = null, int? SortOrder = null);
 
 public sealed record CreateCustomerResponse(Guid CustomerId);
 

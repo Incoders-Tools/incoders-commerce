@@ -14,6 +14,7 @@ public sealed class VacaVerdeSeedTests
 {
     private const int ExpectedBusinessTypes = 11;
     private const int ExpectedCustomers = 87;
+    private const int ExpectedContacts = 39;
 
     private readonly bool _postgresAvailable = PostgresTestFixture.TryPing(PostgresTestFixture.OwnerConnectionString);
 
@@ -90,6 +91,8 @@ public sealed class VacaVerdeSeedTests
 
             Assert.Equal(ExpectedBusinessTypes, Count(owner, "business_types", orgId));
             Assert.Equal(ExpectedCustomers, Count(owner, "customers", orgId));
+            Assert.Equal(ExpectedContacts, Count(owner, "customer_contacts", orgId));
+            Assert.Equal(0L, Scalar<long>(owner, "SELECT count(*) FROM customer_contacts WHERE organization_id = $1 AND NOT is_primary", orgId));
 
             // Every customer is created by the organization's business admin.
             var adminId = Scalar<Guid>(owner, "SELECT id FROM users WHERE organization_id = $1", orgId);
@@ -160,6 +163,68 @@ public sealed class VacaVerdeSeedTests
     }
 
     [Fact]
+    public void Seed_CreatesTheClienteColumnAsPrimaryContacts_SplittingTwoWordNames()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        using var owner = OpenOwner();
+        ApplyAllMigrations(owner);
+        var orgId = ProvisionVacaVerde(owner);
+        try
+        {
+            ApplySeed(owner);
+
+            (string First, string? Last, bool Primary) ContactOf(string customer)
+            {
+                using var cmd = new NpgsqlCommand(
+                    "SELECT cc.first_name, cc.last_name, cc.is_primary FROM customer_contacts cc JOIN customers c ON c.id = cc.customer_id WHERE c.organization_id = $1 AND c.display_name = $2", owner);
+                cmd.Parameters.AddWithValue(orgId);
+                cmd.Parameters.AddWithValue(customer);
+                using var r = cmd.ExecuteReader();
+                Assert.True(r.Read());
+                var result = (r.GetString(0), r.IsDBNull(1) ? null : r.GetString(1), r.GetBoolean(2));
+                Assert.False(r.Read()); // exactly one
+                return result;
+            }
+
+            Assert.Equal(("Lucas", "Badano", true), ContactOf("Al Toque"));            // two words: first + last
+            Assert.Equal(("Esteban", (string?)null, true), ContactOf("Almacén Esteban")); // one word: first name only
+            Assert.Equal(0L, Scalar<long>(owner,
+                "SELECT count(*) FROM customers c WHERE c.organization_id = $1 AND c.display_name = 'Almacén Cristian' AND EXISTS (SELECT 1 FROM customer_contacts cc WHERE cc.customer_id = c.id)", orgId));
+        }
+        finally { RemoveVacaVerde(owner); }
+    }
+
+    [Fact]
+    public void Seed_SplitsAContactMigratedFromTheOldColumn_OnlyWhileUntouched()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        using var owner = OpenOwner();
+        ApplyAllMigrations(owner);
+        var orgId = ProvisionVacaVerde(owner);
+        try
+        {
+            ApplySeed(owner);
+            // What migration 0029 leaves behind on an environment that already had the customers.
+            Exec(owner, @"UPDATE customer_contacts SET first_name = 'Lucas Badano', last_name = NULL, updated_at_utc = created_at_utc
+                          WHERE customer_id IN (SELECT id FROM customers WHERE organization_id = $1 AND display_name = 'Al Toque')", orgId);
+            Exec(owner, @"UPDATE customer_contacts SET first_name = 'Javier Bargas', last_name = NULL, updated_at_utc = created_at_utc + interval '1 second'
+                          WHERE customer_id IN (SELECT id FROM customers WHERE organization_id = $1 AND display_name = 'Parrilla Javier')", orgId);
+
+            ApplySeed(owner);
+
+            Assert.Equal("Badano", Scalar<string>(owner,
+                "SELECT cc.last_name FROM customer_contacts cc JOIN customers c ON c.id = cc.customer_id WHERE c.organization_id = $1 AND c.display_name = 'Al Toque'", orgId));
+            // Edited since (updated after created): left alone.
+            Assert.Equal("Javier Bargas", Scalar<string>(owner,
+                "SELECT cc.first_name FROM customer_contacts cc JOIN customers c ON c.id = cc.customer_id WHERE c.organization_id = $1 AND c.display_name = 'Parrilla Javier'", orgId));
+            Assert.Equal(ExpectedContacts, Count(owner, "customer_contacts", orgId));
+        }
+        finally { RemoveVacaVerde(owner); }
+    }
+
+    [Fact]
     public void Seed_IsIdempotent_RunningTwiceLeavesTheSameData_AndPreservesLaterEdits()
     {
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
@@ -175,6 +240,7 @@ public sealed class VacaVerdeSeedTests
 
             Assert.Equal(ExpectedBusinessTypes, Count(owner, "business_types", orgId));
             Assert.Equal(ExpectedCustomers, Count(owner, "customers", orgId));
+            Assert.Equal(ExpectedContacts, Count(owner, "customer_contacts", orgId));
             Assert.Equal("editado por el dueno", Scalar<string>(owner,
                 "SELECT notes FROM customers WHERE organization_id = $1 AND display_name = 'Almacén Cristian'", orgId));
         }
@@ -215,6 +281,7 @@ public sealed class VacaVerdeSeedTests
 
             Assert.Equal(0L, Count(owner, "business_types", orgId));
             Assert.Equal(0L, Count(owner, "customers", orgId));
+            Assert.Equal(0L, Count(owner, "customer_contacts", orgId));
         }
         finally { RemoveVacaVerde(owner); }
     }

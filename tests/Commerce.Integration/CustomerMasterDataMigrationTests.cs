@@ -4,8 +4,9 @@ namespace Commerce.Integration;
 
 /// <summary>
 /// `0027_customer_master_data.sql`: the organization-owned `business_types`
-/// catalog, the optional customer references, the `contact_name` column and the
-/// `Dni` tax id type. (Its organization `cities` table was retired by 0028; see
+/// catalog, the optional customer references and the `Dni` tax id type. (Its
+/// `contact_name` column was retired by 0029; see
+/// <see cref="CustomerContactsMigrationTests"/>.) (Its organization `cities` table was retired by 0028; see
 /// <see cref="CoreGeographyMigrationTests"/>.)
 /// </summary>
 [Collection("Postgres")]
@@ -137,7 +138,7 @@ public sealed class CustomerMasterDataMigrationTests
         Exec(owner, "INSERT INTO business_types (id, organization_id, name, key) VALUES ($1, $2, 'Bar', 'bar'), ($3, $4, 'Bar', 'bar')", typeA, orgA, typeB, orgB);
 
         const string insert =
-            "INSERT INTO customers (id, organization_id, customer_kind, display_name, created_by_user_id, city_id, business_type_id, contact_name) VALUES ($1, $2, 'Retail', 'Cliente', $3, $4, $5, 'Juan')";
+            "INSERT INTO customers (id, organization_id, customer_kind, display_name, created_by_user_id, city_id, business_type_id) VALUES ($1, $2, 'Retail', 'Cliente', $3, $4, $5)";
 
         var unknownCity = Assert.Throws<PostgresException>(() => Exec(owner, insert, Guid.NewGuid(), orgA, Guid.NewGuid(), Guid.NewGuid(), typeA));
         Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, unknownCity.SqlState);
@@ -145,7 +146,7 @@ public sealed class CustomerMasterDataMigrationTests
         Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, foreignType.SqlState);
 
         Exec(owner, insert, Guid.NewGuid(), orgA, Guid.NewGuid(), cityA, typeA);
-        Assert.Equal(1L, Scalar<long>(owner, "SELECT count(*) FROM customers WHERE organization_id = $1 AND contact_name = 'Juan'", orgA));
+        Assert.Equal(1L, Scalar<long>(owner, "SELECT count(*) FROM customers WHERE organization_id = $1 AND city_id = $2", orgA, cityA));
 
         var cityInUse = Assert.Throws<PostgresException>(() => Exec(owner, "DELETE FROM cities WHERE id = $1", cityA));
         Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, cityInUse.SqlState);
@@ -197,7 +198,7 @@ public sealed class CustomerMasterDataMigrationTests
 
             Assert.True(Scalar<bool>(conn, "SELECT EXISTS (SELECT 1 FROM pg_class WHERE relname = 'cities' AND relrowsecurity AND relforcerowsecurity)"));
             Assert.True(Scalar<bool>(conn, "SELECT EXISTS (SELECT 1 FROM pg_class WHERE relname = 'business_types' AND relrowsecurity AND relforcerowsecurity)"));
-            Assert.True(Scalar<bool>(conn, "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'customers' AND column_name = 'contact_name')"));
+            Assert.True(Scalar<bool>(conn, "SELECT EXISTS (SELECT 1 FROM pg_class WHERE relname = 'customer_contacts' AND relrowsecurity AND relforcerowsecurity)"));
         }
         finally
         {
