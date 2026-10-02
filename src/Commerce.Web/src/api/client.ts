@@ -19,12 +19,15 @@ export class ApiError extends Error {
   readonly status: number
   /** Machine code from a typed `{ "error": "<code>" }` body, when the server sent one. */
   readonly code?: string
+  /** Field errors of a 400 ValidationProblem (`errors[field]`), keyed as the server names the field. */
+  readonly fieldErrors?: Record<string, string[]>
 
-  constructor(message: string, status: number, code?: string) {
+  constructor(message: string, status: number, code?: string, fieldErrors?: Record<string, string[]>) {
     super(message)
     this.name = 'ApiError'
     this.status = status
     this.code = code
+    this.fieldErrors = fieldErrors
   }
 }
 
@@ -71,14 +74,21 @@ export async function apiFetch<TResponse>(
   if (!response.ok) {
     let detail = response.statusText
     let code: string | undefined
+    let fieldErrors: Record<string, string[]> | undefined
     try {
       const body = await response.json()
       detail = body?.title ?? body?.detail ?? JSON.stringify(body)
       if (typeof body?.error === 'string') code = body.error
+      if (body?.errors && typeof body.errors === 'object') fieldErrors = body.errors
     } catch {
       // Non-JSON error body; fall back to statusText.
     }
-    throw new ApiError(detail || t('requestFailedWithStatus', { status: response.status }), response.status, code)
+    throw new ApiError(
+      detail || t('requestFailedWithStatus', { status: response.status }),
+      response.status,
+      code,
+      fieldErrors,
+    )
   }
 
   if (response.status === 204) {

@@ -23,6 +23,8 @@ import { CustomersScreen } from '@/screens/CustomersScreen'
 import { SuppliersScreen } from '@/screens/SuppliersScreen'
 import { SupplierAccountScreen } from '@/screens/SupplierAccountScreen'
 import { SupplierCategoriesScreen } from '@/screens/SupplierCategoriesScreen'
+import { ReceptionsScreen } from '@/screens/ReceptionsScreen'
+import { ReceptionScreen } from '@/screens/ReceptionScreen'
 import { UsersScreen } from '@/screens/UsersScreen'
 import { BranchesScreen } from '@/screens/BranchesScreen'
 import { PriceListsScreen } from '@/screens/PriceListsScreen'
@@ -95,6 +97,9 @@ function App() {
                     <Route path="suppliers" element={<SuppliersScreen />} />
                     <Route path="suppliers/:id/account" element={<SupplierAccountScreen />} />
                     <Route path="supplier-categories" element={<SupplierCategoriesScreen />} />
+                    <Route path="receptions" element={<ReceptionsScreen />} />
+                    <Route path="receptions/new" element={<ReceptionScreen />} />
+                    <Route path="receptions/:id" element={<ReceptionScreen />} />
                     <Route path="users" element={<UsersScreen />} />
                     <Route path="branches" element={<BranchesScreen />} />
                     {/* commerce-pricing-engine design.md "Web: `PriceListsScreen`

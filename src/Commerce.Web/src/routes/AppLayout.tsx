@@ -10,6 +10,7 @@ import {
   MapPin,
   Menu,
   Package,
+  PackageCheck,
   Store,
   Truck,
   Boxes,
@@ -136,6 +137,14 @@ export function AppLayout() {
                     own permission check is the real one. */}
                 <NavItem to="/app/price-lists" icon={Tags} onNavigate={closeMobileNav}>{t('items.priceLists')}</NavItem>
                 <NavItem to="/app/categories" icon={LayoutGrid} onNavigate={closeMobileNav}>{t('items.categories')}</NavItem>
+              </NavSection>
+            )}
+            {/* Same UI-only gate as the administration items: the receptions
+                endpoints answer 403 without ManageUsers, and RequireAdmin
+                guards the routes. */}
+            {showTenantNav && (
+              <NavSection title={t('sections.purchasing')}>
+                <NavItem to="/app/receptions" icon={PackageCheck} onNavigate={closeMobileNav}>{t('items.receptions')}</NavItem>
               </NavSection>
             )}
             {user?.isSystemAdmin && (

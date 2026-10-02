@@ -19,6 +19,8 @@ import organizationsEs from './locales/es/organizations.json'
 import themeEs from './locales/es/theme.json'
 import errorsEs from './locales/es/errors.json'
 import dashboardEs from './locales/es/dashboard.json'
+import purchasesEs from './locales/es/purchases.json'
+import stockEs from './locales/es/stock.json'
 import commonEn from './locales/en/common.json'
 import navEn from './locales/en/nav.json'
 import authEn from './locales/en/auth.json'
@@ -38,6 +40,8 @@ import organizationsEn from './locales/en/organizations.json'
 import themeEn from './locales/en/theme.json'
 import errorsEn from './locales/en/errors.json'
 import dashboardEn from './locales/en/dashboard.json'
+import purchasesEn from './locales/en/purchases.json'
+import stockEn from './locales/en/stock.json'
 
 export const defaultNamespace = 'common'
 
@@ -61,6 +65,8 @@ export const namespaces = [
   'theme',
   'errors',
   'dashboard',
+  'purchases',
+  'stock',
 ] as const
 
 // Owner decision (2026-09-25): clients and organizations are Spanish-speaking,
@@ -91,6 +97,8 @@ export const resources = {
     theme: themeEs,
     errors: errorsEs,
     dashboard: dashboardEs,
+    purchases: purchasesEs,
+    stock: stockEs,
   },
   en: {
     common: commonEn,
@@ -112,6 +120,8 @@ export const resources = {
     theme: themeEn,
     errors: errorsEn,
     dashboard: dashboardEn,
+    purchases: purchasesEn,
+    stock: stockEn,
   },
 } as const
 

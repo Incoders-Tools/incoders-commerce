@@ -152,6 +152,28 @@ describe('App route table', () => {
     expect(await screen.findByRole('heading', { name: 'Catálogo' })).toBeInTheDocument()
   })
 
+  it('mounts the receptions list and the reception form for an admin and links them from the sidebar', async () => {
+    const { unmount } = renderAppAt('/app/receptions', buildUser({ permissions: Permission.ManageUsers }))
+
+    expect(await screen.findByRole('heading', { name: 'Recepciones' })).toBeInTheDocument()
+    const nav = within(screen.getByRole('navigation', { name: 'Principal' }))
+    expect(nav.getByRole('link', { name: 'Recepciones' })).toHaveAttribute('href', '/app/receptions')
+    unmount()
+
+    renderAppAt('/app/receptions/new', buildUser({ permissions: Permission.ManageUsers }))
+    expect(await screen.findByRole('heading', { name: 'Nueva recepción' })).toBeInTheDocument()
+  })
+
+  it('redirects a non-admin away from the reception routes', async () => {
+    const { unmount } = renderAppAt('/app/receptions', buildUser({ permissions: Permission.ViewSales }))
+    expect(await screen.findByRole('heading', { name: 'Catálogo' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Recepciones' })).not.toBeInTheDocument()
+    unmount()
+
+    renderAppAt('/app/receptions/new', buildUser({ permissions: Permission.ViewSales }))
+    expect(await screen.findByRole('heading', { name: 'Catálogo' })).toBeInTheDocument()
+  })
+
   it('mounts the core cities screen for a system admin and links it from the sidebar', async () => {
     renderAppAt('/app/cities', buildUser({ isSystemAdmin: true }))
 

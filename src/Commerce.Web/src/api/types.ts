@@ -796,3 +796,147 @@ export interface ReverseMovementRequest {
   concept?: string
   occurredOn?: string
 }
+
+// ---------------------------------------------------------------------------
+// Purchases and stock (Endpoints/PurchaseReceptions.cs, Endpoints/Stock.cs).
+// Unlike the catalog DTOs, these serialize their enums as strings.
+// ---------------------------------------------------------------------------
+
+export type StockQuantityBehavior = 'FixedQuantity' | 'Weighted' | 'Bulk'
+export type ReceptionStatus = 'Draft' | 'Confirmed' | 'Voided'
+export type ReceptionDocumentType = 'Invoice' | 'DeliveryNote' | 'Other'
+
+export interface ReceptionSummary {
+  id: string
+  supplierId: string
+  supplierName: string
+  status: ReceptionStatus
+  number: string | null
+  documentType: ReceptionDocumentType
+  documentReference: string | null
+  occurredOn: string
+  dueOn: string | null
+  totalAmount: number
+  lineCount: number
+  createdAtUtc: string
+  updatedAtUtc: string
+}
+
+export interface ReceptionLine {
+  id: string
+  presentationId: string
+  productName: string
+  presentationName: string
+  quantityBehavior: StockQuantityBehavior
+  quantity: number
+  unitCost: number
+  lineTotal: number
+  lotCode: string | null
+  expiresOn: string | null
+  sortOrder: number
+}
+
+export interface ReceptionRecord extends ReceptionSummary {
+  notes: string | null
+  ledgerInvoiceMovementId: string | null
+  ledgerReversalMovementId: string | null
+  voidReason: string | null
+  confirmedAtUtc: string | null
+  voidedAtUtc: string | null
+  lines: ReceptionLine[]
+}
+
+export interface ReceptionListFilters {
+  status?: ReceptionStatus
+  supplierId?: string
+  from?: string
+  to?: string
+  search?: string
+}
+
+export interface ReceptionLineInput {
+  presentationId: string
+  quantity: number
+  unitCost: number
+  lotCode?: string | null
+  expiresOn?: string | null
+}
+
+export interface ReceptionRequest {
+  supplierId: string
+  documentType: ReceptionDocumentType
+  documentReference?: string | null
+  occurredOn?: string | null
+  dueOn?: string | null
+  notes?: string | null
+  lines: ReceptionLineInput[]
+  expectedUpdatedAtUtc?: string
+}
+
+export interface StockLevel {
+  presentationId: string
+  productId: string
+  productName: string
+  presentationName: string
+  quantityBehavior: StockQuantityBehavior
+  unitId: string
+  identificationCode: string | null
+  onHand: number
+  minimumQuantity: number | null
+  belowMinimum: boolean
+  shortfall: number | null
+  lastMovementAtUtc: string | null
+}
+
+export type StockMovementKind =
+  | 'Opening'
+  | 'PurchaseReceipt'
+  | 'Sale'
+  | 'Adjustment'
+  | 'Shrinkage'
+  | 'CountCorrection'
+  | 'Reversal'
+
+export type ManualStockKind = 'Opening' | 'Shrinkage' | 'CountCorrection' | 'Adjustment'
+
+export interface StockMovement {
+  id: string
+  kind: StockMovementKind
+  quantity: number
+  occurredAtUtc: string
+  reason: string | null
+  lotCode: string | null
+  sourceType: string | null
+  sourceId: string | null
+  sourceNumber: string | null
+  reversesMovementId: string | null
+  createdByUserId: string | null
+  balanceAfter: number
+}
+
+export interface StockHistoryPage {
+  presentationId: string
+  onHand: number
+  total: number
+  page: number
+  pageSize: number
+  items: StockMovement[]
+}
+
+export interface StockAdjustmentRequest {
+  presentationId: string
+  kind: ManualStockKind
+  quantity: number
+  reason: string
+}
+
+export interface StockAdjustmentResult {
+  movement: StockMovement
+  onHand: number
+}
+
+export interface StockMinimum {
+  presentationId: string
+  minimumQuantity: number | null
+  updatedAtUtc: string | null
+}

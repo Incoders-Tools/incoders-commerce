@@ -8,6 +8,8 @@
     "orders": "Orders",
     "customers": "Customers",
     "suppliers": "Suppliers",
+    "receptions": "Receptions",
+    "stock": "Stock",
     "supplierCategories": "Supplier categories",
     "cities": "Cities",
     "businessTypes": "Business types",
@@ -18,6 +20,7 @@
   },
   "sections": {
     "operations": "Operations",
+    "purchasing": "Purchasing",
     "administration": "Administration",
     "platform": "Platform"
   },

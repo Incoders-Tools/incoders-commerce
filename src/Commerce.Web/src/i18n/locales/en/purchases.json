@@ -1,0 +1,154 @@
+{
+  "branchRequired": "Pick a branch in the top bar to view and record receptions.",
+  "status": {
+    "Draft": "Draft",
+    "Confirmed": "Confirmed",
+    "Voided": "Voided"
+  },
+  "documentType": {
+    "Invoice": "Invoice",
+    "DeliveryNote": "Delivery note",
+    "Other": "Other"
+  },
+  "list": {
+    "title": "Receptions",
+    "description": "Goods received from suppliers. Confirming one adds stock and records the invoice on the current account.",
+    "new": "New reception",
+    "open": "Open",
+    "search": {
+      "label": "Search receptions",
+      "placeholder": "Search by number or document…"
+    },
+    "filters": {
+      "status": "Status",
+      "allStatuses": "All statuses",
+      "supplier": "Supplier",
+      "allSuppliers": "All suppliers",
+      "from": "From",
+      "to": "To"
+    },
+    "columns": {
+      "number": "Number",
+      "supplier": "Supplier",
+      "document": "Document",
+      "date": "Date",
+      "due": "Due",
+      "total": "Total",
+      "status": "Status",
+      "noValue": "—",
+      "noNumber": "No number"
+    },
+    "empty": {
+      "none": "There are no receptions yet.",
+      "noMatch": "No reception matches these filters.",
+      "loadError": "The receptions could not be loaded."
+    },
+    "errors": {
+      "unexpectedLoad": "Unexpected error loading the receptions."
+    }
+  },
+  "form": {
+    "titleNew": "New reception",
+    "titleEdit": "Edit draft",
+    "titleView": "Goods reception",
+    "backLabel": "Back to receptions",
+    "sections": {
+      "document": "Document",
+      "lines": "Goods received",
+      "notes": "Notes"
+    },
+    "fields": {
+      "supplier": "Supplier",
+      "documentType": "Document type",
+      "documentReference": "Document number",
+      "occurredOn": "Document date",
+      "dueOn": "Due date",
+      "dueOnHint": "If left empty it is computed from the supplier payment terms.",
+      "notes": "Notes"
+    },
+    "noSupplier": "Pick a supplier",
+    "total": "Reception total",
+    "saveDraft": "Save draft",
+    "saving": "Saving…",
+    "saved": "Draft saved.",
+    "confirm": "Confirm reception",
+    "cancel": "Cancel",
+    "supplierAccount": "View supplier current account",
+    "errors": {
+      "supplierRequired": "Pick a supplier.",
+      "linesRequired": "Add at least one line.",
+      "unexpectedSave": "Unexpected error saving the reception.",
+      "unexpectedLoad": "Unexpected error loading the reception.",
+      "notFound": "This reception does not exist or belongs to another branch.",
+      "duplicateDocument": "There is already a confirmed reception with that document from this supplier.",
+      "notConfirmed": "This reception is no longer confirmed."
+    },
+    "conflict": {
+      "modified": "Someone else changed this reception while you were editing. Reload to see the changes.",
+      "notDraft": "This reception is no longer a draft. Reload to see it.",
+      "reload": "Reload",
+      "reloadFailed": "The reception could not be reloaded."
+    }
+  },
+  "lines": {
+    "add": "Add line",
+    "remove": "Remove line {{n}}",
+    "presentation": "Presentation (line {{n}})",
+    "presentationPlaceholder": "Search product or presentation…",
+    "quantity": "Quantity (line {{n}})",
+    "unitCost": "Unit cost (line {{n}})",
+    "lotCode": "Lot (line {{n}})",
+    "expiresOn": "Expires (line {{n}})",
+    "lineTotal": "Line total",
+    "unit": {
+      "kg": "kg",
+      "units": "units"
+    },
+    "errors": {
+      "presentationRequired": "Pick a presentation.",
+      "quantityRequired": "Enter a quantity greater than zero.",
+      "quantityInteger": "Enter a whole number of units.",
+      "unitCostRequired": "Enter the unit cost."
+    },
+    "table": {
+      "product": "Product",
+      "presentation": "Presentation",
+      "quantity": "Quantity",
+      "unitCost": "Unit cost",
+      "lineTotal": "Total",
+      "lot": "Lot",
+      "expires": "Expires"
+    }
+  },
+  "picker": {
+    "loadError": "The catalog could not be loaded.",
+    "noResults": "No presentation matches.",
+    "searching": "Loading the catalog…",
+    "clear": "Clear the chosen presentation"
+  },
+  "confirmDialog": {
+    "title": "Confirm the reception?",
+    "message": "Confirming moves the branch stock and adds the invoice to the supplier current account. Afterwards it can no longer be edited, only voided.",
+    "confirm": "Confirm and move stock",
+    "confirming": "Confirming…"
+  },
+  "view": {
+    "number": "Number",
+    "status": "Status",
+    "supplier": "Supplier",
+    "document": "Document",
+    "date": "Date",
+    "due": "Due",
+    "notes": "Notes",
+    "voidReason": "Void reason: {{reason}}",
+    "void": "Void reception"
+  },
+  "voidDialog": {
+    "title": "Void the reception?",
+    "message": "Voiding reverses the stock that came in and voids the invoice on the supplier current account. Both movements stay in the history.",
+    "reason": "Void reason",
+    "reasonRequired": "Write the void reason.",
+    "confirm": "Void and reverse",
+    "confirming": "Voiding…"
+  }
+}

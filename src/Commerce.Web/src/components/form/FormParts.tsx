@@ -86,6 +86,7 @@ export function CatalogSelect({
   value,
   onChange,
   options,
+  error = null,
 }: {
   id: string
   label: string
@@ -93,11 +94,18 @@ export function CatalogSelect({
   value: string
   onChange: (value: string) => void
   options: { id: string; name: string }[]
+  error?: string | null
 }) {
   return (
     <div className="flex flex-col gap-1.5">
       <Label htmlFor={id}>{label}</Label>
-      <Select id={id} value={value} onChange={(e) => onChange(e.target.value)}>
+      <Select
+        id={id}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? `${id}-error` : undefined}
+      >
         <option value="">{emptyLabel}</option>
         {options.map((option) => (
           <option key={option.id} value={option.id}>
@@ -105,6 +113,11 @@ export function CatalogSelect({
           </option>
         ))}
       </Select>
+      {error && (
+        <p id={`${id}-error`} className="text-xs text-destructive">
+          {error}
+        </p>
+      )}
     </div>
   )
 }
