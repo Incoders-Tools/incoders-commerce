@@ -454,23 +454,26 @@ WHERE email = '$organizationAdminEmail'
         }
     }
 
-    # --- 5. Vaca Verde master data seed -----------------------------------
-    # Business types and customers (cities are global Georef data, migration 0028) (deploy/db/seeds/vaca-verde). The
-    # seed resolves the organization named "Vaca Verde" and its business-admin
-    # itself, is idempotent (deterministic ids, ON CONFLICT DO NOTHING) and
-    # prints a NOTICE and changes nothing when the organization provisioned
-    # above is named anything else, so it is safe on every run.
-    $seedFile = Join-Path $repositoryRoot 'deploy\db\seeds\vaca-verde\001_vaca_verde_master_data.sql'
-    if (Test-Path -LiteralPath $seedFile -PathType Leaf) {
-        $seedResult = Invoke-LocalPsqlFile -RepositoryRoot $repositoryRoot -Path $seedFile
+    # --- 5. Vaca Verde seeds -----------------------------------------------
+    # Every versioned seed in deploy/db/seeds/vaca-verde, in file-name order:
+    # 001 master data (business types, customers), 002 suppliers, 003 catalog
+    # and price lists. Each resolves the organization named "Vaca Verde" and its
+    # business-admin (003 also its branch "Ruta 51") itself, is idempotent
+    # (deterministic ids, ON CONFLICT DO NOTHING) and prints a NOTICE and
+    # changes nothing when the organization provisioned above is named anything
+    # else, so it is safe on every run.
+    $seedDirectory = Join-Path $repositoryRoot 'deploy\db\seeds\vaca-verde'
+    $seedFiles = @(Get-ChildItem -LiteralPath $seedDirectory -Filter '*.sql' -File -ErrorAction SilentlyContinue | Sort-Object Name)
+    foreach ($seedItem in $seedFiles) {
+        $seedResult = Invoke-LocalPsqlFile -RepositoryRoot $repositoryRoot -Path $seedItem.FullName
         if ($seedResult.ExitCode -ne 0) {
-            throw "Vaca Verde master data seed failed. Output: $($seedResult.Output)"
+            throw "Vaca Verde seed $($seedItem.Name) failed. Output: $($seedResult.Output)"
         }
         if ($seedResult.Output -match 'seed skipped') {
-            Write-Output 'Vaca Verde master data seed skipped (no organization named "Vaca Verde" with a business-admin).'
+            Write-Output "Vaca Verde seed $($seedItem.Name) skipped (no organization named ""Vaca Verde"" with a business-admin and its branch)."
         }
         else {
-            Write-Output 'Vaca Verde master data seed applied (idempotent; existing rows were left untouched).'
+            Write-Output "Vaca Verde seed $($seedItem.Name) applied (idempotent; existing rows were left untouched)."
         }
     }
 
