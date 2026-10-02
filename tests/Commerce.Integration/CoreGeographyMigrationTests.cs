@@ -193,7 +193,9 @@ public sealed class CoreGeographyMigrationTests
 
             Assert.Equal("06140010", CityIndec(customers["Capitán Sarmiento"]));
             Assert.Equal("06763050", CityIndec(customers["San Nicolás"]));          // prefix: San Nicolás de los Arroyos
-            Assert.Null(CityIndec(customers["Urquiza"]));                            // ambiguous: left empty
+            Assert.Null(CityIndec(customers["Urquiza"]));                            // ambiguous: no global city...
+            Assert.Equal("Urquiza", Scalar<string?>(conn,                            // ...but the name survives in the free-text locality
+                "SELECT locality FROM customers WHERE id = $1", customers["Urquiza"]));
             Assert.Equal("06077010", CityIndec(customers["B:arrecifes"]));          // same global city for every organization
             Assert.Equal(Scalar<Guid>(conn, "SELECT id FROM cities WHERE indec_id = '06077010'"),
                 Scalar<Guid>(conn, "SELECT city_id FROM customers WHERE id = $1", customers["B:arrecifes"]));
@@ -209,6 +211,39 @@ public sealed class CoreGeographyMigrationTests
             Assert.NotEqual(created.UtcDateTime, Scalar<DateTime>(conn, "SELECT created_at_utc FROM cities WHERE indec_id = '06441030'"));
 
             Assert.Null(Scalar<string?>(conn, "SELECT to_regclass('public.org_cities_retired')::text"));
+        });
+    }
+
+    [Fact]
+    public void Migration_RefusesToRetireOrganizationCities_WhenTheGeorefLocalitiesAreMissing()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        WithScratchDatabase(conn =>
+        {
+            ApplyAllMigrations(conn, f => string.CompareOrdinal(f, MigrationFile) < 0); // the world before 0028
+
+            var (org, city, customer) = (Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+            Exec(conn, "INSERT INTO organizations (id, name) VALUES ($1, 'A')", org);
+            Exec(conn, "INSERT INTO cities (id, organization_id, name, key) VALUES ($1, $2, 'Arrecifes', 'arrecifes')", city, org);
+            Exec(conn, "INSERT INTO customers (id, organization_id, customer_kind, display_name, created_by_user_id, city_id) VALUES ($1, $2, 'Retail', 'Cliente', $3, $4)",
+                customer, org, Guid.NewGuid(), city);
+
+            // 0028 without its generated localities: what a partial commit or a truncated file would run.
+            var sql = File.ReadAllText(Path.Combine(MigrationsDir, MigrationFile));
+            var withoutLocalities = System.Text.RegularExpressions.Regex.Replace(sql,
+                @"INSERT INTO cities \(id, indec_id, name, province_id, department_name\) VALUES.*?ON CONFLICT \(indec_id\) DO NOTHING;",
+                "", System.Text.RegularExpressions.RegexOptions.Singleline);
+            Assert.NotEqual(sql, withoutLocalities);
+
+            var refused = Assert.Throws<PostgresException>(() => Exec(conn, withoutLocalities));
+            Assert.Contains("Georef localities are not loaded", refused.MessageText);
+            Exec(conn, "ROLLBACK"); // the script's own BEGIN left the session in the failed transaction, as psql's ON_ERROR_STOP exit would
+
+            // The whole migration rolled back: the organization city and the customer link are intact.
+            Assert.Null(Scalar<string?>(conn, "SELECT to_regclass('public.countries')::text"));
+            Assert.Equal(city, Scalar<Guid>(conn, "SELECT city_id FROM customers WHERE id = $1", customer));
+            Assert.Equal("Arrecifes", Scalar<string>(conn, "SELECT name FROM cities WHERE id = $1", city));
         });
     }
 

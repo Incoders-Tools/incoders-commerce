@@ -4277,6 +4277,12 @@ BEGIN
         RETURN;  -- already retired by an earlier run
     END IF;
 
+    -- Retiring the organization cities cannot be undone, so it never runs against
+    -- an empty global table (a truncated file or a partial commit of this one).
+    IF NOT EXISTS (SELECT 1 FROM cities WHERE indec_id IS NOT NULL) THEN
+        RAISE EXCEPTION 'core-geography: the Georef localities are not loaded; refusing to retire the organization cities';
+    END IF;
+
     -- The foreign key to the old table must go before customers are repointed.
     ALTER TABLE customers DROP CONSTRAINT IF EXISTS customers_city_org_fk;
 
@@ -4334,7 +4340,11 @@ BEGIN
         END IF;
     END LOOP;
 
-    -- Customers follow their city; an unmapped city leaves the reference empty.
+    -- Customers follow their city. An unmapped city leaves the reference empty,
+    -- so its name is kept in the free-text locality (unless one is already set).
+    UPDATE customers cu SET locality = oc.name
+    FROM _city_map m JOIN org_cities_retired oc ON oc.id = m.old_id
+    WHERE cu.city_id = m.old_id AND m.global_id IS NULL AND NULLIF(btrim(cu.locality), '') IS NULL;
     UPDATE customers cu SET city_id = m.global_id FROM _city_map m WHERE cu.city_id = m.old_id;
 
     -- The audit dates of the original rows survive on the matching global rows
