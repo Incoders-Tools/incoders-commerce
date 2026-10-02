@@ -163,7 +163,7 @@ public sealed class VacaVerdeSeedTests
     }
 
     [Fact]
-    public void Seed_CreatesTheClienteColumnAsPrimaryContacts_SplittingTwoWordNames()
+    public void Seed_CreatesTheClienteColumnAsPrimaryContacts_KeepingTheWholeName()
     {
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
 
@@ -187,7 +187,7 @@ public sealed class VacaVerdeSeedTests
                 return result;
             }
 
-            Assert.Equal(("Lucas", "Badano", true), ContactOf("Al Toque"));            // two words: first + last
+            Assert.Equal(("Lucas Badano", (string?)null, true), ContactOf("Al Toque"));  // never split: "Juan Ignacio" is a first name, not first + last
             Assert.Equal(("Esteban", (string?)null, true), ContactOf("Almacén Esteban")); // one word: first name only
             Assert.Equal(0L, Scalar<long>(owner,
                 "SELECT count(*) FROM customers c WHERE c.organization_id = $1 AND c.display_name = 'Almacén Cristian' AND EXISTS (SELECT 1 FROM customer_contacts cc WHERE cc.customer_id = c.id)", orgId));
@@ -196,7 +196,7 @@ public sealed class VacaVerdeSeedTests
     }
 
     [Fact]
-    public void Seed_SplitsAContactMigratedFromTheOldColumn_OnlyWhileUntouched()
+    public void Seed_LeavesAContactMigratedFromTheOldColumnWhole()
     {
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
 
@@ -207,18 +207,13 @@ public sealed class VacaVerdeSeedTests
         {
             ApplySeed(owner);
             // What migration 0029 leaves behind on an environment that already had the customers.
-            Exec(owner, @"UPDATE customer_contacts SET first_name = 'Lucas Badano', last_name = NULL, updated_at_utc = created_at_utc
-                          WHERE customer_id IN (SELECT id FROM customers WHERE organization_id = $1 AND display_name = 'Al Toque')", orgId);
-            Exec(owner, @"UPDATE customer_contacts SET first_name = 'Javier Bargas', last_name = NULL, updated_at_utc = created_at_utc + interval '1 second'
-                          WHERE customer_id IN (SELECT id FROM customers WHERE organization_id = $1 AND display_name = 'Parrilla Javier')", orgId);
+            Exec(owner, @"UPDATE customer_contacts SET first_name = 'Juan Ignacio', last_name = NULL, updated_at_utc = created_at_utc
+                          WHERE customer_id IN (SELECT id FROM customers WHERE organization_id = $1 AND display_name = 'Super Baez')", orgId);
 
             ApplySeed(owner);
 
-            Assert.Equal("Badano", Scalar<string>(owner,
-                "SELECT cc.last_name FROM customer_contacts cc JOIN customers c ON c.id = cc.customer_id WHERE c.organization_id = $1 AND c.display_name = 'Al Toque'", orgId));
-            // Edited since (updated after created): left alone.
-            Assert.Equal("Javier Bargas", Scalar<string>(owner,
-                "SELECT cc.first_name FROM customer_contacts cc JOIN customers c ON c.id = cc.customer_id WHERE c.organization_id = $1 AND c.display_name = 'Parrilla Javier'", orgId));
+            Assert.Equal(0L, Scalar<long>(owner,
+                "SELECT count(*) FROM customer_contacts cc JOIN customers c ON c.id = cc.customer_id WHERE c.organization_id = $1 AND cc.last_name IS NOT NULL", orgId));
             Assert.Equal(ExpectedContacts, Count(owner, "customer_contacts", orgId));
         }
         finally { RemoveVacaVerde(owner); }

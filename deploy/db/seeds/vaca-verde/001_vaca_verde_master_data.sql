@@ -217,64 +217,50 @@ INSERT INTO customer_contacts (id, organization_id, customer_id, first_name, las
 SELECT md5('vaca-verde:contact:' || v.key)::uuid, c.organization_id, md5('vaca-verde:customer:' || v.key)::uuid,
        v.first_name, v.last_name, true
 FROM (VALUES
-    ('al-toque--capitan_sarmiento', 'Lucas', 'Badano', 'Lucas Badano'),
-    ('almacen-esteban--arrecifes', 'Esteban', NULL, 'Esteban'),
-    ('almacen-karina--arrecifes', 'Karina', NULL, 'Karina'),
-    ('balthazar--san_antonio_de_areco', 'Martin', NULL, 'Martin'),
-    ('bambini--arrecifes', 'Laura', NULL, 'Laura'),
-    ('bar-plaza--arrecifes', 'Celeste', NULL, 'Celeste'),
-    ('belen-club-river--arrecifes', 'Belen', NULL, 'Belen'),
-    ('berges--capitan_sarmiento', 'Bernardo', NULL, 'Bernardo'),
-    ('bodegon--capitan_sarmiento', 'Gaston', NULL, 'Gaston'),
-    ('cantabria--arrecifes', 'Ani', NULL, 'Ani'),
-    ('carniceria--capitan_sarmiento', 'Joaquin', NULL, 'Joaquin'),
-    ('carniceria-baez--san_antonio_de_areco', 'Ignacio', NULL, 'Ignacio'),
-    ('crisol--arrecifes', 'Tola', NULL, 'Tola'),
-    ('damian-parrilla--capitan_sarmiento', 'Damian', NULL, 'Damian'),
-    ('diego-ortiz--capitan_sarmiento', 'Diego', NULL, 'Diego'),
-    ('eduardo-karina--arrecifes', 'Eduardo', NULL, 'Eduardo'),
-    ('el-condor--san_pedro', 'Felipe', NULL, 'Felipe'),
-    ('el-guti--arrecifes', 'Mirko', NULL, 'Mirko'),
-    ('el-mono--arrecifes', 'Carlitos', NULL, 'Carlitos'),
-    ('el-tata--capitan_sarmiento', 'Iris', NULL, 'Iris'),
-    ('entre-panes--arrecifes', 'Gonza', NULL, 'Gonza'),
-    ('facundo-d-valle--arrecifes', 'Facu', NULL, 'Facu'),
-    ('juan-porcel--arrecifes', 'Juan', NULL, 'Juan'),
-    ('la-picasa--baradero', 'Javier', NULL, 'Javier'),
-    ('la-sapiola--san_antonio_de_areco', 'Hernan', NULL, 'Hernan'),
-    ('las-amalias--san_pedro', 'Walter', NULL, 'Walter'),
-    ('lo-de-rueda--arrecifes', 'Martin', NULL, 'Martin'),
-    ('locos-de-asar--arrecifes', 'Tito', NULL, 'Tito'),
-    ('los-abraham--san_pedro', 'Luis', NULL, 'Luis'),
-    ('mingo-alfaro--arrecifes', 'Mingo', NULL, 'Mingo'),
-    ('miunoz-pipi--arrecifes', 'Walter', NULL, 'Walter'),
-    ('nestor-bilbao--arrecifes', 'Nestor', NULL, 'Nestor'),
-    ('parrilla-avanti--san_antonio_de_areco', 'Remigio', NULL, 'Remigio'),
-    ('parrilla-javier--baradero', 'Javier', 'Bargas', 'Javier Bargas'),
-    ('parrilla-los-pinos--capitan_sarmiento', 'Natalia', NULL, 'Natalia'),
-    ('pyp--arrecifes', 'Pelusa', NULL, 'Pelusa'),
-    ('shell-sarmiento--capitan_sarmiento', 'Sebastian', NULL, 'Sebastian'),
-    ('super-baez--san_antonio_de_areco', 'Juan', 'Ignacio', 'Juan Ignacio'),
-    ('valeria-resto--arrecifes', 'Carlitos', NULL, 'Carlitos')
-) AS v (key, first_name, last_name, raw_name)
+    ('al-toque--capitan_sarmiento', 'Lucas Badano', NULL),
+    ('almacen-esteban--arrecifes', 'Esteban', NULL),
+    ('almacen-karina--arrecifes', 'Karina', NULL),
+    ('balthazar--san_antonio_de_areco', 'Martin', NULL),
+    ('bambini--arrecifes', 'Laura', NULL),
+    ('bar-plaza--arrecifes', 'Celeste', NULL),
+    ('belen-club-river--arrecifes', 'Belen', NULL),
+    ('berges--capitan_sarmiento', 'Bernardo', NULL),
+    ('bodegon--capitan_sarmiento', 'Gaston', NULL),
+    ('cantabria--arrecifes', 'Ani', NULL),
+    ('carniceria--capitan_sarmiento', 'Joaquin', NULL),
+    ('carniceria-baez--san_antonio_de_areco', 'Ignacio', NULL),
+    ('crisol--arrecifes', 'Tola', NULL),
+    ('damian-parrilla--capitan_sarmiento', 'Damian', NULL),
+    ('diego-ortiz--capitan_sarmiento', 'Diego', NULL),
+    ('eduardo-karina--arrecifes', 'Eduardo', NULL),
+    ('el-condor--san_pedro', 'Felipe', NULL),
+    ('el-guti--arrecifes', 'Mirko', NULL),
+    ('el-mono--arrecifes', 'Carlitos', NULL),
+    ('el-tata--capitan_sarmiento', 'Iris', NULL),
+    ('entre-panes--arrecifes', 'Gonza', NULL),
+    ('facundo-d-valle--arrecifes', 'Facu', NULL),
+    ('juan-porcel--arrecifes', 'Juan', NULL),
+    ('la-picasa--baradero', 'Javier', NULL),
+    ('la-sapiola--san_antonio_de_areco', 'Hernan', NULL),
+    ('las-amalias--san_pedro', 'Walter', NULL),
+    ('lo-de-rueda--arrecifes', 'Martin', NULL),
+    ('locos-de-asar--arrecifes', 'Tito', NULL),
+    ('los-abraham--san_pedro', 'Luis', NULL),
+    ('mingo-alfaro--arrecifes', 'Mingo', NULL),
+    ('miunoz-pipi--arrecifes', 'Walter', NULL),
+    ('nestor-bilbao--arrecifes', 'Nestor', NULL),
+    ('parrilla-avanti--san_antonio_de_areco', 'Remigio', NULL),
+    ('parrilla-javier--baradero', 'Javier Bargas', NULL),
+    ('parrilla-los-pinos--capitan_sarmiento', 'Natalia', NULL),
+    ('pyp--arrecifes', 'Pelusa', NULL),
+    ('shell-sarmiento--capitan_sarmiento', 'Sebastian', NULL),
+    ('super-baez--san_antonio_de_areco', 'Juan Ignacio', NULL),
+    ('valeria-resto--arrecifes', 'Carlitos', NULL)
+) AS v (key, first_name, last_name)
 CROSS JOIN _vv_seed_ctx c
 WHERE EXISTS (SELECT 1 FROM customers cu
               WHERE cu.organization_id = c.organization_id AND cu.id = md5('vaca-verde:customer:' || v.key)::uuid)
 ON CONFLICT DO NOTHING;
 
--- A contact migrated from the old single `contact_name` column (migration 0029) holds the whole text in
--- first_name: split it the same way, only while nobody has edited it since.
-UPDATE customer_contacts cc
-SET first_name = v.first_name, last_name = v.last_name
-FROM (VALUES
-    ('al-toque--capitan_sarmiento', 'Lucas', 'Badano', 'Lucas Badano'),
-    ('parrilla-javier--baradero', 'Javier', 'Bargas', 'Javier Bargas'),
-    ('super-baez--san_antonio_de_areco', 'Juan', 'Ignacio', 'Juan Ignacio')
-) AS v (key, first_name, last_name, raw_name)
-CROSS JOIN _vv_seed_ctx c
-WHERE cc.organization_id = c.organization_id
-  AND cc.customer_id = md5('vaca-verde:customer:' || v.key)::uuid
-  AND cc.first_name = v.raw_name AND cc.last_name IS NULL
-  AND cc.updated_at_utc = cc.created_at_utc;
 
 COMMIT;

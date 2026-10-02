@@ -23,7 +23,7 @@ data) and `0028` (core geography) and `0029` (customer contacts), which must be 
 | Table | Rows | Notes |
 | --- | --- | --- |
 | `cities` | 0 created | Customers reference the global Georef locality by INDEC id (e.g. Capitán Sarmiento `06140010`, Río Tala `06770040`, "Capital Federal" -> Ciudad de Buenos Aires `02014010`, San Nicolás -> San Nicolás de los Arroyos `06763050`; the table is `CITY_INDEC` in `generate_seed.py`). Doyle and Urquiza have no unambiguous locality, so no customer points at them. The seed also restores the owner's original `created_at_utc`/`updated_at_utc` of those 23 mapped cities on the global rows, but only while a row still carries its load time (never over a later edit). |
-| `customer_contacts` | 39 | The CLIENTE column as the customer's **primary contact** (deterministic id). A name of exactly two words ("Lucas Badano") is split into first and last name, anything else stays whole in `first_name`. A contact migrated from the old `contact_name` column (migration `0029`) is split the same way, but only while nobody has edited it since. |
+| `customer_contacts` | 39 | The CLIENTE column as the customer's **primary contact** (deterministic id). The name is kept whole in `first_name` and never split: one column cannot tell "Lucas Badano" (first + last) from "Juan Ignacio" (a compound first name), so last names are completed in the app. |
 | `business_types` | 11 | Deterministic ids. |
 | `customers` | 87 | Wholesale, enabled, deduplicated; tax id split out of observations (`Cuit`/`Dni`/`None`); other observations in `notes`. |
 

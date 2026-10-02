@@ -203,41 +203,28 @@ LEFT JOIN business_types bt ON bt.organization_id = c.organization_id AND bt.key
 ON CONFLICT DO NOTHING;
 """)
 
-    # Contacts: the CLIENTE column. "Lucas Badano" (exactly two words) is split into first and last
-    # name; anything else stays whole in first_name. Each one is the customer's primary contact.
+    # Contacts: the CLIENTE column, kept whole in first_name. It is never split: one column cannot tell
+    # "Lucas Badano" (first + last) from "Juan Ignacio" (a compound first name). Each one is the customer's
+    # primary contact; the owner completes last names in the app.
     rows = []
     for cu in customers:
         raw = cu["contactName"]
         if not raw:
             continue
         key = customer_key(cu)
-        words = raw.split()
-        first, last = (words[0], words[1]) if len(words) == 2 else (raw, None)
-        rows.append([q(key), q(first), q(last), q(raw)])
+        rows.append([q(key), q(raw), q(None)])
     out.append("-- Contacts: the CLIENTE column as each customer's primary contact (id derives from the customer key).")
     out.append(f"""INSERT INTO customer_contacts (id, organization_id, customer_id, first_name, last_name, is_primary)
 SELECT md5('vaca-verde:contact:' || v.key)::uuid, c.organization_id, md5('vaca-verde:customer:' || v.key)::uuid,
        v.first_name, v.last_name, true
 FROM (VALUES
 {values(rows)}
-) AS v (key, first_name, last_name, raw_name)
+) AS v (key, first_name, last_name)
 CROSS JOIN _vv_seed_ctx c
 WHERE EXISTS (SELECT 1 FROM customers cu
               WHERE cu.organization_id = c.organization_id AND cu.id = md5('vaca-verde:customer:' || v.key)::uuid)
 ON CONFLICT DO NOTHING;
 
--- A contact migrated from the old single `contact_name` column (migration 0029) holds the whole text in
--- first_name: split it the same way, only while nobody has edited it since.
-UPDATE customer_contacts cc
-SET first_name = v.first_name, last_name = v.last_name
-FROM (VALUES
-{values([r for r in rows if r[2] != "NULL"])}
-) AS v (key, first_name, last_name, raw_name)
-CROSS JOIN _vv_seed_ctx c
-WHERE cc.organization_id = c.organization_id
-  AND cc.customer_id = md5('vaca-verde:customer:' || v.key)::uuid
-  AND cc.first_name = v.raw_name AND cc.last_name IS NULL
-  AND cc.updated_at_utc = cc.created_at_utc;
 
 COMMIT;
 """)
