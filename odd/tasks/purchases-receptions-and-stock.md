@@ -109,6 +109,33 @@ owner says).
   - Not covered: no sale void/return sync payload (no compensating stock movement yet); no local decrement between pulls (two terminals of a branch each see stock as of their last pull); the scan-message warning omits the "kg" label when the card is not on screen.
   - Full `dotnet test`: Integration 1986 passed, 2 failed (the known `PublicRateLimitTests...IsUnreachable_AndAppStillStarts`, plus `ScannedSaleTests.CommitScannedSaleAtomically...` which failed once with a SQLite "database is locked" in pool clearing and passes in isolation: flaky), Upgrade 123, Bootstrap 1.
 
+## Reviews (owner granted each slice, 2026-10-02)
+
+Full `dotnet test` at `bf363d7` (parent run): Integration 1993 passed, 1 failed (known PublicRateLimitTests launcher failure), 0 skipped; Upgrade 123, Bootstrap 1.
+
+| Slice | Range | Outcome |
+|---|---|---|
+| A migrations + rules | `efb1d44..340e180` | approved, 4 lenses, `review-7ab00ed422bf00e4` |
+| B receptions API | `340e180..b4f88ca` | approved, 4 lenses, `review-e2cf1a86449bdb72` |
+| C stock API, Spanish concepts, sale->stock, replica endpoint | `b4f88ca..eabd4eb` | approved, 4 lenses, `review-a981cd60a05391b9` |
+| D web receptions | `eabd4eb..4a05238` | correction required (its e2e clicks "Stock", added by the next commit `a31c898`); resolved at HEAD; owner authorized abandoning `review-045d9fc6a68a80a4` (`operator_disposition`). Not formally reviewed. |
+| E web stock | `4a05238..a31c898` | approved, `review-00c340818b833383` |
+| F branch node + POS replica | `a31c898..352ffea` | approved, `review-26a35c70a8866afb` |
+| G number format | `352ffea..bf363d7` | approved, 4 lenses, `review-48e10c3d9406f246` |
+
+## Follow-ups (non-blocking review findings, most relevant)
+
+- [ ] P1 POS stock warning compares each line alone; two lines of the same presentation are not summed (`StockAvailability.cs:36-43`).
+- [ ] P2 POS reads the replica on the UI thread during a sync transaction (`MainWindow.xaml.cs:818-840`).
+- [ ] P3 A transient failure in the sale->stock savepoint skips the stock movements of that sale for good (`PosSaleStockProjection.cs:46-58`); needs a retry/backfill path.
+- [ ] P4 Sale time with offset is stored without normalizing to the timestamptz contract (`PosSaleStockProjection.cs:99-105`).
+- [ ] P5 Reception list is unbounded; confirm holds the branch advisory lock across the whole posting (`PostgresPurchaseReceptionStore.cs:142-156`, `418-476`).
+- [ ] P6 Draft-line guard checks only the new parent and races (`0032_purchase_receptions.sql:121-131`); a stock Reversal is not bound to its target's presentation/branch (`0033_stock.sql:75-77`); line_total can overflow at the max constants (`ReceptionRules.cs:29-33`).
+- [ ] P7 Number format falls back to Comma silently when settings fail to load, and can keep a stale separator on organization switch (`NumberFormatContext.tsx:37-57`).
+- [ ] P8 Stock movements page keeps the previous page on a load error; adjustment failure paths untested (`StockMovementsScreen.tsx:46-62`, `StockAdjustForm.tsx:77-85`).
+- [ ] P9 POS quantity input still uses its own culture (T7 scope note).
+- [ ] P10 Sale voids/returns do not return stock (no POS payload kind yet; `PosSaleVoid` reserved).
+
 ## Next step
 
 T6 web (in progress by the web writer); then verify the acceptance criteria end to end.
