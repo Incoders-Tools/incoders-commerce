@@ -46,7 +46,8 @@ public sealed class PostgresCurrentAccountStore
             : (false, null);
     }
 
-    private static async Task<AccountMovementRecord> InsertAsync(
+    /// <summary>Appends a movement inside the caller's transaction (tenant scope already applied). Shared with the goods reception flow.</summary>
+    internal static async Task<AccountMovementRecord> InsertAsync(
         NpgsqlConnection connection, NpgsqlTransaction tx, Guid organizationId, Guid supplierId,
         NewAccountMovement movement, Guid? reversesMovementId, CancellationToken ct)
     {
@@ -75,7 +76,7 @@ public sealed class PostgresCurrentAccountStore
         return Read(reader);
     }
 
-    private static Task AuditAsync(
+    internal static Task AuditAsync(
         NpgsqlConnection connection, NpgsqlTransaction tx, CloudTenantScope scope, string actorKind, Guid actorId,
         Guid supplierId, string action, AccountMovementRecord movement, CancellationToken ct) =>
         AuditLogWriter.InsertAsync(
@@ -122,6 +123,29 @@ public sealed class PostgresCurrentAccountStore
         await using var tx = await connection.BeginTransactionAsync(ct);
         await TenantScopeSql.ApplyAsync(connection, tx, scope, ct);
 
+        var result = await ReverseWithinAsync(
+            connection, tx, scope.OrganizationId, supplierId, movementId, concept, occurredOn, today, actorId, ct);
+        if (result.Outcome != ReverseMovementOutcome.Reversed)
+        {
+            await tx.RollbackAsync(ct);
+            return result;
+        }
+
+        await AuditAsync(connection, tx, scope, actorKind, actorId, supplierId, "supplier.movement_reversed", result.Reversal!, ct);
+        await tx.CommitAsync(ct);
+        return result;
+    }
+
+    /// <summary>
+    /// The reversal itself, inside the CALLER's transaction (tenant scope already applied; the caller commits or rolls
+    /// back and writes the audit row). Used directly by the goods reception void so the supplier Invoice and the stock
+    /// come back in one transaction. On any outcome other than Reversed nothing was written, except that a unique
+    /// violation (AlreadyReversed) leaves the transaction aborted: the caller must roll back.
+    /// </summary>
+    internal static async Task<ReverseMovementResult> ReverseWithinAsync(
+        NpgsqlConnection connection, NpgsqlTransaction tx, Guid organizationId, Guid supplierId, Guid movementId,
+        string? concept, DateOnly? occurredOn, DateOnly today, Guid actorId, CancellationToken ct)
+    {
         AccountMovementRecord? original = null;
         await using (var cmd = new NpgsqlCommand(
             $"SELECT {Columns} FROM current_account_movements WHERE id = $1 AND supplier_id = $2", connection, tx))
@@ -137,20 +161,17 @@ public sealed class PostgresCurrentAccountStore
 
         if (original is null)
         {
-            await tx.RollbackAsync(ct);
             return new ReverseMovementResult(ReverseMovementOutcome.NotFound);
         }
 
         if (original.Kind == AccountMovementKind.Reversal)
         {
-            await tx.RollbackAsync(ct);
             return new ReverseMovementResult(ReverseMovementOutcome.NotReversible);
         }
 
         var date = occurredOn ?? (today > original.OccurredOn ? today : original.OccurredOn);
         if (date < original.OccurredOn)
         {
-            await tx.RollbackAsync(ct);
             return new ReverseMovementResult(ReverseMovementOutcome.BeforeOriginal);
         }
 
@@ -159,22 +180,17 @@ public sealed class PostgresCurrentAccountStore
             date, null, original.DocumentReference,
             string.IsNullOrWhiteSpace(concept) ? $"Reversal: {original.Concept}" : concept.Trim(), actorId);
 
-        AccountMovementRecord record;
         try
         {
-            record = await InsertAsync(connection, tx, scope.OrganizationId, supplierId, reversal, original.Id, ct);
+            var record = await InsertAsync(connection, tx, organizationId, supplierId, reversal, original.Id, ct);
+            return new ReverseMovementResult(ReverseMovementOutcome.Reversed, record);
         }
         catch (PostgresException ex) when (
             ex.SqlState == PostgresErrorCodes.UniqueViolation
             && ex.ConstraintName == "current_account_movements_one_reversal_uk")
         {
-            await tx.RollbackAsync(ct);
             return new ReverseMovementResult(ReverseMovementOutcome.AlreadyReversed);
         }
-
-        await AuditAsync(connection, tx, scope, actorKind, actorId, supplierId, "supplier.movement_reversed", record, ct);
-        await tx.CommitAsync(ct);
-        return new ReverseMovementResult(ReverseMovementOutcome.Reversed, record);
     }
 
     /// <summary>
