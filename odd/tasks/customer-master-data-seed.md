@@ -83,9 +83,9 @@ content.
 
 ## Follow-ups (non-blocking review findings, most relevant)
 
-- [ ] F1 (-> T6) Master data PUT reactivates an entry when `isActive` is omitted (`MasterData.cs:116`); make it keep the stored value.
-- [ ] F2 (-> T7) Customer PUT keep-on-omit can lose a concurrent update (`PostgresCustomerStore.cs:180-182`).
-- [ ] F3 (-> T8) Legacy dashed Cuit/Cuil values are rejected on PUT while the domain constructor accepts them (`Customers.cs:180-182`, `Customer.cs:106-118`).
+- [x] F1 (closed by T6, 9037adb) Master data PUT reactivated an entry when `isActive` was omitted; it now keeps the stored value.
+- [x] F2 (closed by T7, 8308fb1) Customer PUT keep-on-omit could lose a concurrent update; the keep-on-omit is now decided in SQL and the optional token is part of the UPDATE's WHERE.
+- [x] F3 (closed by T8, 3cdbe7d) Endpoint and domain disagreed on separators; the PUT endpoint already normalized dashed values, the domain constructor did not (it rejected a dotted DNI and stored dashed Cuit/Cuil) and now goes through `TaxIdRules.TryNormalize` too.
 - [ ] F4 Search accent folding differs between SQL and the tax-id path (`PostgresCustomerStore.cs:274-277`, `370-375`).
 - [ ] F5 Seed: a city whose global id already exists in another org is skipped silently (`001_vaca_verde_master_data.sql:62-94`, `118`); raise a notice.
 - [ ] F6 `provision-admin.ps1` decides "applied/skipped" from a NOTICE string (`:469-474`).
@@ -113,13 +113,18 @@ of them. Licence/attribution to be confirmed and recorded in the README.
 
 ## Tasks (round 2)
 
-- [ ] T6 F1: master-data PUT keeps the stored `isActive` when omitted (route: delegated backend writer)
-- [ ] T7 F2: customer PUT optimistic concurrency (`updatedAtUtc` token, 409 on mismatch; omitted token = legacy POS path, no check) (route: delegated backend writer)
-- [ ] T8 F3: customer PUT accepts and normalizes legacy dashed Cuit/Cuil (route: delegated backend writer)
-- [ ] T9 Core geography: global `countries`, `provinces`, `cities` seeded from Georef in a migration; customers point to global cities; org `cities` retired with data mapped; Vaca Verde seed updated; sysadmin-only write API and city search endpoint (route: delegated backend writer)
-- [ ] T10 Customer contacts sub-table (first/last name, phone, email, role, primary), `contact_name` migrated and dropped, search by contact name, seed contacts from the CLIENTE column (route: delegated backend writer)
+- [x] T6 F1: master-data PUT keeps the stored `isActive` when omitted (route: delegated backend writer) - commit 9037adb; RED: 2/2 theory cases failed (omitted `isActive` reactivated the entry), GREEN: 18/18 `CustomerMasterDataEndpointTests`
+- [x] T7 F2: customer PUT optimistic concurrency (`expectedUpdatedAtUtc` token, 409 `customer-modified` on mismatch; omitted token = legacy POS path, no check) (route: delegated backend writer) - commit 8308fb1; RED: 2 new tests failed (stale token answered 200; two concurrent writers both 200), GREEN: 185/185 customer tests incl. 5 concurrent-writer rounds (exactly one 200 and one 409)
+- [x] T8 F3: customer PUT accepts and normalizes legacy dashed Cuit/Cuil (route: delegated backend writer) - commit 3cdbe7d; RED: 3/3 domain cases failed (constructor kept separators; endpoint PUT cases already passed), GREEN: 190/190 customer tests (one legacy assertion that pinned the dashed value updated)
+- [x] T9 Core geography: global `countries`, `provinces`, `cities` seeded from Georef in a migration; customers point to global cities; org `cities` retired with data mapped; Vaca Verde seed updated; sysadmin-only write API and city search endpoint (route: delegated backend writer) - commit 528d84e (migration `0028_core_geography.sql`, generator `deploy/db/reference/georef/`); RED: 7/7 migration tests failed with 0028 absent, 6/6 endpoint tests failed (404), GREEN: 7/7 + 6/6 + 297 related tests; local `commerce_dev`: 1 country, 24 provinces, 4037 cities, 23 of 25 organization cities mapped, 72 of 87 customers with a city
+- [x] T10 Customer contacts sub-table (first/last name, phone, email, role, primary), `contact_name` migrated and dropped, search by contact name, seed contacts from the CLIENTE column (route: delegated backend writer) - commit 16a3b17 (migration `0029_customer_contacts.sql`); RED: 10/10 new tests failed (table and API absent), GREEN: 10/10 + 125 related; local `commerce_dev`: 39 contacts (all primary), seed applied twice (second run inserted 0 and updated 0)
 - [ ] T11 Web: cities ABM moved to the system-admin area with province/country; city picker with server search; customer form contacts editor; send `updatedAtUtc` and show the 409 conflict (route: delegated web writer)
+
+- Round 2 backend (T6-T10) done on `dev`, not pushed. Full `dotnet test`: Integration 1749 passed, 1 failed (known `PublicRateLimitTests...IsUnreachable_AndAppStillStarts`, launcher wwwroot), 0 skipped; Upgrade 123 passed; Bootstrap 1 passed (the flaky `PosAdminClientCompositionTests` passed this run).
+- API changes for the web writer (T11): `/customers/cities` is gone; use `GET /geo/provinces`, `GET /geo/cities?search&provinceId&limit&offset&includeInactive`, `GET /geo/cities/{id}`, sysadmin-only `POST /geo/cities` and `PUT /geo/cities/{id}`. Customer JSON: `cityId`, `cityName`, `provinceId`, `provinceName`, `contacts[]` (no `contactName`); PUT carries `expectedUpdatedAtUtc` (409 `{"error":"customer-modified"}`) and `contacts` (replace-set, omitted = keep).
+- Decisions (round 2): the global table keeps the name `cities` (the organization table is renamed to `org_cities_retired` inside 0028, mapped and dropped, so the final schema reads `customers.city_id -> cities`); migrations 0027 gained re-run guards so the whole chain can still be re-applied after 0028/0029 (the test fixtures do that); Buenos Aires city is Georef's province `02` with its barrios and the representative locality `02014010` ("Capital Federal" maps to it); the Georef data licence (CC BY 4.0) was read from the datos.gob.ar catalogue metadata, the attribution wording is marked unverified in the README; the seed restores the owner's original city audit dates on the global rows only while a row is untouched (created = updated and later than the original).
+- City mapping of the 25 owner cities (migration NOTICEs): mapped 23, unmapped 2 (Doyle: only "Pueblo Doyle" 06770030 exists; Urquiza: ambiguous, candidates Villa Urquiza CABA 0208401004 / Villa Urquiza Entre Rios 30084300 / General Urquiza Misiones 54098040). San Nicolas mapped by name prefix to San Nicolas de los Arroyos (06763050) and Cordoba/Santiago del Estero by exact name outside Buenos Aires: owner to confirm. No customer used Doyle or Urquiza.
 
 ## Next step
 
-Owner review of `deploy/db/seeds/vaca-verde/report.md` (open questions: possible duplicates, "Ruta 9" locality, customers without city or business type); then promote `dev` to `main` and run the README runbook per environment once the organization is provisioned there.
+T11 (web) against the contract above. Owner review of `deploy/db/seeds/vaca-verde/report.md` (open questions: possible duplicates, "Ruta 9" locality, customers without city or business type); then promote `dev` to `main` and run the README runbook per environment once the organization is provisioned there.
