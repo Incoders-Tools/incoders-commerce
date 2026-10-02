@@ -10,6 +10,7 @@ People never see GUIDs. Branches, terminals and documents carry short, readable 
 | --- | --- | --- |
 | POS sale | `V01-C2-125` | Sale (`V`), branch `01`, register 2, sale 125 of that register |
 | Web order | `P01-W-37` | Order (`P`), branch `01`, web origin, order 37 of that branch |
+| Goods reception | `R01-W-12` | Reception (`R`), branch `01`, web console origin, reception 12 of that branch |
 | Notes (future) | `N...` | Reserved for later document types |
 
 ```
@@ -26,7 +27,7 @@ The letter goes first so a number is never read as a date. The origin keeps POS 
 
 | Part | Assigned by | When | Rules |
 | --- | --- | --- | --- |
-| Type letter | The system | Fixed per document type | `V` sale, `P` order, `N` reserved |
+| Type letter | The system | Fixed per document type | `V` sale, `P` order, `R` goods reception, `N` reserved |
 | Branch code | The server | When the branch is created | Numeric 1 to 999, unique per organization, never editable. The database trigger `branches_code_allocate` takes the next free number under a per-organization lock |
 | Register | The server | When the terminal is paired | Numeric 1 to 999, unique per branch, kept for that installation, never reused for another one |
 | Sequence (POS) | The terminal | At the moment of the sale, offline | Local counter per (branch, register), taken inside the same SQLite transaction that saves the sale |
@@ -86,12 +87,20 @@ GUIDs remain the internal identity of organizations, branches, installations, sa
 | `0024_terminal_registers_assign_result.sql` | `terminal_registers_assign` reports whether it allocated a new number |
 | `0025_orders.sql` | `orders` and `order_lines`: web orders stored in Postgres with their `(branch_code, sequence)` number |
 | `0026_orders_guest_check.sql` | Guest origin check of `orders` rejects a NULL document id, contact address or display name (0025 let NULL pass) |
+| `0032_purchase_receptions.sql` | `purchase_receptions` and lines: goods receptions with their `(branch_code, sequence)` number, assigned when the reception is confirmed |
+| `0033_stock.sql` | `stock_movements` (append-only stock ledger), `stock_minimums`, `presentation_costs` |
 
 Apply them in order, by hand, to every existing environment before deploying the API. Details are in `deploy/README.md`.
 
 `0024` is not backward compatible: it changes the result type of `terminal_registers_assign`, so an API built before it breaks at pairing once it is applied. Apply `0024` and deploy the matching API together. The new API fails `/health/ready` against a database without `0024` (or `0025`), so it never takes traffic before its schema is there. The reverse is not guarded: an API built before `0024` has no such check, so it stays ready in front of an already migrated database and fails every pairing. Nothing is in production yet.
 
 `0025` is additive: apply it before the API version that stores orders. `0026` is not purely additive: it replaces the guest check constraint of `orders` (drops and recreates it, rejecting NULL guest parts); apply it right after `0025`; no API version depends on it. Orders held only in the memory of an older API process are lost at that restart (nothing is in production yet), and an order sent to a branch that does not exist in the organization is denied (`destination-branch-not-found`) instead of being stored.
+
+## Goods receptions
+
+- A goods reception (`purchase_receptions`, migration `0032`) is a DRAFT without a number until it is confirmed. Confirming it assigns `R{branch code}-W-{sequence}` in the same transaction that moves the stock and posts the invoice to the supplier account: the sequence is the next one of the branch, taken under a per-branch advisory lock, and is unique per branch (`purchase_receptions_number_uk`).
+- `W` is the origin: receptions are entered in the web console. The sequence is not zero-padded and a number is never reused: a voided reception keeps its number.
+- The supplier's own document is a separate field (`document_reference`) and is never part of the number. The same supplier document (type and reference) cannot be confirmed twice.
 
 ## Web orders
 
