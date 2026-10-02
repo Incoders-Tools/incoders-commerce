@@ -1,8 +1,20 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CustomerForm } from './CustomerForm'
-import type { CustomerRecord } from '@/api/types'
+import type { CustomerRecord, MasterDataEntry } from '@/api/types'
+
+const entry = (id: string, name: string, isActive = true): MasterDataEntry => ({
+  id,
+  organizationId: 'org-1',
+  name,
+  key: name.toLowerCase(),
+  sortOrder: 1,
+  isActive,
+  createdAtUtc: '2024-01-01T00:00:00Z',
+  updatedAtUtc: '2024-01-01T00:00:00Z',
+})
+const NO_ID = '00000000-0000-0000-0000-000000000000'
 
 const customer: CustomerRecord = {
   id: '11111111-1111-1111-1111-111111111111',
@@ -13,6 +25,11 @@ const customer: CustomerRecord = {
   taxIdType: 'Cuit',
   taxId: '20-12345678-9',
   taxCondition: 'ResponsableInscripto',
+  contactName: null,
+  cityId: null,
+  cityName: null,
+  businessTypeId: null,
+  businessTypeName: null,
   phone: '11-5555-5555',
   email: 'existing@example.com',
   addressStreet: null,
@@ -126,5 +143,124 @@ describe('CustomerForm', () => {
     for (const select of selects) {
       expect(select.className).not.toMatch(/border-neutral-300|bg-white/)
     }
+  })
+
+  it('groups the fields into the Datos, Contacto, Ubicación, Fiscal, Comercial and Observaciones sections', () => {
+    render(<CustomerForm onSaved={vi.fn()} onCancel={vi.fn()} />)
+
+    for (const name of ['Datos', 'Contacto', 'Ubicación', 'Fiscal', 'Comercial', 'Observaciones']) {
+      expect(screen.getByRole('group', { name })).toBeInTheDocument()
+    }
+    expect(screen.getByLabelText('Observaciones')).toBeInTheDocument()
+  })
+
+  it('sends contact name, city and business type chosen from the catalogs', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ customerId: 'x' }), { status: 201 }))
+    const user = userEvent.setup()
+    render(
+      <CustomerForm
+        cities={[entry('city-1', 'Rosario'), entry('city-2', 'Funes')]}
+        businessTypes={[entry('bt-1', 'Bar')]}
+        onSaved={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    )
+
+    await user.type(screen.getByLabelText('Nombre'), 'Jane Doe')
+    await user.type(screen.getByLabelText('Nombre de contacto'), 'Juana')
+    await user.selectOptions(screen.getByLabelText('Ciudad'), 'city-2')
+    await user.selectOptions(screen.getByLabelText('Tipo de negocio'), 'bt-1')
+    await user.type(screen.getByLabelText('Observaciones'), 'Paga los viernes')
+    await user.click(screen.getByRole('button', { name: /^guardar$/i }))
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string)
+    expect(body).toMatchObject({
+      contactName: 'Juana',
+      cityId: 'city-2',
+      businessTypeId: 'bt-1',
+      notes: 'Paga los viernes',
+    })
+  })
+
+  it('offers only active catalog entries, plus the customer current one even if inactive', () => {
+    render(
+      <CustomerForm
+        customer={{ ...customer, cityId: 'city-old', cityName: 'Zárate' }}
+        cities={[entry('city-1', 'Rosario'), entry('city-old', 'Zárate', false), entry('city-x', 'Baigorria', false)]}
+        onSaved={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    )
+
+    const city = screen.getByLabelText('Ciudad')
+    expect(within(city).getByRole('option', { name: 'Rosario' })).toBeInTheDocument()
+    expect(within(city).getByRole('option', { name: /Zárate/ })).toBeInTheDocument()
+    expect(within(city).queryByRole('option', { name: /Baigorria/ })).not.toBeInTheDocument()
+    expect(city).toHaveValue('city-old')
+  })
+
+  it('clears the city, business type and contact on edit with the empty-id sentinel and empty string', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(customer), { status: 200 }))
+    const user = userEvent.setup()
+    render(
+      <CustomerForm
+        customer={{ ...customer, contactName: 'Juana', cityId: 'city-1', businessTypeId: 'bt-1' }}
+        cities={[entry('city-1', 'Rosario')]}
+        businessTypes={[entry('bt-1', 'Bar')]}
+        onSaved={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    )
+
+    await user.selectOptions(screen.getByLabelText('Ciudad'), '')
+    await user.selectOptions(screen.getByLabelText('Tipo de negocio'), '')
+    await user.clear(screen.getByLabelText('Nombre de contacto'))
+    await user.click(screen.getByRole('button', { name: /^guardar$/i }))
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string)
+    expect(body).toMatchObject({ cityId: NO_ID, businessTypeId: NO_ID, contactName: '' })
+  })
+
+  it('accepts a DNI of 7 or 8 digits and rejects anything else before calling the API', async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ customerId: 'x' }), { status: 201 }))
+    const user = userEvent.setup()
+    render(<CustomerForm onSaved={vi.fn()} onCancel={vi.fn()} />)
+
+    await user.type(screen.getByLabelText('Nombre'), 'Jane Doe')
+    await user.selectOptions(screen.getByLabelText('Tipo de identificación fiscal'), 'Dni')
+    await user.type(screen.getByLabelText('DNI'), '123456')
+    await user.click(screen.getByRole('button', { name: /^guardar$/i }))
+
+    expect(await screen.findByText('El DNI debe tener 7 u 8 dígitos.')).toBeInTheDocument()
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    await user.clear(screen.getByLabelText('DNI'))
+    await user.type(screen.getByLabelText('DNI'), '12.345.678')
+    await user.click(screen.getByRole('button', { name: /^guardar$/i }))
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toMatchObject({ taxIdType: 'Dni' })
+  })
+
+  it('requires 11 digits for a CUIT, ignoring separators', async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ customerId: 'x' }), { status: 201 }))
+    const user = userEvent.setup()
+    render(<CustomerForm onSaved={vi.fn()} onCancel={vi.fn()} />)
+
+    await user.type(screen.getByLabelText('Nombre'), 'Acme')
+    await user.selectOptions(screen.getByLabelText('Tipo de identificación fiscal'), 'Cuit')
+    await user.type(screen.getByLabelText('CUIT/CUIL'), '30-1234567-9')
+    await user.click(screen.getByRole('button', { name: /^guardar$/i }))
+
+    expect(await screen.findByText('El CUIT/CUIL debe tener 11 dígitos.')).toBeInTheDocument()
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    await user.clear(screen.getByLabelText('CUIT/CUIL'))
+    await user.type(screen.getByLabelText('CUIT/CUIL'), '30-12345678-9')
+    await user.click(screen.getByRole('button', { name: /^guardar$/i }))
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
   })
 })

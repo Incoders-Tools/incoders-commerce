@@ -10,7 +10,7 @@
   "issuedCredential": "Credencial de acceso para pedidos (se muestra una sola vez): {{credential}}",
   "search": {
     "label": "Buscar clientes",
-    "placeholder": "Buscar por nombre, razón social o CUIT/CUIL…"
+    "placeholder": "Buscar por nombre, razón social, contacto o CUIT/DNI…"
   },
   "empty": {
     "none": "Todavía no hay clientes.",
@@ -19,12 +19,15 @@
   },
   "columns": {
     "name": "Nombre",
-    "kind": "Tipo",
-    "status": "Estado",
-    "taxId": "CUIT/CUIL",
-    "noTaxId": "Sin CUIT/CUIL",
+    "contact": "Contacto",
+    "city": "Ciudad",
+    "businessType": "Tipo de negocio",
     "phone": "Teléfono",
-    "noPhone": "—"
+    "taxId": "CUIT/CUIL/DNI",
+    "noTaxId": "Sin documento",
+    "noValue": "—",
+    "kind": "Tipo",
+    "status": "Estado"
   },
   "kindOptions": {
     "retail": "Minorista",
@@ -43,11 +46,12 @@
     "titleEdit": "Editar cliente",
     "backLabel": "Volver a clientes",
     "sections": {
-      "identity": "Identidad",
-      "tax": "Impuestos",
+      "identity": "Datos",
       "contact": "Contacto",
-      "address": "Dirección",
-      "commercial": "Comercial"
+      "address": "Ubicación",
+      "tax": "Fiscal",
+      "commercial": "Comercial",
+      "notes": "Observaciones"
     },
     "fields": {
       "customerKind": "Tipo de cliente",
@@ -67,16 +71,34 @@
       "deliveryNotes": "Notas de entrega",
       "discountPercentage": "Porcentaje de descuento",
       "paymentTerms": "Condiciones de pago",
-      "notes": "Notas",
-      "enabled": "Habilitado"
+      "notes": "Observaciones",
+      "enabled": "Habilitado",
+      "contactName": "Nombre de contacto",
+      "city": "Ciudad",
+      "businessType": "Tipo de negocio",
+      "dni": "DNI"
     },
     "taxIdTypeOptions": {
       "none": "Ninguno",
+      "dni": "DNI",
       "cuit": "CUIT",
       "cuil": "CUIL"
     },
     "save": "Guardar",
     "saving": "Guardando…",
-    "cancel": "Cancelar"
+    "cancel": "Cancelar",
+    "noCity": "Sin ciudad",
+    "noBusinessType": "Sin tipo de negocio",
+    "inactiveSuffix": "(inactiva)",
+    "errors": {
+      "dniInvalid": "El DNI debe tener 7 u 8 dígitos.",
+      "cuitInvalid": "El CUIT/CUIL debe tener 11 dígitos."
+    }
+  },
+  "filters": {
+    "city": "Ciudad",
+    "allCities": "Todas las ciudades",
+    "businessType": "Tipo de negocio",
+    "allBusinessTypes": "Todos los tipos de negocio"
   }
 }

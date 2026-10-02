@@ -163,6 +163,7 @@ export type CustomerKind = (typeof CustomerKind)[keyof typeof CustomerKind]
 
 export const TaxIdType = {
   None: 'None',
+  Dni: 'Dni',
   Cuit: 'Cuit',
   Cuil: 'Cuil',
 } as const
@@ -186,6 +187,11 @@ export interface CustomerRecord {
   taxIdType: TaxIdType
   taxId: string | null
   taxCondition: TaxCondition
+  contactName: string | null
+  cityId: string | null
+  cityName: string | null
+  businessTypeId: string | null
+  businessTypeName: string | null
   phone: string | null
   email: string | null
   addressStreet: string | null
@@ -214,6 +220,11 @@ export interface CreateCustomerRequest {
   taxIdType: TaxIdType
   taxId: string | null
   taxCondition: TaxCondition
+  // Optional: on PUT an omitted value keeps the stored one; to clear send the
+  // all-zero GUID for the ids or an empty string for the contact name.
+  contactName?: string
+  cityId?: string
+  businessTypeId?: string
   phone: string | null
   email: string | null
   addressStreet: string | null
@@ -226,6 +237,13 @@ export interface CreateCustomerRequest {
   discountPercentage: number | null
   paymentTerms: string | null
   notes: string | null
+}
+
+/** Server-side filters of `GET /customers`. */
+export interface CustomerListFilters {
+  search?: string
+  cityId?: string
+  businessTypeId?: string
 }
 
 // `CreateCustomerRequest` minus `customerKind` (read-only at edit) plus

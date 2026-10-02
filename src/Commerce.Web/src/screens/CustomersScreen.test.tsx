@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CustomersScreen } from './CustomersScreen'
-import type { CustomerRecord } from '@/api/types'
+import type { CustomerRecord, MasterDataEntry } from '@/api/types'
 
 const listedCustomer: CustomerRecord = {
   id: '11111111-1111-1111-1111-111111111111',
@@ -10,6 +10,11 @@ const listedCustomer: CustomerRecord = {
   customerKind: 'Retail',
   displayName: 'Jane Doe',
   legalName: null,
+  contactName: 'Juana',
+  cityId: null,
+  cityName: null,
+  businessTypeId: null,
+  businessTypeName: null,
   taxIdType: 'None',
   taxId: null,
   taxCondition: 'ConsumidorFinal',
@@ -31,79 +36,106 @@ const listedCustomer: CustomerRecord = {
   updatedAtUtc: '2024-01-01T00:00:00Z',
 }
 
-// T4b: a second, deliberately different record so the search/exclusion
-// assertions below compare two rows the screen really renders, rather than
-// asserting the absence of text nothing would ever produce.
+// A second, deliberately different record so the exclusion assertions compare
+// two rows the screen really renders.
 const wholesaleCustomer: CustomerRecord = {
   ...listedCustomer,
   id: '99999999-9999-9999-9999-999999999999',
   customerKind: 'Wholesale',
   displayName: 'Acme Supplies',
   legalName: 'Acme Supplies SRL',
+  contactName: 'Roberto',
+  cityId: 'city-rosario',
+  cityName: 'Rosario',
+  businessTypeId: 'bt-bar',
+  businessTypeName: 'Bar',
   taxIdType: 'Cuit',
   taxId: '30-12345678-9',
   isEnabled: false,
 }
 
+const entry = (id: string, name: string, isActive = true): MasterDataEntry => ({
+  id,
+  organizationId: 'org-1',
+  name,
+  key: name.toLowerCase(),
+  sortOrder: 1,
+  isActive,
+  createdAtUtc: '2024-01-01T00:00:00Z',
+  updatedAtUtc: '2024-01-01T00:00:00Z',
+})
+
+const cities = [entry('city-rosario', 'Rosario'), entry('city-funes', 'Funes')]
+const businessTypes = [entry('bt-bar', 'Bar'), entry('bt-resto', 'Restaurante')]
+
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+
 /**
  * design.md "Two admin UIs against one endpoint set" / Testing Strategy:
- * "CustomersScreen lists, creates, and edits against a mocked client."
+ * "CustomersScreen lists, creates, and edits against a mocked client." The
+ * mock answers by URL because the screen also loads the two catalogs.
  */
 describe('CustomersScreen', () => {
   const fetchMock = vi.fn()
+  let customers: CustomerRecord[]
+
+  /** URLs (with query) requested from `/customers` itself, in order. */
+  const customerListCalls = () =>
+    fetchMock.mock.calls
+      .filter((call) => call[1]?.method === undefined)
+      .map((call) => call[0] as string)
+      .filter((url) => url === '/customers' || url.startsWith('/customers?'))
 
   beforeEach(() => {
+    customers = [listedCustomer]
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url.startsWith('/customers/cities')) return json(cities)
+      if (url.startsWith('/customers/business-types')) return json(businessTypes)
+      if (url.endsWith('/ordering-access')) return json({ credential: 'one-time-secret' })
+      if (init?.method === 'POST') return json({ customerId: '22222222-2222-2222-2222-222222222222' }, 201)
+      return json(customers)
+    })
     vi.stubGlobal('fetch', fetchMock)
   })
 
   afterEach(() => {
     vi.unstubAllGlobals()
     fetchMock.mockReset()
-    // T4b: the view preference now persists between cases.
     window.localStorage.clear()
   })
 
   it('lists customers from GET /customers', async () => {
-    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify([listedCustomer]), { status: 200 }))
-
     render(<CustomersScreen />)
 
     await screen.findByText('Jane Doe')
-    expect(fetchMock.mock.calls[0][0]).toBe('/customers')
+    expect(customerListCalls()[0]).toBe('/customers')
   })
 
   it('shows an empty state when there are no customers', async () => {
-    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify([]), { status: 200 }))
-
+    customers = []
     render(<CustomersScreen />)
 
     await screen.findByText('Todavía no hay clientes.')
   })
 
   it('opens the create form, saves, and refreshes the list', async () => {
-    fetchMock
-      .mockResolvedValueOnce(new Response(JSON.stringify([]), { status: 200 })) // initial list
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ customerId: '22222222-2222-2222-2222-222222222222' }), { status: 201 }),
-      ) // create
-      .mockResolvedValueOnce(new Response(JSON.stringify([listedCustomer]), { status: 200 })) // refreshed list
-
+    customers = []
     const user = userEvent.setup()
     render(<CustomersScreen />)
 
     await screen.findByText('Todavía no hay clientes.')
     await user.click(screen.getByRole('button', { name: /nuevo cliente/i }))
     await user.type(screen.getByLabelText('Nombre'), 'Jane Doe')
+    customers = [listedCustomer]
     await user.click(screen.getByRole('button', { name: /^guardar$/i }))
 
     await waitFor(() => expect(screen.getByText('Clientes')).toBeInTheDocument())
     await screen.findByText('Jane Doe')
-    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(customerListCalls()).toHaveLength(2)
   })
 
   it('opens the edit form for a listed customer', async () => {
-    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify([listedCustomer]), { status: 200 }))
-
     const user = userEvent.setup()
     render(<CustomersScreen />)
 
@@ -115,10 +147,6 @@ describe('CustomersScreen', () => {
   })
 
   it('still issues ordering access and shows the one-time credential', async () => {
-    fetchMock
-      .mockResolvedValueOnce(new Response(JSON.stringify([listedCustomer]), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ credential: 'one-time-secret' }), { status: 200 }))
-
     const user = userEvent.setup()
     render(<CustomersScreen />)
 
@@ -127,30 +155,30 @@ describe('CustomersScreen', () => {
 
     const credential = await screen.findByTestId('issued-credential')
     expect(credential).toHaveTextContent('one-time-secret')
-    expect(fetchMock.mock.calls[1][0]).toBe(`/customers/${listedCustomer.id}/ordering-access`)
+    expect(fetchMock.mock.calls.map((call) => call[0])).toContain(`/customers/${listedCustomer.id}/ordering-access`)
   })
 
   it('does not claim there are no customers when the load failed', async () => {
-    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url === '/customers') throw new TypeError('Failed to fetch')
+      return json([])
+    })
 
     render(<CustomersScreen />)
 
     await screen.findByRole('alert')
-    // "No customers yet." is a real rendering of this screen (see the empty
-    // state case above), so its absence here is a fact about this state.
     expect(screen.queryByText('Todavía no hay clientes.')).not.toBeInTheDocument()
     expect(screen.getByTestId('data-view-load-error')).toHaveTextContent(/no se pudieron cargar los clientes/i)
   })
 
   it('does not blame the load when a failed action left an error on screen', async () => {
-    fetchMock
-      .mockResolvedValueOnce(new Response(JSON.stringify([listedCustomer]), { status: 200 }))
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ title: 'Ordering access is already issued.' }), {
-          status: 409,
-          headers: { 'Content-Type': 'application/json' },
-        }),
-      )
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.startsWith('/customers/cities') || url.startsWith('/customers/business-types')) return json([])
+      if (url.endsWith('/ordering-access')) {
+        return json({ title: 'Ordering access is already issued.' }, 409)
+      }
+      return json(customers)
+    })
 
     const user = userEvent.setup()
     render(<CustomersScreen />)
@@ -159,17 +187,13 @@ describe('CustomersScreen', () => {
     await user.click(screen.getByRole('button', { name: /emitir acceso para pedidos/i }))
     expect(await screen.findByRole('alert')).toHaveTextContent(/already issued/i)
 
-    // The list loaded fine; a search with no matches must say so.
+    customers = []
     await user.type(screen.getByLabelText(/buscar clientes/i), 'zzzz')
-    expect(screen.getByText('Ningún cliente coincide con esta búsqueda.')).toBeInTheDocument()
+    expect(await screen.findByText('Ningún cliente coincide con esta búsqueda.')).toBeInTheDocument()
     expect(screen.queryByTestId('data-view-load-error')).not.toBeInTheDocument()
   })
 
-  // ---- T4b: the shared data-view layer (PageHeader + DataToolbar + DataView) ----
-
   it('uses the full width the shell gives it, with no centered narrow column', async () => {
-    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify([listedCustomer]), { status: 200 }))
-
     const { container } = render(<CustomersScreen />)
 
     await screen.findByText('Jane Doe')
@@ -178,62 +202,67 @@ describe('CustomersScreen', () => {
   })
 
   it('renders the real customer columns for each listed record', async () => {
-    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify([wholesaleCustomer]), { status: 200 }))
-
+    customers = [wholesaleCustomer]
     render(<CustomersScreen />)
 
     const row = within(await screen.findByRole('table')).getAllByRole('row')[1]
     expect(within(row).getByText('Acme Supplies')).toBeInTheDocument()
+    expect(within(row).getByText('Roberto')).toBeInTheDocument()
+    expect(within(row).getByText('Rosario')).toBeInTheDocument()
+    expect(within(row).getByText('Bar')).toBeInTheDocument()
     expect(within(row).getByText('Mayorista')).toBeInTheDocument()
     expect(within(row).getByText('Deshabilitado')).toBeInTheDocument()
     expect(within(row).getByText('30-12345678-9')).toBeInTheDocument()
   })
 
-  it('filters the listed customers client-side by name, legal name or tax id', async () => {
-    fetchMock.mockResolvedValueOnce(
-      new Response(JSON.stringify([listedCustomer, wholesaleCustomer]), { status: 200 }),
-    )
-
+  it('searches on the server, debounced, instead of filtering client-side', async () => {
     const user = userEvent.setup()
     render(<CustomersScreen />)
-
     await screen.findByText('Jane Doe')
-    expect(screen.getByText('Acme Supplies')).toBeInTheDocument()
 
+    customers = [wholesaleCustomer]
     await user.type(screen.getByLabelText(/buscar clientes/i), 'acme')
 
-    expect(screen.getByText('Acme Supplies')).toBeInTheDocument()
+    await screen.findByText('Acme Supplies')
     expect(screen.queryByText('Jane Doe')).not.toBeInTheDocument()
-    // One request only: the filter runs over what was already loaded.
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const calls = customerListCalls()
+    // Typing four characters must not issue one request per keystroke.
+    expect(calls).toHaveLength(2)
+    expect(calls[1]).toBe('/customers?search=acme')
+  })
 
-    await user.clear(screen.getByLabelText(/buscar clientes/i))
-    await user.type(screen.getByLabelText(/buscar clientes/i), '30-12345678-9')
+  it('filters by city and by business type on the server', async () => {
+    const user = userEvent.setup()
+    render(<CustomersScreen />)
+    await screen.findByText('Jane Doe')
+    await screen.findByRole('option', { name: 'Rosario' })
 
-    expect(screen.getByText('Acme Supplies')).toBeInTheDocument()
-    expect(screen.queryByText('Jane Doe')).not.toBeInTheDocument()
+    customers = [wholesaleCustomer]
+    await user.selectOptions(screen.getByLabelText('Ciudad'), 'city-rosario')
+    await screen.findByText('Acme Supplies')
+    expect(customerListCalls().at(-1)).toBe('/customers?cityId=city-rosario')
+
+    await user.selectOptions(screen.getByLabelText('Tipo de negocio'), 'bt-bar')
+    await waitFor(() =>
+      expect(customerListCalls().at(-1)).toBe('/customers?cityId=city-rosario&businessTypeId=bt-bar'),
+    )
   })
 
   it('shows a helpful empty state when the filter matches nothing', async () => {
-    fetchMock.mockResolvedValueOnce(
-      new Response(JSON.stringify([listedCustomer, wholesaleCustomer]), { status: 200 }),
-    )
-
     const user = userEvent.setup()
     render(<CustomersScreen />)
-
     await screen.findByText('Jane Doe')
+
+    customers = []
     await user.type(screen.getByLabelText(/buscar clientes/i), 'zzzz')
 
-    expect(screen.getByText(/ningún cliente coincide/i)).toBeInTheDocument()
+    expect(await screen.findByText(/ningún cliente coincide/i)).toBeInTheDocument()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
     expect(screen.queryAllByTestId('data-view-card')).toHaveLength(0)
   })
 
   it('switches to the card view and restores that preference on remount', async () => {
-    fetchMock
-      .mockResolvedValueOnce(new Response(JSON.stringify([listedCustomer, wholesaleCustomer]), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify([listedCustomer, wholesaleCustomer]), { status: 200 }))
+    customers = [listedCustomer, wholesaleCustomer]
 
     const user = userEvent.setup()
     const first = render(<CustomersScreen />)
@@ -258,13 +287,11 @@ describe('CustomersScreen', () => {
 
   it('still edits a customer from the card view', async () => {
     window.localStorage.setItem('view:customers', 'cards')
-    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify([listedCustomer]), { status: 200 }))
 
     const user = userEvent.setup()
     render(<CustomersScreen />)
 
     await screen.findByText('Jane Doe')
-    // Prove we really are in the card layout, not just re-testing the table.
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
     expect(screen.getAllByTestId('data-view-card')).toHaveLength(1)
 

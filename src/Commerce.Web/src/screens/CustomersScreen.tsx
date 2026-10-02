@@ -1,14 +1,20 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
+import { Select } from '@/components/ui/select'
 import { DataToolbar } from '@/components/data/DataToolbar'
 import { DataView, type DataViewColumn } from '@/components/data/DataView'
 import { PageHeader } from '@/components/data/PageHeader'
 import { useViewPreference } from '@/components/data/useViewPreference'
 import { CustomerForm } from './CustomerForm'
+import { businessTypesApi } from '@/api/businessTypes'
+import { citiesApi } from '@/api/cities'
 import { issueOrderingAccess, listCustomers } from '@/api/customers'
 import { ApiError } from '@/api/client'
-import { CustomerKind, type CustomerRecord } from '@/api/types'
+import { CustomerKind, type CustomerRecord, type MasterDataEntry } from '@/api/types'
+import { useDebouncedValue } from '@/lib/useDebouncedValue'
+
+const SEARCH_DEBOUNCE_MS = 300
 
 /**
  * List + create/edit (design.md "Two admin UIs against one endpoint set").
@@ -18,8 +24,13 @@ import { CustomerKind, type CustomerRecord } from '@/api/types'
  * T4b: migrated onto the shared data-view layer (`components/data/*`),
  * following `CatalogScreen.tsx`. The old `mx-auto … max-w-3xl` Card wrapper
  * is gone — the T3 shell already owns the page frame, so this screen now
- * fills the available width. Search is a client-side filter over what
- * `GET /customers` already returned; there is no server-side search endpoint.
+ * fills the available width.
+ *
+ * Customer master data: search (name, legal name, contact, tax id), city and
+ * business type are applied by the server (`GET /customers?search&cityId&
+ * businessTypeId`); the search box is debounced so typing does not issue one
+ * request per keystroke. The two catalogs are loaded once here and handed to
+ * the filters and to the form.
  */
 export function CustomersScreen() {
   const { t } = useTranslation('customers')
@@ -33,23 +44,41 @@ export function CustomersScreen() {
   const [creating, setCreating] = useState(false)
   const [issuedCredential, setIssuedCredential] = useState<{ customerId: string; credential: string } | null>(null)
   const [search, setSearch] = useState('')
+  const [cityId, setCityId] = useState('')
+  const [businessTypeId, setBusinessTypeId] = useState('')
+  const [cities, setCities] = useState<MasterDataEntry[]>([])
+  const [businessTypes, setBusinessTypes] = useState<MasterDataEntry[]>([])
   const [view, setView] = useViewPreference('customers')
+  const debouncedSearch = useDebouncedValue(search.trim(), SEARCH_DEBOUNCE_MS)
+  /** Only the latest request may write state: a slow older answer must not overwrite a newer one. */
+  const latestRequest = useRef(0)
 
   const refresh = useCallback(async () => {
+    const request = ++latestRequest.current
     setLoading(true)
     setLoadError(null)
     try {
-      setCustomers(await listCustomers())
+      const result = await listCustomers({ search: debouncedSearch, cityId, businessTypeId })
+      if (request === latestRequest.current) setCustomers(result)
     } catch (err) {
-      setLoadError(err instanceof ApiError ? err.message : t('errors.unexpectedLoad'))
+      if (request === latestRequest.current) {
+        setLoadError(err instanceof ApiError ? err.message : t('errors.unexpectedLoad'))
+      }
     } finally {
-      setLoading(false)
+      if (request === latestRequest.current) setLoading(false)
     }
-  }, [t])
+  }, [t, debouncedSearch, cityId, businessTypeId])
 
   useEffect(() => {
     void refresh()
   }, [refresh])
+
+  // The catalogs only feed selects: if they cannot be read the screen still
+  // works, the selects just offer no choices.
+  useEffect(() => {
+    citiesApi.list(true).then(setCities, () => setCities([]))
+    businessTypesApi.list(true).then(setBusinessTypes, () => setBusinessTypes([]))
+  }, [])
 
   const closeForm = () => {
     setCreating(false)
@@ -71,17 +100,7 @@ export function CustomersScreen() {
     }
   }
 
-  const trimmedSearch = search.trim().toLowerCase()
-  const visibleCustomers = useMemo(() => {
-    if (trimmedSearch === '') return customers
-    return customers.filter(
-      (customer) =>
-        customer.displayName.toLowerCase().includes(trimmedSearch) ||
-        (customer.legalName ?? '').toLowerCase().includes(trimmedSearch) ||
-        (customer.taxId ?? '').toLowerCase().includes(trimmedSearch) ||
-        (customer.email ?? '').toLowerCase().includes(trimmedSearch),
-    )
-  }, [customers, trimmedSearch])
+  const filtering = debouncedSearch !== '' || cityId !== '' || businessTypeId !== ''
 
   // The create/edit form deliberately still replaces the whole screen, exactly
   // as before T4b — it is a long form, not an inline row edit.
@@ -89,23 +108,34 @@ export function CustomersScreen() {
     return (
       <CustomerForm
         customer={editingCustomer ?? undefined}
+        cities={cities}
+        businessTypes={businessTypes}
         onSaved={handleSaved}
         onCancel={closeForm}
       />
     )
   }
 
+  const noValue = <span className="text-muted-foreground">{t('columns.noValue')}</span>
   const columns: DataViewColumn<CustomerRecord>[] = [
     { key: 'displayName', header: t('columns.name'), cell: (customer) => customer.displayName },
     {
-      key: 'customerKind',
-      header: t('columns.kind'),
-      cell: (customer) => t(`kindOptions.${customer.customerKind === CustomerKind.Wholesale ? 'wholesale' : 'retail'}`),
+      key: 'contactName',
+      header: t('columns.contact'),
+      cell: (customer) => customer.contactName ?? noValue,
+    },
+    { key: 'city', header: t('columns.city'), cell: (customer) => customer.cityName ?? noValue },
+    {
+      key: 'businessType',
+      header: t('columns.businessType'),
+      cell: (customer) => customer.businessTypeName ?? noValue,
+      hideOnMobile: true,
     },
     {
-      key: 'isEnabled',
-      header: t('columns.status'),
-      cell: (customer) => (customer.isEnabled ? t('statusOptions.enabled') : t('statusOptions.disabled')),
+      key: 'phone',
+      header: t('columns.phone'),
+      cell: (customer) => customer.phone ?? noValue,
+      hideOnMobile: true,
     },
     {
       key: 'taxId',
@@ -115,10 +145,15 @@ export function CustomersScreen() {
       hideOnMobile: true,
     },
     {
-      key: 'phone',
-      header: t('columns.phone'),
-      cell: (customer) => customer.phone ?? <span className="text-muted-foreground">{t('columns.noPhone')}</span>,
+      key: 'customerKind',
+      header: t('columns.kind'),
+      cell: (customer) => t(`kindOptions.${customer.customerKind === CustomerKind.Wholesale ? 'wholesale' : 'retail'}`),
       hideOnMobile: true,
+    },
+    {
+      key: 'isEnabled',
+      header: t('columns.status'),
+      cell: (customer) => (customer.isEnabled ? t('statusOptions.enabled') : t('statusOptions.disabled')),
     },
   ]
 
@@ -158,15 +193,37 @@ export function CustomersScreen() {
         searchPlaceholder={t('search.placeholder')}
         view={view}
         onViewChange={setView}
-      />
+      >
+        <Select aria-label={t('filters.city')} className="w-auto" value={cityId} onChange={(e) => setCityId(e.target.value)}>
+          <option value="">{t('filters.allCities')}</option>
+          {cities.map((city) => (
+            <option key={city.id} value={city.id}>
+              {city.name}
+            </option>
+          ))}
+        </Select>
+        <Select
+          aria-label={t('filters.businessType')}
+          className="w-auto"
+          value={businessTypeId}
+          onChange={(e) => setBusinessTypeId(e.target.value)}
+        >
+          <option value="">{t('filters.allBusinessTypes')}</option>
+          {businessTypes.map((businessType) => (
+            <option key={businessType.id} value={businessType.id}>
+              {businessType.name}
+            </option>
+          ))}
+        </Select>
+      </DataToolbar>
 
       <DataView
-        items={visibleCustomers}
+        items={customers}
         columns={columns}
         getRowKey={(customer) => customer.id}
         view={view}
         loading={loading}
-        emptyMessage={customers.length === 0 ? t('empty.none') : t('empty.noMatch')}
+        emptyMessage={filtering ? t('empty.noMatch') : t('empty.none')}
         loadErrorMessage={loadError === null ? null : t('empty.loadError')}
         renderActions={(customer) => (
           <>

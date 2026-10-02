@@ -10,7 +10,7 @@
   "issuedCredential": "Ordering access credential (shown once): {{credential}}",
   "search": {
     "label": "Search customers",
-    "placeholder": "Search by name, legal name or tax ID…"
+    "placeholder": "Search by name, legal name, contact or tax ID…"
   },
   "empty": {
     "none": "No customers yet.",
@@ -19,12 +19,15 @@
   },
   "columns": {
     "name": "Name",
-    "kind": "Kind",
-    "status": "Status",
-    "taxId": "Tax ID",
-    "noTaxId": "No tax ID",
+    "contact": "Contact",
+    "city": "City",
+    "businessType": "Business type",
     "phone": "Phone",
-    "noPhone": "—"
+    "taxId": "CUIT/CUIL/DNI",
+    "noTaxId": "No ID document",
+    "noValue": "—",
+    "kind": "Kind",
+    "status": "Status"
   },
   "kindOptions": {
     "retail": "Retail",
@@ -43,18 +46,19 @@
     "titleEdit": "Edit customer",
     "backLabel": "Back to customers",
     "sections": {
-      "identity": "Identity",
-      "tax": "Tax",
+      "identity": "Details",
       "contact": "Contact",
-      "address": "Address",
-      "commercial": "Commercial"
+      "address": "Location",
+      "tax": "Tax",
+      "commercial": "Commercial",
+      "notes": "Notes"
     },
     "fields": {
       "customerKind": "Customer kind",
       "displayName": "Display name",
       "legalName": "Legal name",
       "taxIdType": "Tax ID type",
-      "taxId": "Tax ID",
+      "taxId": "CUIT/CUIL",
       "taxCondition": "Tax condition",
       "phone": "Phone",
       "email": "Email",
@@ -68,15 +72,33 @@
       "discountPercentage": "Discount percentage",
       "paymentTerms": "Payment terms",
       "notes": "Notes",
-      "enabled": "Enabled"
+      "enabled": "Enabled",
+      "contactName": "Contact name",
+      "city": "City",
+      "businessType": "Business type",
+      "dni": "DNI"
     },
     "taxIdTypeOptions": {
       "none": "None",
+      "dni": "DNI",
       "cuit": "CUIT",
       "cuil": "CUIL"
     },
     "save": "Save",
     "saving": "Saving…",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "noCity": "No city",
+    "noBusinessType": "No business type",
+    "inactiveSuffix": "(inactive)",
+    "errors": {
+      "dniInvalid": "The DNI must have 7 or 8 digits.",
+      "cuitInvalid": "The CUIT/CUIL must have 11 digits."
+    }
+  },
+  "filters": {
+    "city": "City",
+    "allCities": "All cities",
+    "businessType": "Business type",
+    "allBusinessTypes": "All business types"
   }
 }

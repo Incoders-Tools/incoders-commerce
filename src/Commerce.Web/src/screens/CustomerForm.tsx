@@ -4,16 +4,50 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import { FormPage } from '@/components/layout/FormPage'
 import { createCustomer, updateCustomer } from '@/api/customers'
 import { ApiError } from '@/api/client'
-import { CustomerKind, TaxCondition, TaxIdType, type CustomerRecord } from '@/api/types'
+import { CustomerKind, TaxCondition, TaxIdType, type CustomerRecord, type MasterDataEntry } from '@/api/types'
 import { cn } from '@/lib/utils'
+
+/** The server's "no value" sentinel for a nullable id on PUT (an omitted id keeps the stored one). */
+const NO_ID = '00000000-0000-0000-0000-000000000000'
 
 interface CustomerFormProps {
   customer?: CustomerRecord
+  /** Catalogs to pick from: all entries; inactive ones are filtered out here. */
+  cities?: MasterDataEntry[]
+  businessTypes?: MasterDataEntry[]
   onSaved: () => void
   onCancel: () => void
+}
+
+/**
+ * Mirrors the server's tax id rule: separators (spaces, dots, hyphens) are
+ * ignored, then a DNI needs 7-8 digits and a CUIT/CUIL 11. `None` has no id.
+ */
+function isValidTaxId(type: TaxIdType, value: string): boolean {
+  const digits = value.replace(/[\s.-]/g, '')
+  if (type === TaxIdType.None) return true
+  if (type === TaxIdType.Dni) return /^\d{7,8}$/.test(digits)
+  return /^\d{11}$/.test(digits)
+}
+
+/** Active entries, plus the one the customer currently has even when it was deactivated. */
+function selectableEntries(
+  entries: MasterDataEntry[],
+  currentId: string | null | undefined,
+  currentName: string | null | undefined,
+  inactiveSuffix: string,
+): { id: string; name: string }[] {
+  const options = entries
+    .filter((entry) => entry.isActive || entry.id === currentId)
+    .map((entry) => ({ id: entry.id, name: entry.isActive ? entry.name : `${entry.name} ${inactiveSuffix}` }))
+  if (currentId && !options.some((option) => option.id === currentId)) {
+    options.push({ id: currentId, name: currentName ?? currentId })
+  }
+  return options
 }
 
 /**
@@ -30,18 +64,27 @@ interface CustomerFormProps {
  * `onCancel` also backs the header's back action, alongside the existing
  * Cancel button in the footer.
  *
- * T10: laid out as titled sections on a responsive grid instead of a single
- * `max-w-lg` column, so the ~20 fields actually use the full-screen shell.
- * Section headings are purely visual grouping — they never change a field's
- * accessible name, which stays the `Label htmlFor` text alone.
+ * T10: laid out as titled sections on a responsive grid so the fields use
+ * the full-screen shell. Section headings are purely visual grouping — they
+ * never change a field's accessible name, which stays the `Label htmlFor`
+ * text alone.
+ *
+ * Customer master data: sections are Datos, Contacto, Ubicación, Fiscal,
+ * Comercial and Observaciones. City and business type are selects over the
+ * catalogs the parent screen loads (container-presentational: this form does
+ * no fetching of its own for them). On edit an omitted field would keep the
+ * stored value, so clearing sends the empty-id sentinel / empty string.
  */
-export function CustomerForm({ customer, onSaved, onCancel }: CustomerFormProps) {
+export function CustomerForm({ customer, cities = [], businessTypes = [], onSaved, onCancel }: CustomerFormProps) {
   const { t } = useTranslation('customers')
   const isEdit = customer !== undefined
 
   const [customerKind, setCustomerKind] = useState<CustomerKind>(customer?.customerKind ?? CustomerKind.Retail)
   const [displayName, setDisplayName] = useState(customer?.displayName ?? '')
   const [legalName, setLegalName] = useState(customer?.legalName ?? '')
+  const [contactName, setContactName] = useState(customer?.contactName ?? '')
+  const [cityId, setCityId] = useState(customer?.cityId ?? '')
+  const [businessTypeId, setBusinessTypeId] = useState(customer?.businessTypeId ?? '')
   const [taxIdType, setTaxIdType] = useState<TaxIdType>(customer?.taxIdType ?? TaxIdType.None)
   const [taxId, setTaxId] = useState(customer?.taxId ?? '')
   const [taxCondition, setTaxCondition] = useState<TaxCondition>(customer?.taxCondition ?? TaxCondition.NoAplica)
@@ -63,19 +106,34 @@ export function CustomerForm({ customer, onSaved, onCancel }: CustomerFormProps)
   const [notes, setNotes] = useState(customer?.notes ?? '')
   const [isEnabled, setIsEnabled] = useState(customer?.isEnabled ?? true)
   const [error, setError] = useState<string | null>(null)
+  const [taxIdError, setTaxIdError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault()
     setError(null)
+    if (!isValidTaxId(taxIdType, taxId)) {
+      setTaxIdError(t(taxIdType === TaxIdType.Dni ? 'form.errors.dniInvalid' : 'form.errors.cuitInvalid'))
+      return
+    }
+    setTaxIdError(null)
     setSubmitting(true)
     try {
       const shared = {
         displayName,
         legalName: legalName || null,
         taxIdType,
-        taxId: taxIdType === TaxIdType.None ? null : taxId,
+        taxId: taxIdType === TaxIdType.None ? null : taxId.trim(),
         taxCondition,
+        // PUT keeps an omitted value, so clearing sends the sentinel / empty
+        // string; on create an empty choice is simply left out.
+        ...(isEdit
+          ? { cityId: cityId || NO_ID, businessTypeId: businessTypeId || NO_ID, contactName: contactName.trim() }
+          : {
+              ...(cityId ? { cityId } : {}),
+              ...(businessTypeId ? { businessTypeId } : {}),
+              ...(contactName.trim() ? { contactName: contactName.trim() } : {}),
+            }),
         phone: phone || null,
         email: email || null,
         addressStreet: addressStreet || null,
@@ -129,17 +187,65 @@ export function CustomerForm({ customer, onSaved, onCancel }: CustomerFormProps)
           <Field id="legalName" label={t('form.fields.legalName')} value={legalName} onChange={setLegalName} />
         </FormSection>
 
+        <FormSection title={t('form.sections.contact')}>
+          <Field id="contactName" label={t('form.fields.contactName')} value={contactName} onChange={setContactName} />
+          <Field id="phone" label={t('form.fields.phone')} value={phone} onChange={setPhone} />
+          <Field id="email" label={t('form.fields.email')} value={email} onChange={setEmail} />
+        </FormSection>
+
+        <FormSection title={t('form.sections.address')}>
+          <CatalogSelect
+            id="cityId"
+            label={t('form.fields.city')}
+            emptyLabel={t('form.noCity')}
+            value={cityId}
+            onChange={setCityId}
+            options={selectableEntries(cities, customer?.cityId, customer?.cityName, t('form.inactiveSuffix'))}
+          />
+          <Field id="locality" label={t('form.fields.locality')} value={locality} onChange={setLocality} />
+          <Field id="province" label={t('form.fields.province')} value={province} onChange={setProvince} />
+          <Field id="addressStreet" label={t('form.fields.addressStreet')} value={addressStreet} onChange={setAddressStreet} />
+          <Field id="addressNumber" label={t('form.fields.addressNumber')} value={addressNumber} onChange={setAddressNumber} />
+          <Field id="neighborhood" label={t('form.fields.neighborhood')} value={neighborhood} onChange={setNeighborhood} />
+          <Field id="postalCode" label={t('form.fields.postalCode')} value={postalCode} onChange={setPostalCode} />
+          <Field
+            id="deliveryNotes"
+            label={t('form.fields.deliveryNotes')}
+            value={deliveryNotes}
+            onChange={setDeliveryNotes}
+            className="md:col-span-2"
+          />
+        </FormSection>
+
         <FormSection title={t('form.sections.tax')}>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="taxIdType">{t('form.fields.taxIdType')}</Label>
-            <Select id="taxIdType" value={taxIdType} onChange={(e) => setTaxIdType(e.target.value as TaxIdType)}>
+            <Select
+              id="taxIdType"
+              value={taxIdType}
+              onChange={(e) => {
+                setTaxIdType(e.target.value as TaxIdType)
+                setTaxIdError(null)
+              }}
+            >
               <option value={TaxIdType.None}>{t('form.taxIdTypeOptions.none')}</option>
+              <option value={TaxIdType.Dni}>{t('form.taxIdTypeOptions.dni')}</option>
               <option value={TaxIdType.Cuit}>{t('form.taxIdTypeOptions.cuit')}</option>
               <option value={TaxIdType.Cuil}>{t('form.taxIdTypeOptions.cuil')}</option>
             </Select>
           </div>
           {taxIdType !== TaxIdType.None && (
-            <Field id="taxId" label={t('form.fields.taxId')} value={taxId} onChange={setTaxId} required />
+            <Field
+              id="taxId"
+              label={taxIdType === TaxIdType.Dni ? t('form.fields.dni') : t('form.fields.taxId')}
+              value={taxId}
+              onChange={(value) => {
+                setTaxId(value)
+                setTaxIdError(null)
+              }}
+              required
+              error={taxIdError}
+            />
           )}
 
           <div className="flex flex-col gap-1.5">
@@ -161,28 +267,20 @@ export function CustomerForm({ customer, onSaved, onCancel }: CustomerFormProps)
           </div>
         </FormSection>
 
-        <FormSection title={t('form.sections.contact')}>
-          <Field id="phone" label={t('form.fields.phone')} value={phone} onChange={setPhone} />
-          <Field id="email" label={t('form.fields.email')} value={email} onChange={setEmail} />
-        </FormSection>
-
-        <FormSection title={t('form.sections.address')}>
-          <Field id="addressStreet" label={t('form.fields.addressStreet')} value={addressStreet} onChange={setAddressStreet} />
-          <Field id="addressNumber" label={t('form.fields.addressNumber')} value={addressNumber} onChange={setAddressNumber} />
-          <Field id="neighborhood" label={t('form.fields.neighborhood')} value={neighborhood} onChange={setNeighborhood} />
-          <Field id="locality" label={t('form.fields.locality')} value={locality} onChange={setLocality} />
-          <Field id="province" label={t('form.fields.province')} value={province} onChange={setProvince} />
-          <Field id="postalCode" label={t('form.fields.postalCode')} value={postalCode} onChange={setPostalCode} />
-          <Field
-            id="deliveryNotes"
-            label={t('form.fields.deliveryNotes')}
-            value={deliveryNotes}
-            onChange={setDeliveryNotes}
-            className="md:col-span-2 xl:col-span-3"
-          />
-        </FormSection>
-
         <FormSection title={t('form.sections.commercial')}>
+          <CatalogSelect
+            id="businessTypeId"
+            label={t('form.fields.businessType')}
+            emptyLabel={t('form.noBusinessType')}
+            value={businessTypeId}
+            onChange={setBusinessTypeId}
+            options={selectableEntries(
+              businessTypes,
+              customer?.businessTypeId,
+              customer?.businessTypeName,
+              t('form.inactiveSuffix'),
+            )}
+          />
           <Field
             id="discountPercentage"
             label={t('form.fields.discountPercentage')}
@@ -191,7 +289,6 @@ export function CustomerForm({ customer, onSaved, onCancel }: CustomerFormProps)
             type="number"
           />
           <Field id="paymentTerms" label={t('form.fields.paymentTerms')} value={paymentTerms} onChange={setPaymentTerms} />
-          <Field id="notes" label={t('form.fields.notes')} value={notes} onChange={setNotes} className="md:col-span-2 xl:col-span-3" />
 
           {isEdit && (
             <div className="flex items-center gap-2">
@@ -204,6 +301,14 @@ export function CustomerForm({ customer, onSaved, onCancel }: CustomerFormProps)
               <Label htmlFor="isEnabled">{t('form.fields.enabled')}</Label>
             </div>
           )}
+        </FormSection>
+
+        <FormSection title={t('form.sections.notes')} wide>
+          {/* The section legend already names this field visually. */}
+          <Label htmlFor="notes" className="sr-only">
+            {t('form.fields.notes')}
+          </Label>
+          <Textarea id="notes" rows={4} value={notes} onChange={(e) => setNotes(e.target.value)} />
         </FormSection>
 
         {error && (
@@ -225,11 +330,19 @@ export function CustomerForm({ customer, onSaved, onCancel }: CustomerFormProps)
   )
 }
 
-function FormSection({ title, children }: { title: string; children: ReactNode }) {
+function FormSection({ title, children, wide = false }: { title: string; children: ReactNode; wide?: boolean }) {
   return (
     <fieldset className="flex flex-col gap-4">
       <legend className="mb-1 text-sm font-semibold text-foreground">{title}</legend>
-      <div className="grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-2 xl:grid-cols-3">{children}</div>
+      <div
+        className={cn(
+          'grid grid-cols-1 gap-x-6 gap-y-4',
+          // `wide` sections hold one full-width control (notes) on every breakpoint.
+          !wide && 'md:grid-cols-2 xl:grid-cols-3',
+        )}
+      >
+        {children}
+      </div>
     </fieldset>
   )
 }
@@ -241,6 +354,7 @@ function Field({
   onChange,
   type = 'text',
   required = false,
+  error = null,
   className,
 }: {
   id: string
@@ -249,12 +363,56 @@ function Field({
   onChange: (value: string) => void
   type?: string
   required?: boolean
+  error?: string | null
   className?: string
 }) {
   return (
     <div className={cn('flex flex-col gap-1.5', className)}>
       <Label htmlFor={id}>{label}</Label>
-      <Input id={id} type={type} value={value} onChange={(e) => onChange(e.target.value)} required={required} />
+      <Input
+        id={id}
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        required={required}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? `${id}-error` : undefined}
+      />
+      {error && (
+        <p id={`${id}-error`} className="text-xs text-destructive">
+          {error}
+        </p>
+      )}
+    </div>
+  )
+}
+
+function CatalogSelect({
+  id,
+  label,
+  emptyLabel,
+  value,
+  onChange,
+  options,
+}: {
+  id: string
+  label: string
+  emptyLabel: string
+  value: string
+  onChange: (value: string) => void
+  options: { id: string; name: string }[]
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Label htmlFor={id}>{label}</Label>
+      <Select id={id} value={value} onChange={(e) => onChange(e.target.value)}>
+        <option value="">{emptyLabel}</option>
+        {options.map((option) => (
+          <option key={option.id} value={option.id}>
+            {option.name}
+          </option>
+        ))}
+      </Select>
     </div>
   )
 }
