@@ -42,6 +42,48 @@ public sealed class ProductCardViewModel : INotifyPropertyChanged
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
+    // --- Stock replica (purchases-receptions-and-stock T5): informative, never blocking. ---
+
+    private StockSnapshot? _stock;
+
+    public bool HasStock => _stock is not null;
+
+    public string StockText => _stock is { } stock
+        ? $"Stock: {StockAvailability.QuantityText(stock.OnHand, Item.QuantityBehavior)}"
+        : string.Empty;
+
+    public string StockAsOfText => _stock is { } stock ? $"al {StockAvailability.AsOfText(stock.AsOfUtc)}" : string.Empty;
+
+    /// <summary>The sale line is over the known stock. The line stays; this only labels the card.</summary>
+    public bool HasStockWarning => StockWarningText is not null;
+
+    public string? StockWarningText => IsInSale
+        ? StockAvailability.Warning(_stock, Quantity, Item.QuantityBehavior, Item.ProductName)
+        : null;
+
+    /// <summary>Applies (or clears, with null) the last known stock of this presentation.</summary>
+    public void ApplyStock(StockSnapshot? stock)
+    {
+        if (Equals(_stock, stock))
+        {
+            return;
+        }
+
+        _stock = stock;
+        RaiseStockChanged();
+    }
+
+    private void RaiseStockChanged()
+    {
+        foreach (var name in new[]
+                 {
+                     nameof(HasStock), nameof(StockText), nameof(StockAsOfText), nameof(HasStockWarning), nameof(StockWarningText)
+                 })
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+        }
+    }
+
     public void ApplyLine(ScannedSaleLineViewModel? line)
     {
         if (Equals(_line, line))
@@ -50,6 +92,7 @@ public sealed class ProductCardViewModel : INotifyPropertyChanged
         }
 
         _line = line;
+        RaiseStockChanged();
         foreach (var name in new[]
                  {
                      nameof(Quantity), nameof(IsInSale), nameof(QuantityText), nameof(UnitPriceText), nameof(LineTotalText)

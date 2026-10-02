@@ -22,6 +22,7 @@
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
             <StackPanel Grid.Row="0" MinHeight="46">
@@ -59,6 +60,41 @@
                 <TextBlock Text="{Binding UnitPriceText}" Style="{StaticResource MutedTextBlock}" FontSize="13" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
                 <TextBlock Grid.Column="1" Text="{Binding LineTotalText}" FontWeight="Bold" FontSize="15" VerticalAlignment="Center" Margin="6,0,0,0" />
             </Grid>
+
+            <!-- Stock replica (T5): the last known stock with its time, and a NON-blocking warning when the line exceeds it. -->
+            <StackPanel Grid.Row="4">
+                <StackPanel.Style>
+                    <Style TargetType="StackPanel">
+                        <Setter Property="Visibility" Value="Collapsed" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding HasStock}" Value="True">
+                                <Setter Property="Visibility" Value="Visible" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </StackPanel.Style>
+                <Grid Margin="0,6,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="{Binding StockText}" FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Grid.Column="1" Text="{Binding StockAsOfText}" Style="{StaticResource MutedTextBlock}" FontSize="11" Margin="6,0,0,0" />
+                </Grid>
+                <TextBlock Text="{Binding StockWarningText}" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"
+                           Foreground="{DynamicResource DangerBrush}" ToolTip="{Binding StockWarningText}">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding HasStockWarning}" Value="True">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+            </StackPanel>
         </Grid>
     </Border>
 </UserControl>

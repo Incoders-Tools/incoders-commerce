@@ -82,6 +82,7 @@ public partial class MainWindow : Window
         CustomerReplicaClient customerReplicaClient,
         CatalogPriceReplicaClient catalogPriceReplicaClient,
         DiscountPinReplicaClient discountPinReplicaClient,
+        StockReplicaClient stockReplicaClient,
         PricingResolutionService pricingResolutionService,
         Func<CustomerAdminClient> customerAdminClientFactory,
         Func<UserAdminClient> userAdminClientFactory,
@@ -141,7 +142,7 @@ public partial class MainWindow : Window
         // button) — reentrancy-guarded by construction, never duplicated.
         _syncRunner = new SyncRunner(
             _store, _branchNodeService, _syncClient, _customerReplicaClient, _catalogPriceReplicaClient,
-            _operatorProvisioningClient, _localOperatorStore, () => _pairing, discountPinReplicaClient);
+            _operatorProvisioningClient, _localOperatorStore, () => _pairing, discountPinReplicaClient, stockReplicaClient);
         _syncScheduler = new SyncScheduler(RunSyncAsync);
 
         // The lock screen is the first thing the window shows: nobody is signed in yet.
@@ -653,7 +654,7 @@ public partial class MainWindow : Window
         }
 
         var added = await _cart.AddAsync(item);
-        ScanMessageText.Text = added.Succeeded ? string.Empty : added.Message;
+        ScanMessageText.Text = ScanMessage(added);
 
         RefreshScannedTotal();
         ScanCodeTextBox.Focus();
@@ -684,6 +685,8 @@ public partial class MainWindow : Window
         {
             _catalogCards.Add(new ProductCardViewModel(item));
         }
+
+        ApplyStockToCards();
 
         var hasFilter = !string.IsNullOrWhiteSpace(ScanCodeTextBox.Text) || _selectedCategoryId is not null;
         CatalogEmptyText.Text = hasFilter
@@ -808,10 +811,51 @@ public partial class MainWindow : Window
         RefreshScannedTotal();
     }
 
+    /// <summary>
+    /// The scan-area message after a cart change: the failure text, or - when the change worked - the NON-BLOCKING stock
+    /// warning of the lines that exceed the last known stock (purchases-receptions-and-stock T5). The sale line is kept.
+    /// </summary>
+    private string ScanMessage(SaleCartResult result) =>
+        !result.Succeeded
+            ? result.Message ?? string.Empty
+            : StockAvailability.CartWarnings(_cart.Lines, StockOf, BehaviorOf) ?? string.Empty;
+
+    /// <summary>The last known stock of a presentation labelled with the replica's refresh time; null when unknown.</summary>
+    private StockSnapshot? StockOf(Guid presentationId) => StockSnapshots([presentationId]).GetValueOrDefault(presentationId);
+
+    private string BehaviorOf(Guid presentationId) =>
+        _catalogCards.FirstOrDefault(card => card.PresentationId == presentationId)?.Item.QuantityBehavior ?? string.Empty;
+
+    private Dictionary<Guid, StockSnapshot> StockSnapshots(IEnumerable<Guid> presentationIds)
+    {
+        var snapshots = new Dictionary<Guid, StockSnapshot>();
+        if (_store.GetStockCursor() is not { } asOf)
+        {
+            return snapshots;
+        }
+
+        foreach (var (id, onHand) in _store.GetStockOnHand(presentationIds))
+        {
+            snapshots[id] = new StockSnapshot(onHand, asOf);
+        }
+
+        return snapshots;
+    }
+
+    /// <summary>Re-reads the stock replica into the cards in place (no card is rebuilt, the sale is untouched).</summary>
+    private void ApplyStockToCards()
+    {
+        var snapshots = StockSnapshots(_catalogCards.Select(card => card.PresentationId));
+        foreach (var card in _catalogCards)
+        {
+            card.ApplyStock(snapshots.GetValueOrDefault(card.PresentationId));
+        }
+    }
+
     private async Task ApplyCartChangeAsync(Func<Task<SaleCartResult>> change)
     {
         var result = await change();
-        ScanMessageText.Text = result.Succeeded ? string.Empty : result.Message;
+        ScanMessageText.Text = ScanMessage(result);
         RefreshScannedTotal();
     }
 
@@ -938,6 +982,8 @@ public partial class MainWindow : Window
 
         // The status check may have dropped operators: follow it (the active one is signed out, the lock returns).
         await Dispatcher.InvokeAsync(ReconcileOperatorsAfterSync);
+        // Any trigger: the replica may have changed, the cards and the open sale follow without being rebuilt.
+        await Dispatcher.InvokeAsync(ApplyStockToCards);
 
         if (trigger != SyncTrigger.Button)
         {

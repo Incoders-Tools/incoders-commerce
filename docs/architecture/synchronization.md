@@ -69,8 +69,8 @@ can succeed while the other fails (see ADR-012, "Inbound materialization").
 ## Pattern 2: cursor/replica pull
 
 Used when the branch needs the sender's current full-row view of reference
-data it does not own — today, `customers_replica` and
-`catalog_replica`/`price_replica`, both keyed by `sync_cursors.channel`.
+data it does not own — today, `customers_replica`, `stock_replica` and
+`catalog_replica`/`price_replica`, all keyed by `sync_cursors.channel`.
 
 ```text
 Branch pull (part of the same RunSyncAsync sweep as the outbox push)
@@ -104,6 +104,34 @@ Stock is cloud-authoritative and derived (`SUM(stock_movements.quantity)`). When
   writes `PosSaleVoid` movements (a `Reversal` of the sale movement) idempotently on the same key scheme.
 
 
+### Stock replica channel (cloud -> branch)
+
+Stock is cloud-authoritative and derived (see the sale projection above), so the branch needs a READ replica to know
+availability offline. Channel `stock` follows the cursor/replica pattern exactly:
+
+```text
+GET /device/stock/sync?since=<cursor>        (device bearer; org AND branch from the stored credential)
+  -> { items: [{ presentationId, onHand }], serverTimeUtc }
+Branch (same RunSyncAsync sweep): ONE tx upsert items into stock_replica + advance sync_cursors('stock')
+```
+
+- Each item is an ABSOLUTE on-hand snapshot (`SUM(stock_movements.quantity)`, may be negative) of a presentation that
+  had a movement since the cursor, never a delta; a replay is a harmless upsert. A presentation that never moved has no
+  row: the POS treats it as unknown, not zero.
+- The cursor column is `stock_movements.created_at_utc` (index `stock_movements_created_idx`, migration 0034). It is
+  `now()` of the writing transaction, i.e. its start, so a slow commit could land after a later cursor; the server
+  therefore reads from `since - 5 minutes` (`PostgresStockStore.ReplicaGrace`). The overlap costs nothing because items
+  are absolute. No per-presentation version or stored balance is maintained: the work per sweep is one index range scan
+  plus the SUM of only the presentations that changed.
+- A failed pull (unreachable, non-2xx, empty body) leaves the replica and cursor byte-identical. The replica stays
+  usable offline; the POS labels the stock with the cursor time ("al dd/MM HH:mm"), the time of the last successful
+  refresh, which is also true for rows that did not change.
+- POS policy v1: the sale card shows "Stock: 117,5 kg" plus the as-of time, and a line over the known stock shows a
+  warning ("... la venta no se bloquea") in the card and in the scan message. It never blocks the sale. Not covered: no
+  local decrement between syncs (two terminals of one branch each see the stock as of their last pull), and the unit
+  label "kg" in the scan message is omitted for a line whose card is not on screen.
+- Contract v1 is additive: a new endpoint and a new channel; no existing payload or channel changes.
+
 ## Envelope vs. cursor/replica: the selection rule
 
 A new domain's synchronization approach is classified **before**
@@ -120,6 +148,7 @@ implementation:
 | `"order"` | Cloud → branch | Push envelope — a discrete order-acceptance event |
 | Customers | Cloud → branch | Cursor/replica — branch needs the cloud's current customer view |
 | Catalog + price | Cloud → branch | Cursor/replica — branch needs the cloud's current catalogue/price view |
+| Stock | Cloud → branch | Cursor/replica — branch needs the cloud's current on-hand snapshot (stock is cloud-authoritative) |
 
 See ADR-012 for the full rule text and its rationale.
 
@@ -128,7 +157,8 @@ See ADR-012 for the full rule text and its rationale.
 | Information | Primary authority |
 |---|---|
 | Sales and cash | Local branch |
-| Branch hardware and stock | Local branch |
+| Branch hardware | Local branch |
+| Stock (derived from movements) | Cloud (owner decision 2026-10-02, deviating from PRD 724); the branch holds a read replica |
 | Preparation and delivery | Local branch operation |
 | Online-order origin | Cloud |
 | Recorded-payment authority | The node that recorded it — branch for POS cash, cloud for web orders (ADR-011; commerce-payments) |

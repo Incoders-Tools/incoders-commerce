@@ -160,4 +160,22 @@ public sealed class PosComponentMarkupTests
         var manualCode = string.Join(Environment.NewLine, manual.Split((char)10).Where(l => !l.TrimStart().StartsWith("//", StringComparison.Ordinal)));
         Assert.DoesNotContain("DeviceToken", manualCode);
     }
+
+    [Fact]
+    public void SaleSurface_ShowsTheKnownStockOnTheCards_AndWarnsWithoutBlockingTheSale()
+    {
+        var card = File.ReadAllText(Path.Combine(PosDirectory(), "Controls", "ProductCard.xaml"));
+        Assert.Contains("{Binding StockText}", card);
+        Assert.Contains("{Binding StockAsOfText}", card);
+        Assert.Contains("{Binding StockWarningText}", card);
+        Assert.Contains("HasStockWarning", card);
+
+        var code = File.ReadAllText(Path.Combine(PosDirectory(), "MainWindow.xaml.cs"));
+        var apply = code[code.IndexOf("private async Task ApplyCartChangeAsync", StringComparison.Ordinal)..];
+        apply = apply[..apply.IndexOf("private void ManualSaleButton_Click", StringComparison.Ordinal)];
+        Assert.Contains("ScanMessage(result)", apply);
+        Assert.Contains("StockAvailability.CartWarnings", code);
+        // The warning is shown, the change is never undone: no early return between the change and the warning.
+        Assert.DoesNotContain("Remove(", apply);
+    }
 }

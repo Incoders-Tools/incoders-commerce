@@ -36,6 +36,7 @@ public sealed class SyncRunner
     private readonly CatalogPriceReplicaClient _catalogPriceReplicaClient;
     private readonly OperatorProvisioningClient _operatorProvisioningClient;
     private readonly DiscountPinReplicaClient? _discountPinReplicaClient;
+    private readonly StockReplicaClient? _stockReplicaClient;
     private readonly LocalOperatorStore _localOperatorStore;
     private readonly Func<DevicePairing> _pairingAccessor;
     private int _running;
@@ -49,9 +50,11 @@ public sealed class SyncRunner
         OperatorProvisioningClient operatorProvisioningClient,
         LocalOperatorStore localOperatorStore,
         Func<DevicePairing> pairingAccessor,
-        DiscountPinReplicaClient? discountPinReplicaClient = null)
+        DiscountPinReplicaClient? discountPinReplicaClient = null,
+        StockReplicaClient? stockReplicaClient = null)
     {
         _discountPinReplicaClient = discountPinReplicaClient;
+        _stockReplicaClient = stockReplicaClient;
         _store = store;
         _branchNodeService = branchNodeService;
         _syncClient = syncClient;
@@ -87,6 +90,7 @@ public sealed class SyncRunner
             await PullCustomersAsync(pairing);
             await PullCatalogPricesAsync(pairing);
             await PullDiscountPinAsync(pairing);
+            await PullStockAsync(pairing);
 
             var pending = _store.GetPendingOutbox(pairing.BranchId);
             if (pending.Count == 0)
@@ -179,6 +183,29 @@ public sealed class SyncRunner
             .ToList();
 
         _store.ApplyCatalogPriceSync(replicaItems, outcome.RemovedPresentationIds, outcome.ServerTimeUtc.Value);
+    }
+
+    /// <summary>
+    /// Refreshes the stock replica (cursor channel `stock`). A failed pull leaves the replica and cursor byte-identical:
+    /// the last known stock stays usable offline, labelled with the time of its last successful refresh.
+    /// </summary>
+    private async Task PullStockAsync(DevicePairing pairing)
+    {
+        if (_stockReplicaClient is null)
+        {
+            return;
+        }
+
+        var since = _store.GetStockCursor() ?? DateTimeOffset.MinValue;
+        var outcome = await _stockReplicaClient.PullAsync(since, pairing.DeviceToken);
+        if (!outcome.Success || outcome.Items is null || outcome.ServerTimeUtc is null)
+        {
+            return;
+        }
+
+        _store.ApplyStockSync(
+            outcome.Items.Select(row => new StockReplicaItem(row.PresentationId, row.OnHand)).ToList(),
+            outcome.ServerTimeUtc.Value);
     }
 
     /// <summary>
