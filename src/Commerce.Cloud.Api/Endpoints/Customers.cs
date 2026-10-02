@@ -310,14 +310,14 @@ public static class CustomerEndpoints
 
     private const string TaxIdTypeMessage = "taxIdType must be one of: None, Cuit, Cuil, Dni.";
 
-    private static Guid? NullIfEmpty(Guid? id) => id is { } value && value != Guid.Empty ? value : null;
+    internal static Guid? NullIfEmpty(Guid? id) => id is { } value && value != Guid.Empty ? value : null;
 
-    private static string? BlankToNull(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    internal static string? BlankToNull(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     internal const int MaxContacts = 50;
     private const int MaxContactFieldLength = 200;
 
-    private static IResult ContactsProblem(string message) =>
+    internal static IResult ContactsProblem(string message) =>
         Results.ValidationProblem(new Dictionary<string, string[]> { ["contacts"] = [message] });
 
     /// <summary>
@@ -326,7 +326,7 @@ public static class CustomerEndpoints
     /// Rules: at most 50 contacts, a first name on each, at most one primary, no repeated id. A contact
     /// without `sortOrder` takes its position in the array.
     /// </summary>
-    private static bool TryBuildContacts(
+    internal static bool TryBuildContacts(
         ContactRequest[]? requested, out IReadOnlyList<CustomerContactInput>? contacts, out IResult? problem)
     {
         contacts = null;
@@ -413,7 +413,7 @@ public static class CustomerEndpoints
     /// Returns <see langword="null"/> on ANY failure so every call site maps
     /// to the same <c>Results.Forbid()</c>.
     /// </summary>
-    private static async Task<(CloudTenantScope Scope, UserAccount Caller)?> AuthorizeCallerAsync(
+    internal static async Task<(CloudTenantScope Scope, UserAccount Caller)?> AuthorizeCallerAsync(
         HttpContext httpContext, PostgresUserAccountStore userStore, CancellationToken ct)
     {
         var scope = TenantScopeEndpointFilter.GetScope(httpContext);

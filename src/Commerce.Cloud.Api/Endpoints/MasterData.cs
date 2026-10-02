@@ -27,6 +27,7 @@ public static class MasterDataEndpoints
     public static IEndpointRouteBuilder MapMasterDataEndpoints(this IEndpointRouteBuilder app)
     {
         MapCatalog<PostgresBusinessTypeStore>(app, "/customers/business-types", "business-type");
+        MapCatalog<PostgresSupplierCategoryStore>(app, "/suppliers/categories", "supplier-category");
         return app;
     }
 
