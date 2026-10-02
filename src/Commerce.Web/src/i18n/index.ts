@@ -9,6 +9,9 @@ import citiesEs from './locales/es/cities.json'
 import businessTypesEs from './locales/es/businessTypes.json'
 import ordersEs from './locales/es/orders.json'
 import customersEs from './locales/es/customers.json'
+import suppliersEs from './locales/es/suppliers.json'
+import supplierCategoriesEs from './locales/es/supplierCategories.json'
+import supplierAccountEs from './locales/es/supplierAccount.json'
 import usersEs from './locales/es/users.json'
 import branchesEs from './locales/es/branches.json'
 import priceListsEs from './locales/es/priceLists.json'
@@ -25,6 +28,9 @@ import citiesEn from './locales/en/cities.json'
 import businessTypesEn from './locales/en/businessTypes.json'
 import ordersEn from './locales/en/orders.json'
 import customersEn from './locales/en/customers.json'
+import suppliersEn from './locales/en/suppliers.json'
+import supplierCategoriesEn from './locales/en/supplierCategories.json'
+import supplierAccountEn from './locales/en/supplierAccount.json'
 import usersEn from './locales/en/users.json'
 import branchesEn from './locales/en/branches.json'
 import priceListsEn from './locales/en/priceLists.json'
@@ -45,6 +51,9 @@ export const namespaces = [
   'businessTypes',
   'orders',
   'customers',
+  'suppliers',
+  'supplierCategories',
+  'supplierAccount',
   'users',
   'branches',
   'priceLists',
@@ -72,6 +81,9 @@ export const resources = {
     businessTypes: businessTypesEs,
     orders: ordersEs,
     customers: customersEs,
+    suppliers: suppliersEs,
+    supplierCategories: supplierCategoriesEs,
+    supplierAccount: supplierAccountEs,
     users: usersEs,
     branches: branchesEs,
     priceLists: priceListsEs,
@@ -90,6 +102,9 @@ export const resources = {
     businessTypes: businessTypesEn,
     orders: ordersEn,
     customers: customersEn,
+    suppliers: suppliersEn,
+    supplierCategories: supplierCategoriesEn,
+    supplierAccount: supplierAccountEn,
     users: usersEn,
     branches: branchesEn,
     priceLists: priceListsEn,

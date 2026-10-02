@@ -1,0 +1,109 @@
+{
+  "title": "Suppliers",
+  "description": "Who we buy from, and their current account.",
+  "newSupplier": "New supplier",
+  "errors": {
+    "unexpectedLoad": "Unexpected error loading the suppliers.",
+    "unexpectedSave": "Unexpected error saving the supplier."
+  },
+  "search": {
+    "label": "Search suppliers",
+    "placeholder": "Search by name, legal name, contact or tax id…"
+  },
+  "empty": {
+    "none": "There are no suppliers yet.",
+    "noMatch": "No supplier matches this search.",
+    "loadError": "The suppliers could not be loaded."
+  },
+  "columns": {
+    "name": "Name",
+    "category": "Category",
+    "contact": "Contact",
+    "city": "City",
+    "taxId": "CUIT/CUIL/DNI",
+    "balance": "Balance",
+    "balanceHint": "What we owe the supplier",
+    "status": "Status",
+    "noValue": "—",
+    "noTaxId": "No document"
+  },
+  "balance": {
+    "inOurFavour": "{{amount}} in our favour",
+    "overdue": "Overdue {{amount}}"
+  },
+  "statusOptions": {
+    "enabled": "Enabled",
+    "disabled": "Disabled"
+  },
+  "filters": {
+    "city": "City",
+    "allCities": "All cities",
+    "category": "Category",
+    "allCategories": "All categories",
+    "status": "Status",
+    "allStatuses": "All statuses"
+  },
+  "actions": {
+    "edit": "Edit",
+    "account": "Current account"
+  },
+  "form": {
+    "titleNew": "New supplier",
+    "titleEdit": "Edit supplier",
+    "backLabel": "Back to suppliers",
+    "sections": {
+      "identity": "Details",
+      "contact": "Contact",
+      "contacts": "Contact people",
+      "address": "Location",
+      "tax": "Tax",
+      "commercial": "Commercial",
+      "notes": "Notes"
+    },
+    "fields": {
+      "displayName": "Name",
+      "legalName": "Legal name",
+      "phone": "Phone",
+      "email": "Email",
+      "city": "City",
+      "addressStreet": "Street",
+      "addressNumber": "Number",
+      "neighborhood": "Neighborhood",
+      "postalCode": "Postal code",
+      "taxIdType": "Tax id type",
+      "taxId": "CUIT/CUIL",
+      "dni": "DNI",
+      "taxCondition": "Tax condition",
+      "category": "Category",
+      "paymentTermsDays": "Payment terms (days)",
+      "bankCbu": "CBU/CVU",
+      "bankAlias": "Alias",
+      "notes": "Notes",
+      "enabled": "Enabled"
+    },
+    "taxIdTypeOptions": {
+      "none": "None",
+      "dni": "DNI",
+      "cuit": "CUIT",
+      "cuil": "CUIL"
+    },
+    "noCategory": "No category",
+    "inactiveSuffix": "(inactive)",
+    "save": "Save",
+    "saving": "Saving…",
+    "cancel": "Cancel",
+    "account": "Current account",
+    "errors": {
+      "dniInvalid": "The DNI must have 7 or 8 digits.",
+      "cuitInvalid": "The CUIT/CUIL must have 11 digits.",
+      "cbuInvalid": "The CBU/CVU must have 22 digits.",
+      "aliasInvalid": "The alias must be 6 to 20 characters long.",
+      "paymentTermsInvalid": "The payment terms must be between 0 and 365 days."
+    },
+    "conflict": {
+      "message": "Someone else modified this supplier while you were editing. Reload to see the latest changes; your unsaved changes will be lost.",
+      "reload": "Reload",
+      "reloadFailed": "The supplier could not be reloaded."
+    }
+  }
+}

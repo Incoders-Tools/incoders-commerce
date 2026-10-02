@@ -37,3 +37,21 @@ export function formatBucket(bucket: string): string {
   if (timeIndex >= 0) return bucket.slice(timeIndex + 1)
   return dayFormatter.format(new Date(`${bucket}T00:00:00Z`))
 }
+
+const moneyFormatter = new Intl.NumberFormat(LOCALE, {
+  style: 'currency',
+  currency: 'ARS',
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+})
+
+/** Exact ledger amount with cents, e.g. `$ 100.000,00`. */
+export function formatMoney(amount: number): string {
+  return moneyFormatter.format(amount)
+}
+
+/** `2026-10-01` becomes `01/10/2026`; the string is split, never parsed, so no timezone can shift the day. */
+export function formatIsoDate(isoDate: string): string {
+  const [year, month, day] = isoDate.slice(0, 10).split('-')
+  return `${day}/${month}/${year}`
+}

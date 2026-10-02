@@ -112,6 +112,32 @@ describe('App route table', () => {
     expect(nav.getByRole('link', { name: 'Tipos de negocio' })).toHaveAttribute('href', '/app/business-types')
   })
 
+  it('mounts the suppliers screen for an admin and links it from the sidebar', async () => {
+    renderAppAt('/app/suppliers', buildUser({ permissions: Permission.ManageUsers }))
+
+    expect(await screen.findByRole('heading', { name: 'Proveedores' })).toBeInTheDocument()
+    const nav = within(screen.getByRole('navigation', { name: 'Principal' }))
+    expect(nav.getByRole('link', { name: 'Proveedores' })).toHaveAttribute('href', '/app/suppliers')
+  })
+
+  it('mounts the supplier categories screen for an admin and links it from the sidebar', async () => {
+    renderAppAt('/app/supplier-categories', buildUser({ permissions: Permission.ManageUsers }))
+
+    expect(await screen.findByRole('heading', { name: 'Rubros de proveedor' })).toBeInTheDocument()
+    const nav = within(screen.getByRole('navigation', { name: 'Principal' }))
+    expect(nav.getByRole('link', { name: 'Rubros de proveedor' })).toHaveAttribute('href', '/app/supplier-categories')
+  })
+
+  it('redirects a non-admin away from the supplier routes', async () => {
+    const { unmount } = renderAppAt('/app/suppliers', buildUser({ permissions: Permission.ViewSales }))
+    expect(await screen.findByRole('heading', { name: 'Catálogo' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Proveedores' })).not.toBeInTheDocument()
+    unmount()
+
+    renderAppAt('/app/supplier-categories', buildUser({ permissions: Permission.ViewSales }))
+    expect(await screen.findByRole('heading', { name: 'Catálogo' })).toBeInTheDocument()
+  })
+
   it('mounts the core cities screen for a system admin and links it from the sidebar', async () => {
     renderAppAt('/app/cities', buildUser({ isSystemAdmin: true }))
 

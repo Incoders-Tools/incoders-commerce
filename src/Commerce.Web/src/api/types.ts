@@ -649,3 +649,150 @@ export interface GeoCityRequest {
   departmentName?: string
   isActive?: boolean
 }
+
+// Suppliers (Suppliers.cs / SupplierAccount.cs DTOs, mirrored). Contacts share
+// the customer contact shape; tax id type / condition are the same string enums.
+export type SupplierContact = CustomerContact
+export type SupplierContactInput = CustomerContactInput
+
+export interface SupplierRecord {
+  id: string
+  displayName: string
+  legalName: string | null
+  taxIdType: TaxIdType
+  taxId: string | null
+  taxCondition: TaxCondition
+  phone: string | null
+  email: string | null
+  addressStreet: string | null
+  addressNumber: string | null
+  neighborhood: string | null
+  postalCode: string | null
+  cityId: string | null
+  cityName: string | null
+  provinceId: string | null
+  provinceName: string | null
+  categoryId: string | null
+  categoryName: string | null
+  paymentTermsDays: number | null
+  bankCbu: string | null
+  bankAlias: string | null
+  notes: string | null
+  isEnabled: boolean
+  createdAtUtc: string
+  updatedAtUtc: string
+  /** What the business owes the supplier (Credit - Debit); negative = in our favour. */
+  balance: number
+  contacts: SupplierContact[]
+}
+
+/** Server-side filters of `GET /suppliers`. */
+export interface SupplierListFilters {
+  search?: string
+  categoryId?: string
+  cityId?: string
+  /** `undefined` = both. */
+  enabled?: boolean
+}
+
+export interface CreateSupplierRequest {
+  displayName: string
+  legalName: string | null
+  taxIdType: TaxIdType
+  taxId: string | null
+  taxCondition: TaxCondition
+  phone: string | null
+  email: string | null
+  addressStreet: string | null
+  addressNumber: string | null
+  neighborhood: string | null
+  postalCode: string | null
+  // On PUT the all-zero GUID clears; an omitted id keeps the stored one.
+  cityId?: string
+  categoryId?: string
+  paymentTermsDays: number | null
+  bankCbu: string | null
+  bankAlias: string | null
+  notes: string | null
+  contacts?: SupplierContactInput[]
+}
+
+export type UpdateSupplierRequest = CreateSupplierRequest & {
+  isEnabled: boolean
+  /** The `updatedAtUtc` last read; a mismatch answers 409 `supplier-modified`. */
+  expectedUpdatedAtUtc?: string
+}
+
+export interface CreateSupplierResponse {
+  supplierId: string
+}
+
+export interface SupplierBalance {
+  supplierId: string
+  balance: number
+  overdue: number
+}
+
+export const MovementKind = {
+  OpeningBalance: 'OpeningBalance',
+  Invoice: 'Invoice',
+  DebitNote: 'DebitNote',
+  CreditNote: 'CreditNote',
+  Payment: 'Payment',
+  Adjustment: 'Adjustment',
+} as const
+export type MovementKind = (typeof MovementKind)[keyof typeof MovementKind]
+
+export type MovementDirection = 'Debit' | 'Credit'
+
+export interface AccountMovement {
+  id: string
+  supplierId: string
+  kind: MovementKind
+  direction: MovementDirection
+  amount: number
+  /** yyyy-MM-dd */
+  occurredOn: string
+  dueOn: string | null
+  documentReference: string | null
+  concept: string
+  reversesMovementId: string | null
+  createdAtUtc: string
+  createdByUserId: string
+}
+
+export interface StatementLine extends AccountMovement {
+  runningBalance: number
+  reversed: boolean
+  reversedByMovementId: string | null
+}
+
+export interface AccountStatement {
+  openingBalance: number
+  movements: StatementLine[]
+  closingBalance: number
+}
+
+export interface AccountSummary {
+  asOf: string
+  balance: number
+  overdue: number
+  current: number
+  aging: { d0_30: number; d31_60: number; d61_90: number; d90plus: number }
+}
+
+export interface RegisterMovementRequest {
+  kind: MovementKind
+  amount: number
+  occurredOn?: string
+  dueOn?: string
+  documentReference?: string
+  concept: string
+  /** Required only for an Adjustment. */
+  direction?: MovementDirection
+}
+
+export interface ReverseMovementRequest {
+  concept?: string
+  occurredOn?: string
+}

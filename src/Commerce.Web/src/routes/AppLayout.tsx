@@ -11,6 +11,8 @@ import {
   Menu,
   Package,
   Store,
+  Truck,
+  Boxes,
   Tags,
   UserCog,
   Users2,
@@ -125,6 +127,8 @@ export function AppLayout() {
               <NavSection title={t('sections.administration')}>
                 <NavItem to="/app/customers" icon={Users2} onNavigate={closeMobileNav}>{t('items.customers')}</NavItem>
                 <NavItem to="/app/business-types" icon={Briefcase} onNavigate={closeMobileNav}>{t('items.businessTypes')}</NavItem>
+                <NavItem to="/app/suppliers" icon={Truck} onNavigate={closeMobileNav}>{t('items.suppliers')}</NavItem>
+                <NavItem to="/app/supplier-categories" icon={Boxes} onNavigate={closeMobileNav}>{t('items.supplierCategories')}</NavItem>
                 <NavItem to="/app/users" icon={UserCog} onNavigate={closeMobileNav}>{t('items.users')}</NavItem>
                 <NavItem to="/app/branches" icon={Store} onNavigate={closeMobileNav}>{t('items.branches')}</NavItem>
                 {/* Same UI-only gate as its siblings: `App.tsx`'s

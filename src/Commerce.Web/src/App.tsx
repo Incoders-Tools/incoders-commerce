@@ -20,6 +20,8 @@ import { OrderScreen } from '@/screens/OrderScreen'
 import { StaffOrderScreen } from '@/screens/StaffOrderScreen'
 import { RenewPasswordScreen } from '@/screens/RenewPasswordScreen'
 import { CustomersScreen } from '@/screens/CustomersScreen'
+import { SuppliersScreen } from '@/screens/SuppliersScreen'
+import { SupplierCategoriesScreen } from '@/screens/SupplierCategoriesScreen'
 import { UsersScreen } from '@/screens/UsersScreen'
 import { BranchesScreen } from '@/screens/BranchesScreen'
 import { PriceListsScreen } from '@/screens/PriceListsScreen'
@@ -89,6 +91,8 @@ function App() {
                     <Route path="dashboard" element={<DashboardScreen />} />
                     <Route path="customers" element={<CustomersScreen />} />
                     <Route path="business-types" element={<BusinessTypesScreen />} />
+                    <Route path="suppliers" element={<SuppliersScreen />} />
+                    <Route path="supplier-categories" element={<SupplierCategoriesScreen />} />
                     <Route path="users" element={<UsersScreen />} />
                     <Route path="branches" element={<BranchesScreen />} />
                     {/* commerce-pricing-engine design.md "Web: `PriceListsScreen`
