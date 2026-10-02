@@ -105,8 +105,9 @@ describe('AppLayout', () => {
     expect(nav.getByRole('link', { name: /clientes/i })).toBeInTheDocument()
     expect(nav.getByRole('link', { name: /usuarios/i })).toBeInTheDocument()
     expect(nav.getByRole('link', { name: /sucursales/i })).toBeInTheDocument()
-    expect(nav.getByRole('link', { name: 'Ciudades' })).toBeInTheDocument()
     expect(nav.getByRole('link', { name: 'Tipos de negocio' })).toBeInTheDocument()
+    // Cities are a core catalog managed by the system administrator only.
+    expect(nav.queryByRole('link', { name: 'Ciudades' })).not.toBeInTheDocument()
     expect(nav.queryByRole('link', { name: /organizaciones/i })).not.toBeInTheDocument()
   })
 
@@ -127,6 +128,7 @@ describe('AppLayout', () => {
 
     const nav = within(screen.getByRole('navigation'))
     expect(nav.getByRole('link', { name: /organizaciones/i })).toBeInTheDocument()
+    expect(nav.getByRole('link', { name: 'Ciudades' })).toHaveAttribute('href', '/app/cities')
   })
 
   // B1 (odd/tasks/frontend-modernization.md, product review backlog): the
@@ -144,6 +146,7 @@ describe('AppLayout', () => {
 
     const nav = within(screen.getByRole('navigation'))
     expect(nav.getByRole('link', { name: /organizaciones/i })).toBeInTheDocument()
+    expect(nav.getByRole('link', { name: 'Ciudades' })).toBeInTheDocument()
     expect(nav.queryByRole('link', { name: /catálogo/i })).not.toBeInTheDocument()
     expect(nav.queryByRole('link', { name: /pedidos/i })).not.toBeInTheDocument()
     expect(nav.queryByRole('link', { name: /clientes/i })).not.toBeInTheDocument()

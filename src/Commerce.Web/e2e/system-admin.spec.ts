@@ -17,6 +17,19 @@ test('a migrated system admin sees Organizations and can onboard an organization
   await expect(page.getByText(organizationName)).toBeVisible()
 })
 
+// Core geography: the city catalog is organization-independent and managed by
+// the system administrator from the platform area (Georef data is seeded).
+test('a system admin manages the core city catalog from the platform area', async ({ page }) => {
+  await page.goto('/login')
+  await page.getByLabel('Correo electrónico').fill(process.env.SYSADMIN_EMAIL!)
+  await page.getByLabel('Contraseña').fill(process.env.SYSADMIN_PASSWORD!)
+  await page.getByRole('button', { name: /iniciar sesión/i }).click()
+  await page.getByRole('link', { name: 'Ciudades' }).click()
+  await expect(page.getByRole('heading', { name: 'Ciudades' })).toBeVisible()
+  await page.getByLabel('Buscar ciudades').fill('Capitán Sarmiento')
+  await expect(page.getByRole('cell', { name: 'Capitán Sarmiento' }).first()).toBeVisible()
+})
+
 // platform-administration spec, "Sysadmin Acts On A Selected Organization":
 // with no organization selected the sysadmin sees only Organizations (and
 // other platform screens) — Catalog/Orders/Branches/etc. are all tenant

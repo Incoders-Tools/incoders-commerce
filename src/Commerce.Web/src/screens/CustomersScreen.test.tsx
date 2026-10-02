@@ -13,6 +13,8 @@ const listedCustomer: CustomerRecord = {
   contactName: 'Juana',
   cityId: null,
   cityName: null,
+  provinceId: null,
+  provinceName: null,
   businessTypeId: null,
   businessTypeName: null,
   taxIdType: 'None',
@@ -47,6 +49,8 @@ const wholesaleCustomer: CustomerRecord = {
   contactName: 'Roberto',
   cityId: 'city-rosario',
   cityName: 'Rosario',
+  provinceId: '82',
+  provinceName: 'Santa Fe',
   businessTypeId: 'bt-bar',
   businessTypeName: 'Bar',
   taxIdType: 'Cuit',
@@ -65,7 +69,19 @@ const entry = (id: string, name: string, isActive = true): MasterDataEntry => ({
   updatedAtUtc: '2024-01-01T00:00:00Z',
 })
 
-const cities = [entry('city-rosario', 'Rosario'), entry('city-funes', 'Funes')]
+const geoCity = (id: string, name: string, provinceName: string) => ({
+  id,
+  indecId: null,
+  name,
+  provinceId: '82',
+  provinceName,
+  countryCode: 'AR',
+  departmentName: null,
+  isActive: true,
+  createdAtUtc: '2024-01-01T00:00:00Z',
+  updatedAtUtc: '2024-01-01T00:00:00Z',
+})
+const cities = [geoCity('city-rosario', 'Rosario', 'Santa Fe'), geoCity('city-funes', 'Funes', 'Santa Fe')]
 const businessTypes = [entry('bt-bar', 'Bar'), entry('bt-resto', 'Restaurante')]
 
 const json = (body: unknown, status = 200) =>
@@ -90,7 +106,7 @@ describe('CustomersScreen', () => {
   beforeEach(() => {
     customers = [listedCustomer]
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
-      if (url.startsWith('/customers/cities')) return json(cities)
+      if (url.startsWith('/geo/cities')) return json(cities)
       if (url.startsWith('/customers/business-types')) return json(businessTypes)
       if (url.endsWith('/ordering-access')) return json({ credential: 'one-time-secret' })
       if (init?.method === 'POST') return json({ customerId: '22222222-2222-2222-2222-222222222222' }, 201)
@@ -173,7 +189,7 @@ describe('CustomersScreen', () => {
 
   it('does not blame the load when a failed action left an error on screen', async () => {
     fetchMock.mockImplementation(async (url: string) => {
-      if (url.startsWith('/customers/cities') || url.startsWith('/customers/business-types')) return json([])
+      if (url.startsWith('/geo/cities') || url.startsWith('/customers/business-types')) return json([])
       if (url.endsWith('/ordering-access')) {
         return json({ title: 'Ordering access is already issued.' }, 409)
       }
@@ -208,7 +224,7 @@ describe('CustomersScreen', () => {
     const row = within(await screen.findByRole('table')).getAllByRole('row')[1]
     expect(within(row).getByText('Acme Supplies')).toBeInTheDocument()
     expect(within(row).getByText('Roberto')).toBeInTheDocument()
-    expect(within(row).getByText('Rosario')).toBeInTheDocument()
+    expect(within(row).getByText('Rosario — Santa Fe')).toBeInTheDocument()
     expect(within(row).getByText('Bar')).toBeInTheDocument()
     expect(within(row).getByText('Mayorista')).toBeInTheDocument()
     expect(within(row).getByText('Deshabilitado')).toBeInTheDocument()
@@ -235,10 +251,10 @@ describe('CustomersScreen', () => {
     const user = userEvent.setup()
     render(<CustomersScreen />)
     await screen.findByText('Jane Doe')
-    await screen.findByRole('option', { name: 'Rosario' })
 
     customers = [wholesaleCustomer]
-    await user.selectOptions(screen.getByLabelText('Ciudad'), 'city-rosario')
+    await user.click(screen.getByRole('combobox', { name: 'Ciudad' }))
+    await user.click(await screen.findByRole('option', { name: 'Rosario — Santa Fe' }))
     await screen.findByText('Acme Supplies')
     expect(customerListCalls().at(-1)).toBe('/customers?cityId=city-rosario')
 
@@ -246,6 +262,13 @@ describe('CustomersScreen', () => {
     await waitFor(() =>
       expect(customerListCalls().at(-1)).toBe('/customers?cityId=city-rosario&businessTypeId=bt-bar'),
     )
+  })
+
+  it('does not load the whole city catalog to offer the city filter', async () => {
+    render(<CustomersScreen />)
+    await screen.findByText('Jane Doe')
+
+    expect(fetchMock.mock.calls.some((call) => (call[0] as string).startsWith('/geo/cities'))).toBe(false)
   })
 
   it('shows a helpful empty state when the filter matches nothing', async () => {

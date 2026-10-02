@@ -2,35 +2,56 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CitiesScreen } from './CitiesScreen'
-import type { MasterDataEntry } from '@/api/types'
+import type { GeoCity, GeoProvince } from '@/api/types'
 
-const rosario: MasterDataEntry = {
+const provinces: GeoProvince[] = [
+  { id: '06', isoCode: 'AR-B', name: 'Buenos Aires', countryCode: 'AR', countryName: 'Argentina' },
+  { id: '82', isoCode: 'AR-S', name: 'Santa Fe', countryCode: 'AR', countryName: 'Argentina' },
+]
+
+const rosario: GeoCity = {
   id: '11111111-1111-1111-1111-111111111111',
-  organizationId: 'org-1',
+  indecId: '82084010',
   name: 'Rosario',
-  key: 'rosario',
-  sortOrder: 10,
+  provinceId: '82',
+  provinceName: 'Santa Fe',
+  countryCode: 'AR',
+  departmentName: 'Rosario',
   isActive: true,
   createdAtUtc: '2024-03-15T12:00:00Z',
   updatedAtUtc: '2024-04-20T12:00:00Z',
 }
 
-const funes: MasterDataEntry = {
+const funes: GeoCity = {
   ...rosario,
   id: '22222222-2222-2222-2222-222222222222',
+  indecId: null,
   name: 'Funes',
-  key: 'funes',
-  sortOrder: 20,
+  departmentName: null,
   isActive: false,
 }
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 
-describe('CitiesScreen', () => {
+describe('CitiesScreen (core geography, system administrator)', () => {
   const fetchMock = vi.fn()
+  let cityPages: (url: URL) => GeoCity[]
+
+  /** Query strings requested from `GET /geo/cities`, in order. */
+  const cityQueries = () =>
+    fetchMock.mock.calls
+      .filter((call) => call[1]?.method === undefined && (call[0] as string).startsWith('/geo/cities'))
+      .map((call) => new URL(call[0] as string, 'http://x').searchParams)
 
   beforeEach(() => {
+    cityPages = () => [rosario, funes]
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url === '/geo/provinces') return json(provinces)
+      if (init?.method === 'POST') return json(rosario, 201)
+      if (init?.method === 'PUT') return json(rosario)
+      return json(cityPages(new URL(url, 'http://x')))
+    })
     vi.stubGlobal('fetch', fetchMock)
   })
 
@@ -40,144 +61,146 @@ describe('CitiesScreen', () => {
     window.localStorage.clear()
   })
 
-  it('lists cities including inactive ones, with audit dates', async () => {
-    fetchMock.mockResolvedValueOnce(json([rosario, funes]))
-
+  it('lists the first page with province, department, INDEC code, status and audit date', async () => {
     render(<CitiesScreen />)
 
-    await screen.findByText('Rosario')
-    expect(fetchMock.mock.calls[0][0]).toBe('/customers/cities?includeInactive=true')
+    await screen.findByText('Funes')
     expect(screen.getByRole('heading', { name: 'Ciudades' })).toBeInTheDocument()
+    expect(cityQueries()[0].get('limit')).toBe('25')
+    expect(cityQueries()[0].get('includeInactive')).toBe('true')
     const rows = within(screen.getByRole('table')).getAllByRole('row')
+    expect(within(rows[1]).getByText('Santa Fe')).toBeInTheDocument()
+    expect(within(rows[1]).getByText('82084010')).toBeInTheDocument()
     expect(within(rows[1]).getByText('Activa')).toBeInTheDocument()
-    expect(within(rows[1]).getByText(/15\/03\/2024/)).toBeInTheDocument()
+    expect(within(rows[1]).getByText(/20\/04\/2024/)).toBeInTheDocument()
     expect(within(rows[2]).getByText('Inactiva')).toBeInTheDocument()
   })
 
-  it('filters by name search and by active/inactive status', async () => {
-    fetchMock.mockResolvedValueOnce(json([rosario, funes]))
+  it('searches on the server, debounced, and filters by province', async () => {
     const user = userEvent.setup()
     render(<CitiesScreen />)
-    await screen.findByText('Rosario')
+    await screen.findByText('Funes')
 
-    await user.selectOptions(screen.getByLabelText('Estado'), 'inactive')
-    expect(screen.queryByText('Rosario')).not.toBeInTheDocument()
-    expect(screen.getByText('Funes')).toBeInTheDocument()
-
-    await user.selectOptions(screen.getByLabelText('Estado'), 'all')
     await user.type(screen.getByLabelText('Buscar ciudades'), 'rosa')
-    expect(screen.getByText('Rosario')).toBeInTheDocument()
-    expect(screen.queryByText('Funes')).not.toBeInTheDocument()
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(cityQueries().at(-1)?.get('search')).toBe('rosa'))
+    expect(cityQueries()).toHaveLength(2)
+
+    await screen.findByRole('option', { name: 'Santa Fe' })
+    await user.selectOptions(screen.getByLabelText('Provincia'), '82')
+    await waitFor(() => expect(cityQueries().at(-1)?.get('provinceId')).toBe('82'))
+    expect(cityQueries().at(-1)?.get('search')).toBe('rosa')
   })
 
-  it('creates a city from the full-page form, always sending isActive', async () => {
-    fetchMock
-      .mockResolvedValueOnce(json([]))
-      .mockResolvedValueOnce(json(rosario, 201))
-      .mockResolvedValueOnce(json([rosario]))
+  it('can restrict the list to active cities', async () => {
+    const user = userEvent.setup()
+    render(<CitiesScreen />)
+    await screen.findByText('Funes')
+
+    await user.selectOptions(screen.getByLabelText('Estado'), 'active')
+
+    await waitFor(() => expect(cityQueries().at(-1)?.has('includeInactive')).toBe(false))
+  })
+
+  it('loads more pages while the server keeps returning full pages', async () => {
+    const page = (start: number) =>
+      Array.from({ length: 25 }, (_, i) => ({ ...rosario, id: `id-${start + i}`, name: `Ciudad ${start + i}` }))
+    cityPages = (url) => (url.searchParams.get('offset') === '25' ? [{ ...rosario, id: 'last', name: 'Ultima' }] : page(0))
+    const user = userEvent.setup()
+    render(<CitiesScreen />)
+
+    await screen.findByText('Ciudad 0')
+    await user.click(screen.getByRole('button', { name: 'Cargar más' }))
+
+    await screen.findByText('Ultima')
+    expect(screen.getByText('Ciudad 24')).toBeInTheDocument()
+    expect(cityQueries().at(-1)?.get('offset')).toBe('25')
+    expect(screen.queryByRole('button', { name: 'Cargar más' })).not.toBeInTheDocument()
+  })
+
+  it('creates a city from the full-page form', async () => {
+    cityPages = () => []
     const user = userEvent.setup()
     render(<CitiesScreen />)
     await screen.findByText('Todavía no hay ciudades.')
 
     await user.click(screen.getByRole('button', { name: 'Nueva ciudad' }))
-    expect(screen.getByRole('heading', { name: 'Nueva ciudad' })).toBeInTheDocument()
-    await user.type(screen.getByLabelText('Nombre'), 'Rosario')
-    await user.click(screen.getByRole('button', { name: /^guardar$/i }))
+    await user.type(screen.getByLabelText('Nombre'), 'Funes')
+    await user.selectOptions(await screen.findByRole('combobox', { name: 'Provincia' }), '82')
+    await user.type(screen.getByLabelText('Departamento'), 'Rosario')
+    await user.click(screen.getByRole('button', { name: 'Guardar' }))
 
-    await screen.findByText('Rosario')
-    const [url, init] = fetchMock.mock.calls[1]
-    expect(url).toBe('/customers/cities')
-    expect(init.method).toBe('POST')
-    expect(JSON.parse(init.body as string)).toMatchObject({ name: 'Rosario', isActive: true })
-  })
-
-  it('edits a city with PUT and shows its created and updated dates in the form', async () => {
-    fetchMock
-      .mockResolvedValueOnce(json([rosario]))
-      .mockResolvedValueOnce(json({ ...rosario, name: 'Rosario Centro' }))
-      .mockResolvedValueOnce(json([rosario]))
-    const user = userEvent.setup()
-    render(<CitiesScreen />)
-    await screen.findByText('Rosario')
-
-    await user.click(screen.getByRole('button', { name: 'Editar' }))
-    expect(screen.getByRole('heading', { name: 'Editar ciudad' })).toBeInTheDocument()
-    expect(screen.getByText(/Creada/)).toHaveTextContent('15/03/2024')
-    expect(screen.getByText(/Actualizada/)).toHaveTextContent('20/04/2024')
-    await user.clear(screen.getByLabelText('Nombre'))
-    await user.type(screen.getByLabelText('Nombre'), 'Rosario Centro')
-    await user.click(screen.getByRole('button', { name: /^guardar$/i }))
-
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
-    const [url, init] = fetchMock.mock.calls[1]
-    expect(url).toBe(`/customers/cities/${rosario.id}`)
-    expect(init.method).toBe('PUT')
-    expect(JSON.parse(init.body as string)).toEqual({
-      name: 'Rosario Centro',
-      key: 'rosario',
-      sortOrder: 10,
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Ciudades' })).toBeInTheDocument())
+    const post = fetchMock.mock.calls.find((call) => call[1]?.method === 'POST')!
+    expect(post[0]).toBe('/geo/cities')
+    expect(JSON.parse(post[1].body)).toEqual({
+      name: 'Funes',
+      provinceId: '82',
+      departmentName: 'Rosario',
       isActive: true,
     })
   })
 
-  it('deactivates and reactivates a city with PUT instead of deleting', async () => {
-    fetchMock
-      .mockResolvedValueOnce(json([rosario]))
-      .mockResolvedValueOnce(json({ ...rosario, isActive: false }))
-      .mockResolvedValueOnce(json([{ ...rosario, isActive: false }]))
-      .mockResolvedValueOnce(json({ ...rosario, isActive: true }))
-      .mockResolvedValueOnce(json([rosario]))
+  it('edits a city, clearing the department with a blank value', async () => {
     const user = userEvent.setup()
     render(<CitiesScreen />)
-    await screen.findByText('Rosario')
+    await screen.findByText('Funes')
 
-    await user.click(screen.getByRole('button', { name: 'Desactivar' }))
-    await screen.findByRole('button', { name: 'Activar' })
-    expect(fetchMock.mock.calls[1][1].method).toBe('PUT')
-    expect(JSON.parse(fetchMock.mock.calls[1][1].body as string).isActive).toBe(false)
+    const rows = within(screen.getByRole('table')).getAllByRole('row')
+    await user.click(within(rows[1]).getByRole('button', { name: 'Editar' }))
+    expect(await screen.findByRole('heading', { name: 'Editar ciudad' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Nombre')).toHaveValue('Rosario')
+    expect(screen.getByRole('combobox', { name: 'Provincia' })).toHaveValue('82')
+    expect(screen.getByText('Código INDEC: 82084010')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Activar' }))
-    await screen.findByRole('button', { name: 'Desactivar' })
-    expect(JSON.parse(fetchMock.mock.calls[3][1].body as string).isActive).toBe(true)
+    await user.clear(screen.getByLabelText('Departamento'))
+    await user.click(screen.getByRole('button', { name: 'Guardar' }))
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Ciudades' })).toBeInTheDocument())
+    const put = fetchMock.mock.calls.find((call) => call[1]?.method === 'PUT')!
+    expect(put[0]).toBe(`/geo/cities/${rosario.id}`)
+    expect(JSON.parse(put[1].body)).toEqual({ name: 'Rosario', provinceId: '82', departmentName: '', isActive: true })
   })
 
-  it('explains a duplicate name or key in plain Spanish', async () => {
-    fetchMock
-      .mockResolvedValueOnce(json([]))
-      .mockResolvedValueOnce(json({ error: 'city-name-in-use' }, 409))
-      .mockResolvedValueOnce(json({ error: 'city-key-in-use' }, 409))
+  it('deactivates a city from the list keeping everything else', async () => {
+    const user = userEvent.setup()
+    render(<CitiesScreen />)
+    await screen.findByText('Funes')
+
+    const rows = within(screen.getByRole('table')).getAllByRole('row')
+    await user.click(within(rows[1]).getByRole('button', { name: 'Desactivar' }))
+
+    await waitFor(() => expect(fetchMock.mock.calls.some((call) => call[1]?.method === 'PUT')).toBe(true))
+    const put = fetchMock.mock.calls.find((call) => call[1]?.method === 'PUT')!
+    expect(JSON.parse(put[1].body)).toEqual({ name: 'Rosario', isActive: false })
+  })
+
+  it('reports a duplicate name in Spanish and stays on the form', async () => {
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url === '/geo/provinces') return json(provinces)
+      if (init?.method === 'POST') return json({ error: 'city-name-in-use' }, 409)
+      return json([])
+    })
     const user = userEvent.setup()
     render(<CitiesScreen />)
     await screen.findByText('Todavía no hay ciudades.')
 
     await user.click(screen.getByRole('button', { name: 'Nueva ciudad' }))
-    await user.type(screen.getByLabelText('Nombre'), 'Rosario')
-    await user.click(screen.getByRole('button', { name: /^guardar$/i }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('Ya existe una ciudad con ese nombre.')
+    await user.type(screen.getByLabelText('Nombre'), 'Funes')
+    await user.selectOptions(await screen.findByRole('combobox', { name: 'Provincia' }), '82')
+    await user.click(screen.getByRole('button', { name: 'Guardar' }))
 
-    await user.click(screen.getByRole('button', { name: /^guardar$/i }))
-    await waitFor(() =>
-      expect(screen.getByRole('alert')).toHaveTextContent('Ya existe una ciudad con esa clave.'),
-    )
+    expect(await screen.findByRole('alert')).toHaveTextContent('Ya existe una ciudad con ese nombre en esa provincia.')
+    expect(screen.getByRole('heading', { name: 'Nueva ciudad' })).toBeInTheDocument()
   })
 
   it('does not claim there are no cities when the load failed', async () => {
-    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url === '/geo/provinces') return json(provinces)
+      throw new TypeError('Failed to fetch')
+    })
     render(<CitiesScreen />)
 
-    await screen.findByTestId('data-view-load-error')
+    expect(await screen.findByTestId('data-view-load-error')).toHaveTextContent('No se pudieron cargar las ciudades.')
     expect(screen.queryByText('Todavía no hay ciudades.')).not.toBeInTheDocument()
-  })
-
-  it('lays the form out on a responsive grid, not a single narrow column', async () => {
-    fetchMock.mockResolvedValueOnce(json([]))
-    const user = userEvent.setup()
-    const { container } = render(<CitiesScreen />)
-    await screen.findByText('Todavía no hay ciudades.')
-    await user.click(screen.getByRole('button', { name: 'Nueva ciudad' }))
-
-    expect(container.querySelector('form .grid')).not.toBeNull()
-    expect(container.querySelector('[class*="max-w-xl"]')).toBeNull()
   })
 })

@@ -124,7 +124,6 @@ export function AppLayout() {
             {showTenantNav && (
               <NavSection title={t('sections.administration')}>
                 <NavItem to="/app/customers" icon={Users2} onNavigate={closeMobileNav}>{t('items.customers')}</NavItem>
-                <NavItem to="/app/cities" icon={MapPin} onNavigate={closeMobileNav}>{t('items.cities')}</NavItem>
                 <NavItem to="/app/business-types" icon={Briefcase} onNavigate={closeMobileNav}>{t('items.businessTypes')}</NavItem>
                 <NavItem to="/app/users" icon={UserCog} onNavigate={closeMobileNav}>{t('items.users')}</NavItem>
                 <NavItem to="/app/branches" icon={Store} onNavigate={closeMobileNav}>{t('items.branches')}</NavItem>
@@ -138,6 +137,8 @@ export function AppLayout() {
             {user?.isSystemAdmin && (
               <NavSection title={t('sections.platform')}>
                 <NavItem to="/app/organizations" icon={Building2} onNavigate={closeMobileNav}>{t('items.organizations')}</NavItem>
+                {/* Core geography is organization-independent: system administrator only. */}
+                <NavItem to="/app/cities" icon={MapPin} onNavigate={closeMobileNav}>{t('items.cities')}</NavItem>
               </NavSection>
             )}
           </nav>

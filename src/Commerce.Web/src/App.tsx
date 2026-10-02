@@ -88,7 +88,6 @@ function App() {
                   <Route element={<RequireAdmin />}>
                     <Route path="dashboard" element={<DashboardScreen />} />
                     <Route path="customers" element={<CustomersScreen />} />
-                    <Route path="cities" element={<CitiesScreen />} />
                     <Route path="business-types" element={<BusinessTypesScreen />} />
                     <Route path="users" element={<UsersScreen />} />
                     <Route path="branches" element={<BranchesScreen />} />
@@ -104,6 +103,9 @@ function App() {
                   </Route>
                   <Route element={<RequireSystemAdmin />}>
                     <Route path="organizations" element={<OrganizationsScreen />} />
+                    {/* Core geography (Georef cities): shared by every organization, so it
+                        belongs to the platform area, not to a tenant's administration. */}
+                    <Route path="cities" element={<CitiesScreen />} />
                   </Route>
                 </Route>
               </Route>

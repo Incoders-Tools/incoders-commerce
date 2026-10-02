@@ -6,6 +6,7 @@ import { Select } from '@/components/ui/select'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { FormPage } from '@/components/layout/FormPage'
+import { CityPicker, type CityOption } from '@/components/geo/CityPicker'
 import { createCustomer, updateCustomer } from '@/api/customers'
 import { ApiError } from '@/api/client'
 import { CustomerKind, TaxCondition, TaxIdType, type CustomerRecord, type MasterDataEntry } from '@/api/types'
@@ -16,8 +17,7 @@ const NO_ID = '00000000-0000-0000-0000-000000000000'
 
 interface CustomerFormProps {
   customer?: CustomerRecord
-  /** Catalogs to pick from: all entries; inactive ones are filtered out here. */
-  cities?: MasterDataEntry[]
+  /** Catalog to pick from: all entries; inactive ones are filtered out here. */
   businessTypes?: MasterDataEntry[]
   onSaved: () => void
   onCancel: () => void
@@ -70,12 +70,11 @@ function selectableEntries(
  * text alone.
  *
  * Customer master data: sections are Datos, Contacto, Ubicación, Fiscal,
- * Comercial and Observaciones. City and business type are selects over the
- * catalogs the parent screen loads (container-presentational: this form does
- * no fetching of its own for them). On edit an omitted field would keep the
+ * Comercial and Observaciones. City is a server-searched `CityPicker`; business type is a
+ * select over the catalog the parent screen loads (container-presentational). On edit an omitted field would keep the
  * stored value, so clearing sends the empty-id sentinel / empty string.
  */
-export function CustomerForm({ customer, cities = [], businessTypes = [], onSaved, onCancel }: CustomerFormProps) {
+export function CustomerForm({ customer, businessTypes = [], onSaved, onCancel }: CustomerFormProps) {
   const { t } = useTranslation('customers')
   const isEdit = customer !== undefined
 
@@ -83,7 +82,14 @@ export function CustomerForm({ customer, cities = [], businessTypes = [], onSave
   const [displayName, setDisplayName] = useState(customer?.displayName ?? '')
   const [legalName, setLegalName] = useState(customer?.legalName ?? '')
   const [contactName, setContactName] = useState(customer?.contactName ?? '')
-  const [cityId, setCityId] = useState(customer?.cityId ?? '')
+  // Cities are a ~4000-entry core catalog searched on the server by the
+  // picker; the form only keeps the chosen one (from the customer's own
+  // cityName/provinceName at edit, so showing it costs no request).
+  const [city, setCity] = useState<CityOption | null>(
+    customer?.cityId && customer.cityName
+      ? { id: customer.cityId, name: customer.cityName, provinceName: customer.provinceName ?? '' }
+      : null,
+  )
   const [businessTypeId, setBusinessTypeId] = useState(customer?.businessTypeId ?? '')
   const [taxIdType, setTaxIdType] = useState<TaxIdType>(customer?.taxIdType ?? TaxIdType.None)
   const [taxId, setTaxId] = useState(customer?.taxId ?? '')
@@ -128,9 +134,9 @@ export function CustomerForm({ customer, cities = [], businessTypes = [], onSave
         // PUT keeps an omitted value, so clearing sends the sentinel / empty
         // string; on create an empty choice is simply left out.
         ...(isEdit
-          ? { cityId: cityId || NO_ID, businessTypeId: businessTypeId || NO_ID, contactName: contactName.trim() }
+          ? { cityId: city?.id ?? NO_ID, businessTypeId: businessTypeId || NO_ID, contactName: contactName.trim() }
           : {
-              ...(cityId ? { cityId } : {}),
+              ...(city ? { cityId: city.id } : {}),
               ...(businessTypeId ? { businessTypeId } : {}),
               ...(contactName.trim() ? { contactName: contactName.trim() } : {}),
             }),
@@ -194,14 +200,7 @@ export function CustomerForm({ customer, cities = [], businessTypes = [], onSave
         </FormSection>
 
         <FormSection title={t('form.sections.address')}>
-          <CatalogSelect
-            id="cityId"
-            label={t('form.fields.city')}
-            emptyLabel={t('form.noCity')}
-            value={cityId}
-            onChange={setCityId}
-            options={selectableEntries(cities, customer?.cityId, customer?.cityName, t('form.inactiveSuffix'))}
-          />
+          <CityPicker id="cityId" label={t('form.fields.city')} value={city} onChange={setCity} />
           <Field id="locality" label={t('form.fields.locality')} value={locality} onChange={setLocality} />
           <Field id="province" label={t('form.fields.province')} value={province} onChange={setProvince} />
           <Field id="addressStreet" label={t('form.fields.addressStreet')} value={addressStreet} onChange={setAddressStreet} />

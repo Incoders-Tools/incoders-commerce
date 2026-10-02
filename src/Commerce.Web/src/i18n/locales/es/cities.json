@@ -1,29 +1,35 @@
 {
   "title": "Ciudades",
-  "description": "Ciudades en las que están los clientes. Se eligen al cargar un cliente.",
+  "description": "Catálogo central de ciudades, el mismo para todas las organizaciones. Solo lo administra el administrador del sistema.",
   "columns": {
     "name": "Nombre",
-    "key": "Clave",
-    "sortOrder": "Orden",
+    "province": "Provincia",
+    "department": "Departamento",
+    "indecId": "Código INDEC",
     "status": "Estado",
-    "createdAt": "Creación",
     "updatedAt": "Última modificación"
   },
   "status": {
     "active": "Activa",
     "inactive": "Inactiva",
-    "all": "Todas",
+    "onlyActive": "Solo activas",
+    "includeInactive": "Incluir inactivas",
     "filterLabel": "Estado"
   },
   "actions": {
     "create": "Nueva ciudad",
     "edit": "Editar",
     "deactivate": "Desactivar",
-    "activate": "Activar"
+    "activate": "Activar",
+    "loadMore": "Cargar más"
   },
   "search": {
     "label": "Buscar ciudades",
-    "placeholder": "Buscar por nombre o clave…"
+    "placeholder": "Buscar por nombre…"
+  },
+  "filters": {
+    "province": "Provincia",
+    "allProvinces": "Todas las provincias"
   },
   "empty": {
     "none": "Todavía no hay ciudades.",
@@ -33,24 +39,31 @@
   "form": {
     "createTitle": "Nueva ciudad",
     "editTitle": "Editar ciudad",
-    "description": "Nombre, clave y orden con el que aparece en las listas.",
+    "description": "Nombre, provincia y departamento. El código INDEC lo define la fuente oficial y no se edita.",
     "backLabel": "Volver a las ciudades",
     "name": "Nombre",
-    "key": "Clave",
-    "keyHint": "Identificador corto; si se deja vacío se genera a partir del nombre.",
-    "sortOrder": "Orden",
+    "province": "Provincia",
+    "provincePlaceholder": "Elegí una provincia",
+    "department": "Departamento",
     "isActive": "Activa",
-    "createdAt": "Creada: {{date}}",
+    "indecId": "Código INDEC: {{code}}",
     "updatedAt": "Actualizada: {{date}}",
     "save": "Guardar",
     "saving": "Guardando…",
     "cancel": "Cancelar"
   },
+  "picker": {
+    "noResults": "Ninguna ciudad coincide.",
+    "searching": "Buscando…",
+    "loadError": "No se pudieron buscar las ciudades.",
+    "clear": "Quitar ciudad"
+  },
   "errors": {
     "unableToLoad": "No se pudieron cargar las ciudades.",
     "unableToSave": "No se pudo guardar la ciudad.",
     "unableToUpdate": "No se pudo actualizar el estado.",
-    "nameInUse": "Ya existe una ciudad con ese nombre.",
-    "keyInUse": "Ya existe una ciudad con esa clave."
+    "nameInUse": "Ya existe una ciudad con ese nombre en esa provincia.",
+    "forbidden": "Solo el administrador del sistema puede modificar las ciudades.",
+    "invalid": "Revisá el nombre y la provincia."
   }
 }

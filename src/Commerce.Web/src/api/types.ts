@@ -190,6 +190,8 @@ export interface CustomerRecord {
   contactName: string | null
   cityId: string | null
   cityName: string | null
+  provinceId: string | null
+  provinceName: string | null
   businessTypeId: string | null
   businessTypeName: string | null
   phone: string | null
@@ -579,4 +581,43 @@ export interface MasterDataRequest {
   key?: string
   sortOrder?: number
   isActive: boolean
+}
+
+/** `GET /geo/provinces`: `id` is the INDEC code (e.g. "06"). */
+export interface GeoProvince {
+  id: string
+  isoCode: string
+  name: string
+  countryCode: string
+  countryName: string
+}
+
+/** Core (organization-independent) city, `GET /geo/cities`. */
+export interface GeoCity {
+  id: string
+  indecId: string | null
+  name: string
+  provinceId: string
+  provinceName: string
+  countryCode: string
+  departmentName: string | null
+  isActive: boolean
+  createdAtUtc: string
+  updatedAtUtc: string
+}
+
+export interface GeoCityFilters {
+  search?: string
+  provinceId?: string
+  limit?: number
+  offset?: number
+  includeInactive?: boolean
+}
+
+/** Sysadmin write body; on PUT an omitted field is kept and a blank `departmentName` clears it. */
+export interface GeoCityRequest {
+  name: string
+  provinceId?: string
+  departmentName?: string
+  isActive?: boolean
 }

@@ -1,56 +1,69 @@
 {
   "title": "Cities",
-  "description": "Cities where customers are located. Picked when editing a customer.",
+  "description": "Core city catalog, shared by every organization. Managed by the system administrator only.",
   "columns": {
     "name": "Name",
-    "key": "Key",
-    "sortOrder": "Order",
+    "province": "Province",
+    "department": "Department",
+    "indecId": "INDEC code",
     "status": "Status",
-    "createdAt": "Created",
     "updatedAt": "Last modified"
   },
   "status": {
     "active": "Active",
     "inactive": "Inactive",
-    "all": "All",
+    "onlyActive": "Active only",
+    "includeInactive": "Include inactive",
     "filterLabel": "Status"
   },
   "actions": {
     "create": "New city",
     "edit": "Edit",
     "deactivate": "Deactivate",
-    "activate": "Activate"
+    "activate": "Activate",
+    "loadMore": "Load more"
   },
   "search": {
     "label": "Search cities",
-    "placeholder": "Search by name or key…"
+    "placeholder": "Search by name…"
+  },
+  "filters": {
+    "province": "Province",
+    "allProvinces": "All provinces"
   },
   "empty": {
     "none": "There are no cities yet.",
     "noMatch": "No city matches this search.",
-    "loadError": "Could not load the cities."
+    "loadError": "The cities could not be loaded."
   },
   "form": {
     "createTitle": "New city",
     "editTitle": "Edit city",
-    "description": "Name, key and the order used in lists.",
+    "description": "Name, province and department. The INDEC code comes from the official source and is not editable.",
     "backLabel": "Back to cities",
     "name": "Name",
-    "key": "Key",
-    "keyHint": "Short identifier; if left empty it is generated from the name.",
-    "sortOrder": "Order",
+    "province": "Province",
+    "provincePlaceholder": "Choose a province",
+    "department": "Department",
     "isActive": "Active",
-    "createdAt": "Created: {{date}}",
+    "indecId": "INDEC code: {{code}}",
     "updatedAt": "Updated: {{date}}",
     "save": "Save",
     "saving": "Saving…",
     "cancel": "Cancel"
   },
+  "picker": {
+    "noResults": "No city matches.",
+    "searching": "Searching…",
+    "loadError": "The cities could not be searched.",
+    "clear": "Remove city"
+  },
   "errors": {
-    "unableToLoad": "Could not load the cities.",
-    "unableToSave": "Could not save the city.",
-    "unableToUpdate": "Could not update the status.",
-    "nameInUse": "A city with that name already exists.",
-    "keyInUse": "A city with that key already exists."
+    "unableToLoad": "The cities could not be loaded.",
+    "unableToSave": "The city could not be saved.",
+    "unableToUpdate": "The status could not be updated.",
+    "nameInUse": "A city with that name already exists in that province.",
+    "forbidden": "Only the system administrator can change cities.",
+    "invalid": "Check the name and the province."
   }
 }

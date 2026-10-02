@@ -28,6 +28,8 @@ const customer: CustomerRecord = {
   contactName: null,
   cityId: null,
   cityName: null,
+  provinceId: null,
+  provinceName: null,
   businessTypeId: null,
   businessTypeName: null,
   phone: '11-5555-5555',
@@ -56,6 +58,20 @@ describe('CustomerForm', () => {
   const fetchMock = vi.fn()
 
   beforeEach(() => {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.startsWith('/geo/cities')) {
+        return new Response(
+          JSON.stringify(
+            [
+              ['city-1', 'Rosario'],
+              ['city-2', 'Funes'],
+            ].map(([id, name]) => ({ id, name, provinceId: '82', provinceName: 'Santa Fe', isActive: true })),
+          ),
+          { status: 200 },
+        )
+      }
+      return new Response(JSON.stringify({ customerId: 'x' }), { status: 201 })
+    })
     vi.stubGlobal('fetch', fetchMock)
   })
 
@@ -154,12 +170,10 @@ describe('CustomerForm', () => {
     expect(screen.getByLabelText('Observaciones')).toBeInTheDocument()
   })
 
-  it('sends contact name, city and business type chosen from the catalogs', async () => {
-    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ customerId: 'x' }), { status: 201 }))
+  it('sends contact name, a city found with the picker and a business type chosen from the catalog', async () => {
     const user = userEvent.setup()
     render(
       <CustomerForm
-        cities={[entry('city-1', 'Rosario'), entry('city-2', 'Funes')]}
         businessTypes={[entry('bt-1', 'Bar')]}
         onSaved={vi.fn()}
         onCancel={vi.fn()}
@@ -168,13 +182,15 @@ describe('CustomerForm', () => {
 
     await user.type(screen.getByLabelText('Nombre'), 'Jane Doe')
     await user.type(screen.getByLabelText('Nombre de contacto'), 'Juana')
-    await user.selectOptions(screen.getByLabelText('Ciudad'), 'city-2')
+    await user.click(screen.getByRole('combobox', { name: 'Ciudad' }))
+    await user.click(await screen.findByRole('option', { name: 'Funes — Santa Fe' }))
     await user.selectOptions(screen.getByLabelText('Tipo de negocio'), 'bt-1')
     await user.type(screen.getByLabelText('Observaciones'), 'Paga los viernes')
     await user.click(screen.getByRole('button', { name: /^guardar$/i }))
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string)
+    await waitFor(() => expect(fetchMock.mock.calls.some((call) => call[1]?.method === 'POST')).toBe(true))
+    const post = fetchMock.mock.calls.find((call) => call[1]?.method === 'POST')!
+    const body = JSON.parse(post[1].body as string)
     expect(body).toMatchObject({
       contactName: 'Juana',
       cityId: 'city-2',
@@ -183,21 +199,34 @@ describe('CustomerForm', () => {
     })
   })
 
-  it('offers only active catalog entries, plus the customer current one even if inactive', () => {
+  it('shows the customer current city and province without fetching the catalog', () => {
     render(
       <CustomerForm
-        customer={{ ...customer, cityId: 'city-old', cityName: 'Zárate' }}
-        cities={[entry('city-1', 'Rosario'), entry('city-old', 'Zárate', false), entry('city-x', 'Baigorria', false)]}
+        customer={{ ...customer, cityId: 'city-old', cityName: 'Zárate', provinceId: '06', provinceName: 'Buenos Aires' }}
         onSaved={vi.fn()}
         onCancel={vi.fn()}
       />,
     )
 
-    const city = screen.getByLabelText('Ciudad')
-    expect(within(city).getByRole('option', { name: 'Rosario' })).toBeInTheDocument()
-    expect(within(city).getByRole('option', { name: /Zárate/ })).toBeInTheDocument()
-    expect(within(city).queryByRole('option', { name: /Baigorria/ })).not.toBeInTheDocument()
-    expect(city).toHaveValue('city-old')
+    expect(screen.getByRole('combobox', { name: 'Ciudad' })).toHaveValue('Zárate — Buenos Aires')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('offers only active catalog business types, plus the customer current one even if inactive', () => {
+    render(
+      <CustomerForm
+        customer={{ ...customer, businessTypeId: 'bt-old', businessTypeName: 'Kiosco' }}
+        businessTypes={[entry('bt-1', 'Bar'), entry('bt-old', 'Kiosco', false), entry('bt-x', 'Resto', false)]}
+        onSaved={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    )
+
+    const type = screen.getByLabelText('Tipo de negocio')
+    expect(within(type).getByRole('option', { name: 'Bar' })).toBeInTheDocument()
+    expect(within(type).getByRole('option', { name: /Kiosco/ })).toBeInTheDocument()
+    expect(within(type).queryByRole('option', { name: /Resto/ })).not.toBeInTheDocument()
+    expect(type).toHaveValue('bt-old')
   })
 
   it('clears the city, business type and contact on edit with the empty-id sentinel and empty string', async () => {
@@ -205,15 +234,21 @@ describe('CustomerForm', () => {
     const user = userEvent.setup()
     render(
       <CustomerForm
-        customer={{ ...customer, contactName: 'Juana', cityId: 'city-1', businessTypeId: 'bt-1' }}
-        cities={[entry('city-1', 'Rosario')]}
+        customer={{
+          ...customer,
+          contactName: 'Juana',
+          cityId: 'city-1',
+          cityName: 'Rosario',
+          provinceName: 'Santa Fe',
+          businessTypeId: 'bt-1',
+        }}
         businessTypes={[entry('bt-1', 'Bar')]}
         onSaved={vi.fn()}
         onCancel={vi.fn()}
       />,
     )
 
-    await user.selectOptions(screen.getByLabelText('Ciudad'), '')
+    await user.click(screen.getByRole('button', { name: 'Quitar ciudad' }))
     await user.selectOptions(screen.getByLabelText('Tipo de negocio'), '')
     await user.clear(screen.getByLabelText('Nombre de contacto'))
     await user.click(screen.getByRole('button', { name: /^guardar$/i }))

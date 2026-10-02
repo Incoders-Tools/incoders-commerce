@@ -22,10 +22,9 @@ test.describe('customer registry admin gating', () => {
     await page.getByRole('link', { name: 'Clientes' }).click()
     await expect(page.getByRole('heading', { name: 'Clientes' })).toBeVisible()
 
-    // Customer master data (T5): the catalogs live next to Customers and are
-    // reachable only by the same admin.
-    await page.getByRole('link', { name: 'Ciudades' }).click()
-    await expect(page.getByRole('heading', { name: 'Ciudades' })).toBeVisible()
+    // Customer master data: business types live next to Customers; cities are
+    // a core catalog managed by the system administrator, not by a business admin.
+    await expect(page.getByRole('link', { name: 'Ciudades' })).not.toBeVisible()
     await page.getByRole('link', { name: 'Tipos de negocio' }).click()
     await expect(page.getByRole('heading', { name: 'Tipos de negocio' })).toBeVisible()
   })

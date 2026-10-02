@@ -6,9 +6,10 @@ import { DataToolbar } from '@/components/data/DataToolbar'
 import { DataView, type DataViewColumn } from '@/components/data/DataView'
 import { PageHeader } from '@/components/data/PageHeader'
 import { useViewPreference } from '@/components/data/useViewPreference'
+import { CityPicker } from '@/components/geo/CityPicker'
+import { cityLabel, type CityOption } from '@/components/geo/cityLabel'
 import { CustomerForm } from './CustomerForm'
 import { businessTypesApi } from '@/api/businessTypes'
-import { citiesApi } from '@/api/cities'
 import { issueOrderingAccess, listCustomers } from '@/api/customers'
 import { ApiError } from '@/api/client'
 import { CustomerKind, type CustomerRecord, type MasterDataEntry } from '@/api/types'
@@ -44,9 +45,9 @@ export function CustomersScreen() {
   const [creating, setCreating] = useState(false)
   const [issuedCredential, setIssuedCredential] = useState<{ customerId: string; credential: string } | null>(null)
   const [search, setSearch] = useState('')
-  const [cityId, setCityId] = useState('')
+  const [cityFilter, setCityFilter] = useState<CityOption | null>(null)
+  const cityId = cityFilter?.id ?? ''
   const [businessTypeId, setBusinessTypeId] = useState('')
-  const [cities, setCities] = useState<MasterDataEntry[]>([])
   const [businessTypes, setBusinessTypes] = useState<MasterDataEntry[]>([])
   const [view, setView] = useViewPreference('customers')
   const debouncedSearch = useDebouncedValue(search.trim(), SEARCH_DEBOUNCE_MS)
@@ -73,10 +74,10 @@ export function CustomersScreen() {
     void refresh()
   }, [refresh])
 
-  // The catalogs only feed selects: if they cannot be read the screen still
-  // works, the selects just offer no choices.
+  // The business types only feed a select: if they cannot be read the screen
+  // still works, the select just offers no choices. Cities are searched on the
+  // server by the picker, never loaded whole.
   useEffect(() => {
-    citiesApi.list(true).then(setCities, () => setCities([]))
     businessTypesApi.list(true).then(setBusinessTypes, () => setBusinessTypes([]))
   }, [])
 
@@ -108,7 +109,6 @@ export function CustomersScreen() {
     return (
       <CustomerForm
         customer={editingCustomer ?? undefined}
-        cities={cities}
         businessTypes={businessTypes}
         onSaved={handleSaved}
         onCancel={closeForm}
@@ -124,7 +124,9 @@ export function CustomersScreen() {
       header: t('columns.contact'),
       cell: (customer) => customer.contactName ?? noValue,
     },
-    { key: 'city', header: t('columns.city'), cell: (customer) => customer.cityName ?? noValue },
+    { key: 'city', header: t('columns.city'), cell: (customer) =>
+        customer.cityName ? cityLabel({ name: customer.cityName, provinceName: customer.provinceName ?? '' }) : noValue,
+    },
     {
       key: 'businessType',
       header: t('columns.businessType'),
@@ -194,14 +196,14 @@ export function CustomersScreen() {
         view={view}
         onViewChange={setView}
       >
-        <Select aria-label={t('filters.city')} className="w-auto" value={cityId} onChange={(e) => setCityId(e.target.value)}>
-          <option value="">{t('filters.allCities')}</option>
-          {cities.map((city) => (
-            <option key={city.id} value={city.id}>
-              {city.name}
-            </option>
-          ))}
-        </Select>
+        <CityPicker
+          label={t('filters.city')}
+          hideLabel
+          placeholder={t('filters.allCities')}
+          value={cityFilter}
+          onChange={setCityFilter}
+          className="w-full sm:w-64"
+        />
         <Select
           aria-label={t('filters.businessType')}
           className="w-auto"
