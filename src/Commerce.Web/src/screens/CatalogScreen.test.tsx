@@ -47,6 +47,8 @@ describe('CatalogScreen', () => {
     defaultUnitId: unlabelled.unitId,
     createdAtUtc: '2024-01-01T00:00:00Z',
     createdByUserId: 'user-1',
+    isActive: true,
+    deactivatedAtUtc: null,
     updatedAtUtc: '2024-01-01T00:00:00Z',
   }
   const meat: CategoryRecord = {
@@ -319,5 +321,101 @@ describe('CatalogScreen', () => {
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
     expect(screen.getByText('330ml can')).toBeInTheDocument()
     expect(screen.queryByText('1.5L bottle')).not.toBeInTheDocument()
+  })
+
+  // vaca-verde T1: product soft deletion. Inactive products leave the default list; the "Estado" filter brings them back.
+  describe('soft deletion', () => {
+    const inactiveProduct: ProductRecord = { ...product, id: '55555555-5555-5555-5555-555555555555', name: 'Retirado', isActive: false }
+    const retired: PresentationRecord = { ...labelled, id: '66666666-6666-6666-6666-666666666666', productId: inactiveProduct.id, name: 'Corte retirado' }
+    const activeProduct: ProductRecord = { ...product }
+
+    it('shows only active products by default and asks the API for no inactive ones', async () => {
+      routeFetch({ 'GET /catalog/presentations': () => json([unlabelled]) })
+
+      render(<CatalogScreen />)
+
+      await screen.findByText('1.5L bottle')
+      expect(callsTo('GET /catalog/presentations')).toHaveLength(1)
+      expect(screen.getByLabelText('Estado')).toHaveValue('active')
+      expect(screen.queryByText('Inactivo')).not.toBeInTheDocument()
+    })
+
+    it('the Inactivos filter lists only inactive products, flagged with an Inactivo badge', async () => {
+      routeFetch({
+        'GET /catalog/presentations': () => json([unlabelled]),
+        'GET /catalog/presentations?includeInactive=true': () => json([unlabelled, retired]),
+        'GET /catalog/products?includeInactive=true': () => json([activeProduct, inactiveProduct]),
+      })
+
+      const user = userEvent.setup()
+      render(<CatalogScreen />)
+      await screen.findByText('1.5L bottle')
+
+      await user.selectOptions(screen.getByLabelText('Estado'), 'inactive')
+
+      await screen.findByText('Corte retirado')
+      expect(screen.queryByText('1.5L bottle')).not.toBeInTheDocument()
+      expect(screen.getByText('Inactivo')).toBeInTheDocument()
+
+      await user.selectOptions(screen.getByLabelText('Estado'), 'all')
+      expect(await screen.findByText('1.5L bottle')).toBeInTheDocument()
+      expect(screen.getByText('Corte retirado')).toBeInTheDocument()
+    })
+
+    it('deactivating asks for confirmation, then posts and removes the product from the default list', async () => {
+      routeFetch({
+        'GET /catalog/presentations': () => json([unlabelled, labelled]),
+        [`POST /catalog/products/${product.id}/deactivate`]: () => json({ ...product, isActive: false }),
+      })
+
+      const user = userEvent.setup()
+      render(<CatalogScreen />)
+      await screen.findByText('1.5L bottle')
+
+      await user.click(screen.getAllByRole('button', { name: /^desactivar$/i })[0])
+      expect(screen.getByText(/el producto deja de aparecer en el pos y en las listas; su historial se conserva/i)).toBeInTheDocument()
+      expect(callsTo(`POST /catalog/products/${product.id}/deactivate`)).toHaveLength(0)
+
+      await user.click(screen.getByRole('button', { name: /^desactivar producto$/i }))
+
+      await waitFor(() => expect(callsTo(`POST /catalog/products/${product.id}/deactivate`)).toHaveLength(1))
+      // Both presentations belong to the same product, so both leave the active list.
+      await waitFor(() => expect(screen.queryByText('1.5L bottle')).not.toBeInTheDocument())
+      expect(screen.queryByText('330ml can')).not.toBeInTheDocument()
+    })
+
+    it('cancelling the confirmation changes nothing', async () => {
+      routeFetch({ 'GET /catalog/presentations': () => json([unlabelled]) })
+
+      const user = userEvent.setup()
+      render(<CatalogScreen />)
+      await screen.findByText('1.5L bottle')
+
+      await user.click(screen.getByRole('button', { name: /^desactivar$/i }))
+      await user.click(screen.getByRole('button', { name: /^cancelar$/i }))
+
+      expect(screen.getByText('1.5L bottle')).toBeInTheDocument()
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('reactivating an inactive product posts and clears its badge', async () => {
+      routeFetch({
+        'GET /catalog/presentations': () => json([unlabelled]),
+        'GET /catalog/presentations?includeInactive=true': () => json([retired]),
+        'GET /catalog/products?includeInactive=true': () => json([inactiveProduct]),
+        [`POST /catalog/products/${inactiveProduct.id}/reactivate`]: () => json({ ...inactiveProduct, isActive: true }),
+      })
+
+      const user = userEvent.setup()
+      render(<CatalogScreen />)
+      await screen.findByText('1.5L bottle')
+      await user.selectOptions(screen.getByLabelText('Estado'), 'all')
+      await screen.findByText('Corte retirado')
+
+      await user.click(screen.getByRole('button', { name: /^reactivar$/i }))
+
+      await waitFor(() => expect(callsTo(`POST /catalog/products/${inactiveProduct.id}/reactivate`)).toHaveLength(1))
+      await waitFor(() => expect(screen.queryByText('Inactivo')).not.toBeInTheDocument())
+    })
   })
 })

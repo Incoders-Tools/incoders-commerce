@@ -24,9 +24,25 @@
     "noMatch": "Ninguna presentación coincide con esta búsqueda."
   },
   "editCode": "Editar código",
+  "status": {
+    "filterLabel": "Estado",
+    "active": "Activos",
+    "inactive": "Inactivos",
+    "all": "Todos",
+    "inactiveBadge": "Inactivo",
+    "deactivate": "Desactivar",
+    "reactivate": "Reactivar",
+    "dialog": {
+      "title": "Desactivar \"{{name}}\"",
+      "message": "El producto deja de aparecer en el POS y en las listas; su historial se conserva.",
+      "confirm": "Desactivar producto",
+      "confirming": "Desactivando…"
+    }
+  },
   "errors": {
     "unexpectedLoad": "Error inesperado: el servicio de catálogo no está disponible.",
-    "unexpectedUpdate": "Error inesperado al actualizar la presentación."
+    "unexpectedUpdate": "Error inesperado al actualizar la presentación.",
+    "unexpectedStatus": "No se pudo cambiar el estado del producto."
   },
   "form": {
     "title": "Editar presentación",

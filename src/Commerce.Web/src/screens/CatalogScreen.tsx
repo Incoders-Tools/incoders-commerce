@@ -8,8 +8,9 @@ import { DataToolbar } from '@/components/data/DataToolbar'
 import { DataView, type DataViewColumn } from '@/components/data/DataView'
 import { PageHeader } from '@/components/data/PageHeader'
 import { useViewPreference } from '@/components/data/useViewPreference'
+import { ConfirmDialog } from '@/components/layout/ConfirmDialog'
 import { FormPage } from '@/components/layout/FormPage'
-import { changeProductCategory, listPresentations, listProducts, updatePresentation } from '@/api/catalog'
+import { changeProductCategory, listPresentations, listProducts, setProductActive, updatePresentation } from '@/api/catalog'
 import { listCategories } from '@/api/categories'
 import { ApiError } from '@/api/client'
 import { hasPermission, useOptionalAuth } from '@/auth/AuthContext'
@@ -22,6 +23,8 @@ const QUANTITY_BEHAVIOR_KEYS: Record<QuantityBehavior, 'fixedQuantity' | 'weight
   [QuantityBehavior.Weighted]: 'weighted',
   [QuantityBehavior.Bulk]: 'bulk',
 }
+
+type StatusFilter = 'active' | 'inactive' | 'all'
 
 function formatUpdatedAt(value: string): string {
   const parsed = new Date(value)
@@ -60,6 +63,13 @@ export function CatalogScreen() {
   const [view, setView] = useViewPreference('catalog')
   const [copying, setCopying] = useState(false)
 
+  // Soft deletion: the default view asks the API for active products only (so nothing else is loaded); "inactive" and
+  // "all" load everything plus the products, which say which ones are inactive.
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('active')
+  const [inactiveProductIds, setInactiveProductIds] = useState<ReadonlySet<string>>(new Set())
+  const [deactivating, setDeactivating] = useState<PresentationRecord | null>(null)
+  const [statusBusy, setStatusBusy] = useState(false)
+
   // B7 U5b: admin-only copy to another branch of the same organization. The
   // server is the authority (`ManageCatalog`, same-organization targets); the
   // action is only offered when there is another branch to copy to.
@@ -76,10 +86,18 @@ export function CatalogScreen() {
     let cancelled = false
     setLoading(true)
     setError(null)
-    listPresentations()
-      .then((items) => {
+    const load: Promise<[PresentationRecord[], ReadonlySet<string>]> =
+      statusFilter === 'active'
+        ? listPresentations().then((items) => [items, new Set<string>()])
+        : Promise.all([listPresentations(true), listProducts(true)]).then(([items, products]) => [
+            items,
+            new Set(products.filter((product) => !product.isActive).map((product) => product.id)),
+          ])
+    load
+      .then(([items, inactiveIds]) => {
         if (!cancelled) {
           setPresentations(items)
+          setInactiveProductIds(inactiveIds)
         }
       })
       .catch((err) => {
@@ -95,22 +113,46 @@ export function CatalogScreen() {
     return () => {
       cancelled = true
     }
-  }, [t])
+  }, [t, statusFilter])
 
   const handleUpdated = (updated: PresentationRecord) => {
     setPresentations((current) => current.map((item) => (item.id === updated.id ? updated : item)))
     setEditingId(null)
   }
 
+  const changeStatus = async (productId: string, active: boolean) => {
+    setStatusBusy(true)
+    setError(null)
+    try {
+      await setProductActive(productId, active)
+      setInactiveProductIds((current) => {
+        const next = new Set(current)
+        if (active) next.delete(productId)
+        else next.add(productId)
+        return next
+      })
+      setDeactivating(null)
+    } catch (err) {
+      setDeactivating(null)
+      setError(err instanceof ApiError ? err.message : t('errors.unexpectedStatus'))
+    } finally {
+      setStatusBusy(false)
+    }
+  }
+
   const trimmedSearch = search.trim().toLowerCase()
   const visiblePresentations = useMemo(() => {
-    if (trimmedSearch === '') return presentations
-    return presentations.filter(
+    const byStatus = presentations.filter((presentation) => {
+      const inactive = inactiveProductIds.has(presentation.productId)
+      return statusFilter === 'all' || (statusFilter === 'inactive' ? inactive : !inactive)
+    })
+    if (trimmedSearch === '') return byStatus
+    return byStatus.filter(
       (presentation) =>
         presentation.name.toLowerCase().includes(trimmedSearch) ||
         (presentation.identificationCode ?? '').toLowerCase().includes(trimmedSearch),
     )
-  }, [presentations, trimmedSearch])
+  }, [presentations, inactiveProductIds, statusFilter, trimmedSearch])
 
   // Every hook above must run on every render, including while editing, so
   // this state-swap return sits after them (rules of hooks) — the same
@@ -134,7 +176,20 @@ export function CatalogScreen() {
   }
 
   const columns: DataViewColumn<PresentationRecord>[] = [
-    { key: 'name', header: t('columns.name'), cell: (presentation) => presentation.name },
+    {
+      key: 'name',
+      header: t('columns.name'),
+      cell: (presentation) => (
+        <span className="inline-flex flex-wrap items-center gap-2">
+          {presentation.name}
+          {inactiveProductIds.has(presentation.productId) && (
+            <span className="inline-flex rounded-full border border-border bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+              {t('status.inactiveBadge')}
+            </span>
+          )}
+        </span>
+      ),
+    },
     {
       key: 'identificationCode',
       header: t('columns.identificationCode'),
@@ -183,7 +238,21 @@ export function CatalogScreen() {
         searchPlaceholder={t('search.placeholder')}
         view={view}
         onViewChange={setView}
-      />
+      >
+        <label htmlFor="catalog-status-filter" className="sr-only">
+          {t('status.filterLabel')}
+        </label>
+        <Select
+          id="catalog-status-filter"
+          className="w-auto"
+          value={statusFilter}
+          onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}
+        >
+          <option value="active">{t('status.active')}</option>
+          <option value="inactive">{t('status.inactive')}</option>
+          <option value="all">{t('status.all')}</option>
+        </Select>
+      </DataToolbar>
 
       <DataView
         items={visiblePresentations}
@@ -199,11 +268,41 @@ export function CatalogScreen() {
               : t('empty.noMatch')
         }
         renderActions={(presentation) => (
-          <Button type="button" variant="outline" size="sm" onClick={() => setEditingId(presentation.id)}>
-            {t('editCode')}
-          </Button>
+          <span className="inline-flex gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={() => setEditingId(presentation.id)}>
+              {t('editCode')}
+            </Button>
+            {inactiveProductIds.has(presentation.productId) ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={statusBusy}
+                onClick={() => void changeStatus(presentation.productId, true)}
+              >
+                {t('status.reactivate')}
+              </Button>
+            ) : (
+              <Button type="button" variant="outline" size="sm" onClick={() => setDeactivating(presentation)}>
+                {t('status.deactivate')}
+              </Button>
+            )}
+          </span>
         )}
       />
+
+      {deactivating && (
+        <ConfirmDialog
+          title={t('status.dialog.title', { name: deactivating.name })}
+          message={t('status.dialog.message')}
+          confirmLabel={t('status.dialog.confirm')}
+          busyLabel={t('status.dialog.confirming')}
+          busy={statusBusy}
+          destructive
+          onConfirm={() => void changeStatus(deactivating.productId, false)}
+          onCancel={() => setDeactivating(null)}
+        />
+      )}
     </section>
   )
 }

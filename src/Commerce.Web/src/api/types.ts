@@ -316,6 +316,9 @@ export interface ProductRecord {
   createdAtUtc: string
   createdByUserId: string
   updatedAtUtc: string
+  // Soft deletion: an inactive product is hidden from the default lists, the POS and new receptions.
+  isActive: boolean
+  deactivatedAtUtc: string | null
 }
 
 export interface CreateProductRequest {

@@ -48,6 +48,8 @@ describe('CatalogScreen — copy catalog to another branch', () => {
     defaultUnitId: 'unit',
     createdAtUtc: '2024-01-01T00:00:00Z',
     createdByUserId: 'user-1',
+    isActive: true,
+    deactivatedAtUtc: null,
     updatedAtUtc: '2024-01-01T00:00:00Z',
   })
   const yerba = product('dddddddd-dddd-dddd-dddd-dddddddddddd', 'Yerba Mate')

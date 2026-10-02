@@ -24,9 +24,25 @@
     "noMatch": "No presentations match this search."
   },
   "editCode": "Edit code",
+  "status": {
+    "filterLabel": "Status",
+    "active": "Active",
+    "inactive": "Inactive",
+    "all": "All",
+    "inactiveBadge": "Inactive",
+    "deactivate": "Deactivate",
+    "reactivate": "Reactivate",
+    "dialog": {
+      "title": "Deactivate \"{{name}}\"",
+      "message": "The product stops appearing in the POS and in lists; its history is kept.",
+      "confirm": "Deactivate product",
+      "confirming": "Deactivating…"
+    }
+  },
   "errors": {
     "unexpectedLoad": "Unexpected error: the catalog service is unreachable.",
-    "unexpectedUpdate": "Unexpected error updating the presentation."
+    "unexpectedUpdate": "Unexpected error while updating the presentation.",
+    "unexpectedStatus": "The product status could not be changed."
   },
   "form": {
     "title": "Edit presentation",

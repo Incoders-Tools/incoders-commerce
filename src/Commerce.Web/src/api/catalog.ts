@@ -21,8 +21,16 @@ export function renameProduct(
   })
 }
 
-export function listProducts(): Promise<ProductRecord[]> {
-  return apiFetch<ProductRecord[]>('/catalog/products')
+// Inactive (soft deleted) products are left out unless `includeInactive` is asked for.
+export function listProducts(includeInactive = false): Promise<ProductRecord[]> {
+  return apiFetch<ProductRecord[]>(`/catalog/products${includeInactive ? '?includeInactive=true' : ''}`)
+}
+
+// `POST /catalog/products/{id}/deactivate|reactivate`: the history (receptions, stock, sales) is kept.
+export function setProductActive(productId: string, active: boolean): Promise<ProductRecord> {
+  return apiFetch<ProductRecord>(`/catalog/products/${productId}/${active ? 'reactivate' : 'deactivate'}`, {
+    method: 'POST',
+  })
 }
 
 export function createProduct(request: CreateProductRequest): Promise<ProductRecord> {
@@ -41,8 +49,8 @@ export function changeProductCategory(productId: string, categoryId: string): Pr
   })
 }
 
-export function listPresentations(): Promise<PresentationRecord[]> {
-  return apiFetch<PresentationRecord[]>('/catalog/presentations')
+export function listPresentations(includeInactive = false): Promise<PresentationRecord[]> {
+  return apiFetch<PresentationRecord[]>(`/catalog/presentations${includeInactive ? '?includeInactive=true' : ''}`)
 }
 
 export function createPresentation(request: CreatePresentationRequest): Promise<PresentationRecord> {
