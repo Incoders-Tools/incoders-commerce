@@ -85,6 +85,25 @@ Branch pull (part of the same RunSyncAsync sweep as the outbox push)
 A replica row is never treated as an audit fact, and an envelope kind is
 never used to replicate mutable reference state (ADR-012).
 
+### Sale to stock projection (branch -> cloud)
+
+Stock is cloud-authoritative and derived (`SUM(stock_movements.quantity)`). When the inbox transaction projects a
+`"sale"` envelope into `pos_sales`, it also writes one negative `Sale` stock movement per sale line
+(`PosSaleStockProjection`), in the same transaction, in its own savepoint:
+
+- source `PosSale`, `source_id` = sale id, `occurred_at_utc` = the sale time (`SalePayloadV1.OccurredAtUtc`), quantity =
+  `-line.Quantity` (kilos for Weighted lines: 2,5 kg is `-2.5`);
+- the payload lines carry a per-sale `LineNumber`, not a global id, so the idempotency key `source_line_id` is derived
+  deterministically: first 16 bytes of `SHA-256("pos-sale-line:{saleId}:{lineNumber}")`. The unique index on
+  `(organization_id, branch_id, source_type, source_line_id)` makes a redelivery a no-op, even under another
+  `operation_id`;
+- a line whose presentation the branch catalog does not know, or whose quantity is not positive, is skipped with a
+  logged warning; the other lines and the sale itself are still ingested. Any failure of the stock projection is
+  contained by the savepoint and never blocks ingestion (same rule as the sale number);
+- there is no sale void/return payload kind today, so no compensating movement exists. When one is added, it
+  writes `PosSaleVoid` movements (a `Reversal` of the sale movement) idempotently on the same key scheme.
+
+
 ## Envelope vs. cursor/replica: the selection rule
 
 A new domain's synchronization approach is classified **before**

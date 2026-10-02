@@ -17,7 +17,8 @@ public sealed record NewStockMovement(
     Guid? ReversesMovementId = null,
     string? Reason = null,
     string? LotCode = null,
-    Guid? CreatedByUserId = null);
+    Guid? CreatedByUserId = null,
+    DateTimeOffset? OccurredAtUtc = null);
 
 /// <summary>
 /// The single writer of `stock_movements` (append-only, branch RLS). Participates in the CALLER's transaction (which has
@@ -45,7 +46,7 @@ public static class StockMovementWriter
             INSERT INTO stock_movements
                 (id, organization_id, branch_id, presentation_id, quantity, kind, source_type, source_id, source_line_id,
                  reverses_movement_id, reason, lot_code, occurred_at_utc, created_by_user_id)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now(), $13)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, COALESCE($14, now()), $13)
             {conflict}
             """, connection, tx);
         cmd.Parameters.AddWithValue(movement.Id);
@@ -61,6 +62,7 @@ public static class StockMovementWriter
         cmd.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Text, (object?)movement.Reason ?? DBNull.Value);
         cmd.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Text, (object?)movement.LotCode ?? DBNull.Value);
         cmd.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Uuid, (object?)movement.CreatedByUserId ?? DBNull.Value);
+        cmd.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.TimestampTz, (object?)movement.OccurredAtUtc ?? DBNull.Value);
         return await cmd.ExecuteNonQueryAsync(ct) == 1;
     }
 }

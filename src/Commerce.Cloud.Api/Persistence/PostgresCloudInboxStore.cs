@@ -130,6 +130,7 @@ public sealed class PostgresCloudInboxStore : ICloudInboxStore
         // Sale envelopes are also projected into `pos_sales`, and the human sale number they claim
         // is verified, in this same transaction. Never blocks ingestion (savepoint inside).
         await PosSaleProjection.ProjectAsync(connection, tx, envelope, installationId, _logger, ct, _projectionFault);
+        await PosSaleStockProjection.ProjectAsync(connection, tx, envelope, _logger, ct);
 
         await tx.CommitAsync(ct);
         return new InboundApplyResult(InboundApplyOutcome.Applied, envelope.OperationId);
