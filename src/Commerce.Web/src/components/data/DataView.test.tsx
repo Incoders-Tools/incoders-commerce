@@ -111,4 +111,13 @@ describe('DataView', () => {
     expect(screen.getByRole('status')).toHaveTextContent(/cargando/i)
     expect(screen.queryByTestId('data-view-load-error')).not.toBeInTheDocument()
   })
+
+  it('puts the optional row id on table rows and on cards, so a row can be linked to', () => {
+    const { unmount } = renderView({ getRowId: (row) => `row-${row.id}` })
+    expect(document.getElementById('row-a')?.tagName).toBe('TR')
+    unmount()
+
+    renderView({ view: 'cards', getRowId: (row) => `row-${row.id}` })
+    expect(document.getElementById('row-b')?.tagName).toBe('ARTICLE')
+  })
 })

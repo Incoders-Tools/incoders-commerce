@@ -20,6 +20,8 @@ export interface DataViewProps<T> {
   items: T[]
   columns: DataViewColumn<T>[]
   getRowKey: (item: T) => string
+  /** Optional DOM id of a row/card, so other content can link to it (`#id`). */
+  getRowId?: (item: T) => string | undefined
   view: DataViewMode
   loading?: boolean
   emptyMessage: string
@@ -54,6 +56,7 @@ export function DataView<T>({
   items,
   columns,
   getRowKey,
+  getRowId,
   view,
   loading = false,
   emptyMessage,
@@ -102,6 +105,7 @@ export function DataView<T>({
           return (
             <article
               key={getRowKey(item)}
+              id={getRowId?.(item)}
               data-testid="data-view-card"
               className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4 text-card-foreground shadow-sm"
             >
@@ -149,7 +153,7 @@ export function DataView<T>({
         <tbody>
           {items.map((item) => {
             return (
-              <tr key={getRowKey(item)} className="border-b border-border last:border-0 hover:bg-muted/50">
+              <tr key={getRowKey(item)} id={getRowId?.(item)} className="border-b border-border last:border-0 hover:bg-muted/50">
                 {columns.map((column) => (
                   <td
                     key={column.key}

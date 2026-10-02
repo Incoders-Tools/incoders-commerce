@@ -1,1 +1,116 @@
-{}
+{
+  "title": "Current account: {{name}}",
+  "backLabel": "Back to suppliers",
+  "loading": "Loading the current account…",
+  "errors": {
+    "unexpectedLoad": "The current account could not be loaded.",
+    "supplierNotFound": "The supplier was not found.",
+    "rangeInvalid": "The start date cannot be after the end date.",
+    "unexpectedRegister": "The movement could not be registered.",
+    "unexpectedReverse": "The movement could not be reversed.",
+    "alreadyReversed": "This movement was already reversed.",
+    "notReversible": "This movement cannot be reversed."
+  },
+  "summary": {
+    "balance": "Balance",
+    "overdue": "Overdue",
+    "current": "Not yet due",
+    "weOwe": "We owe them",
+    "inOurFavour": "Balance in our favour",
+    "settled": "Settled",
+    "overdueHint": "Debt whose due date has already passed",
+    "currentHint": "Debt that is not due yet or has no due date",
+    "agingTitle": "Age of the overdue debt",
+    "aging": {
+      "d0_30": "1 to 30 days",
+      "d31_60": "31 to 60 days",
+      "d61_90": "61 to 90 days",
+      "d90plus": "Over 90 days"
+    }
+  },
+  "filters": {
+    "from": "From",
+    "to": "To",
+    "apply": "Update"
+  },
+  "statement": {
+    "title": "Movements",
+    "opening": "Opening balance of the period",
+    "closing": "Closing balance of the period",
+    "empty": "There are no movements in this period.",
+    "register": "Register movement",
+    "runningHint": "Positive: we owe them. Negative: balance in our favour.",
+    "columns": {
+      "concept": "Concept",
+      "date": "Date",
+      "kind": "Type",
+      "reference": "Document",
+      "dueOn": "Due",
+      "amount": "Amount",
+      "balance": "Balance",
+      "noValue": "—"
+    },
+    "increasesDebt": "Increases debt",
+    "decreasesDebt": "Decreases debt",
+    "reversedBadge": "Reversed",
+    "reversalOf": "Reverses a movement",
+    "viewReversal": "View reversal",
+    "reverse": "Reverse"
+  },
+  "kinds": {
+    "OpeningBalance": "Opening balance",
+    "Invoice": "Invoice",
+    "DebitNote": "Debit note",
+    "CreditNote": "Credit note",
+    "Payment": "Payment",
+    "Adjustment": "Adjustment"
+  },
+  "kindHints": {
+    "OpeningBalance": "Debt that existed before using the system: increases what we owe.",
+    "Invoice": "Purchase on account: increases what we owe.",
+    "DebitNote": "Extra charge from the supplier: increases what we owe.",
+    "CreditNote": "Discount or return: decreases what we owe.",
+    "Payment": "Money we paid: decreases what we owe.",
+    "Adjustment": "Manual correction: choose whether it increases or decreases the debt."
+  },
+  "form": {
+    "title": "Register movement",
+    "description": "Added to the current account of {{name}}. A movement is never edited or deleted: if it is wrong, reverse it.",
+    "backLabel": "Back to the current account",
+    "fields": {
+      "kind": "Movement type",
+      "direction": "Effect of the adjustment",
+      "amount": "Amount",
+      "occurredOn": "Date",
+      "dueOn": "Due date",
+      "documentReference": "Document",
+      "concept": "Concept"
+    },
+    "directions": {
+      "Credit": "Increases debt",
+      "Debit": "Decreases debt"
+    },
+    "hints": {
+      "dueOn": "If left empty, an invoice is due {{days}} days after its date.",
+      "dueOnNoTerms": "If left empty, it has no due date.",
+      "amount": "Always positive, up to 2 decimals."
+    },
+    "errors": {
+      "amountInvalid": "The amount must be greater than zero with at most 2 decimals.",
+      "conceptRequired": "The concept is required.",
+      "dueBeforeDate": "The due date cannot be before the date."
+    },
+    "save": "Register",
+    "saving": "Registering…",
+    "cancel": "Cancel"
+  },
+  "reverse": {
+    "title": "Reverse movement",
+    "message": "Reverse “{{concept}}” for {{amount}}? A compensating movement is registered; the original stays visible as reversed.",
+    "concept": "Reversal concept (optional)",
+    "occurredOn": "Reversal date (optional)",
+    "confirm": "Confirm reversal",
+    "confirming": "Reversing…",
+    "cancel": "Cancel"
+  }
+}

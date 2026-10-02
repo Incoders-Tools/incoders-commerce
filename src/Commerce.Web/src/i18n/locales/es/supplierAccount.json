@@ -1,1 +1,116 @@
-{}
+{
+  "title": "Cuenta corriente: {{name}}",
+  "backLabel": "Volver a proveedores",
+  "loading": "Cargando la cuenta corriente…",
+  "errors": {
+    "unexpectedLoad": "No se pudo cargar la cuenta corriente.",
+    "supplierNotFound": "No se encontró el proveedor.",
+    "rangeInvalid": "La fecha inicial no puede ser posterior a la final.",
+    "unexpectedRegister": "No se pudo registrar el movimiento.",
+    "unexpectedReverse": "No se pudo anular el movimiento.",
+    "alreadyReversed": "Este movimiento ya fue anulado.",
+    "notReversible": "Este movimiento no se puede anular."
+  },
+  "summary": {
+    "balance": "Saldo",
+    "overdue": "Vencido",
+    "current": "A vencer",
+    "weOwe": "Le debemos",
+    "inOurFavour": "Saldo a favor",
+    "settled": "Sin deuda",
+    "overdueHint": "Deuda con fecha de vencimiento ya pasada",
+    "currentHint": "Deuda que todavía no venció o no tiene vencimiento",
+    "agingTitle": "Antigüedad de lo vencido",
+    "aging": {
+      "d0_30": "1 a 30 días",
+      "d31_60": "31 a 60 días",
+      "d61_90": "61 a 90 días",
+      "d90plus": "Más de 90 días"
+    }
+  },
+  "filters": {
+    "from": "Desde",
+    "to": "Hasta",
+    "apply": "Actualizar"
+  },
+  "statement": {
+    "title": "Movimientos",
+    "opening": "Saldo inicial del período",
+    "closing": "Saldo final del período",
+    "empty": "No hay movimientos en este período.",
+    "register": "Registrar movimiento",
+    "runningHint": "Positivo: le debemos. Negativo: saldo a favor.",
+    "columns": {
+      "concept": "Concepto",
+      "date": "Fecha",
+      "kind": "Tipo",
+      "reference": "Comprobante",
+      "dueOn": "Vence",
+      "amount": "Importe",
+      "balance": "Saldo",
+      "noValue": "—"
+    },
+    "increasesDebt": "Aumenta deuda",
+    "decreasesDebt": "Disminuye deuda",
+    "reversedBadge": "Anulado",
+    "reversalOf": "Anula un movimiento",
+    "viewReversal": "Ver anulación",
+    "reverse": "Anular"
+  },
+  "kinds": {
+    "OpeningBalance": "Saldo inicial",
+    "Invoice": "Factura",
+    "DebitNote": "Nota de débito",
+    "CreditNote": "Nota de crédito",
+    "Payment": "Pago",
+    "Adjustment": "Ajuste"
+  },
+  "kindHints": {
+    "OpeningBalance": "Deuda que ya existía antes de usar el sistema: aumenta lo que le debemos.",
+    "Invoice": "Compra a cuenta: aumenta lo que le debemos.",
+    "DebitNote": "Cargo adicional del proveedor: aumenta lo que le debemos.",
+    "CreditNote": "Descuento o devolución: disminuye lo que le debemos.",
+    "Payment": "Dinero que le pagamos: disminuye lo que le debemos.",
+    "Adjustment": "Corrección manual: elegí si aumenta o disminuye la deuda."
+  },
+  "form": {
+    "title": "Registrar movimiento",
+    "description": "Se agrega a la cuenta corriente de {{name}}. Un movimiento no se edita ni se borra: si hay un error, se anula.",
+    "backLabel": "Volver a la cuenta corriente",
+    "fields": {
+      "kind": "Tipo de movimiento",
+      "direction": "Efecto del ajuste",
+      "amount": "Importe",
+      "occurredOn": "Fecha",
+      "dueOn": "Vencimiento",
+      "documentReference": "Comprobante",
+      "concept": "Concepto"
+    },
+    "directions": {
+      "Credit": "Aumenta deuda",
+      "Debit": "Disminuye deuda"
+    },
+    "hints": {
+      "dueOn": "Si se deja vacío, una factura vence a los {{days}} días de su fecha.",
+      "dueOnNoTerms": "Si se deja vacío, no tiene vencimiento.",
+      "amount": "Siempre positivo, hasta 2 decimales."
+    },
+    "errors": {
+      "amountInvalid": "El importe debe ser mayor que cero y tener hasta 2 decimales.",
+      "conceptRequired": "El concepto es obligatorio.",
+      "dueBeforeDate": "El vencimiento no puede ser anterior a la fecha."
+    },
+    "save": "Registrar",
+    "saving": "Registrando…",
+    "cancel": "Cancelar"
+  },
+  "reverse": {
+    "title": "Anular movimiento",
+    "message": "¿Anular «{{concept}}» por {{amount}}? Se registra un movimiento que lo compensa; el original sigue visible como anulado.",
+    "concept": "Concepto de la anulación (opcional)",
+    "occurredOn": "Fecha de la anulación (opcional)",
+    "confirm": "Confirmar anulación",
+    "confirming": "Anulando…",
+    "cancel": "Cancelar"
+  }
+}

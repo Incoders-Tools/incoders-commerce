@@ -21,6 +21,7 @@ import { StaffOrderScreen } from '@/screens/StaffOrderScreen'
 import { RenewPasswordScreen } from '@/screens/RenewPasswordScreen'
 import { CustomersScreen } from '@/screens/CustomersScreen'
 import { SuppliersScreen } from '@/screens/SuppliersScreen'
+import { SupplierAccountScreen } from '@/screens/SupplierAccountScreen'
 import { SupplierCategoriesScreen } from '@/screens/SupplierCategoriesScreen'
 import { UsersScreen } from '@/screens/UsersScreen'
 import { BranchesScreen } from '@/screens/BranchesScreen'
@@ -92,6 +93,7 @@ function App() {
                     <Route path="customers" element={<CustomersScreen />} />
                     <Route path="business-types" element={<BusinessTypesScreen />} />
                     <Route path="suppliers" element={<SuppliersScreen />} />
+                    <Route path="suppliers/:id/account" element={<SupplierAccountScreen />} />
                     <Route path="supplier-categories" element={<SupplierCategoriesScreen />} />
                     <Route path="users" element={<UsersScreen />} />
                     <Route path="branches" element={<BranchesScreen />} />

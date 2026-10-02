@@ -128,6 +128,20 @@ describe('App route table', () => {
     expect(nav.getByRole('link', { name: 'Rubros de proveedor' })).toHaveAttribute('href', '/app/supplier-categories')
   })
 
+  it('mounts the supplier current account at /app/suppliers/:id/account for an admin', async () => {
+    renderAppAt('/app/suppliers/s-1/account', buildUser({ permissions: Permission.ManageUsers }))
+
+    expect(await screen.findByRole('button', { name: 'Volver a proveedores' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /cuenta corriente/i })).toBeInTheDocument()
+  })
+
+  it('redirects a non-admin away from a supplier current account', async () => {
+    renderAppAt('/app/suppliers/s-1/account', buildUser({ permissions: Permission.ViewSales }))
+
+    expect(await screen.findByRole('heading', { name: 'Catálogo' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /cuenta corriente/i })).not.toBeInTheDocument()
+  })
+
   it('redirects a non-admin away from the supplier routes', async () => {
     const { unmount } = renderAppAt('/app/suppliers', buildUser({ permissions: Permission.ViewSales }))
     expect(await screen.findByRole('heading', { name: 'Catálogo' })).toBeInTheDocument()

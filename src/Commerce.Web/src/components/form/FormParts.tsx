@@ -32,6 +32,7 @@ export function Field({
   value,
   onChange,
   type = 'text',
+  step,
   required = false,
   error = null,
   hint,
@@ -42,6 +43,8 @@ export function Field({
   value: string
   onChange: (value: string) => void
   type?: string
+  /** Numeric step of a `number` input (e.g. `0.01` for money). */
+  step?: string
   required?: boolean
   error?: string | null
   hint?: string
@@ -54,6 +57,7 @@ export function Field({
       <Input
         id={id}
         type={type}
+        step={step}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         required={required}
