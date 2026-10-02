@@ -78,6 +78,22 @@ content.
 - Owner decision: reference city "Sarmiento" is "Capitán Sarmiento" (renamed, id and audit dates kept).
 - T1, T2, T3, T4, T5 done (see task lines). API: `/customers/cities`, `/customers/business-types` (GET `?includeInactive`, POST, PUT /{id}); `GET /customers?search&cityId&businessTypeId`; customer JSON now carries cityId, cityName, businessTypeId, businessTypeName, contactName, and its enums as strings.
 
+- Review: the full range exceeded the native reviewer budget, so it was reviewed in three owner-consented slices, all approved and acknowledged: backend `59c2097..a1565d4` (high, 4 lenses, lineage `review-323d354a066b4f70`), web `a1565d4..737a7ee` (medium, lineage `review-22219942ba8b71fa`), seed `737a7ee..c8166f1` (high, 4 lenses, lineage `review-ae90d881e0865955`). Reviewed boundary is now `c8166f1`.
+- Full `dotnet test`: 1722 passed, 2 failed (known launcher/wwwroot failure; `PosAdminClientCompositionTests.Build_ProvidesFreshWindowScopedUserAdminClients_AndBranding` fails only in the full run, passes alone — not investigated).
+
+## Follow-ups (non-blocking review findings, most relevant)
+
+- [ ] F1 Master data PUT reactivates an entry when `isActive` is omitted (`MasterData.cs:116`); make it keep the stored value.
+- [ ] F2 Customer PUT keep-on-omit can lose a concurrent update (`PostgresCustomerStore.cs:180-182`).
+- [ ] F3 Legacy dashed Cuit/Cuil values are rejected on PUT while the domain constructor accepts them (`Customers.cs:180-182`, `Customer.cs:106-118`).
+- [ ] F4 Search accent folding differs between SQL and the tax-id path (`PostgresCustomerStore.cs:274-277`, `370-375`).
+- [ ] F5 Seed: a city whose global id already exists in another org is skipped silently (`001_vaca_verde_master_data.sql:62-94`, `118`); raise a notice.
+- [ ] F6 `provision-admin.ps1` decides "applied/skipped" from a NOTICE string (`:469-474`).
+- [ ] F7 Web: the customer list's stale-response guard is untested; email is no longer searched (`CustomersScreen.tsx:61`).
+- [ ] F8 Seed tests' link assertions are weak (`VacaVerdeSeedTests.cs:144-145`).
+- [ ] F9 Investigate the `PosAdminClientCompositionTests` full-run failure.
+- Accepted by owner: real customer data committed to the repo (R1-pii-committed); org resolved by name.
+
 ## Next step
 
 Owner review of `deploy/db/seeds/vaca-verde/report.md` (open questions: possible duplicates, "Ruta 9" locality, customers without city or business type); then promote `dev` to `main` and run the README runbook per environment once the organization is provisioned there.
