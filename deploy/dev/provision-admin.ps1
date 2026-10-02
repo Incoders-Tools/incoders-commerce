@@ -158,6 +158,35 @@ function Invoke-LocalPsql {
     }
 }
 
+# Applies a versioned, idempotent seed file (deploy/db/seeds/...) as the
+# database owner. The SQL is streamed through stdin (`psql -f -`) because the
+# container has no mount of the repository. It is sent as UTF-8 without a BOM:
+# the seeds carry Spanish text and the default pipe encoding of Windows
+# PowerShell 5.1 would mangle it.
+function Invoke-LocalPsqlFile {
+    param(
+        [Parameter(Mandatory)] [string]$RepositoryRoot,
+        [Parameter(Mandatory)] [string]$Path
+    )
+
+    $sql = Get-Content -LiteralPath $Path -Raw -Encoding UTF8
+    $previousEncoding = $OutputEncoding
+    $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+    Push-Location $RepositoryRoot
+    try {
+        $output = $sql | & docker compose -f deploy/dev/compose.yaml exec -T postgres `
+            psql -v ON_ERROR_STOP=1 -U commerce_owner -d commerce_dev -f - 2>&1
+        return [pscustomobject]@{
+            ExitCode = $LASTEXITCODE
+            Output = ($output -join "`n")
+        }
+    }
+    finally {
+        Pop-Location
+        $OutputEncoding = $previousEncoding
+    }
+}
+
 $apiUri = [Uri]$ApiBaseUrl
 if ($apiUri.Scheme -notin @('http', 'https') -or -not [string]::IsNullOrEmpty($apiUri.Query) -or -not [string]::IsNullOrEmpty($apiUri.Fragment)) {
     throw 'ApiBaseUrl must be an http(s) origin without a query or fragment.'
@@ -422,6 +451,26 @@ WHERE email = '$organizationAdminEmail'
         }
         default {
             throw "Organization creation failed with HTTP $($createOrganizationResponse.StatusCode). Body: $($createOrganizationResponse.Body)"
+        }
+    }
+
+    # --- 5. Vaca Verde master data seed -----------------------------------
+    # Cities, business types and customers (deploy/db/seeds/vaca-verde). The
+    # seed resolves the organization named "Vaca Verde" and its business-admin
+    # itself, is idempotent (deterministic ids, ON CONFLICT DO NOTHING) and
+    # prints a NOTICE and changes nothing when the organization provisioned
+    # above is named anything else, so it is safe on every run.
+    $seedFile = Join-Path $repositoryRoot 'deploy\db\seeds\vaca-verde\001_vaca_verde_master_data.sql'
+    if (Test-Path -LiteralPath $seedFile -PathType Leaf) {
+        $seedResult = Invoke-LocalPsqlFile -RepositoryRoot $repositoryRoot -Path $seedFile
+        if ($seedResult.ExitCode -ne 0) {
+            throw "Vaca Verde master data seed failed. Output: $($seedResult.Output)"
+        }
+        if ($seedResult.Output -match 'seed skipped') {
+            Write-Output 'Vaca Verde master data seed skipped (no organization named "Vaca Verde" with a business-admin).'
+        }
+        else {
+            Write-Output 'Vaca Verde master data seed applied (idempotent; existing rows were left untouched).'
         }
     }
 
