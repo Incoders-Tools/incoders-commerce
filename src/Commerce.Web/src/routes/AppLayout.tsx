@@ -15,6 +15,7 @@ import {
   Truck,
   Boxes,
   Tags,
+  Warehouse,
   UserCog,
   Users2,
   type LucideProps,
@@ -145,6 +146,7 @@ export function AppLayout() {
             {showTenantNav && (
               <NavSection title={t('sections.purchasing')}>
                 <NavItem to="/app/receptions" icon={PackageCheck} onNavigate={closeMobileNav}>{t('items.receptions')}</NavItem>
+                <NavItem to="/app/stock" icon={Warehouse} onNavigate={closeMobileNav}>{t('items.stock')}</NavItem>
               </NavSection>
             )}
             {user?.isSystemAdmin && (

@@ -174,6 +174,28 @@ describe('App route table', () => {
     expect(await screen.findByRole('heading', { name: 'Catálogo' })).toBeInTheDocument()
   })
 
+  it('mounts the stock screen and its movements for an admin and links it from the sidebar', async () => {
+    const { unmount } = renderAppAt('/app/stock', buildUser({ permissions: Permission.ManageUsers }))
+
+    expect(await screen.findByRole('heading', { name: 'Stock' })).toBeInTheDocument()
+    const nav = within(screen.getByRole('navigation', { name: 'Principal' }))
+    expect(nav.getByRole('link', { name: 'Stock' })).toHaveAttribute('href', '/app/stock')
+    unmount()
+
+    renderAppAt('/app/stock/pr-1/movements', buildUser({ permissions: Permission.ManageUsers }))
+    expect(await screen.findByRole('heading', { name: 'Movimientos de stock' })).toBeInTheDocument()
+  })
+
+  it('redirects a non-admin away from the stock routes', async () => {
+    const { unmount } = renderAppAt('/app/stock', buildUser({ permissions: Permission.ViewSales }))
+    expect(await screen.findByRole('heading', { name: 'Catálogo' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Stock' })).not.toBeInTheDocument()
+    unmount()
+
+    renderAppAt('/app/stock/pr-1/movements', buildUser({ permissions: Permission.ViewSales }))
+    expect(await screen.findByRole('heading', { name: 'Catálogo' })).toBeInTheDocument()
+  })
+
   it('mounts the core cities screen for a system admin and links it from the sidebar', async () => {
     renderAppAt('/app/cities', buildUser({ isSystemAdmin: true }))
 

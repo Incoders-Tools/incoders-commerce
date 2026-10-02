@@ -67,6 +67,7 @@ describe('AppLayout', () => {
     expect(nav.queryByRole('link', { name: /clientes/i })).not.toBeInTheDocument()
     expect(nav.queryByRole('link', { name: /proveedor/i })).not.toBeInTheDocument()
     expect(nav.queryByRole('link', { name: /recepciones/i })).not.toBeInTheDocument()
+    expect(nav.queryByRole('link', { name: 'Stock' })).not.toBeInTheDocument()
     expect(nav.queryByRole('link', { name: /usuarios/i })).not.toBeInTheDocument()
     expect(nav.queryByRole('link', { name: /sucursales/i })).not.toBeInTheDocument()
     expect(nav.queryByRole('link', { name: /organizaciones/i })).not.toBeInTheDocument()
@@ -111,6 +112,7 @@ describe('AppLayout', () => {
     expect(nav.getByRole('link', { name: 'Proveedores' })).toHaveAttribute('href', '/app/suppliers')
     expect(nav.getByRole('link', { name: 'Rubros de proveedor' })).toHaveAttribute('href', '/app/supplier-categories')
     expect(nav.getByRole('link', { name: 'Recepciones' })).toHaveAttribute('href', '/app/receptions')
+    expect(nav.getByRole('link', { name: 'Stock' })).toHaveAttribute('href', '/app/stock')
     // Cities are a core catalog managed by the system administrator only.
     expect(nav.queryByRole('link', { name: 'Ciudades' })).not.toBeInTheDocument()
     expect(nav.queryByRole('link', { name: /organizaciones/i })).not.toBeInTheDocument()
@@ -157,6 +159,7 @@ describe('AppLayout', () => {
     expect(nav.queryByRole('link', { name: /clientes/i })).not.toBeInTheDocument()
     expect(nav.queryByRole('link', { name: /proveedor/i })).not.toBeInTheDocument()
     expect(nav.queryByRole('link', { name: /recepciones/i })).not.toBeInTheDocument()
+    expect(nav.queryByRole('link', { name: 'Stock' })).not.toBeInTheDocument()
     expect(nav.queryByRole('link', { name: /usuarios/i })).not.toBeInTheDocument()
     expect(nav.queryByRole('link', { name: /sucursales/i })).not.toBeInTheDocument()
     expect(nav.queryByRole('link', { name: /listas de precios/i })).not.toBeInTheDocument()
