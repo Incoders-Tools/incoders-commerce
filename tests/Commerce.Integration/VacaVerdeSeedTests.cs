@@ -4,14 +4,14 @@ namespace Commerce.Integration;
 
 /// <summary>
 /// `deploy/db/seeds/vaca-verde/001_vaca_verde_master_data.sql`: the versioned,
-/// idempotent seed with Vaca Verde's real cities, business types and customers.
-/// It resolves the organization by name and the creating user from that
+/// idempotent seed with Vaca Verde's real business types and customers (cities
+/// are global Georef data since 0028; the seed only references them by INDEC id
+/// and restores the owner's original audit dates). It resolves the organization by name and the creating user from that
 /// organization's business admin, and does nothing when either is missing.
 /// </summary>
 [Collection("Postgres")]
 public sealed class VacaVerdeSeedTests
 {
-    private const int ExpectedCities = 25;
     private const int ExpectedBusinessTypes = 11;
     private const int ExpectedCustomers = 87;
 
@@ -56,7 +56,7 @@ public sealed class VacaVerdeSeedTests
     {
         Exec(owner, "DELETE FROM customers WHERE organization_id IN (SELECT id FROM organizations WHERE lower(name) = 'vaca verde')");
         Exec(owner, "DELETE FROM users WHERE organization_id IN (SELECT id FROM organizations WHERE lower(name) = 'vaca verde')");
-        Exec(owner, "DELETE FROM organizations WHERE lower(name) = 'vaca verde'"); // cascades cities and business_types
+        Exec(owner, "DELETE FROM organizations WHERE lower(name) = 'vaca verde'"); // cascades business_types
     }
 
     private static Guid ProvisionVacaVerde(NpgsqlConnection owner, bool withBusinessAdmin = true)
@@ -77,7 +77,7 @@ public sealed class VacaVerdeSeedTests
         Scalar<long>(owner, $"SELECT count(*) FROM {table} WHERE organization_id = $1", orgId);
 
     [Fact]
-    public void Seed_LoadsCitiesBusinessTypesAndCustomers_ForTheVacaVerdeOrganization()
+    public void Seed_LoadsBusinessTypesAndCustomers_ForTheVacaVerdeOrganization()
     {
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
 
@@ -88,7 +88,6 @@ public sealed class VacaVerdeSeedTests
         {
             ApplySeed(owner);
 
-            Assert.Equal(ExpectedCities, Count(owner, "cities", orgId));
             Assert.Equal(ExpectedBusinessTypes, Count(owner, "business_types", orgId));
             Assert.Equal(ExpectedCustomers, Count(owner, "customers", orgId));
 
@@ -101,7 +100,7 @@ public sealed class VacaVerdeSeedTests
     }
 
     [Fact]
-    public void Seed_RenamesSarmientoToCapitanSarmiento_KeepingTheReferenceIdAndAuditDates()
+    public void Seed_DoesNotCreateCities_AndRestoresTheOwnersAuditDatesOnlyOnUntouchedGlobalRows()
     {
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
 
@@ -110,22 +109,28 @@ public sealed class VacaVerdeSeedTests
         var orgId = ProvisionVacaVerde(owner);
         try
         {
+            // Model a fresh environment: the Georef rows were just loaded (created = updated = now).
+            Exec(owner, "UPDATE cities SET created_at_utc = now(), updated_at_utc = now() WHERE indec_id IN ('06140010', '06077010')");
+            Exec(owner, "UPDATE cities SET updated_at_utc = now() + interval '1 second' WHERE indec_id = '06077010'"); // edited by someone since
+            var citiesBefore = Scalar<long>(owner, "SELECT count(*) FROM cities");
+
             ApplySeed(owner);
 
+            Assert.Equal(citiesBefore, Scalar<long>(owner, "SELECT count(*) FROM cities")); // no city is created or renamed
             using var cmd = new NpgsqlCommand(
-                "SELECT id, name, sort_order, is_active, created_at_utc, updated_at_utc FROM cities WHERE organization_id = $1 AND key = 'capitan_sarmiento'", owner);
-            cmd.Parameters.AddWithValue(orgId);
+                "SELECT name, created_at_utc, updated_at_utc FROM cities WHERE indec_id = '06140010'", owner);
             using var r = cmd.ExecuteReader();
             Assert.True(r.Read());
-            Assert.Equal(Guid.Parse("9312c672-b725-429b-aac5-8c701a40258f"), r.GetGuid(0));
-            Assert.Equal("Capitán Sarmiento", r.GetString(1));
-            Assert.Equal(7, r.GetInt32(2));
-            Assert.True(r.GetBoolean(3));
-            Assert.Equal(DateTimeOffset.Parse("2026-01-10T04:30:02.811173Z"), r.GetFieldValue<DateTimeOffset>(4));
-            Assert.Equal(DateTimeOffset.Parse("2026-01-10T04:30:02.917Z"), r.GetFieldValue<DateTimeOffset>(5));
+            Assert.Equal("Capitán Sarmiento", r.GetString(0));
+            Assert.Equal(DateTimeOffset.Parse("2026-01-10T04:30:02.811173Z"), r.GetFieldValue<DateTimeOffset>(1));
+            Assert.Equal(DateTimeOffset.Parse("2026-01-10T04:30:02.917Z"), r.GetFieldValue<DateTimeOffset>(2));
             r.Close();
 
-            Assert.Equal(0L, Scalar<long>(owner, "SELECT count(*) FROM cities WHERE organization_id = $1 AND lower(name) = 'sarmiento'", orgId));
+            // A row edited after loading keeps its dates (the seed never overwrites later edits).
+            Assert.True(Scalar<DateTime>(owner, "SELECT created_at_utc FROM cities WHERE indec_id = '06077010'") > DateTime.UtcNow.AddHours(-1));
+            // The organization owns no city table any more.
+            Assert.Equal(0L, Scalar<long>(owner,
+                "SELECT count(*) FROM information_schema.columns WHERE table_name = 'cities' AND column_name = 'organization_id'"));
         }
         finally { RemoveVacaVerde(owner); }
     }
@@ -147,7 +152,9 @@ public sealed class VacaVerdeSeedTests
             Assert.True(Scalar<long>(owner, "SELECT count(*) FROM customers WHERE organization_id = $1 AND tax_id_type = 'Dni'", orgId) > 0);
             Assert.True(Scalar<long>(owner, "SELECT count(*) FROM customers WHERE organization_id = $1 AND tax_id_type = 'Cuit'", orgId) > 0);
             Assert.Equal(1L, Scalar<long>(owner,
-                "SELECT count(*) FROM customers c JOIN cities ci ON ci.id = c.city_id WHERE c.organization_id = $1 AND c.display_name = 'Almacén Cristian' AND ci.name = 'Arrecifes'", orgId));
+                "SELECT count(*) FROM customers c JOIN cities ci ON ci.id = c.city_id WHERE c.organization_id = $1 AND c.display_name = 'Almacén Cristian' AND ci.indec_id = '06077010' AND ci.name = 'Arrecifes'", orgId));
+            Assert.Equal(1L, Scalar<long>(owner,
+                "SELECT count(*) FROM customers c JOIN cities ci ON ci.id = c.city_id WHERE c.organization_id = $1 AND c.display_name = 'Al Toque' AND ci.indec_id = '06140010'", orgId));
         }
         finally { RemoveVacaVerde(owner); }
     }
@@ -166,7 +173,6 @@ public sealed class VacaVerdeSeedTests
             Exec(owner, "UPDATE customers SET notes = 'editado por el dueno' WHERE organization_id = $1 AND display_name = 'Almacén Cristian'", orgId);
             ApplySeed(owner);
 
-            Assert.Equal(ExpectedCities, Count(owner, "cities", orgId));
             Assert.Equal(ExpectedBusinessTypes, Count(owner, "business_types", orgId));
             Assert.Equal(ExpectedCustomers, Count(owner, "customers", orgId));
             Assert.Equal("editado por el dueno", Scalar<string>(owner,
@@ -184,13 +190,13 @@ public sealed class VacaVerdeSeedTests
         ApplyAllMigrations(owner);
         RemoveVacaVerde(owner);
         var (cities, types, customers) = (
-            Scalar<long>(owner, "SELECT count(*) FROM cities"),
+            Scalar<string>(owner, "SELECT md5(string_agg(id::text || created_at_utc::text || updated_at_utc::text, ',' ORDER BY id)) FROM cities"),
             Scalar<long>(owner, "SELECT count(*) FROM business_types"),
             Scalar<long>(owner, "SELECT count(*) FROM customers"));
 
         ApplySeed(owner); // must not throw
 
-        Assert.Equal(cities, Scalar<long>(owner, "SELECT count(*) FROM cities"));
+        Assert.Equal(cities, Scalar<string>(owner, "SELECT md5(string_agg(id::text || created_at_utc::text || updated_at_utc::text, ',' ORDER BY id)) FROM cities"));
         Assert.Equal(types, Scalar<long>(owner, "SELECT count(*) FROM business_types"));
         Assert.Equal(customers, Scalar<long>(owner, "SELECT count(*) FROM customers"));
     }
@@ -207,7 +213,6 @@ public sealed class VacaVerdeSeedTests
         {
             ApplySeed(owner); // must not throw
 
-            Assert.Equal(0L, Count(owner, "cities", orgId));
             Assert.Equal(0L, Count(owner, "business_types", orgId));
             Assert.Equal(0L, Count(owner, "customers", orgId));
         }

@@ -455,7 +455,7 @@ WHERE email = '$organizationAdminEmail'
     }
 
     # --- 5. Vaca Verde master data seed -----------------------------------
-    # Cities, business types and customers (deploy/db/seeds/vaca-verde). The
+    # Business types and customers (cities are global Georef data, migration 0028) (deploy/db/seeds/vaca-verde). The
     # seed resolves the organization named "Vaca Verde" and its business-admin
     # itself, is idempotent (deterministic ids, ON CONFLICT DO NOTHING) and
     # prints a NOTICE and changes nothing when the organization provisioned

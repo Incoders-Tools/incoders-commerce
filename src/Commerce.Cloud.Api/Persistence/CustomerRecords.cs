@@ -115,7 +115,9 @@ public sealed record CustomerRecord(
     string? CityName = null,
     Guid? BusinessTypeId = null,
     string? BusinessTypeName = null,
-    string? ContactName = null);
+    string? ContactName = null,
+    string? ProvinceId = null,
+    string? ProvinceName = null);
 
 /// <summary>Optional filters of the customer list; every member is optional and they combine with AND.</summary>
 public sealed record CustomerListFilter(string? Search = null, Guid? CityId = null, Guid? BusinessTypeId = null);

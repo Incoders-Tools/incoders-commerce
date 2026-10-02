@@ -3,9 +3,10 @@ using Npgsql;
 namespace Commerce.Integration;
 
 /// <summary>
-/// `0027_customer_master_data.sql`: organization-owned `cities` and
-/// `business_types` catalogs, the optional customer references to them, the
-/// `contact_name` column and the `Dni` tax id type.
+/// `0027_customer_master_data.sql`: the organization-owned `business_types`
+/// catalog, the optional customer references, the `contact_name` column and the
+/// `Dni` tax id type. (Its organization `cities` table was retired by 0028; see
+/// <see cref="CoreGeographyMigrationTests"/>.)
 /// </summary>
 [Collection("Postgres")]
 public sealed class CustomerMasterDataMigrationTests
@@ -43,7 +44,6 @@ public sealed class CustomerMasterDataMigrationTests
     }
 
     [Theory]
-    [InlineData("cities")]
     [InlineData("business_types")]
     public void Catalog_TableExists_WithForcedRowLevelSecurity(string table)
     {
@@ -58,7 +58,6 @@ public sealed class CustomerMasterDataMigrationTests
     }
 
     [Theory]
-    [InlineData("cities")]
     [InlineData("business_types")]
     public void Catalog_IsIsolatedByOrganization_ForAppRuntime_AndHasNoDeleteGrant(string table)
     {
@@ -102,7 +101,6 @@ public sealed class CustomerMasterDataMigrationTests
     }
 
     [Theory]
-    [InlineData("cities")]
     [InlineData("business_types")]
     public void Catalog_EnforcesUniqueNameAndKeyPerOrganization(string table)
     {
@@ -126,23 +124,23 @@ public sealed class CustomerMasterDataMigrationTests
     }
 
     [Fact]
-    public void Customer_RefusesACityOrBusinessTypeOfAnotherOrganization_AndBlocksDeletingOneInUse()
+    public void Customer_RefusesAnUnknownCityOrABusinessTypeOfAnotherOrganization_AndBlocksDeletingOneInUse()
     {
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
 
         var (orgA, orgB) = (Guid.NewGuid(), Guid.NewGuid());
-        var (cityA, cityB, typeA, typeB) = (Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+        var (cityA, typeA, typeB) = (Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
         using var owner = OpenOwner();
         ApplyAllMigrations(owner);
         Exec(owner, "INSERT INTO organizations (id, name) VALUES ($1, 'A'), ($2, 'B')", orgA, orgB);
-        Exec(owner, "INSERT INTO cities (id, organization_id, name, key) VALUES ($1, $2, 'Moreno', 'moreno'), ($3, $4, 'Moreno', 'moreno')", cityA, orgA, cityB, orgB);
+        Exec(owner, "INSERT INTO cities (id, name, province_id) VALUES ($1, 'Moreno de Prueba ' || $2::text, '06')", cityA, cityA.ToString());
         Exec(owner, "INSERT INTO business_types (id, organization_id, name, key) VALUES ($1, $2, 'Bar', 'bar'), ($3, $4, 'Bar', 'bar')", typeA, orgA, typeB, orgB);
 
         const string insert =
             "INSERT INTO customers (id, organization_id, customer_kind, display_name, created_by_user_id, city_id, business_type_id, contact_name) VALUES ($1, $2, 'Retail', 'Cliente', $3, $4, $5, 'Juan')";
 
-        var foreignCity = Assert.Throws<PostgresException>(() => Exec(owner, insert, Guid.NewGuid(), orgA, Guid.NewGuid(), cityB, typeA));
-        Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, foreignCity.SqlState);
+        var unknownCity = Assert.Throws<PostgresException>(() => Exec(owner, insert, Guid.NewGuid(), orgA, Guid.NewGuid(), Guid.NewGuid(), typeA));
+        Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, unknownCity.SqlState);
         var foreignType = Assert.Throws<PostgresException>(() => Exec(owner, insert, Guid.NewGuid(), orgA, Guid.NewGuid(), cityA, typeB));
         Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, foreignType.SqlState);
 

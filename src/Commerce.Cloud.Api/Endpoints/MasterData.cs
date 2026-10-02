@@ -8,8 +8,10 @@ using Npgsql;
 namespace Commerce.Cloud.Api.Endpoints;
 
 /// <summary>
-/// Organization-scoped customer catalogs: cities (`/customers/cities`) and
-/// business types (`/customers/business-types`). Same authorization shape as
+/// Organization-scoped customer catalog: business types
+/// (`/customers/business-types`). Cities are NOT here any more: since 0028 they
+/// are global core geography (<see cref="GeographyEndpoints"/>, `/geo/cities`).
+/// Same authorization shape as
 /// <see cref="CategoryEndpoints"/> - default cookie auth,
 /// <see cref="TenantScopeEndpointFilter"/>, a store-loaded caller,
 /// <see cref="ActingPermissions"/> - except that READING needs any permission
@@ -24,7 +26,6 @@ public static class MasterDataEndpoints
 {
     public static IEndpointRouteBuilder MapMasterDataEndpoints(this IEndpointRouteBuilder app)
     {
-        MapCatalog<PostgresCityStore>(app, "/customers/cities", "city");
         MapCatalog<PostgresBusinessTypeStore>(app, "/customers/business-types", "business-type");
         return app;
     }

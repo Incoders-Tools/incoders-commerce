@@ -16,6 +16,12 @@
 -- `customers.locality` (free text) stays for compatibility; `city_id` is the
 -- source of truth going forward. Existing customers keep NULL references.
 --
+-- Re-run safety after later migrations: 0028 retires the organization-scoped
+-- `cities` (and its foreign key) and 0029 retires `customers.contact_name`.
+-- Their sections below are skipped once the replacing objects exist
+-- (`countries`, `customer_contacts`), so re-applying the whole chain never
+-- resurrects a retired object.
+--
 -- The whole file runs in ONE transaction and can be re-run safely.
 --
 -- INVERSE (rollback), shipped as comments - NOT executed by this file:
@@ -31,31 +37,38 @@ BEGIN;
 -- 1. cities
 -- ===========================================================================
 
-CREATE TABLE IF NOT EXISTS cities (
-    id              uuid PRIMARY KEY,
-    organization_id uuid NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
-    name            text NOT NULL CHECK (btrim(name) <> ''),
-    key             text NOT NULL CHECK (btrim(key) <> ''),
-    sort_order      integer NOT NULL DEFAULT 0,
-    is_active       boolean NOT NULL DEFAULT true,
-    created_at_utc  timestamptz NOT NULL DEFAULT now(),
-    updated_at_utc  timestamptz NOT NULL DEFAULT now(),
-    -- Target of the composite foreign key from `customers` (same shape as 0018).
-    CONSTRAINT cities_org_scoped_uk UNIQUE (organization_id, id)
-);
+DO $mig$
+BEGIN
+    IF to_regclass('public.countries') IS NOT NULL THEN
+        RETURN;  -- cities became global reference data in 0028
+    END IF;
 
-CREATE UNIQUE INDEX IF NOT EXISTS cities_org_name_uk ON cities (organization_id, lower(btrim(name)));
-CREATE UNIQUE INDEX IF NOT EXISTS cities_org_key_uk ON cities (organization_id, key);
+    CREATE TABLE IF NOT EXISTS cities (
+        id              uuid PRIMARY KEY,
+        organization_id uuid NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+        name            text NOT NULL CHECK (btrim(name) <> ''),
+        key             text NOT NULL CHECK (btrim(key) <> ''),
+        sort_order      integer NOT NULL DEFAULT 0,
+        is_active       boolean NOT NULL DEFAULT true,
+        created_at_utc  timestamptz NOT NULL DEFAULT now(),
+        updated_at_utc  timestamptz NOT NULL DEFAULT now(),
+        -- Target of the composite foreign key from `customers` (same shape as 0018).
+        CONSTRAINT cities_org_scoped_uk UNIQUE (organization_id, id)
+    );
 
-ALTER TABLE cities ENABLE ROW LEVEL SECURITY;
-ALTER TABLE cities FORCE  ROW LEVEL SECURITY;
-REVOKE ALL ON cities FROM PUBLIC;
-GRANT SELECT, INSERT, UPDATE ON cities TO app_runtime;
+    CREATE UNIQUE INDEX IF NOT EXISTS cities_org_name_uk ON cities (organization_id, lower(btrim(name)));
+    CREATE UNIQUE INDEX IF NOT EXISTS cities_org_key_uk ON cities (organization_id, key);
 
-DROP POLICY IF EXISTS cities_tenant_isolation ON cities;
-CREATE POLICY cities_tenant_isolation ON cities
-    USING      (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid)
-    WITH CHECK (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid);
+    ALTER TABLE cities ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE cities FORCE  ROW LEVEL SECURITY;
+    REVOKE ALL ON cities FROM PUBLIC;
+    GRANT SELECT, INSERT, UPDATE ON cities TO app_runtime;
+
+    DROP POLICY IF EXISTS cities_tenant_isolation ON cities;
+    CREATE POLICY cities_tenant_isolation ON cities
+        USING      (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid)
+        WITH CHECK (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid);
+END $mig$;
 
 -- ===========================================================================
 -- 2. business_types
@@ -92,7 +105,13 @@ CREATE POLICY business_types_tenant_isolation ON business_types
 
 ALTER TABLE customers ADD COLUMN IF NOT EXISTS city_id          uuid;
 ALTER TABLE customers ADD COLUMN IF NOT EXISTS business_type_id uuid;
-ALTER TABLE customers ADD COLUMN IF NOT EXISTS contact_name     text;
+-- `contact_name` is retired by 0029 (contacts sub-table): never re-add it then.
+DO $mig$
+BEGIN
+    IF to_regclass('public.customer_contacts') IS NULL THEN
+        ALTER TABLE customers ADD COLUMN IF NOT EXISTS contact_name text;
+    END IF;
+END $mig$;
 
 -- RLS filters reads, not foreign-key checks, so the organization is part of
 -- the key: a customer can never reference another organization's city or
@@ -100,7 +119,8 @@ ALTER TABLE customers ADD COLUMN IF NOT EXISTS contact_name     text;
 -- reference is not checked. RESTRICT: no hard delete of a referenced entry.
 DO $$
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'customers_city_org_fk') THEN
+    IF to_regclass('public.countries') IS NULL
+       AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'customers_city_org_fk') THEN
         ALTER TABLE customers
             ADD CONSTRAINT customers_city_org_fk
             FOREIGN KEY (organization_id, city_id)

@@ -297,17 +297,18 @@ public static class CustomerEndpoints
     private static string? BlankToNull(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     /// <summary>
-    /// The composite foreign keys of 0027 refuse a city or business type that
-    /// does not exist in the caller's organization (another organization's id
-    /// is indistinguishable from an unknown one): a 400 on the offending field.
+    /// The foreign keys refuse a city that does not exist (global, 0028) or a
+    /// business type that is not in the caller's organization (another
+    /// organization's id is indistinguishable from an unknown one): a 400 on the
+    /// offending field.
     /// </summary>
     private static IResult? MasterDataReferenceProblem(PostgresException ex) =>
         ex.SqlState == PostgresErrorCodes.ForeignKeyViolation
             ? ex.ConstraintName switch
             {
-                "customers_city_org_fk" => Results.ValidationProblem(new Dictionary<string, string[]>
+                "customers_city_fk" => Results.ValidationProblem(new Dictionary<string, string[]>
                 {
-                    ["cityId"] = ["cityId does not match a city of this organization."],
+                    ["cityId"] = ["cityId does not match a city."],
                 }),
                 "customers_business_type_org_fk" => Results.ValidationProblem(new Dictionary<string, string[]>
                 {

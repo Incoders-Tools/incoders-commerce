@@ -2,7 +2,7 @@ namespace Commerce.Cloud.Api.Persistence;
 
 /// <summary>
 /// Input to the master data stores' Create: one entry of an organization-owned
-/// catalog (a city or a business type). The organization comes from the tenant
+/// catalog (a business type). The organization comes from the tenant
 /// scope, never from the request.
 /// </summary>
 public sealed record NewMasterDataEntry(Guid Id, string Name, string Key, int SortOrder, bool IsActive);
@@ -13,7 +13,7 @@ public sealed record NewMasterDataEntry(Guid Id, string Name, string Key, int So
 /// </summary>
 public sealed record UpdateMasterDataEntry(string Name, string? Key, int? SortOrder, bool? IsActive);
 
-/// <summary>Full persisted shape of one `cities` / `business_types` row.</summary>
+/// <summary>Full persisted shape of one `business_types` row.</summary>
 public sealed record MasterDataRecord(
     Guid Id,
     Guid OrganizationId,

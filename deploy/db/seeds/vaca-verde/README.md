@@ -1,7 +1,8 @@
 # Vaca Verde master data seed
 
-Versioned, idempotent SQL that loads Vaca Verde's cities, business types and
-customers into an organization named "Vaca Verde".
+Versioned, idempotent SQL that loads Vaca Verde's business types and customers
+into an organization named "Vaca Verde". Cities are not part of it any more:
+they are global Georef data (migration `0028`) and customers point at them.
 
 > **Contains real customer data** (names, phones, addresses, CUIT/DNI). Keeping
 > it in the repository is an explicit owner decision, so the same data travels
@@ -14,13 +15,14 @@ organization exists would be a permanent no-op. The seed resolves the
 organization **by name** (`lower(btrim(name)) = 'vaca verde'`) and the creating
 user from that organization's `business-admin` (`users.roles` contains it, not
 revoked, not a customer login). If either is missing it prints a `NOTICE` and
-changes nothing (no error). Schema lives in migration `0027`.
+changes nothing (no error). Schema lives in migrations `0027` (customer master
+data) and `0028` (core geography, which must be applied first).
 
 ## Contents
 
 | Table | Rows | Notes |
 | --- | --- | --- |
-| `cities` | 25 | 23 reference cities keep their original id, `sort_order`, `is_active` and `created_at_utc`/`updated_at_utc`; 2 new (Río Tala, San Nicolás). The reference city "Sarmiento" is renamed **Capitán Sarmiento** (key `capitan_sarmiento`, owner decision), everything else unchanged. |
+| `cities` | 0 created | Customers reference the global Georef locality by INDEC id (e.g. Capitán Sarmiento `06140010`, Río Tala `06770040`, "Capital Federal" -> Ciudad de Buenos Aires `02014010`, San Nicolás -> San Nicolás de los Arroyos `06763050`; the table is `CITY_INDEC` in `generate_seed.py`). Doyle and Urquiza have no unambiguous locality, so no customer points at them. The seed also restores the owner's original `created_at_utc`/`updated_at_utc` of those 23 mapped cities on the global rows, but only while a row still carries its load time (never over a later edit). |
 | `business_types` | 11 | Deterministic ids. |
 | `customers` | 87 | Wholesale, enabled, deduplicated; tax id split out of observations (`Cuit`/`Dni`/`None`); other observations in `notes`. |
 
@@ -67,8 +69,7 @@ If the owner role is subject to row level security, scope the session first:
 ## Idempotency guarantees
 
 - One transaction: all or nothing.
-- Every row has a deterministic id (reference cities keep theirs; the rest use
-  `md5('vaca-verde:<kind>:<key>')::uuid`) and is inserted with
+- Every row has a deterministic id (`md5('vaca-verde:<kind>:<key>')::uuid`) and is inserted with
   `ON CONFLICT DO NOTHING`, which also covers the unique name and key indexes.
 - Re-running adds nothing and **never overwrites** edits made later in the app.
 - Without the organization or its business admin: a `NOTICE`, no changes.

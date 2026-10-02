@@ -15,7 +15,7 @@ using Npgsql;
 namespace Commerce.Integration;
 
 /// <summary>
-/// customer-master-data: organization-scoped Cities and Business Types
+/// customer-master-data: the organization-scoped Business Types catalog
 /// (read for any staff user, write needs ManageUsers, soft-disable only), and
 /// the customer endpoints carrying city, business type, contact name, Dni and
 /// the list filters.
@@ -121,9 +121,15 @@ public sealed class CustomerMasterDataEndpointTests : IClassFixture<WebApplicati
         cityId, businessTypeId, contactName,
     };
 
+    /// <summary>The first Georef locality named exactly <paramref name="name"/> in Buenos Aires province.</summary>
+    private static async Task<Guid> GeorefCityAsync(HttpClient client, string name)
+    {
+        var list = await client.GetFromJsonAsync<JsonElement>($"/geo/cities?search={Uri.EscapeDataString(name)}&provinceId=06&limit=50");
+        return list.EnumerateArray().First(c => c.GetProperty("name").GetString() == name).GetProperty("id").GetGuid();
+    }
+
     public static TheoryData<string, string> Catalogs => new()
     {
-        { "/customers/cities", "city" },
         { "/customers/business-types", "business_type" },
     };
 
@@ -252,9 +258,8 @@ public sealed class CustomerMasterDataEndpointTests : IClassFixture<WebApplicati
         if (!_postgresAvailable) return;
         await BootstrapAsync("md-cust@example.com");
         var admin = await SignInAsync("md-cust@example.com");
-        var city = await PostOkAsync(admin, "/customers/cities", new { name = "Moreno" });
         var type = await PostOkAsync(admin, "/customers/business-types", new { name = "Bar" });
-        var cityId = city.GetProperty("id").GetGuid();
+        var cityId = await GeorefCityAsync(admin, "Moreno");
         var typeId = type.GetProperty("id").GetGuid();
 
         var created = await PostOkAsync(admin, "/customers",
@@ -293,19 +298,14 @@ public sealed class CustomerMasterDataEndpointTests : IClassFixture<WebApplicati
     }
 
     [Fact]
-    public async Task Customer_WithACityOrBusinessTypeOfAnotherOrganization_Returns400()
+    public async Task Customer_WithAnUnknownCityOrABusinessTypeOfAnotherOrganization_Returns400()
     {
         if (!_postgresAvailable) return;
         await BootstrapAsync("md-x-a@example.com");
         await BootstrapAsync("md-x-b@example.com");
         var adminA = await SignInAsync("md-x-a@example.com");
         var adminB = await SignInAsync("md-x-b@example.com");
-        var cityOfB = (await PostOkAsync(adminB, "/customers/cities", new { name = "Moreno" })).GetProperty("id").GetGuid();
         var typeOfB = (await PostOkAsync(adminB, "/customers/business-types", new { name = "Bar" })).GetProperty("id").GetGuid();
-
-        var foreignCity = await adminA.PostAsJsonAsync("/customers", CustomerBody("Cliente", cityId: cityOfB));
-        Assert.Equal(HttpStatusCode.BadRequest, foreignCity.StatusCode);
-        Assert.Contains("cityId", await foreignCity.Content.ReadAsStringAsync());
 
         var foreignType = await adminA.PostAsJsonAsync("/customers", CustomerBody("Cliente", businessTypeId: typeOfB));
         Assert.Equal(HttpStatusCode.BadRequest, foreignType.StatusCode);
@@ -313,6 +313,7 @@ public sealed class CustomerMasterDataEndpointTests : IClassFixture<WebApplicati
 
         var unknown = await adminA.PostAsJsonAsync("/customers", CustomerBody("Cliente", cityId: Guid.NewGuid()));
         Assert.Equal(HttpStatusCode.BadRequest, unknown.StatusCode);
+        Assert.Contains("cityId", await unknown.Content.ReadAsStringAsync());
     }
 
     [Fact]
@@ -321,8 +322,8 @@ public sealed class CustomerMasterDataEndpointTests : IClassFixture<WebApplicati
         if (!_postgresAvailable) return;
         await BootstrapAsync("md-list@example.com");
         var admin = await SignInAsync("md-list@example.com");
-        var moreno = (await PostOkAsync(admin, "/customers/cities", new { name = "Moreno" })).GetProperty("id").GetGuid();
-        var merlo = (await PostOkAsync(admin, "/customers/cities", new { name = "Merlo" })).GetProperty("id").GetGuid();
+        var moreno = await GeorefCityAsync(admin, "Moreno");
+        var merlo = await GeorefCityAsync(admin, "Merlo");
         var bar = (await PostOkAsync(admin, "/customers/business-types", new { name = "Bar" })).GetProperty("id").GetGuid();
         var resto = (await PostOkAsync(admin, "/customers/business-types", new { name = "Restaurante" })).GetProperty("id").GetGuid();
 
@@ -352,7 +353,7 @@ public sealed class CustomerMasterDataEndpointTests : IClassFixture<WebApplicati
         if (!_postgresAvailable) return;
         await BootstrapAsync("md-put@example.com");
         var admin = await SignInAsync("md-put@example.com");
-        var city = (await PostOkAsync(admin, "/customers/cities", new { name = "Moreno" })).GetProperty("id").GetGuid();
+        var city = await GeorefCityAsync(admin, "Moreno");
         var type = (await PostOkAsync(admin, "/customers/business-types", new { name = "Bar" })).GetProperty("id").GetGuid();
         var id = (await PostOkAsync(admin, "/customers", CustomerBody("Bar Pepe", cityId: city, businessTypeId: type, contactName: "Pepe")))
             .GetProperty("customerId").GetGuid();

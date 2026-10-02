@@ -5,8 +5,8 @@ using Npgsql;
 namespace Commerce.Cloud.Api.Persistence;
 
 /// <summary>
-/// Npgsql-backed store for the organization-owned customer catalogs (cities
-/// and business types), shaped like <see cref="PostgresCategoryStore"/>: every
+/// Npgsql-backed store for the organization-owned customer catalog (business
+/// types; cities became global in 0028), shaped like <see cref="PostgresCategoryStore"/>: every
 /// method opens its own transaction, `set_config` is the first statement and
 /// mutations write their audit row in the same transaction. There is no
 /// delete: an entry is disabled through <c>IsActive</c> so customers keep their
@@ -145,12 +145,6 @@ public abstract class PostgresMasterDataStore
         await tx.CommitAsync(ct);
         return updated;
     }
-}
-
-/// <summary>Organization-owned cities (`cities`); audit entity "city".</summary>
-public sealed class PostgresCityStore : PostgresMasterDataStore
-{
-    public PostgresCityStore(NpgsqlDataSource dataSource) : base(dataSource, "cities", "city") { }
 }
 
 /// <summary>Organization-owned business types (`business_types`); audit entity "business_type".</summary>

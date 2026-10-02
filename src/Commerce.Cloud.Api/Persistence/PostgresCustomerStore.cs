@@ -56,23 +56,27 @@ public sealed class PostgresCustomerStore
         CityName: reader.IsDBNull(25) ? null : reader.GetString(25),
         BusinessTypeId: reader.IsDBNull(26) ? null : reader.GetGuid(26),
         BusinessTypeName: reader.IsDBNull(27) ? null : reader.GetString(27),
-        ContactName: reader.IsDBNull(28) ? null : reader.GetString(28));
+        ContactName: reader.IsDBNull(28) ? null : reader.GetString(28),
+        ProvinceId: reader.IsDBNull(29) ? null : reader.GetString(29),
+        ProvinceName: reader.IsDBNull(30) ? null : reader.GetString(30));
 
-    // The two LEFT JOINs resolve the display names of the optional city and
-    // business type; the composite key keeps them inside the row's organization.
+    // The LEFT JOINs resolve the display names of the optional city (global
+    // geography, with its province) and business type (organization catalog;
+    // the composite key keeps it inside the row's organization).
     private const string SelectColumns =
         """
         c.id, c.organization_id, c.customer_kind, c.display_name, c.legal_name, c.tax_id_type, c.tax_id,
         c.tax_condition, c.phone, c.email, c.address_street, c.address_number, c.neighborhood, c.locality,
         c.province, c.postal_code, c.delivery_notes, c.discount_percentage, c.payment_terms, c.notes,
         c.is_enabled, c.created_at_utc, c.created_by_user_id, c.updated_at_utc,
-        c.city_id, ci.name, c.business_type_id, bt.name, c.contact_name
+        c.city_id, ci.name, c.business_type_id, bt.name, c.contact_name, ci.province_id, pr.name
         """;
 
     private const string FromClause =
         """
         customers c
-        LEFT JOIN cities ci ON ci.organization_id = c.organization_id AND ci.id = c.city_id
+        LEFT JOIN cities ci ON ci.id = c.city_id
+        LEFT JOIN provinces pr ON pr.id = ci.province_id
         LEFT JOIN business_types bt ON bt.organization_id = c.organization_id AND bt.id = c.business_type_id
         """;
 
@@ -403,7 +407,21 @@ internal static class CustomerSearchTerm
             }
         }
 
-        var decomposed = term.ToLowerInvariant().Normalize(NormalizationForm.FormD);
+        return FoldForLike(term);
+    }
+
+    /// <summary>
+    /// Lowercase, accents removed, LIKE wildcards escaped (no tax-id handling):
+    /// the term of free-text lookups such as the city picker. Null when blank.
+    /// </summary>
+    public static string? FoldForLike(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return null;
+        }
+
+        var decomposed = raw.Trim().ToLowerInvariant().Normalize(NormalizationForm.FormD);
         var folded = new StringBuilder(decomposed.Length);
         foreach (var ch in decomposed)
         {
