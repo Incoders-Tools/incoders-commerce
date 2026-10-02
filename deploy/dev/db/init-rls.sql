@@ -7652,7 +7652,7 @@ REVOKE ALL ON stock_movements    FROM PUBLIC;
 REVOKE ALL ON stock_minimums     FROM PUBLIC;
 REVOKE ALL ON presentation_costs FROM PUBLIC;
 GRANT SELECT, INSERT         ON stock_movements    TO app_runtime;   -- no UPDATE, no DELETE: append-only
-GRANT SELECT, INSERT, UPDATE ON stock_minimums     TO app_runtime;
+GRANT SELECT, INSERT, UPDATE, DELETE ON stock_minimums TO app_runtime;   -- a minimum can be cleared
 GRANT SELECT, INSERT         ON presentation_costs TO app_runtime;   -- append-only
 
 DROP POLICY IF EXISTS stock_movements_tenant_isolation ON stock_movements;
