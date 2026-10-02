@@ -125,6 +125,23 @@ of them. Licence/attribution to be confirmed and recorded in the README.
 - Decisions (round 2): the global table keeps the name `cities` (the organization table is renamed to `org_cities_retired` inside 0028, mapped and dropped, so the final schema reads `customers.city_id -> cities`); migrations 0027 gained re-run guards so the whole chain can still be re-applied after 0028/0029 (the test fixtures do that); Buenos Aires city is Georef's province `02` with its barrios and the representative locality `02014010` ("Capital Federal" maps to it); the Georef data licence (CC BY 4.0) was read from the datos.gob.ar catalogue metadata, the attribution wording is marked unverified in the README; the seed restores the owner's original city audit dates on the global rows only while a row is untouched (created = updated and later than the original).
 - City mapping of the 25 owner cities (migration NOTICEs): mapped 23, unmapped 2 (Doyle: only "Pueblo Doyle" 06770030 exists; Urquiza: ambiguous, candidates Villa Urquiza CABA 0208401004 / Villa Urquiza Entre Rios 30084300 / General Urquiza Misiones 54098040). San Nicolas mapped by name prefix to San Nicolas de los Arroyos (06763050) and Cordoba/Santiago del Estero by exact name outside Buenos Aires: owner to confirm. No customer used Doyle or Urquiza.
 
+## Review round 2 (owner granted all four slices, 2026-10-02)
+
+- Fixes `c8166f1..3cdbe7d`: approved, acknowledged (`review-edc13e1cd5ed2cf7`).
+- Geography `3cdbe7d..528d84e`: **not reviewed** - `lens_context_budget_exceeded` (10487 lines, mostly generated Georef data); no authority created.
+- Contacts `528d84e..d3f9bf9`: approved, 4 lenses, acknowledged (`review-5a02ae9afc8e382e`).
+- Web + seed fix `d3f9bf9..c4b5b33`: approved, 4 lenses, acknowledged.
+- Seed contact names kept whole (owner decision): `22cbdae`; local data repaired.
+
+### Follow-ups (round 2, non-blocking)
+
+- [ ] G1 Customer PUT with a stale token on a missing customer returns 409 instead of 404 (`PostgresCustomerStore.cs:225-229`).
+- [ ] G2 Re-running the seed re-inserts a contact the owner deleted (`001_vaca_verde_master_data.sql:216-263`).
+- [ ] G3 Migration 0029 drops `contact_name`: deploy the new API before/with the migration (old binary breaks) (`0029_customer_contacts.sql:104`).
+- [ ] G4 Web: replace-set contacts can wipe contacts added concurrently; clearing the city leaves a stale name (`CustomerForm.tsx:102-106`, `193-198`).
+- [ ] G5 Cities screen: toggling active ignores the active filter and can show a stale name (`CitiesScreen.tsx:96-108`).
+- [ ] G6 The contacts-editor Vitest case runs close to the 5 s timeout and timed out under load (`CustomerForm.test.tsx`, "adds contacts, makes the first one primary...").
+
 ## Next step
 
 Owner review of `deploy/db/seeds/vaca-verde/report.md` (open questions: possible duplicates, "Ruta 9" locality, customers without city or business type); then promote `dev` to `main` and run the README runbook per environment once the organization is provisioned there.
