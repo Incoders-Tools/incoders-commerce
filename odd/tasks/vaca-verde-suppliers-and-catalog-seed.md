@@ -41,9 +41,9 @@ deletion for products so seeded examples can be retired later.
 
 ## Tasks
 
-- [ ] T1 Product soft deletion: `is_active` on products, catalog endpoints to deactivate/reactivate, lists and POS replica exclude inactive by default, web catalog toggle (route: delegated writer A)
-- [ ] T2 Supplier seed: normalize the 10 suppliers (cities on core geography, contacts, supplier category "Carne"), versioned idempotent seed + tests (route: delegated writer B)
-- [ ] T3 Catalog seed: categories, products + Weighted "Por kg" presentations with codes 001..., price lists Mostrador (default) / Reparto (+ list-specific rate set) / Clientes with entries, provisional milanesa; review report for the owner (route: delegated writer B)
+- [x] T1 Product soft deletion: `is_active` on products, catalog endpoints to deactivate/reactivate, lists and POS replica exclude inactive by default, web catalog toggle (route: delegated writer A)
+- [x] T2 Supplier seed: normalize the 10 suppliers (cities on core geography, contacts, supplier category "Carne"), versioned idempotent seed + tests (route: delegated writer B)
+- [x] T3 Catalog seed: categories, products + Weighted "Por kg" presentations with codes 001..., price lists Mostrador (default) / Reparto (+ list-specific rate set) / Clientes with entries, provisional milanesa; review report for the owner (route: delegated writer B)
 
 ## Acceptance criteria
 
@@ -64,7 +64,19 @@ deletion for products so seeded examples can be retired later.
 ## Progress
 
 - Feature document created 2026-10-02.
+- T1 `29e0b30` (migration 0036, API, POS replica removals) + `00ef172` (web): RED 5/6 backend and 5 web tests failing first; GREEN ProductSoftDeleteTests 6/6, CatalogScreen 18/18.
+- T2 `75438a6`, T3 `191e9ba`: RED 9/9 seed tests (missing 002/003); GREEN 9/9; the wider VacaVerde* run (25) was flaky only while two writers shared `commerce_test` (40P01 deadlocks).
+- Local `commerce_dev`: 9 suppliers, 8 contacts; 8 categories, 90 products / presentations / distinct codes; Mostrador (default) 74 entries, Reparto 25 (+ list-specific 4-component set), Clientes 24. Asado completo: Reparto 15370, Clientes 14500. Owner flags: `deploy/db/seeds/vaca-verde/report-catalogo.md` (23).
+- Parent full `dotnet test` at `29e0b30`: Integration 2008 passed, 1 failed (known PublicRateLimitTests), 0 skipped; Upgrade 123; Bootstrap 1. Web `npm test` 533/533 (writer A).
+- Reviews (owner granted): seeds `bf363d7..191e9ba` approved, 4 lenses (`review-519de94b6008b5bd`); soft delete `191e9ba..29e0b30` approved, 4 lenses (`review-9b13eab95c0e9a06`).
+
+## Follow-ups (non-blocking review findings)
+
+- [ ] V1 Seed price-list deterministic ids are not organization-scoped (`003_vaca_verde_catalog.sql:335-349`); scope the id by organization before any second tenant seeds lists.
+- [ ] V2 Supplier contacts (third-party personal data) are committed, like customers (accepted by the owner for customers; confirm for suppliers).
+- [ ] V3 Seed generator hardcodes supplier normalizations and duplicates the rate multiplier; report assertions can go stale (`generate_suppliers_catalog.py`).
+- [ ] V4 Deactivation dialog title names the presentation instead of the product (`CatalogScreen.tsx:296`); guest catalog exclusion of inactive products is unproved by a test.
 
 ## Next step
 
-T1 (writer A) and T2-T3 (writer B) in parallel.
+Owner review of the catalog report; then the per-customer price list feature.
