@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """Generate 002_vaca_verde_suppliers.sql, 003_vaca_verde_catalog.sql and report-catalogo.md.
 
+004_vaca_verde_customer_price_lists.sql is NOT generated: it derives everything from the rows 003 loaded.
+
 The owner's spreadsheets live outside the repository; their paths are arguments:
 
     python generate_suppliers_catalog.py \
@@ -25,6 +27,10 @@ from generate_seed import q, slug
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 EFFECTIVE_FROM = "2026-10-01"
+
+# Lists that are LOADED. The "Lista Clientes" sheet is still read (it names some products and carries owner
+# notes) but is no longer a price list: customers are priced from Reparto (004_vaca_verde_customer_price_lists.sql).
+PERSISTED_LISTS = ("Mostrador", "Reparto")
 
 # Georef localities (cities.indec_id), looked up in the loaded core geography table.
 INDEC = {
@@ -417,11 +423,22 @@ COMMIT;
     return "\n".join(out), len(crow)
 
 
+MOSTRADOR_BASE_FROM = "2026-10-02"
+
+
+def mostrador_base(prices):
+    """What 004 publishes as Mostrador's BASE price: Reparto's base where the product exists there, else final / 1.48."""
+    out = {}
+    for name, final in prices["Mostrador"].items():
+        out[name] = prices["Reparto"][name] if name in prices["Reparto"] else (final / Decimal("1.48")).quantize(Decimal("0.01"), rounding="ROUND_HALF_UP")
+    return out
+
+
 def catalog_sql(products, prices):
     out = [header(
         "Vaca Verde catalog seed: product categories, products, presentations and price lists.",
-        "-- Branch \"Ruta 51\" hosts the butcher shop and the distribution: one catalog, three price lists\n"
-        "-- (Mostrador = default, Reparto = base + list-specific rate components, Clientes = final prices).\n"
+        "-- Branch \"Ruta 51\" hosts the butcher shop and the distribution: one catalog, two price lists\n"
+        "-- (Mostrador = default, final prices here and base prices from 004; Reparto = base + list-specific rate components).\n"
         "-- Product codes 001... are provisional (scale integration will replace them).",
         "003_vaca_verde_catalog.sql", True)]
 
@@ -470,7 +487,7 @@ ON CONFLICT DO NOTHING;
 --   * an existing list with the same name (case-insensitive) is reused;
 --   * the branch's untouched empty "Default" list (the one provisioning creates) becomes "Mostrador";
 --   * otherwise the list is created. Mostrador is created as the default only when the branch has none
---     (price_lists_one_default_per_branch allows one); Reparto and Clientes never are.
+--     (price_lists_one_default_per_branch allows one); Reparto never is.
 CREATE TEMP TABLE _vv_lists (key text PRIMARY KEY, id uuid NOT NULL) ON COMMIT DROP;
 
 DO $$
@@ -495,7 +512,7 @@ BEGIN
                       WHERE o.organization_id = c.organization_id AND o.branch_id = c.branch_id
                         AND lower(btrim(o.name)) = 'mostrador');
 
-    FOREACH k IN ARRAY ARRAY['mostrador', 'reparto', 'clientes'] LOOP
+    FOREACH k IN ARRAY ARRAY['mostrador', 'reparto'] LOOP
         n := initcap(k);
         SELECT pl.id INTO v_id
         FROM price_lists pl
@@ -524,7 +541,7 @@ END $$;
 """)
 
     erows = []
-    for lst in ("Mostrador", "Reparto", "Clientes"):
+    for lst in PERSISTED_LISTS:
         for name, price in sorted(prices[lst].items(), key=lambda kv: fold(kv[0])):
             erows.append([q(lst.lower()), q(slug(name)), q(str(price)), ])
     out.append(f"-- Entries (effective from {EFFECTIVE_FROM}). Reparto holds the BASE price; its rate set composes it.")
@@ -547,7 +564,7 @@ ON CONFLICT DO NOTHING;
     comps = [("IVA", "IVA (10,5%)", "10.5", 1), ("IB", "Ingresos Brutos (2,5%)", "2.5", 2),
              ("FLETE", "Flete (7%)", "7", 3), ("REMARCACION", "Remarcación (25%)", "25", 4)]
     out.append("""-- Reparto's rate components: LIST-SPECIFIC (price_list_id = Reparto, never the organization default),
--- so Mostrador and Clientes are not composed. All four apply to the base: base x 1.45.
+-- so Mostrador is not composed by this seed (004 gives it its own set). All four apply to the base: base x 1.45.
 INSERT INTO rate_component_sets (id, organization_id, branch_id, price_list_id, effective_from, created_by_user_id)
 SELECT md5('vaca-verde:rate-set:reparto:{d}')::uuid, c.organization_id, c.branch_id, l.id, DATE '{d}', c.user_id
 FROM _vv_seed_ctx c
@@ -596,9 +613,10 @@ def report(suppliers, products, prices, notes, reparto, flags, merges, contact_c
     a(f"| Categorías de productos | {len(CATEGORIES)} (Almacén y Bebidas vacías) |")
     a(f"| Productos | {len(products)} |")
     a(f"| Presentaciones («Por kg», pesables, kg) | {len(products)} |")
-    for lst in ("Mostrador", "Reparto", "Clientes"):
+    for lst in PERSISTED_LISTS:
         a(f"| Precios en la lista {lst} | {len(prices[lst])} |")
     a("| Conjunto de tasas | 1, solo de la lista Reparto (IVA 10,5 %, IB 2,5 %, Flete 7 %, Remarcación 25 %, todas sobre la base) |")
+    a("| Lista Clientes | no se carga (los clientes se precian con Reparto) |")
     a("")
     a(f"Todos los precios rigen desde el {EFFECTIVE_FROM[8:]}/{EFFECTIVE_FROM[5:7]}/{EFFECTIVE_FROM[:4]}. "
       "La sucursal es «Ruta 51». Volver a correr el seed no cambia nada.")
@@ -628,20 +646,20 @@ def report(suppliers, products, prices, notes, reparto, flags, merges, contact_c
             a("Sin productos por ahora.")
             a("")
             continue
-        a("| Código | Producto | Mostrador | Reparto (base) | Clientes |")
-        a("| --- | --- | --- | --- | --- |")
+        a("| Código | Producto | Mostrador (final, 01/10) | Reparto (base) |")
+        a("| --- | --- | --- | --- |")
         for p in items:
             def pr(lst):
                 v = prices[lst].get(p["name"])
                 return money(v) if v is not None else "—"
-            a(f"| {p['code']} | {p['name']} | {pr('Mostrador')} | {pr('Reparto')} | {pr('Clientes')} |")
+            a(f"| {p['code']} | {p['name']} | {pr('Mostrador')} | {pr('Reparto')} |")
         a("")
     a("Los códigos 001, 002, … son **provisorios**: se asignan por categoría y luego por nombre, y se reemplazarán cuando se integre la balanza.")
     a("")
     a("## Productos unidos (un mismo corte en varias listas)")
     a("")
     a("Un corte presente en varias planillas es **un solo producto** con un precio por lista. "
-      "Los siguientes aparecen a la vez en las listas de reparto/clientes y en las de mostrador (las hojas «Vacuna» y «MEDIA» son idénticas):")
+      "Los siguientes aparecen a la vez en las listas de reparto y en las de mostrador (las hojas «Vacuna» y «MEDIA» son idénticas):")
     a("")
     for name, srcs in merges:
         if {"Reparto", "Clientes"} & set(srcs) and {"Vacuna", "MEDIA"} & set(srcs):
@@ -689,29 +707,33 @@ def report(suppliers, products, prices, notes, reparto, flags, merges, contact_c
         a("")
     else:
         flag(f"Reparto: base × 1,45 coincide con el PRECIO FINAL de la planilla en los {len(prices['Reparto'])} cortes.")
-    odd = []
-    for name, v in sorted(prices["Mostrador"].items(), key=lambda kv: fold(kv[0])):
-        cl = prices["Clientes"].get(name)
-        if cl is not None and v < cl:
-            odd.append((name, v, cl))
-    if odd:
-        flag("**Mostrador más barato que Clientes** (lo habitual es al revés):")
-        a("")
-        for name, v, cl in odd:
-            a(f"   - {name}: Mostrador {money(v)} < Clientes {money(cl)}.")
-        a("")
+    # The Mostrador base prices of 004 (Reparto's base where the product exists there, else final / 1.48).
+    derived = mostrador_base(prices)
+    below = [(n, b * Decimal("1.48"), prices["Reparto"][n] * Decimal("1.45"))
+             for n, b in derived.items() if n in prices["Reparto"] and b * Decimal("1.48") < prices["Reparto"][n] * Decimal("1.45")]
+    shared = sum(1 for n in derived if n in prices["Reparto"])
+    counter_only = len(derived) - shared
+    flag(f"**Mostrador pasa a precio base** (seed 004, rige desde {MOSTRADOR_BASE_FROM[8:]}/{MOSTRADOR_BASE_FROM[5:7]}/{MOSTRADOR_BASE_FROM[:4]}): "
+         "IVA 10,5 % + IB 2,5 % + Remarcación 35 % sobre la base (sin flete, ×1,48). La base de cada corte que también está en Reparto es la base de Reparto "
+         f"({shared} cortes, p. ej. Bola de lomo: 11.400 × 1,48 = 16.872 contra 18.000 antes); "
+         f"la de los cortes que solo se venden en mostrador sale del precio final cargado dividido 1,48 y redondeado a centavos ({counter_only} cortes, p. ej. Lengua: 11.570 / 1,48 = 7.817,57). "
+         "Los precios anteriores de Mostrador quedan en el historial.")
+    if below:
+        flag("**Mostrador quedaría por debajo de Reparto** (la lista Mostrador tiene a Reparto como piso): "
+             + ", ".join(f"{n} ({money(m)} < {money(r)})" for n, m, r in below) + ".")
+    else:
+        flag("Piso de Mostrador: ningún corte con precio en las dos listas queda por debajo de Reparto (×1,48 contra ×1,45 sobre la misma base). "
+             "Los cortes que solo se venden en mostrador no tienen precio de Reparto con qué comparar.")
+    flag("Mostrador baja respecto del precio final anterior en los cortes que también están en Reparto. "
+         "La «Lista Clientes» original (14.500 para Asado completo) no se carga: Reparto compone ese corte en 15.370.")
     no_mostrador = sorted((p["name"] for p in products if p["name"] not in prices["Mostrador"] and p["name"] != PROVISIONAL),
                           key=fold)
-    flag(f"Productos **sin precio en Mostrador** ({len(no_mostrador)}; solo existen en las listas de Reparto/Clientes o no tienen precio): "
+    flag(f"Productos **sin precio en Mostrador** ({len(no_mostrador)}; solo existen en la lista de Reparto o no tienen precio): "
          + ", ".join(no_mostrador) + ".")
     only_retail = sorted((p["name"] for p in products if p["category"] == "Vacuno" and p["name"] not in prices["Reparto"]
                           and p["name"] in prices["Mostrador"]), key=fold)
-    flag("Cortes de mostrador **sin precio en Reparto ni Clientes** (esas planillas son de cortes al por mayor): "
+    flag("Cortes de mostrador **sin precio en Reparto** (esa planilla es de cortes al por mayor): "
          + ", ".join(only_retail) + ".")
-    sin_cliente = sorted((n for n in prices["Reparto"] if n not in prices["Clientes"]), key=fold)
-    if sin_cliente:
-        flag("**Sin precio en Clientes** aunque tienen precio en Reparto (la planilla «Lista Clientes» no los incluye): "
-             + ", ".join(sin_cliente) + ".")
     flag("**«Nalga» (mostrador) y «Nalga con tapa» / «Nalga sin tapa» / «Nalga feteada» (reparto)** quedaron como productos distintos "
          "porque no son el mismo nombre. «Cuadrada», «Matambre», «Paleta», «Peceto», «Tapa de asado», «Tapa de nalga», "
          "«Colita de cuadril», «Entraña», «Entraña vaca congelada», «Vacío» y «Bola de lomo» sí se unieron entre listas. Avisá si querés unir o separar alguno.")
@@ -761,7 +783,7 @@ def main():
         with open(os.path.join(a.out_dir, name), "w", encoding="utf-8", newline="\n") as f:
             f.write(content)
     print(f"suppliers={len(suppliers)} contacts={contacts} categories={len(CATEGORIES)} products={len(products)} "
-          f"mostrador={len(prices['Mostrador'])} reparto={len(prices['Reparto'])} clientes={len(prices['Clientes'])}")
+          f"mostrador={len(prices['Mostrador'])} reparto={len(prices['Reparto'])}")
 
 
 if __name__ == "__main__":

@@ -76,7 +76,7 @@ If the owner role is subject to row level security, scope the session first:
 - Re-running adds nothing and **never overwrites** edits made later in the app (including the number format).
 - Without the organization or its business admin: a `NOTICE`, no changes.
 
-## Suppliers and catalog (`002`, `003`)
+## Suppliers, catalog and customer price lists (`002`, `003`, `004`)
 
 Applied in file-name order after `001` (`deploy/dev/provision-admin.ps1` applies every `*.sql` here, sorted).
 Schema: suppliers `0030`, catalog `0009`/`0016`/`0018`, pricing `0009`/`0013`/`0014`/`0017`.
@@ -87,15 +87,27 @@ branch named **"Ruta 51"** (the only branch of Vaca Verde: butcher shop and dist
 | File | Rows | Notes |
 | --- | --- | --- |
 | `002_vaca_verde_suppliers.sql` | 1 category, 9 suppliers, 8 contacts | Supplier category "Carne". The two "Villarino ... FRIMSA" rows are one supplier, "Frimsa", with two contacts. Cities are Georef rows by INDEC id (Rosario `82084270`, Pilar `06638040`, Munro `0686101005`, CABA `02014010`, Merlo `06539010`, San Pedro `06770050`). Contact names are split only when the cell clearly holds first + last name. |
-| `003_vaca_verde_catalog.sql` | 8 categories, 90 products, 90 presentations, 3 price lists, 123 entries, 1 rate set | Categories Vacuno, Cerdo, Embutidos, Pollo, Achuras, Milanesas, Almacén, Bebidas (the last two empty). Each product has one Weighted "Por kg" presentation (unit = `md5('vaca-verde:unit:kg')::uuid`, there is no units table) with a **provisional** code `001`... ordered by category, then name; scale integration replaces them later. |
+| `003_vaca_verde_catalog.sql` | 8 categories, 90 products, 90 presentations, 2 price lists, 99 entries, 1 rate set | Categories Vacuno, Cerdo, Embutidos, Pollo, Achuras, Milanesas, Almacén, Bebidas (the last two empty). Each product has one Weighted "Por kg" presentation (unit = `md5('vaca-verde:unit:kg')::uuid`, there is no units table) with a **provisional** code `001`... ordered by category, then name; scale integration replaces them later. |
 
-Price lists of "Ruta 51", all effective from 2026-10-01:
+Price lists of "Ruta 51" as `003` loads them, all effective from 2026-10-01:
 
-- **Mostrador**: the default list; final retail prices (Vacuna, Cerdo, Pollo, Achuras "Precio con aumento").
+- **Mostrador**: the default list; final retail prices (Vacuna, Cerdo, Pollo, Achuras "Precio con aumento"). `004` turns them into base prices.
 - **Reparto**: base prices (PRECIO BASE) with a **list-specific** rate component set (IVA 10.5 %, IB 2.5 %, Flete 7 %,
   Remarcación 25 %, all on the base: x 1.45, e.g. Asado completo 10.600 -> 15.370). It is never the organization
-  default set, so Mostrador and Clientes are not composed.
-- **Clientes**: final prices from "Lista Clientes", no composition (Asado completo 14.500).
+  default set.
+- The sheet "Lista Clientes" is still read for product names and owner notes but is **no longer a price list**: customers are priced from Reparto.
+
+`004_vaca_verde_customer_price_lists.sql` (hand-maintained, not generated; needs migration `0037`) derives everything from what `003`
+loaded and is safe on a fresh environment and on one where an older `003` already ran:
+
+| Step | Effect | Guard |
+| --- | --- | --- |
+| Mostrador base prices | New entries effective **2026-10-02** (the 10-01 finals stay as history): Reparto's base where Reparto sells the product (11 cuts, Bola de lomo 11.400), else `round(final / 1.48, 2)` (63 cuts, Lengua 7.817,57) | only while Mostrador has no rate set of its own and its current entry is the seeded one |
+| Mostrador rate set | List-specific, effective 2026-10-02: IVA 10.5 % + IB 2.5 % + Remarcación 35 % on the base, no flete (x 1.48: Bola de lomo 16.872, Reparto 16.530) | same |
+| Floor | Mostrador's `floor_price_list_id` = Reparto | same run, only while unset |
+| Organization default customer list | Reparto | only while unset and no `organization.settings_updated` audit row |
+| Customers | every customer without a list gets Reparto | only `price_list_id IS NULL` |
+| Clientes | the list and its seeded entries are deleted | only when no customer, default, floor or rate set references it and every entry is a 2026-10-01 one |
 
 If the branch already has an untouched empty list named "Default" (what provisioning creates), it is renamed to
 Mostrador. If it has a different default list, Mostrador is created as a non-default list (a `NOTICE` says so).
@@ -108,5 +120,5 @@ python generate_suppliers_catalog.py --proveedores "Proveedores Lista.xlsx" --ac
     --precios "Precios Vaca Verde Reparto con Porcentajes.xlsx" --vacuno-cerdo-pollo "Vacuno Cerdo Pollo.xlsx"
 ```
 
-It rewrites `002`, `003` and `report-catalogo.md` (Spanish: counts, merges, renames and the "Para revisar" list for
+It rewrites `002`, `003` and `report-catalogo.md` (never `004`) (Spanish: counts, merges, renames and the "Para revisar" list for
 the owner). Never edit those files by hand.

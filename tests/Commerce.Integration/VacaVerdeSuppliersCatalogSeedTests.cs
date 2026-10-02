@@ -9,12 +9,13 @@ namespace Commerce.Integration;
 /// <summary>
 /// `deploy/db/seeds/vaca-verde/002_vaca_verde_suppliers.sql` and `003_vaca_verde_catalog.sql`: the versioned,
 /// idempotent seeds with Vaca Verde's real suppliers and its butcher-shop / distribution catalog (categories,
-/// products, "Por kg" presentations, and the Mostrador / Reparto / Clientes price lists of branch "Ruta 51").
+/// products, "Por kg" presentations, and the Mostrador / Reparto price lists of branch "Ruta 51"). The customer
+/// price lists seed (`004`) is covered in the `.CustomerLists` part of this class.
 /// Both resolve the organization by name, the creating user from its business admin (and the catalog also the
 /// branch by name) and do nothing when any of them is missing.
 /// </summary>
 [Collection("Postgres")]
-public sealed class VacaVerdeSuppliersCatalogSeedTests
+public sealed partial class VacaVerdeSuppliersCatalogSeedTests
 {
     private const int ExpectedSuppliers = 9;
     private const int ExpectedSupplierContacts = 8;
@@ -22,7 +23,6 @@ public sealed class VacaVerdeSuppliersCatalogSeedTests
     private const int ExpectedProducts = 90;
     private const int ExpectedMostradorEntries = 74;
     private const int ExpectedRepartoEntries = 25;
-    private const int ExpectedClientesEntries = 24;
     private static readonly DateOnly ResolveOn = new(2026, 10, 2);
 
     private readonly bool _postgresAvailable = PostgresTestFixture.TryPing(PostgresTestFixture.OwnerConnectionString);
@@ -63,6 +63,8 @@ public sealed class VacaVerdeSuppliersCatalogSeedTests
     private static void ApplySuppliers(NpgsqlConnection owner) => Exec(owner, SeedSql("002_vaca_verde_suppliers.sql"));
 
     private static void ApplyCatalog(NpgsqlConnection owner) => Exec(owner, SeedSql("003_vaca_verde_catalog.sql"));
+
+    private static void ApplyCustomerLists(NpgsqlConnection owner) => Exec(owner, SeedSql("004_vaca_verde_customer_price_lists.sql"));
 
     private static void ApplyBoth(NpgsqlConnection owner)
     {
@@ -269,7 +271,7 @@ public sealed class VacaVerdeSuppliersCatalogSeedTests
     }
 
     [Fact]
-    public void CatalogSeed_CreatesThreePriceLists_MostradorIsTheDefault_AndOnlyRepartoIsComposed()
+    public void CatalogSeed_CreatesTwoPriceLists_MostradorIsTheDefault_AndOnlyRepartoIsComposed()
     {
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
 
@@ -282,17 +284,17 @@ public sealed class VacaVerdeSuppliersCatalogSeedTests
 
             ApplyCatalog(owner);
 
-            Assert.Equal(3L, Count(owner, "price_lists", org.OrgId));
+            Assert.Equal(2L, Count(owner, "price_lists", org.OrgId));
             Assert.Equal("Mostrador", Scalar<string>(owner, "SELECT name FROM price_lists WHERE organization_id = $1 AND is_default", org.OrgId));
             // The untouched empty "Default" list was renamed, not duplicated.
             Assert.Equal(provisioningDefault, ListId(owner, org.OrgId, "Mostrador"));
-            Assert.Equal(0L, Scalar<long>(owner, "SELECT count(*) FROM price_lists WHERE organization_id = $1 AND name IN ('Reparto', 'Clientes') AND is_default", org.OrgId));
+            Assert.Equal(0L, Scalar<long>(owner, "SELECT count(*) FROM price_lists WHERE organization_id = $1 AND name = 'Reparto' AND is_default", org.OrgId));
 
             long Entries(string list) => Scalar<long>(owner,
                 "SELECT count(*) FROM price_list_entries e JOIN price_lists l ON l.id = e.price_list_id WHERE e.organization_id = $1 AND l.name = $2 AND e.effective_from = DATE '2026-10-01'", org.OrgId, list);
             Assert.Equal(ExpectedMostradorEntries, Entries("Mostrador"));
             Assert.Equal(ExpectedRepartoEntries, Entries("Reparto"));
-            Assert.Equal(ExpectedClientesEntries, Entries("Clientes"));
+            Assert.Equal(0L, Scalar<long>(owner, "SELECT count(*) FROM price_lists WHERE organization_id = $1 AND name = 'Clientes'", org.OrgId));
 
             // LIST-SPECIFIC rate set on Reparto: IVA, IB, Flete, Remarcacion on the base. Never an organization default.
             Assert.Equal(1L, Count(owner, "rate_component_sets", org.OrgId));
@@ -305,7 +307,7 @@ public sealed class VacaVerdeSuppliersCatalogSeedTests
     }
 
     [Fact]
-    public async Task CatalogSeed_ResolvesAsadoCompletoTo15370InReparto_And14500InClientes_ThroughTheRealPricingPath()
+    public async Task CatalogSeed_ResolvesAsadoCompletoTo15370InReparto_AndMostradorFinalPrices_ThroughTheRealPricingPath()
     {
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
 
@@ -335,11 +337,7 @@ public sealed class VacaVerdeSuppliersCatalogSeedTests
             Assert.Equal(16530m, Assert.IsType<PriceResolutionOutcome.Resolved>(await Resolve("Reparto", "Bola de lomo")).UnitListPrice);
             Assert.Equal(11455m, Assert.IsType<PriceResolutionOutcome.Resolved>(await Resolve("Reparto", "Sin ral")).UnitListPrice);
 
-            // Clientes: final prices, no composition.
-            Assert.Equal(14500m, Assert.IsType<PriceResolutionOutcome.Resolved>(await Resolve("Clientes", "Asado completo")).UnitListPrice);
-            Assert.Equal(16000m, Assert.IsType<PriceResolutionOutcome.Resolved>(await Resolve("Clientes", "Bola de lomo")).UnitListPrice);
-
-            // Mostrador: the retail sheet, not composed; a wholesale-only cut has no retail price.
+            // Mostrador as 003 loads it: the retail sheet's final prices, not composed (004 turns them into base prices); a wholesale-only cut has no retail price.
             Assert.Equal(18000m, Assert.IsType<PriceResolutionOutcome.Resolved>(await Resolve("Mostrador", "Bola de lomo")).UnitListPrice);
             Assert.Equal(11570m, Assert.IsType<PriceResolutionOutcome.Resolved>(await Resolve("Mostrador", "Lengua")).UnitListPrice);
             Assert.IsType<PriceResolutionOutcome.NoEffectivePrice>(await Resolve("Mostrador", "Asado completo"));
@@ -364,8 +362,8 @@ public sealed class VacaVerdeSuppliersCatalogSeedTests
             Assert.Equal(ExpectedCategories, Count(owner, "categories", org.OrgId));
             Assert.Equal(ExpectedProducts, Count(owner, "products", org.OrgId));
             Assert.Equal(ExpectedProducts, Count(owner, "presentations", org.OrgId));
-            Assert.Equal(3L, Count(owner, "price_lists", org.OrgId));
-            Assert.Equal(ExpectedMostradorEntries + ExpectedRepartoEntries + ExpectedClientesEntries, Count(owner, "price_list_entries", org.OrgId));
+            Assert.Equal(2L, Count(owner, "price_lists", org.OrgId));
+            Assert.Equal(ExpectedMostradorEntries + ExpectedRepartoEntries, Count(owner, "price_list_entries", org.OrgId));
             Assert.Equal(1L, Count(owner, "rate_component_sets", org.OrgId));
             Assert.Equal(4L, Count(owner, "rate_components", org.OrgId));
             Assert.Equal(ExpectedSuppliers, Count(owner, "suppliers", org.OrgId));
@@ -393,7 +391,7 @@ public sealed class VacaVerdeSuppliersCatalogSeedTests
             ApplyCatalog(owner); // must not violate price_lists_one_default_per_branch
 
             Assert.Equal("Lista del dueno", Scalar<string>(owner, "SELECT name FROM price_lists WHERE organization_id = $1 AND is_default", org.OrgId));
-            Assert.Equal(4L, Count(owner, "price_lists", org.OrgId));
+            Assert.Equal(3L, Count(owner, "price_lists", org.OrgId));
             Assert.Equal(ExpectedMostradorEntries, Scalar<long>(owner,
                 "SELECT count(*) FROM price_list_entries e JOIN price_lists l ON l.id = e.price_list_id WHERE e.organization_id = $1 AND l.name = 'Mostrador'", org.OrgId));
         }
