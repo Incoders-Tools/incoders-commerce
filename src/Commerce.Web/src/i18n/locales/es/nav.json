@@ -16,7 +16,8 @@
     "users": "Usuarios",
     "branches": "Sucursales",
     "priceLists": "Listas de precios",
-    "organizations": "Organizaciones"
+    "organizations": "Organizaciones",
+    "settings": "Configuración"
   },
   "sections": {
     "operations": "Operación",

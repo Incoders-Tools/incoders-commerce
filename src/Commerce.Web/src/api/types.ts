@@ -584,6 +584,8 @@ export interface CreateOrganizationRequest { organizationName: string; branchNam
 export interface CreateOrganizationResponse { organizationId: string; branchId: string; userId: string }
 // T5b: minimal organization branding — logoUrl + primaryColor only (no upload, no other fields).
 export interface OrganizationBranding { logoUrl: string | null; primaryColor: string | null }
+export interface OrganizationSettings { quantityDecimalSeparator: 'Comma' | 'Dot' }
+export type UpdateOrganizationSettingsRequest = OrganizationSettings
 export interface UpdateOrganizationBrandingRequest { logoUrl: string | null; primaryColor: string | null }
 // branch-discount-pin: whether a branch has a discount PIN and when it last changed; the PIN itself is never returned.
 export interface BranchDiscountPinStatus { isSet: boolean; version: number | null; changedAtUtc: string | null }

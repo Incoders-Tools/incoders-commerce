@@ -19,7 +19,8 @@ import type {
 } from '@/api/types'
 import { formatMoney } from '@/dashboard/format'
 import { todayIso } from '@/lib/isoDate'
-import { parseDecimal } from '@/lib/quantity'
+import { parseAmount } from '@/lib/quantity'
+import { useNumberFormat } from '@/organization/NumberFormatContext'
 import {
   ReceptionLinesEditor,
   newLineDraft,
@@ -91,6 +92,7 @@ function splitServerErrors(fieldErrors: Record<string, string[]> | undefined) {
  */
 export function ReceptionForm({ reception, suppliers, onCreated, savedNotice = false, onChanged, onBack }: ReceptionFormProps) {
   const { t } = useTranslation('purchases')
+  const numberFormat = useNumberFormat()
   const { options, failed: optionsFailed } = usePresentationOptions()
   const [record, setRecord] = useState<ReceptionRecord | undefined>(reception)
   const [supplierId, setSupplierId] = useState(reception?.supplierId ?? '')
@@ -128,11 +130,12 @@ export function ReceptionForm({ reception, suppliers, onCreated, savedNotice = f
     const inputs: ReceptionLineInput[] = []
     lines.forEach((line, index) => {
       const lineError: LineErrors = {}
-      const quantity = parseDecimal(line.quantity)
-      const unitCost = parseDecimal(line.unitCost)
+      const quantity = numberFormat.parse(line.quantity)
+      const unitCost = parseAmount(line.unitCost)
       if (!line.presentation) lineError.presentationId = t('lines.errors.presentationRequired')
-      if (quantity === null || quantity <= 0) lineError.quantity = t('lines.errors.quantityRequired')
-      else if (line.presentation?.behavior === 'FixedQuantity' && !Number.isInteger(quantity)) {
+      if (quantity === null || quantity <= 0) {
+        lineError.quantity = numberFormat.errorFor(line.quantity) ?? t('lines.errors.quantityRequired')
+      } else if (line.presentation?.behavior === 'FixedQuantity' && !Number.isInteger(quantity)) {
         lineError.quantity = t('lines.errors.quantityInteger')
       }
       if (unitCost === null || unitCost < 0) lineError.unitCost = t('lines.errors.unitCostRequired')
@@ -320,7 +323,7 @@ export function ReceptionForm({ reception, suppliers, onCreated, savedNotice = f
             onChange={setLines}
           />
           <p data-testid="reception-total" className="text-right text-base font-semibold tabular-nums">
-            {t('form.total')}: {formatMoney(receptionTotal(lines))}
+            {t('form.total')}: {formatMoney(receptionTotal(lines, numberFormat.separator))}
           </p>
         </FormSection>
 

@@ -3,6 +3,8 @@ import { AuthProvider, hasPermission, useOptionalAuth } from '@/auth/AuthContext
 import { Permission } from '@/api/types'
 import { OrganizationProvider, useOptionalOrganizationContext } from '@/organization/OrganizationContext'
 import { OrganizationBrandingProvider } from '@/theme/OrganizationBrandingProvider'
+import { NumberFormatProvider } from '@/organization/NumberFormatContext'
+import { OrganizationSettingsScreen } from '@/screens/OrganizationSettingsScreen'
 import { ThemeProvider } from '@/theme/ThemeProvider'
 import { AppLayout } from '@/routes/AppLayout'
 import { RequireAuth } from '@/routes/RequireAuth'
@@ -72,6 +74,7 @@ function App() {
           result for the "custom" theme's colors. */}
       <OrganizationProvider>
         <OrganizationBrandingProvider>
+          <NumberFormatProvider>
           <ThemeProvider>
             <Routes>
               <Route path="/" element={<HomeScreen />} />
@@ -106,6 +109,7 @@ function App() {
                     <Route path="stock/:presentationId/movements" element={<StockMovementsScreen />} />
                     <Route path="users" element={<UsersScreen />} />
                     <Route path="branches" element={<BranchesScreen />} />
+                    <Route path="settings" element={<OrganizationSettingsScreen />} />
                     {/* commerce-pricing-engine design.md "Web: `PriceListsScreen`
                         under the existing `RequireAdmin`". The screen existed
                         since Work Unit 9 but was never mounted here, which left
@@ -127,6 +131,7 @@ function App() {
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </ThemeProvider>
+          </NumberFormatProvider>
         </OrganizationBrandingProvider>
       </OrganizationProvider>
     </AuthProvider>

@@ -50,7 +50,7 @@ export function adminResetPassword(userId: string, request: AdminResetPasswordRe
     body: JSON.stringify(request),
   })
 }
-import type { BranchDiscountPinStatus, BranchSummary, CreateBranchRequest, CreateBranchResponse, CreateOrganizationRequest, CreateOrganizationResponse, CreateUserRequest, CreateUserResponse, OrganizationBranding, OrganizationSummary, UpdateOrganizationBrandingRequest, UserSummary } from './types'
+import type { BranchDiscountPinStatus, BranchSummary, CreateBranchRequest, CreateBranchResponse, CreateOrganizationRequest, CreateOrganizationResponse, CreateUserRequest, CreateUserResponse, OrganizationBranding, OrganizationSettings, OrganizationSummary, UpdateOrganizationBrandingRequest, UpdateOrganizationSettingsRequest, UserSummary } from './types'
 export const listUsers = async () => {
   const users = await apiFetch<UserSummary[]>('/account/users')
   return users.map((user) => ({ ...user, branchIds: user.branchIds ?? [] }))
@@ -67,6 +67,9 @@ export const getOrganizationBranding = (organizationId: string) => apiFetch<Orga
 export const updateOrganizationBranding = (organizationId: string, request: UpdateOrganizationBrandingRequest) => apiFetch<void>(`/account/organizations/${organizationId}/branding`, { method: 'PUT', body: JSON.stringify(request) })
 // T6: any authenticated user's OWN organization's branding, for theming — never takes an id.
 export const getOwnOrganizationBranding = () => apiFetch<OrganizationBranding>('/account/organization/branding')
+// Number format: any signed-in user reads their own organization's settings; ManageBranchSettings writes them.
+export const getOwnOrganizationSettings = () => apiFetch<OrganizationSettings>('/account/organization/settings')
+export const updateOwnOrganizationSettings = (request: UpdateOrganizationSettingsRequest) => apiFetch<void>('/account/organization/settings', { method: 'PUT', body: JSON.stringify(request) })
 // branch-discount-pin: status is readable, the PIN is write-only (PUT sets or rotates it).
 export const getBranchDiscountPin = (branchId: string) => apiFetch<BranchDiscountPinStatus>(`/account/branches/${branchId}/discount-pin`)
 export const setBranchDiscountPin = (branchId: string, pin: string) => apiFetch<BranchDiscountPinStatus>(`/account/branches/${branchId}/discount-pin`, { method: 'PUT', body: JSON.stringify({ pin }) })

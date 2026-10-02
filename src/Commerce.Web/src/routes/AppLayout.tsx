@@ -11,6 +11,7 @@ import {
   Menu,
   Package,
   PackageCheck,
+  Settings,
   Store,
   Truck,
   Boxes,
@@ -133,6 +134,7 @@ export function AppLayout() {
                 <NavItem to="/app/supplier-categories" icon={Boxes} onNavigate={closeMobileNav}>{t('items.supplierCategories')}</NavItem>
                 <NavItem to="/app/users" icon={UserCog} onNavigate={closeMobileNav}>{t('items.users')}</NavItem>
                 <NavItem to="/app/branches" icon={Store} onNavigate={closeMobileNav}>{t('items.branches')}</NavItem>
+                <NavItem to="/app/settings" icon={Settings} onNavigate={closeMobileNav}>{t('items.settings')}</NavItem>
                 {/* Same UI-only gate as its siblings: `App.tsx`'s
                     `RequireAdmin` is the routing boundary, and Pricing.cs's
                     own permission check is the real one. */}

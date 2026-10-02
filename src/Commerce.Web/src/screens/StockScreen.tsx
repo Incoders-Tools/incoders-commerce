@@ -14,7 +14,7 @@ import type { StockLevel } from '@/api/types'
 import { useMissingBranch } from '@/branch/useMissingBranch'
 import { formatIsoDate } from '@/dashboard/format'
 import { useDebouncedValue } from '@/lib/useDebouncedValue'
-import { formatStockQuantity, parseDecimal } from '@/lib/quantity'
+import { useNumberFormat } from '@/organization/NumberFormatContext'
 import { cn } from '@/lib/utils'
 import { StockAdjustForm } from './StockAdjustForm'
 
@@ -58,6 +58,7 @@ interface MinimumEdit {
  */
 export function StockScreen() {
   const { t } = useTranslation('stock')
+  const numberFormat = useNumberFormat()
   const missingBranch = useMissingBranch()
   const [rows, setRows] = useState<StockLevel[]>([])
   const [loading, setLoading] = useState(!missingBranch)
@@ -120,9 +121,9 @@ export function StockScreen() {
   const saveMinimum = async () => {
     if (!editing) return
     const text = editing.value.trim()
-    const minimum = text === '' ? null : parseDecimal(text)
+    const minimum = text === '' ? null : numberFormat.parse(text)
     if (text !== '' && (minimum === null || minimum < 0)) {
-      setEditing({ ...editing, error: t('minimum.invalid') })
+      setEditing({ ...editing, error: numberFormat.errorFor(text) ?? t('minimum.invalid') })
       return
     }
     setEditing({ ...editing, saving: true, error: null })
@@ -157,7 +158,7 @@ export function StockScreen() {
       header: t('columns.onHand'),
       cell: (row) => (
         <span className={cn('tabular-nums', row.onHand < 0 && 'font-semibold text-destructive')}>
-          {formatStockQuantity(row.onHand, row.quantityBehavior)}
+          {numberFormat.formatStock(row.onHand, row.quantityBehavior)}
         </span>
       ),
     },
@@ -165,7 +166,7 @@ export function StockScreen() {
       key: 'minimum',
       header: t('columns.minimum'),
       cell: (row) =>
-        row.minimumQuantity === null ? noValue : formatStockQuantity(row.minimumQuantity, row.quantityBehavior),
+        row.minimumQuantity === null ? noValue : numberFormat.formatStock(row.minimumQuantity, row.quantityBehavior),
       hideOnMobile: true,
     },
     {
@@ -244,6 +245,7 @@ export function StockScreen() {
                     aria-invalid={editing.error ? true : undefined}
                     className="h-8 w-28"
                     inputMode="decimal"
+                    placeholder={numberFormat.example}
                     value={editing.value}
                     onChange={(event) => setEditing({ ...editing, value: event.target.value, error: null })}
                   />

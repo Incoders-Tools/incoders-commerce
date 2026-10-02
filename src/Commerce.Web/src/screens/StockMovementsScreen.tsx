@@ -7,26 +7,17 @@ import { listStockMovements } from '@/api/stock'
 import { ApiError } from '@/api/client'
 import type { StockHistoryPage, StockMovement, StockQuantityBehavior } from '@/api/types'
 import { useMissingBranch } from '@/branch/useMissingBranch'
-import { formatStockQuantity } from '@/lib/quantity'
+import { useNumberFormat } from '@/organization/NumberFormatContext'
 import { cn } from '@/lib/utils'
 
 const PAGE_SIZE = 25
 const dateTimeFormatter = new Intl.DateTimeFormat('es-AR', { dateStyle: 'short', timeStyle: 'short' })
-const signedFormatter = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 3, signDisplay: 'exceptZero' })
 
 interface NavigationState {
   label?: string
   behavior?: StockQuantityBehavior
 }
 
-/** `+120 kg`, `-2,5 kg`; without the unit when the screen was opened without the presentation's behavior. */
-function signedQuantity(quantity: number, behavior: StockQuantityBehavior | undefined): string {
-  const unit = behavior ? (behavior === 'FixedQuantity' ? ' u' : ' kg') : ''
-  return `${signedFormatter.format(quantity)}${unit}`
-}
-
-const quantityText = (quantity: number, behavior: StockQuantityBehavior | undefined) =>
-  behavior ? formatStockQuantity(quantity, behavior) : String(quantity).replace('.', ',')
 
 /**
  * Append-only movement history of one presentation, newest first, with the
@@ -35,6 +26,15 @@ const quantityText = (quantity: number, behavior: StockQuantityBehavior | undefi
  */
 export function StockMovementsScreen() {
   const { t } = useTranslation('stock')
+  const numberFormat = useNumberFormat()
+
+  /** `+120 kg`, `-2,5 kg`; without the unit when the screen was opened without the presentation's behavior. */
+  const signedQuantity = (quantity: number, behavior: StockQuantityBehavior | undefined): string => {
+    const unit = behavior ? (behavior === 'FixedQuantity' ? ' u' : ' kg') : ''
+    return `${numberFormat.formatSigned(quantity)}${unit}`
+  }
+  const quantityText = (quantity: number, behavior: StockQuantityBehavior | undefined) =>
+    behavior ? numberFormat.formatStock(quantity, behavior) : numberFormat.formatNumber(quantity)
   const { presentationId = '' } = useParams()
   const navigate = useNavigate()
   const state = (useLocation().state as NavigationState | null) ?? {}

@@ -16,7 +16,8 @@
     "users": "Users",
     "branches": "Branches",
     "priceLists": "Price lists",
-    "organizations": "Organizations"
+    "organizations": "Organizations",
+    "settings": "Settings"
   },
   "sections": {
     "operations": "Operations",

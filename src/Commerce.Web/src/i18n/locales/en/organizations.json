@@ -49,5 +49,21 @@
     "saving": "Saving…",
     "save": "Save",
     "cancel": "Cancel"
+  },
+  "settings": {
+    "title": "Organization settings",
+    "description": "Preferences of the organization that apply to all its branches.",
+    "numberFormat": {
+      "label": "Number format",
+      "hint": "How quantities (kilos, units) are typed and shown. Peso amounts are not affected.",
+      "comma": "Decimal comma (1,5)",
+      "point": "Decimal point (1.5)"
+    },
+    "save": "Save",
+    "saving": "Saving…",
+    "saved": "Settings saved.",
+    "unableToLoad": "Could not load the settings.",
+    "unableToSave": "Could not save the settings.",
+    "retry": "Retry"
   }
 }

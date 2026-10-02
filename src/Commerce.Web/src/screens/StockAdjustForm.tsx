@@ -11,7 +11,8 @@ import { usePresentationOptions, type PresentationOption } from '@/components/pu
 import { adjustStock } from '@/api/stock'
 import { ApiError } from '@/api/client'
 import type { ManualStockKind } from '@/api/types'
-import { formatStockQuantity, parseDecimal, unitLabel } from '@/lib/quantity'
+import { unitLabel } from '@/lib/quantity'
+import { useNumberFormat } from '@/organization/NumberFormatContext'
 
 const KINDS: ManualStockKind[] = ['Opening', 'Shrinkage', 'CountCorrection', 'Adjustment']
 type Direction = 'add' | 'subtract'
@@ -35,6 +36,7 @@ interface StockAdjustFormProps {
  */
 export function StockAdjustForm({ presentation: initial, onCancel, onDone }: StockAdjustFormProps) {
   const { t } = useTranslation('stock')
+  const numberFormat = useNumberFormat()
   const { options, failed } = usePresentationOptions()
   const [presentation, setPresentation] = useState<PresentationOption | null>(initial)
   const [kind, setKind] = useState<ManualStockKind | ''>('')
@@ -52,11 +54,11 @@ export function StockAdjustForm({ presentation: initial, onCancel, onDone }: Sto
     event.preventDefault()
     setError(null)
     const found: Record<string, string> = {}
-    const magnitude = parseDecimal(quantity)
+    const magnitude = numberFormat.parse(quantity)
     if (!presentation) found.presentation = t('adjustForm.errors.presentation')
     if (kind === '') found.kind = t('adjustForm.errors.kind')
     else if (forced === null && direction === '') found.direction = t('adjustForm.errors.direction')
-    if (magnitude === null || magnitude <= 0) found.quantity = t('adjustForm.errors.quantity')
+    if (magnitude === null || magnitude <= 0) found.quantity = numberFormat.errorFor(quantity) ?? t('adjustForm.errors.quantity')
     else if (presentation?.behavior === 'FixedQuantity' && !Number.isInteger(magnitude)) {
       found.quantity = t('adjustForm.errors.quantityInteger')
     } else if (Math.round(magnitude * 1000) / 1000 !== magnitude) found.quantity = t('adjustForm.errors.quantityDecimals')
@@ -73,7 +75,7 @@ export function StockAdjustForm({ presentation: initial, onCancel, onDone }: Sto
         quantity: effective === 'add' ? magnitude : -magnitude,
         reason: reason.trim(),
       })
-      onDone(t('adjustForm.done', { onHand: formatStockQuantity(result.onHand, presentation.behavior) }))
+      onDone(t('adjustForm.done', { onHand: numberFormat.formatStock(result.onHand, presentation.behavior) }))
     } catch (err) {
       if (err instanceof ApiError && err.status === 400 && err.fieldErrors) {
         const server: Record<string, string> = {}
@@ -159,6 +161,8 @@ export function StockAdjustForm({ presentation: initial, onCancel, onDone }: Sto
               setErrors((current) => ({ ...current, quantity: '' }))
             }}
             hint={unit ? t('adjustForm.quantityHint', { unit }) : undefined}
+            placeholder={numberFormat.example}
+            inputMode="decimal"
             error={errors.quantity || null}
           />
         </FormSection>

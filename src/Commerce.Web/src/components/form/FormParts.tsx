@@ -36,6 +36,8 @@ export function Field({
   required = false,
   error = null,
   hint,
+  placeholder,
+  inputMode,
   className,
 }: {
   id: string
@@ -48,6 +50,8 @@ export function Field({
   required?: boolean
   error?: string | null
   hint?: string
+  placeholder?: string
+  inputMode?: 'decimal' | 'numeric' | 'text'
   className?: string
 }) {
   const describedBy = error ? `${id}-error` : hint ? `${id}-hint` : undefined
@@ -61,6 +65,8 @@ export function Field({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         required={required}
+        placeholder={placeholder}
+        inputMode={inputMode}
         aria-invalid={error ? true : undefined}
         aria-describedby={describedBy}
       />

@@ -34,5 +34,15 @@
     "cardView": "Card view",
     "view": "View",
     "searchPlaceholder": "Search…"
+  },
+  "numberFormat": {
+    "example": {
+      "Comma": "E.g. 1,5",
+      "Dot": "E.g. 1.5"
+    },
+    "errors": {
+      "Comma": "This business writes decimals with a comma (e.g. 1,5).",
+      "Dot": "This business writes decimals with a dot (e.g. 1.5)."
+    }
   }
 }

@@ -5,7 +5,8 @@ import { Field } from '@/components/form/FormParts'
 import { PresentationPicker } from '@/components/purchasing/PresentationPicker'
 import type { PresentationOption } from '@/components/purchasing/presentationOptions'
 import { formatMoney } from '@/dashboard/format'
-import { parseDecimal } from '@/lib/quantity'
+import { parseAmount, parseQuantity, type DecimalSeparator } from '@/lib/quantity'
+import { useNumberFormat } from '@/organization/NumberFormatContext'
 
 /** One editable line. Numbers stay as the text the operator typed until the form is submitted. */
 export interface LineDraft {
@@ -31,14 +32,15 @@ export const newLineDraft = (): LineDraft => ({
 
 const roundCents = (value: number) => Math.round(value * 100) / 100
 
-/** Quantity times unit cost, to the cent; 0 while either is blank or unreadable. */
-export function lineTotal(line: Pick<LineDraft, 'quantity' | 'unitCost'>): number {
-  const quantity = parseDecimal(line.quantity)
-  const unitCost = parseDecimal(line.unitCost)
+/** Quantity (in the organization's format) times unit cost (es-AR money), to the cent; 0 while either is blank or unreadable. */
+export function lineTotal(line: Pick<LineDraft, 'quantity' | 'unitCost'>, separator: DecimalSeparator): number {
+  const quantity = parseQuantity(line.quantity, separator)
+  const unitCost = parseAmount(line.unitCost)
   return quantity === null || unitCost === null ? 0 : roundCents(quantity * unitCost)
 }
 
-export const receptionTotal = (lines: LineDraft[]) => roundCents(lines.reduce((sum, line) => sum + lineTotal(line), 0))
+export const receptionTotal = (lines: LineDraft[], separator: DecimalSeparator) =>
+  roundCents(lines.reduce((sum, line) => sum + lineTotal(line, separator), 0))
 
 interface ReceptionLinesEditorProps {
   lines: LineDraft[]
@@ -55,6 +57,7 @@ interface ReceptionLinesEditorProps {
  */
 export function ReceptionLinesEditor({ lines, options, optionsFailed, errors, onChange }: ReceptionLinesEditorProps) {
   const { t } = useTranslation('purchases')
+  const numberFormat = useNumberFormat()
 
   const update = (key: string, patch: Partial<LineDraft>) =>
     onChange(lines.map((line) => (line.key === key ? { ...line, ...patch } : line)))
@@ -92,6 +95,8 @@ export function ReceptionLinesEditor({ lines, options, optionsFailed, errors, on
                 onChange={(quantity) => update(line.key, { quantity })}
                 error={lineErrors.quantity ?? null}
                 hint={unit ?? undefined}
+                placeholder={numberFormat.example}
+                inputMode="decimal"
               />
             </div>
             <Field
@@ -105,7 +110,7 @@ export function ReceptionLinesEditor({ lines, options, optionsFailed, errors, on
             <div className="col-span-1 flex flex-col gap-1.5 md:col-span-2">
               <span className="text-sm font-medium text-foreground">{t('lines.lineTotal')}</span>
               <output aria-label={`${t('lines.lineTotal')} ${n}`} className="flex h-9 items-center text-sm tabular-nums">
-                {formatMoney(lineTotal(line))}
+                {formatMoney(lineTotal(line, numberFormat.separator))}
               </output>
             </div>
             <Field

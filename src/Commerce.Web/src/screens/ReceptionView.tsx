@@ -9,7 +9,7 @@ import { voidReception } from '@/api/purchases'
 import { ApiError } from '@/api/client'
 import type { ReceptionRecord } from '@/api/types'
 import { formatIsoDate, formatMoney } from '@/dashboard/format'
-import { formatStockQuantity } from '@/lib/quantity'
+import { useNumberFormat } from '@/organization/NumberFormatContext'
 
 const VOID_REASON_MAX = 300
 
@@ -38,6 +38,7 @@ export function ReceptionView({
   onBack: () => void
 }) {
   const { t } = useTranslation('purchases')
+  const numberFormat = useNumberFormat()
   const [voiding, setVoiding] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -121,7 +122,7 @@ export function ReceptionView({
                   <td className="px-3 py-2">{line.productName}</td>
                   <td className="px-3 py-2">{line.presentationName}</td>
                   <td className="px-3 py-2 text-right tabular-nums">
-                    {formatStockQuantity(line.quantity, line.quantityBehavior)}
+                    {numberFormat.formatStock(line.quantity, line.quantityBehavior)}
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums">{formatMoney(line.unitCost)}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{formatMoney(line.lineTotal)}</td>

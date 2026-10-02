@@ -34,5 +34,15 @@
     "cardView": "Vista de tarjetas",
     "view": "Vista",
     "searchPlaceholder": "Buscar…"
+  },
+  "numberFormat": {
+    "example": {
+      "Comma": "Ej: 1,5",
+      "Dot": "Ej: 1.5"
+    },
+    "errors": {
+      "Comma": "En este negocio los decimales se escriben con coma (ej: 1,5).",
+      "Dot": "En este negocio los decimales se escriben con punto (ej: 1.5)."
+    }
   }
 }
