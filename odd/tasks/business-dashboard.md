@@ -76,6 +76,15 @@ seam.
 - Not verified: visual rendering in a real browser (screen is behind sign-in) and e2e (CI only).
 - Decisions: channels are disjoint (counter/delivery/web), POS = counter + delivery; port lives in `dashboard/port.ts` (`DashboardSource.ts` would collide with `dashboardSource.ts` on case-insensitive filesystems); default period 7 days; `SAMPLE_DATA` flag in `dashboard/dashboardSource.ts` drives the notice.
 
+- Review: medium risk, slice budget reached; owner granted consent. Native review (reliability lens) approved and acknowledged, lineage `review-8a5511ede84b6716`, authority burned. Reviewed boundary is now `c797838`.
+
+## Follow-ups (non-blocking review findings)
+
+- [ ] F1 `DashboardScreen.tsx:50-54` (WARNING): previous period's data stays visible while a new period loads.
+- [ ] F2 `DashboardScreen.tsx:35-48`: a stale response race on fast period changes is not covered by tests.
+- [ ] F3 `format.ts:35-39`: `formatBucket` does not guard an invalid date.
+- [ ] F4 `mockDashboardSource.ts:103-107`: the "today" mock series includes future hours.
+
 ## Next step
 
 Owner review of the dashboard; consider lazy-loading the dashboard route to keep recharts out of the main bundle; real-data cutover when the owner says so.
