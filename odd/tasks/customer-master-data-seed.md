@@ -83,16 +83,42 @@ content.
 
 ## Follow-ups (non-blocking review findings, most relevant)
 
-- [ ] F1 Master data PUT reactivates an entry when `isActive` is omitted (`MasterData.cs:116`); make it keep the stored value.
-- [ ] F2 Customer PUT keep-on-omit can lose a concurrent update (`PostgresCustomerStore.cs:180-182`).
-- [ ] F3 Legacy dashed Cuit/Cuil values are rejected on PUT while the domain constructor accepts them (`Customers.cs:180-182`, `Customer.cs:106-118`).
+- [ ] F1 (-> T6) Master data PUT reactivates an entry when `isActive` is omitted (`MasterData.cs:116`); make it keep the stored value.
+- [ ] F2 (-> T7) Customer PUT keep-on-omit can lose a concurrent update (`PostgresCustomerStore.cs:180-182`).
+- [ ] F3 (-> T8) Legacy dashed Cuit/Cuil values are rejected on PUT while the domain constructor accepts them (`Customers.cs:180-182`, `Customer.cs:106-118`).
 - [ ] F4 Search accent folding differs between SQL and the tax-id path (`PostgresCustomerStore.cs:274-277`, `370-375`).
 - [ ] F5 Seed: a city whose global id already exists in another org is skipped silently (`001_vaca_verde_master_data.sql:62-94`, `118`); raise a notice.
 - [ ] F6 `provision-admin.ps1` decides "applied/skipped" from a NOTICE string (`:469-474`).
-- [ ] F7 Web: the customer list's stale-response guard is untested; email is no longer searched (`CustomersScreen.tsx:61`).
+- [x] F7 (closed by owner: email search not wanted; contact search replaces it, T10) Web: the customer list's stale-response guard is untested; email is no longer searched (`CustomersScreen.tsx:61`).
 - [ ] F8 Seed tests' link assertions are weak (`VacaVerdeSeedTests.cs:144-145`).
 - [ ] F9 Investigate the `PosAdminClientCompositionTests` full-run failure.
 - Accepted by owner: real customer data committed to the repo (R1-pii-committed); org resolved by name.
+
+## Scope change (owner, 2026-10-02)
+
+- Cities are a **core, organization-independent catalog** (same for every
+  business), with country and province codes from the official Argentine
+  source. Managed by the system admin only.
+- Customers get a **contacts sub-table** (a company can have several
+  contacts: first name, last name, phone at least). `contact_name` is migrated
+  into it and removed. Customer search matches contact first/last name.
+- F7: not searching by email is accepted by the owner (closed, won't fix).
+- Business types stay organization-scoped.
+
+Source (verified 2026-10-02): Georef API of datos.gob.ar
+(`https://apis.datos.gob.ar/georef/api/`): 24 provinces with INDEC id and
+ISO 3166-2 code (e.g. `06` / `AR-B` Buenos Aires), 4037 `localidades` with
+INDEC ids (e.g. Capitán Sarmiento `06140010`, Río Tala `06770040`). Load all
+of them. Licence/attribution to be confirmed and recorded in the README.
+
+## Tasks (round 2)
+
+- [ ] T6 F1: master-data PUT keeps the stored `isActive` when omitted (route: delegated backend writer)
+- [ ] T7 F2: customer PUT optimistic concurrency (`updatedAtUtc` token, 409 on mismatch; omitted token = legacy POS path, no check) (route: delegated backend writer)
+- [ ] T8 F3: customer PUT accepts and normalizes legacy dashed Cuit/Cuil (route: delegated backend writer)
+- [ ] T9 Core geography: global `countries`, `provinces`, `cities` seeded from Georef in a migration; customers point to global cities; org `cities` retired with data mapped; Vaca Verde seed updated; sysadmin-only write API and city search endpoint (route: delegated backend writer)
+- [ ] T10 Customer contacts sub-table (first/last name, phone, email, role, primary), `contact_name` migrated and dropped, search by contact name, seed contacts from the CLIENTE column (route: delegated backend writer)
+- [ ] T11 Web: cities ABM moved to the system-admin area with province/country; city picker with server search; customer form contacts editor; send `updatedAtUtc` and show the 409 conflict (route: delegated web writer)
 
 ## Next step
 
