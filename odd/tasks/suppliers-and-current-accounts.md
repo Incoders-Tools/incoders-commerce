@@ -62,9 +62,9 @@ total / overdue / aging.
 
 ## Tasks
 
-- [ ] T1 Migration: supplier_categories, suppliers, supplier_contacts, current-account movements + migration tests (route: delegated backend writer)
-- [ ] T2 API: suppliers CRUD with contacts, categories ABM, search and filters, optimistic concurrency like customers (route: delegated backend writer)
-- [ ] T3 API: supplier current account (register movement, reverse, statement by range, summary with aging, balances in the supplier list) (route: delegated backend writer)
+- [x] T1 Migration: supplier_categories, suppliers, supplier_contacts, current-account movements + migration tests (route: delegated backend writer) -- 0428a38. RED: 14 migration tests failed (tables missing); GREEN: 14/14 pass. Migrations 0030_suppliers.sql, 0031_current_account_movements.sql applied to commerce_dev and mirrored in init-rls.sql.
+- [x] T2 API: suppliers CRUD with contacts, categories ABM, search and filters, optimistic concurrency like customers (route: delegated backend writer) -- ba69618. RED: compile error (no Commerce.Domain.Suppliers), then GREEN: 57 supplier tests (domain + migration + endpoints).
+- [x] T3 API: supplier current account (register movement, reverse, statement by range, summary with aging, balances in the supplier list) (route: delegated backend writer) -- 6b5ecc9. RED: 21 account endpoint tests failed (no routes) and domain rules uncompilable; GREEN: 29 domain rule tests + 36 supplier endpoint tests (incl. acceptance scenario). Balances endpoint is GET /suppliers/account/balances.
 - [ ] T4 Web: suppliers list and full-page form, contacts editor, city picker, categories ABM (route: delegated web writer)
 - [ ] T5 Web: supplier current account screen (statement, add movement, reverse, aging) (route: delegated web writer)
 
@@ -83,7 +83,8 @@ total / overdue / aging.
 ## Progress
 
 - Feature document created 2026-10-02.
+- 2026-10-02: T1-T3 (backend) done by the backend writer; local DB migrated. Sign convention: supplier balance = sum(Credit) - sum(Debit) = what the business owes. Aging rule: reversed documents excluded, Debit movements applied FIFO by due date, buckets by days past due (1-30, 31-60, 61-90, 90+), not-yet-due or undated debt is Current. Routes: /suppliers, /suppliers/categories, /suppliers/{id}/account/{movements,movements/{mid}/reverse,statement,summary}, /suppliers/account/balances.
 
 ## Next step
 
-T1-T3 (backend writer), then T4-T5 (web writer).
+T4-T5 (web writer).
