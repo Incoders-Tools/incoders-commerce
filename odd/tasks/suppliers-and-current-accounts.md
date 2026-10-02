@@ -65,8 +65,8 @@ total / overdue / aging.
 - [x] T1 Migration: supplier_categories, suppliers, supplier_contacts, current-account movements + migration tests (route: delegated backend writer) -- 0428a38. RED: 14 migration tests failed (tables missing); GREEN: 14/14 pass. Migrations 0030_suppliers.sql, 0031_current_account_movements.sql applied to commerce_dev and mirrored in init-rls.sql.
 - [x] T2 API: suppliers CRUD with contacts, categories ABM, search and filters, optimistic concurrency like customers (route: delegated backend writer) -- ba69618. RED: compile error (no Commerce.Domain.Suppliers), then GREEN: 57 supplier tests (domain + migration + endpoints).
 - [x] T3 API: supplier current account (register movement, reverse, statement by range, summary with aging, balances in the supplier list) (route: delegated backend writer) -- 6b5ecc9. RED: 21 account endpoint tests failed (no routes) and domain rules uncompilable; GREEN: 29 domain rule tests + 36 supplier endpoint tests (incl. acceptance scenario). Balances endpoint is GET /suppliers/account/balances.
-- [ ] T4 Web: suppliers list and full-page form, contacts editor, city picker, categories ABM (route: delegated web writer)
-- [ ] T5 Web: supplier current account screen (statement, add movement, reverse, aging) (route: delegated web writer)
+- [x] T4 Web: suppliers list and full-page form, contacts editor, city picker, categories ABM (route: delegated web writer) -- 3f4f96f. RED: 3 new screen suites failed to resolve their modules; GREEN: SupplierForm/SuppliersScreen/SupplierCategoriesScreen tests, nav and route tests in App.test and AppLayout.test. Extracted shared FormParts, selectableEntries, isValidTaxId, formatMoney/formatIsoDate; ContactsEditor reused as is (customers copy). e2e/suppliers.spec.ts added (CI only).
+- [x] T5 Web: supplier current account screen (statement, add movement, reverse, aging) (route: delegated web writer) -- d76aeaf. RED: SupplierAccountScreen suite failed to resolve its module (plus 2 failing tests for DataView getRowId and useViewPreference default); GREEN: 23 account screen tests incl. the acceptance flow (invoice 100.000, payment 40.000 -> 60.000, reverse payment -> 100.000 with the payment marked Anulado) against an in-memory fake ledger.
 
 ## Acceptance criteria
 
@@ -85,6 +85,8 @@ total / overdue / aging.
 - Feature document created 2026-10-02.
 - 2026-10-02: T1-T3 (backend) done by the backend writer; local DB migrated. Sign convention: supplier balance = sum(Credit) - sum(Debit) = what the business owes. Aging rule: reversed documents excluded, Debit movements applied FIFO by due date, buckets by days past due (1-30, 31-60, 61-90, 90+), not-yet-due or undated debt is Current. Routes: /suppliers, /suppliers/categories, /suppliers/{id}/account/{movements,movements/{mid}/reverse,statement,summary}, /suppliers/account/balances.
 
+- 2026-10-02: T4-T5 (web) done. Final web checks: npm test 65 files / 476 tests pass; npm run lint 0 errors (existing-style warnings only); npm run build passes. Statement defaults to the last 90 days; phone viewport defaults to cards; reversal is an inline alertdialog confirmation.
+
 ## Next step
 
-T4-T5 (web writer).
+Parent: review the feature as a whole and the acceptance criteria; promote when ready.
