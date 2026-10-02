@@ -51,7 +51,7 @@ content.
 - [x] T2 Cloud.Api: Cities and Business Types CRUD endpoints/stores with audit; Customer endpoints/store/domain carry the new fields (route: delegated writer) - commit a8f8575; RED: compile failure (missing types) then 1 behavioral failure (enums serialized as numbers), GREEN: 179/179 customer tests; full `dotnet test`: 1717 passed, 1 failed (known launcher/wwwroot environmental failure), 0 skipped
 - [ ] T3 Normalize the spreadsheets: dedupe, Title Case, split tax ids out of observations, map localities and business types; anomaly report for owner review (route: delegated, data only)
 - [ ] T4 Seed SQL `deploy/db/seeds/vaca-verde/` (cities with original audit dates, business types, customers), idempotent; wired into provision-admin; applied to local `commerce_dev` (route: delegated writer)
-- [ ] T5 Web: Cities and Business Types ABM screens; customer form and list with city, business type, contact, tax id, observations, and filters by city and business type (route: delegated writer)
+- [x] T5 Web: Cities and Business Types ABM screens; customer form and list with city, business type, contact, tax id, observations, and filters by city and business type (route: delegated writer) - commits 48970af (ABM screens, nav, e2e nav checks) and 9176692 (customer form/list); RED: 2 new test files failing on import + nav tests, then 10 customer tests failing; GREEN: `npm test` 58 files / 389 tests passed, `npm run build` ok, `npm run lint` 0 errors (pre-existing warnings only); e2e specs updated by hand, not run (CI-only)
 
 ## Acceptance criteria
 
