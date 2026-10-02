@@ -19,7 +19,7 @@ namespace Commerce.Integration;
 /// categories catalog (`/suppliers/categories`), modelled on the customer endpoints.
 /// </summary>
 [Collection("Postgres")]
-public sealed class SupplierEndpointTests : IClassFixture<WebApplicationFactory<Program>>, IDisposable
+public sealed partial class SupplierEndpointTests : IClassFixture<WebApplicationFactory<Program>>, IDisposable
 {
     private const string Password = "correct-password";
 
