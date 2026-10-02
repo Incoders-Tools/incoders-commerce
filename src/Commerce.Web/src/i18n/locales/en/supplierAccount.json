@@ -87,6 +87,7 @@
       "concept": "Concept"
     },
     "directions": {
+      "placeholder": "Choose the effect",
       "Credit": "Increases debt",
       "Debit": "Decreases debt"
     },
@@ -98,7 +99,8 @@
     "errors": {
       "amountInvalid": "The amount must be greater than zero with at most 2 decimals.",
       "conceptRequired": "The concept is required.",
-      "dueBeforeDate": "The due date cannot be before the date."
+      "dueBeforeDate": "The due date cannot be before the date.",
+      "directionRequired": "Choose whether the adjustment increases or decreases the debt."
     },
     "save": "Register",
     "saving": "Registering…",

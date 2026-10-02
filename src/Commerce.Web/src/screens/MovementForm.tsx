@@ -45,7 +45,8 @@ const isValidAmount = (value: string) => /^\d+(\.\d{1,2})?$/.test(value.trim()) 
 export function MovementForm({ supplierId, supplierName, paymentTermsDays, onSaved, onCancel }: MovementFormProps) {
   const { t } = useTranslation('supplierAccount')
   const [kind, setKind] = useState<MovementKind>(MovementKind.Invoice)
-  const [direction, setDirection] = useState<MovementDirection>('Credit')
+  // No preselected effect: a wrong default would silently book an adjustment the other way.
+  const [direction, setDirection] = useState<MovementDirection | ''>('')
   const [amount, setAmount] = useState('')
   const [occurredOn, setOccurredOn] = useState(todayIso)
   const [dueOn, setDueOn] = useState('')
@@ -66,6 +67,7 @@ export function MovementForm({ supplierId, supplierName, paymentTermsDays, onSav
     event.preventDefault()
     setError(null)
     const found: Record<string, string> = {}
+    if (isAdjustment && direction === '') found.direction = t('form.errors.directionRequired')
     if (!isValidAmount(amount)) found.amount = t('form.errors.amountInvalid')
     if (concept.trim() === '') found.concept = t('form.errors.conceptRequired')
     if (canHaveDueDate && dueOn !== '' && occurredOn !== '' && dueOn < occurredOn) {
@@ -81,7 +83,7 @@ export function MovementForm({ supplierId, supplierName, paymentTermsDays, onSav
       ...(occurredOn !== '' ? { occurredOn } : {}),
       ...(canHaveDueDate && dueOn !== '' ? { dueOn } : {}),
       ...(documentReference.trim() !== '' ? { documentReference: documentReference.trim() } : {}),
-      ...(isAdjustment ? { direction } : {}),
+      ...(isAdjustment && direction !== '' ? { direction } : {}),
     }
     setSubmitting(true)
     try {
@@ -127,11 +129,21 @@ export function MovementForm({ supplierId, supplierName, paymentTermsDays, onSav
               <Select
                 id="movementDirection"
                 value={direction}
-                onChange={(e) => setDirection(e.target.value as MovementDirection)}
+                onChange={(e) => setDirection(e.target.value as MovementDirection | '')}
+                aria-invalid={errors.direction ? true : undefined}
+                aria-describedby={errors.direction ? 'movementDirection-error' : undefined}
               >
+                <option value="" disabled>
+                  {t('form.directions.placeholder')}
+                </option>
                 <option value="Credit">{t('form.directions.Credit')}</option>
                 <option value="Debit">{t('form.directions.Debit')}</option>
               </Select>
+              {errors.direction && (
+                <p id="movementDirection-error" className="text-xs text-destructive">
+                  {errors.direction}
+                </p>
+              )}
             </div>
           )}
 

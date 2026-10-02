@@ -87,6 +87,7 @@
       "concept": "Concepto"
     },
     "directions": {
+      "placeholder": "Elegí el efecto",
       "Credit": "Aumenta deuda",
       "Debit": "Disminuye deuda"
     },
@@ -98,7 +99,8 @@
     "errors": {
       "amountInvalid": "El importe debe ser mayor que cero y tener hasta 2 decimales.",
       "conceptRequired": "El concepto es obligatorio.",
-      "dueBeforeDate": "El vencimiento no puede ser anterior a la fecha."
+      "dueBeforeDate": "El vencimiento no puede ser anterior a la fecha.",
+      "directionRequired": "Elegí si el ajuste aumenta o disminuye la deuda."
     },
     "save": "Registrar",
     "saving": "Registrando…",

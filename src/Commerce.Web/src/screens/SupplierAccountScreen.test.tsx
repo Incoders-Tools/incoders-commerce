@@ -303,11 +303,16 @@ describe('SupplierAccountScreen', () => {
     expect(screen.queryByLabelText('Efecto del ajuste')).not.toBeInTheDocument()
     await user.selectOptions(screen.getByLabelText('Tipo de movimiento'), 'Adjustment')
     const options = Array.from((screen.getByLabelText('Efecto del ajuste') as HTMLSelectElement).options).map((o) => o.text)
-    expect(options).toEqual(['Aumenta deuda', 'Disminuye deuda'])
+    expect(options).toEqual(['Elegí el efecto', 'Aumenta deuda', 'Disminuye deuda'])
 
-    await user.selectOptions(screen.getByLabelText('Efecto del ajuste'), 'Debit')
+    // No effect is preselected: a wrong default would silently book the adjustment the other way.
     fireEvent.change(screen.getByLabelText('Importe'), { target: { value: '10' } })
     fireEvent.change(screen.getByLabelText('Concepto'), { target: { value: 'Corrección' } })
+    await user.click(screen.getByRole('button', { name: 'Registrar' }))
+    expect(await screen.findByText('Elegí si el ajuste aumenta o disminuye la deuda.')).toBeInTheDocument()
+    expect(postBodies()).toHaveLength(0)
+
+    await user.selectOptions(screen.getByLabelText('Efecto del ajuste'), 'Debit')
     await user.click(screen.getByRole('button', { name: 'Registrar' }))
 
     await waitFor(() => expect(postBodies()).toHaveLength(1))
