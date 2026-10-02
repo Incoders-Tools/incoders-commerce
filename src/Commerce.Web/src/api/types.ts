@@ -539,3 +539,26 @@ export interface OrganizationBranding { logoUrl: string | null; primaryColor: st
 export interface UpdateOrganizationBrandingRequest { logoUrl: string | null; primaryColor: string | null }
 // branch-discount-pin: whether a branch has a discount PIN and when it last changed; the PIN itself is never returned.
 export interface BranchDiscountPinStatus { isSet: boolean; version: number | null; changedAtUtc: string | null }
+
+// Customers master data (cities, business types): organization-scoped
+// catalogs with the same shape, served under `/customers/cities` and
+// `/customers/business-types`. There is no DELETE: an entry is deactivated.
+export interface MasterDataEntry {
+  id: string
+  organizationId: string
+  name: string
+  key: string
+  sortOrder: number
+  isActive: boolean
+  createdAtUtc: string
+  updatedAtUtc: string
+}
+
+// On PUT an omitted `key`/`sortOrder` keeps the stored value, but an omitted
+// `isActive` becomes true, so the client always sends it.
+export interface MasterDataRequest {
+  name: string
+  key?: string
+  sortOrder?: number
+  isActive: boolean
+}

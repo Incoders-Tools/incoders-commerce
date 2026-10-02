@@ -105,6 +105,8 @@ describe('AppLayout', () => {
     expect(nav.getByRole('link', { name: /clientes/i })).toBeInTheDocument()
     expect(nav.getByRole('link', { name: /usuarios/i })).toBeInTheDocument()
     expect(nav.getByRole('link', { name: /sucursales/i })).toBeInTheDocument()
+    expect(nav.getByRole('link', { name: 'Ciudades' })).toBeInTheDocument()
+    expect(nav.getByRole('link', { name: 'Tipos de negocio' })).toBeInTheDocument()
     expect(nav.queryByRole('link', { name: /organizaciones/i })).not.toBeInTheDocument()
   })
 

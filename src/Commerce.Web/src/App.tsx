@@ -13,7 +13,9 @@ import { ForgotPasswordRoute } from '@/routes/ForgotPasswordRoute'
 import { ResetPasswordRoute } from '@/routes/ResetPasswordRoute'
 import { HomeScreen } from '@/screens/HomeScreen'
 import { CatalogScreen } from '@/screens/CatalogScreen'
+import { BusinessTypesScreen } from '@/screens/BusinessTypesScreen'
 import { CategoriesScreen } from '@/screens/CategoriesScreen'
+import { CitiesScreen } from '@/screens/CitiesScreen'
 import { OrderScreen } from '@/screens/OrderScreen'
 import { StaffOrderScreen } from '@/screens/StaffOrderScreen'
 import { RenewPasswordScreen } from '@/screens/RenewPasswordScreen'
@@ -86,6 +88,8 @@ function App() {
                   <Route element={<RequireAdmin />}>
                     <Route path="dashboard" element={<DashboardScreen />} />
                     <Route path="customers" element={<CustomersScreen />} />
+                    <Route path="cities" element={<CitiesScreen />} />
+                    <Route path="business-types" element={<BusinessTypesScreen />} />
                     <Route path="users" element={<UsersScreen />} />
                     <Route path="branches" element={<BranchesScreen />} />
                     {/* commerce-pricing-engine design.md "Web: `PriceListsScreen`

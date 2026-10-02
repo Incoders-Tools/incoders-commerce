@@ -1,0 +1,56 @@
+{
+  "title": "Cities",
+  "description": "Cities where customers are located. Picked when editing a customer.",
+  "columns": {
+    "name": "Name",
+    "key": "Key",
+    "sortOrder": "Order",
+    "status": "Status",
+    "createdAt": "Created",
+    "updatedAt": "Last modified"
+  },
+  "status": {
+    "active": "Active",
+    "inactive": "Inactive",
+    "all": "All",
+    "filterLabel": "Status"
+  },
+  "actions": {
+    "create": "New city",
+    "edit": "Edit",
+    "deactivate": "Deactivate",
+    "activate": "Activate"
+  },
+  "search": {
+    "label": "Search cities",
+    "placeholder": "Search by name or key…"
+  },
+  "empty": {
+    "none": "There are no cities yet.",
+    "noMatch": "No city matches this search.",
+    "loadError": "Could not load the cities."
+  },
+  "form": {
+    "createTitle": "New city",
+    "editTitle": "Edit city",
+    "description": "Name, key and the order used in lists.",
+    "backLabel": "Back to cities",
+    "name": "Name",
+    "key": "Key",
+    "keyHint": "Short identifier; if left empty it is generated from the name.",
+    "sortOrder": "Order",
+    "isActive": "Active",
+    "createdAt": "Created: {{date}}",
+    "updatedAt": "Updated: {{date}}",
+    "save": "Save",
+    "saving": "Saving…",
+    "cancel": "Cancel"
+  },
+  "errors": {
+    "unableToLoad": "Could not load the cities.",
+    "unableToSave": "Could not save the city.",
+    "unableToUpdate": "Could not update the status.",
+    "nameInUse": "A city with that name already exists.",
+    "keyInUse": "A city with that key already exists."
+  }
+}

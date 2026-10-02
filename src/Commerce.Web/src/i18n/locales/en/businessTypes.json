@@ -1,0 +1,56 @@
+{
+  "title": "Business types",
+  "description": "Customer business lines (bar, restaurant, grocery…). Picked when editing a customer.",
+  "columns": {
+    "name": "Name",
+    "key": "Key",
+    "sortOrder": "Order",
+    "status": "Status",
+    "createdAt": "Created",
+    "updatedAt": "Last modified"
+  },
+  "status": {
+    "active": "Active",
+    "inactive": "Inactive",
+    "all": "All",
+    "filterLabel": "Status"
+  },
+  "actions": {
+    "create": "New business type",
+    "edit": "Edit",
+    "deactivate": "Deactivate",
+    "activate": "Activate"
+  },
+  "search": {
+    "label": "Search business types",
+    "placeholder": "Search by name or key…"
+  },
+  "empty": {
+    "none": "There are no business types yet.",
+    "noMatch": "No business type matches this search.",
+    "loadError": "Could not load the business types."
+  },
+  "form": {
+    "createTitle": "New business type",
+    "editTitle": "Edit business type",
+    "description": "Name, key and the order used in lists.",
+    "backLabel": "Back to business types",
+    "name": "Name",
+    "key": "Key",
+    "keyHint": "Short identifier; if left empty it is generated from the name.",
+    "sortOrder": "Order",
+    "isActive": "Active",
+    "createdAt": "Created: {{date}}",
+    "updatedAt": "Updated: {{date}}",
+    "save": "Save",
+    "saving": "Saving…",
+    "cancel": "Cancel"
+  },
+  "errors": {
+    "unableToLoad": "Could not load the business types.",
+    "unableToSave": "Could not save the business type.",
+    "unableToUpdate": "Could not update the status.",
+    "nameInUse": "A business type with that name already exists.",
+    "keyInUse": "A business type with that key already exists."
+  }
+}

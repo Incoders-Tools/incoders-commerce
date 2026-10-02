@@ -2,10 +2,12 @@ import { useState, type ComponentType, type ReactNode } from 'react'
 import { NavLink, Outlet } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import {
+  Briefcase,
   Building2,
   ClipboardList,
   LayoutDashboard,
   LayoutGrid,
+  MapPin,
   Menu,
   Package,
   Store,
@@ -122,6 +124,8 @@ export function AppLayout() {
             {showTenantNav && (
               <NavSection title={t('sections.administration')}>
                 <NavItem to="/app/customers" icon={Users2} onNavigate={closeMobileNav}>{t('items.customers')}</NavItem>
+                <NavItem to="/app/cities" icon={MapPin} onNavigate={closeMobileNav}>{t('items.cities')}</NavItem>
+                <NavItem to="/app/business-types" icon={Briefcase} onNavigate={closeMobileNav}>{t('items.businessTypes')}</NavItem>
                 <NavItem to="/app/users" icon={UserCog} onNavigate={closeMobileNav}>{t('items.users')}</NavItem>
                 <NavItem to="/app/branches" icon={Store} onNavigate={closeMobileNav}>{t('items.branches')}</NavItem>
                 {/* Same UI-only gate as its siblings: `App.tsx`'s

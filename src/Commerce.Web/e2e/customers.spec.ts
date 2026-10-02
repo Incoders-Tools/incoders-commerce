@@ -21,6 +21,13 @@ test.describe('customer registry admin gating', () => {
     await expect(page.getByRole('link', { name: 'Clientes' })).toBeVisible()
     await page.getByRole('link', { name: 'Clientes' }).click()
     await expect(page.getByRole('heading', { name: 'Clientes' })).toBeVisible()
+
+    // Customer master data (T5): the catalogs live next to Customers and are
+    // reachable only by the same admin.
+    await page.getByRole('link', { name: 'Ciudades' }).click()
+    await expect(page.getByRole('heading', { name: 'Ciudades' })).toBeVisible()
+    await page.getByRole('link', { name: 'Tipos de negocio' }).click()
+    await expect(page.getByRole('heading', { name: 'Tipos de negocio' })).toBeVisible()
   })
 
   test('a seller has no Customers tab and is redirected away from /app/customers', async ({ page, baseURL }) => {
@@ -60,6 +67,8 @@ test.describe('customer registry admin gating', () => {
     // affordance; the server's ManageUsers check on every /customers call is
     // the real gate, exercised directly by CustomerRegistryTests).
     await expect(page.getByRole('link', { name: 'Clientes' })).not.toBeVisible()
+    await expect(page.getByRole('link', { name: 'Ciudades' })).not.toBeVisible()
+    await expect(page.getByRole('link', { name: 'Tipos de negocio' })).not.toBeVisible()
 
     // In-SPA (client-side) navigation attempt to the guarded path — no full
     // page reload, so the still-mounted AuthProvider's `user` state (and its

@@ -1,0 +1,56 @@
+{
+  "title": "Ciudades",
+  "description": "Ciudades en las que están los clientes. Se eligen al cargar un cliente.",
+  "columns": {
+    "name": "Nombre",
+    "key": "Clave",
+    "sortOrder": "Orden",
+    "status": "Estado",
+    "createdAt": "Creación",
+    "updatedAt": "Última modificación"
+  },
+  "status": {
+    "active": "Activa",
+    "inactive": "Inactiva",
+    "all": "Todas",
+    "filterLabel": "Estado"
+  },
+  "actions": {
+    "create": "Nueva ciudad",
+    "edit": "Editar",
+    "deactivate": "Desactivar",
+    "activate": "Activar"
+  },
+  "search": {
+    "label": "Buscar ciudades",
+    "placeholder": "Buscar por nombre o clave…"
+  },
+  "empty": {
+    "none": "Todavía no hay ciudades.",
+    "noMatch": "Ninguna ciudad coincide con esta búsqueda.",
+    "loadError": "No se pudieron cargar las ciudades."
+  },
+  "form": {
+    "createTitle": "Nueva ciudad",
+    "editTitle": "Editar ciudad",
+    "description": "Nombre, clave y orden con el que aparece en las listas.",
+    "backLabel": "Volver a las ciudades",
+    "name": "Nombre",
+    "key": "Clave",
+    "keyHint": "Identificador corto; si se deja vacío se genera a partir del nombre.",
+    "sortOrder": "Orden",
+    "isActive": "Activa",
+    "createdAt": "Creada: {{date}}",
+    "updatedAt": "Actualizada: {{date}}",
+    "save": "Guardar",
+    "saving": "Guardando…",
+    "cancel": "Cancelar"
+  },
+  "errors": {
+    "unableToLoad": "No se pudieron cargar las ciudades.",
+    "unableToSave": "No se pudo guardar la ciudad.",
+    "unableToUpdate": "No se pudo actualizar el estado.",
+    "nameInUse": "Ya existe una ciudad con ese nombre.",
+    "keyInUse": "Ya existe una ciudad con esa clave."
+  }
+}

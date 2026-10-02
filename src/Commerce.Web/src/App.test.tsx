@@ -104,6 +104,28 @@ describe('App route table', () => {
     expect(screen.queryByRole('heading', { name: 'Categorías' })).not.toBeInTheDocument()
   })
 
+  it('mounts the cities and business types screens for an admin and links them from the sidebar', async () => {
+    const { unmount } = renderAppAt('/app/cities', buildUser({ permissions: Permission.ManageUsers }))
+
+    expect(await screen.findByRole('heading', { name: 'Ciudades' })).toBeInTheDocument()
+    const nav = within(screen.getByRole('navigation', { name: 'Principal' }))
+    expect(nav.getByRole('link', { name: 'Ciudades' })).toHaveAttribute('href', '/app/cities')
+    expect(nav.getByRole('link', { name: 'Tipos de negocio' })).toHaveAttribute('href', '/app/business-types')
+    unmount()
+
+    renderAppAt('/app/business-types', buildUser({ permissions: Permission.ManageUsers }))
+    expect(await screen.findByRole('heading', { name: 'Tipos de negocio' })).toBeInTheDocument()
+  })
+
+  it('redirects a non-admin away from the cities and business types routes', async () => {
+    const { unmount } = renderAppAt('/app/cities', buildUser({ permissions: Permission.ViewSales }))
+    expect(await screen.findByRole('heading', { name: 'Catálogo' })).toBeInTheDocument()
+    unmount()
+
+    renderAppAt('/app/business-types', buildUser({ permissions: Permission.ViewSales }))
+    expect(await screen.findByRole('heading', { name: 'Catálogo' })).toBeInTheDocument()
+  })
+
   it('redirects a non-admin away from /app/price-lists to the catalog', async () => {
     renderAppAt('/app/price-lists', buildUser({ permissions: Permission.ViewSales }))
 
