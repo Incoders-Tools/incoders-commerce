@@ -444,6 +444,37 @@ public static class AccountEndpoints
             return branding is null ? Results.NotFound() : Results.Ok(new OrganizationBrandingResponse(branding.LogoUrl, branding.PrimaryColor));
         });
 
+        // --- purchases-receptions-and-stock T7: the signed-in user's OWN organization's settings (the number
+        // format). Any signed-in user reads them (the web needs them to parse and show quantities); writing needs
+        // ManageBranchSettings (business-admin; a sysadmin acting on a selected organization is covered by
+        // ActingPermissions) and is audited like branding.
+        ownOrganizationGroup.MapGet("/settings", async (HttpContext httpContext, PostgresOrganizationStore organizationStore, CancellationToken ct) =>
+        {
+            var scope = TenantScopeEndpointFilter.GetScope(httpContext);
+            var settings = await organizationStore.GetSettingsAsync(scope.OrganizationId, ct);
+            return settings is null ? Results.NotFound() : Results.Ok(new OrganizationSettingsResponse(settings.QuantityDecimalSeparator));
+        });
+
+        ownOrganizationGroup.MapPut("/settings", async (UpdateOrganizationSettingsRequest request, HttpContext httpContext, PostgresUserAccountStore userStore, PostgresOrganizationStore organizationStore, CancellationToken ct) =>
+        {
+            var scope = TenantScopeEndpointFilter.GetScope(httpContext);
+            var claim = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (claim is null || !Guid.TryParse(claim, out var callerId)) return Results.StatusCode(StatusCodes.Status403Forbidden);
+            var caller = await userStore.LoadActorAsync(scope.IdentityScope, callerId, ct);
+            if (caller is null || caller.IsRevoked || !ActingPermissions.For(caller, scope).HasFlag(Permission.ManageBranchSettings)) return Results.StatusCode(StatusCodes.Status403Forbidden);
+
+            if (!OrganizationSettings.IsValidQuantityDecimalSeparator(request.QuantityDecimalSeparator))
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]> { ["quantityDecimalSeparator"] = ["quantityDecimalSeparator must be Comma or Dot."] });
+            }
+
+            var settings = new OrganizationSettings(request.QuantityDecimalSeparator!);
+            var audit = new UserManagementAuditEntry(
+                "org-user", callerId, scope.OrganizationId, "organization", scope.OrganizationId, "organization.settings_updated", null,
+                JsonSerializer.Serialize(new { quantityDecimalSeparator = settings.QuantityDecimalSeparator }));
+            return await organizationStore.UpdateSettingsAsync(scope.OrganizationId, settings, audit, ct) ? Results.NoContent() : Results.NotFound();
+        });
+
         var branchGroup = app.MapGroup("/account/branches")
             .RequireAuthorization()
             .AddEndpointFilter<TenantScopeEndpointFilter>();
@@ -1073,6 +1104,8 @@ public sealed record CreateOrganizationRequest(string OrganizationName, string? 
 public sealed record CreateOrganizationResponse(Guid OrganizationId, Guid BranchId, Guid UserId);
 public sealed record OrganizationBrandingResponse(string? LogoUrl, string? PrimaryColor);
 public sealed record UpdateOrganizationBrandingRequest(string? LogoUrl, string? PrimaryColor);
+public sealed record OrganizationSettingsResponse(string QuantityDecimalSeparator);
+public sealed record UpdateOrganizationSettingsRequest(string? QuantityDecimalSeparator);
 
 public sealed record AssignRolesRequest(string[] RoleNames);
 public sealed record ReplaceBranchesRequest(Guid[] BranchIds);

@@ -327,4 +327,57 @@ public sealed class PostgresOrganizationStore
         await tx.CommitAsync(ct);
         return true;
     }
+
+    /// <summary>
+    /// Reads one organization's settings (the number format). Same trust note as <see cref="GetBrandingAsync"/>:
+    /// the caller passes its own authenticated organization id. Returns <c>null</c> when it does not exist.
+    /// </summary>
+    public async Task<OrganizationSettings?> GetSettingsAsync(Guid organizationId, CancellationToken ct)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+
+        await TenantScopeSql.ApplyAsync(connection, tx, organizationId, branchId: null, ct);
+
+        OrganizationSettings? settings = null;
+        await using (var cmd = new NpgsqlCommand("SELECT quantity_decimal_separator FROM organizations WHERE id = $1", connection, tx))
+        {
+            cmd.Parameters.AddWithValue(organizationId);
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            if (await reader.ReadAsync(ct)) settings = new OrganizationSettings(reader.GetString(0));
+        }
+
+        await tx.CommitAsync(ct);
+        return settings;
+    }
+
+    /// <summary>
+    /// Updates one organization's settings and writes the audit row in the SAME transaction. Returns
+    /// <c>false</c> (nothing written) when the organization does not exist.
+    /// </summary>
+    public async Task<bool> UpdateSettingsAsync(Guid organizationId, OrganizationSettings settings, UserManagementAuditEntry audit, CancellationToken ct)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+
+        await TenantScopeSql.ApplyAsync(connection, tx, organizationId, branchId: null, ct);
+
+        int rowsAffected;
+        await using (var cmd = new NpgsqlCommand("UPDATE organizations SET quantity_decimal_separator = $1 WHERE id = $2", connection, tx))
+        {
+            cmd.Parameters.AddWithValue(settings.QuantityDecimalSeparator);
+            cmd.Parameters.AddWithValue(organizationId);
+            rowsAffected = await cmd.ExecuteNonQueryAsync(ct);
+        }
+
+        if (rowsAffected == 0)
+        {
+            await tx.RollbackAsync(ct);
+            return false;
+        }
+
+        await AuditLogWriter.InsertAsync(connection, tx, audit, ct);
+        await tx.CommitAsync(ct);
+        return true;
+    }
 }

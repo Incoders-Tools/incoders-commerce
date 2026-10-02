@@ -94,6 +94,16 @@ WHERE g.indec_id = v.indec_id
   AND g.created_at_utc > v.created_at::timestamptz
   AND EXISTS (SELECT 1 FROM _vv_seed_ctx);
 
+-- Number format: Vaca Verde writes kilos with a decimal dot ("1.5"). Only while the setting was never
+-- changed from the app (still the Comma default and no audited settings update), so a later manual choice stays.
+UPDATE organizations o
+SET quantity_decimal_separator = 'Dot'
+FROM _vv_seed_ctx c
+WHERE o.id = c.organization_id
+  AND o.quantity_decimal_separator = 'Comma'
+  AND NOT EXISTS (SELECT 1 FROM audit_log a
+                  WHERE a.organization_id = o.id AND a.action = 'organization.settings_updated');
+
 -- Business types.
 INSERT INTO business_types (id, organization_id, name, key, sort_order)
 SELECT md5('vaca-verde:business-type:' || v.key)::uuid, c.organization_id, v.name, v.key, v.sort_order::integer

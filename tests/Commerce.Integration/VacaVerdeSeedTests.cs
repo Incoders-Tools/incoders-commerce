@@ -103,6 +103,34 @@ public sealed class VacaVerdeSeedTests
     }
 
     [Fact]
+    public void Seed_SetsDotQuantitySeparator_OnlyWhileTheSettingWasNeverChanged()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        using var owner = OpenOwner();
+        ApplyAllMigrations(owner);
+        var orgId = ProvisionVacaVerde(owner);
+        try
+        {
+            ApplySeed(owner);
+            Assert.Equal("Dot", Scalar<string>(owner, "SELECT quantity_decimal_separator FROM organizations WHERE id = $1", orgId));
+
+            // The owner switches it back from the app (an audited change): a re-run must not undo it.
+            Exec(owner, "UPDATE organizations SET quantity_decimal_separator = 'Comma' WHERE id = $1", orgId);
+            Exec(owner,
+                "INSERT INTO audit_log (actor_kind, actor_id, organization_id, entity_type, entity_id, action) VALUES ('org-user', $1, $2, 'organization', $2, 'organization.settings_updated')",
+                Guid.NewGuid(), orgId);
+            ApplySeed(owner);
+            Assert.Equal("Comma", Scalar<string>(owner, "SELECT quantity_decimal_separator FROM organizations WHERE id = $1", orgId));
+        }
+        finally
+        {
+            Exec(owner, "DELETE FROM audit_log WHERE organization_id = $1", orgId);
+            RemoveVacaVerde(owner);
+        }
+    }
+
+    [Fact]
     public void Seed_DoesNotCreateCities_AndRestoresTheOwnersAuditDatesOnlyOnUntouchedGlobalRows()
     {
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }

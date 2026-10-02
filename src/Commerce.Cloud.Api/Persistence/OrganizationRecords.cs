@@ -38,3 +38,15 @@ public sealed record BranchOption(Guid Id, string Name, int Code);
 /// there is no separate "has branding" flag, an unset field IS the value.
 /// </summary>
 public sealed record OrganizationBranding(string? LogoUrl, string? PrimaryColor);
+
+/// <summary>
+/// One organization's settings (purchases-receptions-and-stock T7). The first field is the decimal separator the
+/// business types quantities with: <c>Comma</c> ("1,5", the default) or <c>Dot</c> ("1.5").
+/// </summary>
+public sealed record OrganizationSettings(string QuantityDecimalSeparator)
+{
+    public const string Comma = "Comma";
+    public const string Dot = "Dot";
+
+    public static bool IsValidQuantityDecimalSeparator(string? value) => value is Comma or Dot;
+}
