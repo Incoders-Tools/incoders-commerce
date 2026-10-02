@@ -176,6 +176,10 @@ public sealed partial class PurchaseReceptionEndpointTests : IClassFixture<WebAp
         // Both history lines stay visible.
         var after = await s.Admin.GetFromJsonAsync<JsonElement>($"/suppliers/{s.SupplierId}/account/statement");
         Assert.Equal(["Invoice", "Reversal"], after.GetProperty("movements").EnumerateArray().Select(m => m.GetProperty("kind").GetString()!).ToArray());
+        // The ledger concepts are user-facing text in a Spanish UI.
+        Assert.Equal(
+            ["Recepción de mercadería R01-W-1", "Anulación de recepción R01-W-1: Mercadería devuelta"],
+            after.GetProperty("movements").EnumerateArray().Select(m => m.GetProperty("concept").GetString()!).ToArray());
         using (var owner = OpenOwner())
         {
             Assert.Equal(2L, Scalar<long>(owner, "SELECT count(*) FROM stock_movements WHERE presentation_id = $1", s.Presentation));

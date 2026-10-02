@@ -479,7 +479,7 @@ public sealed class PostgresPurchaseReceptionStore
         {
             var invoice = new NewAccountMovement(
                 movementId, AccountMovementKind.Invoice, AccountDirection.Credit, reception.TotalAmount, reception.OccurredOn,
-                dueOn, reception.DocumentReference ?? number.Format(), $"Goods reception {number.Format()}", actorId);
+                dueOn, reception.DocumentReference ?? number.Format(), $"Recepción de mercadería {number.Format()}", actorId);
             var record = await PostgresCurrentAccountStore.InsertAsync(
                 connection, tx, scope.OrganizationId, reception.SupplierId, invoice, null, ct);
             await PostgresCurrentAccountStore.AuditAsync(
@@ -556,7 +556,7 @@ public sealed class PostgresPurchaseReceptionStore
             await tx.SaveAsync("ledger_reversal", ct);
             var reversal = await PostgresCurrentAccountStore.ReverseWithinAsync(
                 connection, tx, scope.OrganizationId, reception.SupplierId, invoiceId,
-                $"Void of goods reception {reception.Number}: {reason}", null, today, actorId, ct);
+                $"Anulación de recepción {reception.Number}: {reason}", null, today, actorId, ct);
             if (reversal.Outcome == ReverseMovementOutcome.Reversed)
             {
                 reversalId = reversal.Reversal!.Id;
