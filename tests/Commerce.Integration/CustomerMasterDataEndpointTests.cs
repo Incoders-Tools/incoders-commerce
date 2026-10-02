@@ -438,4 +438,23 @@ public sealed class CustomerMasterDataEndpointTests : IClassFixture<WebApplicati
             token = (await winner.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("updatedAtUtc").GetDateTimeOffset();
         }
     }
+    [Theory]
+    [InlineData("Cuit", "30-12345678-9", "30123456789")]
+    [InlineData("Cuil", "20 12345678 9", "20123456789")]
+    [InlineData("Dni", "12.345.678", "12345678")]
+    public async Task CustomerUpdate_AcceptsDashedOrDottedTaxIds_AndStoresDigitsOnly(string taxIdType, string raw, string expected)
+    {
+        if (!_postgresAvailable) return;
+        await BootstrapAsync($"md-dash-{taxIdType}@example.com");
+        var admin = await SignInAsync($"md-dash-{taxIdType}@example.com");
+        var id = (await PostOkAsync(admin, "/customers", CustomerBody("Cliente"))).GetProperty("customerId").GetGuid();
+
+        var response = await admin.PutAsJsonAsync($"/customers/{id}", new
+        {
+            displayName = "Cliente", taxIdType, taxId = raw, taxCondition = "ConsumidorFinal", isEnabled = true,
+        });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(expected, (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("taxId").GetString());
+    }
 }

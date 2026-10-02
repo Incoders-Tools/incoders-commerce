@@ -102,18 +102,17 @@ public sealed class Customer
             throw new ArgumentException("TaxId is required when TaxIdType is not None.", nameof(taxId));
         }
 
-        // Shape per type: a DNI is stored as 7-8 bare digits; CUIT/CUIL must
-        // hold 11 digits (separators tolerated here, endpoints store them
-        // normalized through TaxIdRules).
-        if (hasTaxId && taxIdType == TaxIdType.Dni && !TaxIdRules.IsValidDigits(taxIdType, taxId!))
+        // Shape per type, shared with the endpoints: separators (dots, dashes,
+        // spaces) are tolerated and dropped, so what is stored is digits only
+        // whichever path built the customer.
+        if (hasTaxId)
         {
-            throw new ArgumentException("TaxId must be 7 or 8 digits when TaxIdType is Dni.", nameof(taxId));
-        }
+            if (!TaxIdRules.TryNormalize(taxIdType, taxId, out var normalizedTaxId, out var taxIdError))
+            {
+                throw new ArgumentException(taxIdError, nameof(taxId));
+            }
 
-        if (hasTaxId && taxIdType is TaxIdType.Cuit or TaxIdType.Cuil
-            && !TaxIdRules.TryNormalize(taxIdType, taxId, out _, out _))
-        {
-            throw new ArgumentException("TaxId must be 11 digits when TaxIdType is Cuit or Cuil.", nameof(taxId));
+            taxId = normalizedTaxId;
         }
 
         // commerce-payments design.md "Customer instrument reference": reject

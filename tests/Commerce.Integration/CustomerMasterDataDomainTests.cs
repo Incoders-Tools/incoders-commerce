@@ -79,11 +79,19 @@ public sealed class CustomerMasterDataDomainTests
     [Theory]
     [InlineData("123456")]
     [InlineData("123456789")]
-    [InlineData("12.345.678")]
     [InlineData("ABCDEFGH")]
     public void Customer_RejectsMalformedDni(string dni)
     {
         Assert.Throws<ArgumentException>(() => NewCustomer(TaxIdType.Dni, dni));
+    }
+
+    [Theory]
+    [InlineData(TaxIdType.Dni, "12.345.678", "12345678")]
+    [InlineData(TaxIdType.Cuit, "30-12345678-9", "30123456789")]
+    [InlineData(TaxIdType.Cuil, "20 12345678 9", "20123456789")]
+    public void Customer_NormalizesSeparatorsInTheTaxId_LikeTheEndpoints(TaxIdType type, string raw, string expected)
+    {
+        Assert.Equal(expected, NewCustomer(type, raw).TaxId);
     }
 
     [Fact]
