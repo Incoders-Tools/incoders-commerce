@@ -25,7 +25,7 @@ const customer: CustomerRecord = {
   taxIdType: 'Cuit',
   taxId: '20-12345678-9',
   taxCondition: 'ResponsableInscripto',
-  contactName: null,
+  contacts: [],
   cityId: null,
   cityName: null,
   provinceId: null,
@@ -170,7 +170,7 @@ describe('CustomerForm', () => {
     expect(screen.getByLabelText('Observaciones')).toBeInTheDocument()
   })
 
-  it('sends contact name, a city found with the picker and a business type chosen from the catalog', async () => {
+  it('sends a city found with the picker and a business type chosen from the catalog', async () => {
     const user = userEvent.setup()
     render(
       <CustomerForm
@@ -181,7 +181,6 @@ describe('CustomerForm', () => {
     )
 
     await user.type(screen.getByLabelText('Nombre'), 'Jane Doe')
-    await user.type(screen.getByLabelText('Nombre de contacto'), 'Juana')
     await user.click(screen.getByRole('combobox', { name: 'Ciudad' }))
     await user.click(await screen.findByRole('option', { name: 'Funes — Santa Fe' }))
     await user.selectOptions(screen.getByLabelText('Tipo de negocio'), 'bt-1')
@@ -191,8 +190,8 @@ describe('CustomerForm', () => {
     await waitFor(() => expect(fetchMock.mock.calls.some((call) => call[1]?.method === 'POST')).toBe(true))
     const post = fetchMock.mock.calls.find((call) => call[1]?.method === 'POST')!
     const body = JSON.parse(post[1].body as string)
+    expect(body).not.toHaveProperty('contactName')
     expect(body).toMatchObject({
-      contactName: 'Juana',
       cityId: 'city-2',
       businessTypeId: 'bt-1',
       notes: 'Paga los viernes',
@@ -229,14 +228,13 @@ describe('CustomerForm', () => {
     expect(type).toHaveValue('bt-old')
   })
 
-  it('clears the city, business type and contact on edit with the empty-id sentinel and empty string', async () => {
+  it('clears the city and business type on edit with the empty-id sentinel', async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(customer), { status: 200 }))
     const user = userEvent.setup()
     render(
       <CustomerForm
         customer={{
           ...customer,
-          contactName: 'Juana',
           cityId: 'city-1',
           cityName: 'Rosario',
           provinceName: 'Santa Fe',
@@ -250,12 +248,11 @@ describe('CustomerForm', () => {
 
     await user.click(screen.getByRole('button', { name: 'Quitar ciudad' }))
     await user.selectOptions(screen.getByLabelText('Tipo de negocio'), '')
-    await user.clear(screen.getByLabelText('Nombre de contacto'))
     await user.click(screen.getByRole('button', { name: /^guardar$/i }))
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string)
-    expect(body).toMatchObject({ cityId: NO_ID, businessTypeId: NO_ID, contactName: '' })
+    expect(body).toMatchObject({ cityId: NO_ID, businessTypeId: NO_ID })
   })
 
   it('accepts a DNI of 7 or 8 digits and rejects anything else before calling the API', async () => {
@@ -297,5 +294,190 @@ describe('CustomerForm', () => {
     await user.click(screen.getByRole('button', { name: /^guardar$/i }))
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+  })
+
+  describe('contacts editor', () => {
+    const juana = {
+      id: 'ct-1',
+      firstName: 'Juana',
+      lastName: 'Pérez',
+      phone: '341-555',
+      email: 'juana@example.com',
+      role: 'Compras',
+      isPrimary: true,
+      sortOrder: 0,
+    }
+    const roberto = { ...juana, id: 'ct-2', firstName: 'Roberto', lastName: null, isPrimary: false, sortOrder: 1 }
+
+    const sentBody = () => {
+      const call = fetchMock.mock.calls.find((c) => c[1]?.method === 'POST' || c[1]?.method === 'PUT')!
+      return JSON.parse(call[1].body as string)
+    }
+    const contactGroup = (index: number) => screen.getByRole('group', { name: `Contacto ${index}` })
+
+    it('has no contactName field any more', () => {
+      render(<CustomerForm onSaved={vi.fn()} onCancel={vi.fn()} />)
+
+      expect(screen.queryByLabelText('Nombre de contacto')).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Agregar contacto' })).toBeInTheDocument()
+    })
+
+    it('adds contacts, makes the first one primary and sends them in order on create', async () => {
+      const user = userEvent.setup()
+      render(<CustomerForm onSaved={vi.fn()} onCancel={vi.fn()} />)
+
+      await user.type(screen.getByLabelText('Nombre'), 'Acme')
+      await user.click(screen.getByRole('button', { name: 'Agregar contacto' }))
+      await user.type(within(contactGroup(1)).getByLabelText('Nombre'), 'Juana')
+      await user.type(within(contactGroup(1)).getByLabelText('Apellido'), 'Pérez')
+      await user.type(within(contactGroup(1)).getByLabelText('Teléfono'), '341-555')
+      await user.click(screen.getByRole('button', { name: 'Agregar contacto' }))
+      await user.type(within(contactGroup(2)).getByLabelText('Nombre'), 'Roberto')
+      await user.type(within(contactGroup(2)).getByLabelText('Rol'), 'Dueño')
+      await user.click(screen.getByRole('button', { name: /^guardar$/i }))
+
+      await waitFor(() => expect(fetchMock.mock.calls.some((c) => c[1]?.method === 'POST')).toBe(true))
+      const body = sentBody()
+      expect(body.contacts).toHaveLength(2)
+      expect(body.contacts[0]).toMatchObject({
+        firstName: 'Juana',
+        lastName: 'Pérez',
+        phone: '341-555',
+        isPrimary: true,
+        sortOrder: 0,
+      })
+      expect(body.contacts[1]).toMatchObject({ firstName: 'Roberto', role: 'Dueño', isPrimary: false, sortOrder: 1 })
+      expect(body.contacts[0]).not.toHaveProperty('id')
+    })
+
+    it('requires a first name and blocks the request until it is filled', async () => {
+      const user = userEvent.setup()
+      render(<CustomerForm onSaved={vi.fn()} onCancel={vi.fn()} />)
+
+      await user.type(screen.getByLabelText('Nombre'), 'Acme')
+      await user.click(screen.getByRole('button', { name: 'Agregar contacto' }))
+      await user.type(within(contactGroup(1)).getByLabelText('Teléfono'), '341-555')
+      await user.click(screen.getByRole('button', { name: /^guardar$/i }))
+
+      expect(await screen.findByText('El nombre del contacto es obligatorio.')).toBeInTheDocument()
+      expect(fetchMock.mock.calls.some((c) => c[1]?.method === 'POST')).toBe(false)
+
+      await user.type(within(contactGroup(1)).getByLabelText('Nombre'), 'Juana')
+      await user.click(screen.getByRole('button', { name: /^guardar$/i }))
+      await waitFor(() => expect(fetchMock.mock.calls.some((c) => c[1]?.method === 'POST')).toBe(true))
+    })
+
+    it('keeps at most one primary contact', async () => {
+      const user = userEvent.setup()
+      render(<CustomerForm customer={{ ...customer, contacts: [juana, roberto] }} onSaved={vi.fn()} onCancel={vi.fn()} />)
+
+      const primary1 = within(contactGroup(1)).getByRole('radio', { name: 'Principal' })
+      const primary2 = within(contactGroup(2)).getByRole('radio', { name: 'Principal' })
+      expect(primary1).toBeChecked()
+      expect(primary2).not.toBeChecked()
+
+      await user.click(primary2)
+      expect(primary1).not.toBeChecked()
+      expect(primary2).toBeChecked()
+    })
+
+    it('removes and reorders contacts, and sends the replace-set with ids and sort order on edit', async () => {
+      const user = userEvent.setup()
+      render(
+        <CustomerForm
+          customer={{ ...customer, contacts: [juana, roberto, { ...roberto, id: 'ct-3', firstName: 'Sofía', sortOrder: 2 }] }}
+          onSaved={vi.fn()}
+          onCancel={vi.fn()}
+        />,
+      )
+
+      await user.click(screen.getByRole('button', { name: 'Bajar contacto 1' }))
+      expect(within(contactGroup(1)).getByLabelText('Nombre')).toHaveValue('Roberto')
+      await user.click(screen.getByRole('button', { name: 'Quitar contacto 3' }))
+      await user.click(screen.getByRole('button', { name: /^guardar$/i }))
+
+      await waitFor(() => expect(fetchMock.mock.calls.some((c) => c[1]?.method === 'PUT')).toBe(true))
+      const { contacts } = sentBody()
+      expect(contacts.map((c: { id: string }) => c.id)).toEqual(['ct-2', 'ct-1'])
+      expect(contacts.map((c: { sortOrder: number }) => c.sortOrder)).toEqual([0, 1])
+      expect(contacts[1]).toMatchObject({ firstName: 'Juana', isPrimary: true })
+    })
+
+    it('clears all contacts on edit by sending an empty list', async () => {
+      const user = userEvent.setup()
+      render(<CustomerForm customer={{ ...customer, contacts: [juana] }} onSaved={vi.fn()} onCancel={vi.fn()} />)
+
+      await user.click(screen.getByRole('button', { name: 'Quitar contacto 1' }))
+      await user.click(screen.getByRole('button', { name: /^guardar$/i }))
+
+      await waitFor(() => expect(fetchMock.mock.calls.some((c) => c[1]?.method === 'PUT')).toBe(true))
+      expect(sentBody().contacts).toEqual([])
+    })
+  })
+
+  describe('optimistic concurrency', () => {
+    const conflict = () =>
+      new Response(JSON.stringify({ error: 'customer-modified' }), {
+        status: 409,
+        headers: { 'Content-Type': 'application/json' },
+      })
+
+    it('sends the updatedAtUtc it last read as expectedUpdatedAtUtc on update only', async () => {
+      const user = userEvent.setup()
+      render(<CustomerForm customer={customer} onSaved={vi.fn()} onCancel={vi.fn()} />)
+      await user.click(screen.getByRole('button', { name: /^guardar$/i }))
+
+      await waitFor(() => expect(fetchMock.mock.calls.some((c) => c[1]?.method === 'PUT')).toBe(true))
+      const put = fetchMock.mock.calls.find((c) => c[1]?.method === 'PUT')!
+      expect(JSON.parse(put[1].body as string).expectedUpdatedAtUtc).toBe(customer.updatedAtUtc)
+    })
+
+    it('does not send it on create', async () => {
+      const user = userEvent.setup()
+      render(<CustomerForm onSaved={vi.fn()} onCancel={vi.fn()} />)
+      await user.type(screen.getByLabelText('Nombre'), 'Jane')
+      await user.click(screen.getByRole('button', { name: /^guardar$/i }))
+
+      await waitFor(() => expect(fetchMock.mock.calls.some((c) => c[1]?.method === 'POST')).toBe(true))
+      const post = fetchMock.mock.calls.find((c) => c[1]?.method === 'POST')!
+      expect(JSON.parse(post[1].body as string)).not.toHaveProperty('expectedUpdatedAtUtc')
+    })
+
+    it('explains a 409 customer-modified in Spanish and reloads the customer on "Recargar"', async () => {
+      const fresh = { ...customer, displayName: 'Changed elsewhere', updatedAtUtc: '2024-02-02T00:00:00Z' }
+      fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+        if (init?.method === 'PUT') return conflict()
+        if (url === `/customers/${customer.id}`) return new Response(JSON.stringify(fresh), { status: 200 })
+        return new Response('[]', { status: 200 })
+      })
+      const onSaved = vi.fn()
+      const onReload = vi.fn()
+      const user = userEvent.setup()
+      render(<CustomerForm customer={customer} onSaved={onSaved} onCancel={vi.fn()} onReload={onReload} />)
+
+      await user.click(screen.getByRole('button', { name: /^guardar$/i }))
+
+      const alert = await screen.findByRole('alert')
+      expect(alert).toHaveTextContent('Otra persona modificó este cliente mientras lo editabas.')
+      expect(onSaved).not.toHaveBeenCalled()
+
+      await user.click(within(alert).getByRole('button', { name: 'Recargar' }))
+
+      await waitFor(() => expect(onReload).toHaveBeenCalledWith(fresh))
+    })
+
+    it('reports a failed reload instead of silently keeping the stale form', async () => {
+      fetchMock.mockImplementation(async (_url: string, init?: RequestInit) => {
+        if (init?.method === 'PUT') return conflict()
+        throw new TypeError('Failed to fetch')
+      })
+      const user = userEvent.setup()
+      render(<CustomerForm customer={customer} onSaved={vi.fn()} onCancel={vi.fn()} onReload={vi.fn()} />)
+
+      await user.click(screen.getByRole('button', { name: /^guardar$/i }))
+      await user.click(await screen.findByRole('button', { name: 'Recargar' }))
+
+      expect(await screen.findByText('No se pudo recargar el cliente.')).toBeInTheDocument()
+    })
   })
 })

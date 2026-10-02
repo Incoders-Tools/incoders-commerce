@@ -178,6 +178,30 @@ export const TaxCondition = {
 } as const
 export type TaxCondition = (typeof TaxCondition)[keyof typeof TaxCondition]
 
+/** A person to talk to at a customer (`contacts[]` of the customer JSON). */
+export interface CustomerContact {
+  id: string
+  firstName: string
+  lastName: string | null
+  phone: string | null
+  email: string | null
+  role: string | null
+  isPrimary: boolean
+  sortOrder: number
+}
+
+/** Replace-set entry sent on POST/PUT: a known `id` keeps the row, a missing one creates it. */
+export interface CustomerContactInput {
+  id?: string
+  firstName: string
+  lastName: string | null
+  phone: string | null
+  email: string | null
+  role: string | null
+  isPrimary: boolean
+  sortOrder: number
+}
+
 export interface CustomerRecord {
   id: string
   organizationId: string
@@ -187,7 +211,6 @@ export interface CustomerRecord {
   taxIdType: TaxIdType
   taxId: string | null
   taxCondition: TaxCondition
-  contactName: string | null
   cityId: string | null
   cityName: string | null
   provinceId: string | null
@@ -210,6 +233,7 @@ export interface CustomerRecord {
   createdAtUtc: string
   createdByUserId: string
   updatedAtUtc: string
+  contacts: CustomerContact[]
 }
 
 // No `organizationId`/`isEnabled`/`createdByUserId` — org comes from the
@@ -223,10 +247,12 @@ export interface CreateCustomerRequest {
   taxId: string | null
   taxCondition: TaxCondition
   // Optional: on PUT an omitted value keeps the stored one; to clear send the
-  // all-zero GUID for the ids or an empty string for the contact name.
-  contactName?: string
+  // all-zero GUID for the ids.
   cityId?: string
   businessTypeId?: string
+  // Replace-set on PUT (max 50, at most one primary): omitted keeps the
+  // stored contacts, an empty array clears them.
+  contacts?: CustomerContactInput[]
   phone: string | null
   email: string | null
   addressStreet: string | null
@@ -252,6 +278,8 @@ export interface CustomerListFilters {
 // `isEnabled` (`UpdateCustomerRequest` in Endpoints/Customers.cs).
 export type UpdateCustomerRequest = Omit<CreateCustomerRequest, 'customerKind'> & {
   isEnabled: boolean
+  /** The `updatedAtUtc` last read; a mismatch answers 409 `customer-modified`. */
+  expectedUpdatedAtUtc?: string
 }
 
 export interface CreateCustomerResponse {

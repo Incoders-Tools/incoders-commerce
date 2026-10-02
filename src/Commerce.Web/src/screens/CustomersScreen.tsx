@@ -108,10 +108,13 @@ export function CustomersScreen() {
   if (creating || editingCustomer !== null) {
     return (
       <CustomerForm
+        // A reload swaps in fresher data: remount so the form state restarts from it.
+        key={editingCustomer ? `${editingCustomer.id}:${editingCustomer.updatedAtUtc}` : 'new'}
         customer={editingCustomer ?? undefined}
         businessTypes={businessTypes}
         onSaved={handleSaved}
         onCancel={closeForm}
+        onReload={setEditingCustomer}
       />
     )
   }
@@ -120,9 +123,13 @@ export function CustomersScreen() {
   const columns: DataViewColumn<CustomerRecord>[] = [
     { key: 'displayName', header: t('columns.name'), cell: (customer) => customer.displayName },
     {
-      key: 'contactName',
+      key: 'contact',
       header: t('columns.contact'),
-      cell: (customer) => customer.contactName ?? noValue,
+      cell: (customer) => {
+        // The primary contact, or the first one when none is marked primary.
+        const contact = customer.contacts.find((c) => c.isPrimary) ?? customer.contacts[0]
+        return contact ? [contact.firstName, contact.lastName].filter(Boolean).join(' ') : noValue
+      },
     },
     { key: 'city', header: t('columns.city'), cell: (customer) =>
         customer.cityName ? cityLabel({ name: customer.cityName, provinceName: customer.provinceName ?? '' }) : noValue,

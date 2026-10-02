@@ -10,7 +10,10 @@ const listedCustomer: CustomerRecord = {
   customerKind: 'Retail',
   displayName: 'Jane Doe',
   legalName: null,
-  contactName: 'Juana',
+  contacts: [
+    { id: 'ct-0', firstName: 'Ana', lastName: 'Gómez', phone: null, email: null, role: null, isPrimary: false, sortOrder: 0 },
+    { id: 'ct-1', firstName: 'Juana', lastName: 'Pérez', phone: null, email: null, role: null, isPrimary: true, sortOrder: 1 },
+  ],
   cityId: null,
   cityName: null,
   provinceId: null,
@@ -46,7 +49,9 @@ const wholesaleCustomer: CustomerRecord = {
   customerKind: 'Wholesale',
   displayName: 'Acme Supplies',
   legalName: 'Acme Supplies SRL',
-  contactName: 'Roberto',
+  contacts: [
+    { id: 'ct-2', firstName: 'Roberto', lastName: null, phone: null, email: null, role: null, isPrimary: true, sortOrder: 0 },
+  ],
   cityId: 'city-rosario',
   cityName: 'Rosario',
   provinceId: '82',
@@ -229,6 +234,45 @@ describe('CustomersScreen', () => {
     expect(within(row).getByText('Mayorista')).toBeInTheDocument()
     expect(within(row).getByText('Deshabilitado')).toBeInTheDocument()
     expect(within(row).getByText('30-12345678-9')).toBeInTheDocument()
+  })
+
+  it('shows the primary contact (first and last name) in the contact column', async () => {
+    customers = [listedCustomer]
+    render(<CustomersScreen />)
+
+    const row = within(await screen.findByRole('table')).getAllByRole('row')[1]
+    expect(within(row).getByText('Juana Pérez')).toBeInTheDocument()
+    expect(within(row).queryByText('Ana Gómez')).not.toBeInTheDocument()
+  })
+
+  it('shows a placeholder when the customer has no contacts', async () => {
+    customers = [{ ...listedCustomer, contacts: [] }]
+    render(<CustomersScreen />)
+
+    const row = within(await screen.findByRole('table')).getAllByRole('row')[1]
+    expect(within(row).getAllByText('—').length).toBeGreaterThan(0)
+    expect(within(row).queryByText(/Juana/)).not.toBeInTheDocument()
+  })
+
+  it('reloads the edited customer after a modification conflict and shows the fresh data', async () => {
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url.startsWith('/customers/business-types')) return json(businessTypes)
+      if (init?.method === 'PUT') return json({ error: 'customer-modified' }, 409)
+      if (url === `/customers/${listedCustomer.id}`) {
+        return json({ ...listedCustomer, displayName: 'Jane Reloaded', updatedAtUtc: '2024-03-03T00:00:00Z' })
+      }
+      return json(customers)
+    })
+    const user = userEvent.setup()
+    render(<CustomersScreen />)
+
+    await screen.findByText('Jane Doe')
+    await user.click(screen.getByRole('button', { name: /^editar$/i }))
+    await user.click(screen.getByRole('button', { name: /^guardar$/i }))
+    await user.click(await screen.findByRole('button', { name: 'Recargar' }))
+
+    await waitFor(() => expect(document.getElementById('displayName')).toHaveValue('Jane Reloaded'))
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
   it('searches on the server, debounced, instead of filtering client-side', async () => {

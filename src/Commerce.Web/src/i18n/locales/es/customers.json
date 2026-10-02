@@ -51,7 +51,8 @@
       "address": "Ubicación",
       "tax": "Fiscal",
       "commercial": "Comercial",
-      "notes": "Observaciones"
+      "notes": "Observaciones",
+      "contacts": "Personas de contacto"
     },
     "fields": {
       "customerKind": "Tipo de cliente",
@@ -73,7 +74,6 @@
       "paymentTerms": "Condiciones de pago",
       "notes": "Observaciones",
       "enabled": "Habilitado",
-      "contactName": "Nombre de contacto",
       "city": "Ciudad",
       "businessType": "Tipo de negocio",
       "dni": "DNI"
@@ -93,6 +93,26 @@
     "errors": {
       "dniInvalid": "El DNI debe tener 7 u 8 dígitos.",
       "cuitInvalid": "El CUIT/CUIL debe tener 11 dígitos."
+    },
+    "contacts": {
+      "empty": "Todavía no hay personas de contacto.",
+      "add": "Agregar contacto",
+      "rowLabel": "Contacto {{position}}",
+      "firstName": "Nombre",
+      "lastName": "Apellido",
+      "phone": "Teléfono",
+      "email": "Correo electrónico",
+      "role": "Rol",
+      "primary": "Principal",
+      "moveUp": "Subir contacto {{position}}",
+      "moveDown": "Bajar contacto {{position}}",
+      "remove": "Quitar contacto {{position}}",
+      "firstNameRequired": "El nombre del contacto es obligatorio."
+    },
+    "conflict": {
+      "message": "Otra persona modificó este cliente mientras lo editabas. Recargá para ver los cambios más recientes; tus cambios sin guardar se perderán.",
+      "reload": "Recargar",
+      "reloadFailed": "No se pudo recargar el cliente."
     }
   },
   "filters": {

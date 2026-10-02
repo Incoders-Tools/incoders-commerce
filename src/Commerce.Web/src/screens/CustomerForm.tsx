@@ -7,10 +7,18 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { FormPage } from '@/components/layout/FormPage'
 import { CityPicker, type CityOption } from '@/components/geo/CityPicker'
-import { createCustomer, updateCustomer } from '@/api/customers'
+import { createCustomer, getCustomer, updateCustomer } from '@/api/customers'
 import { ApiError } from '@/api/client'
-import { CustomerKind, TaxCondition, TaxIdType, type CustomerRecord, type MasterDataEntry } from '@/api/types'
+import {
+  CustomerKind,
+  TaxCondition,
+  TaxIdType,
+  type CustomerContactInput,
+  type CustomerRecord,
+  type MasterDataEntry,
+} from '@/api/types'
 import { cn } from '@/lib/utils'
+import { ContactsEditor, draftsFromContacts, type ContactDraft } from './ContactsEditor'
 
 /** The server's "no value" sentinel for a nullable id on PUT (an omitted id keeps the stored one). */
 const NO_ID = '00000000-0000-0000-0000-000000000000'
@@ -21,6 +29,8 @@ interface CustomerFormProps {
   businessTypes?: MasterDataEntry[]
   onSaved: () => void
   onCancel: () => void
+  /** Called with the freshly read customer after a modification conflict; the parent re-renders the form with it. */
+  onReload?: (customer: CustomerRecord) => void
 }
 
 /**
@@ -74,14 +84,17 @@ function selectableEntries(
  * select over the catalog the parent screen loads (container-presentational). On edit an omitted field would keep the
  * stored value, so clearing sends the empty-id sentinel / empty string.
  */
-export function CustomerForm({ customer, businessTypes = [], onSaved, onCancel }: CustomerFormProps) {
+export function CustomerForm({ customer, businessTypes = [], onSaved, onCancel, onReload }: CustomerFormProps) {
   const { t } = useTranslation('customers')
   const isEdit = customer !== undefined
 
   const [customerKind, setCustomerKind] = useState<CustomerKind>(customer?.customerKind ?? CustomerKind.Retail)
   const [displayName, setDisplayName] = useState(customer?.displayName ?? '')
   const [legalName, setLegalName] = useState(customer?.legalName ?? '')
-  const [contactName, setContactName] = useState(customer?.contactName ?? '')
+  const [contacts, setContacts] = useState<ContactDraft[]>(() => draftsFromContacts(customer?.contacts ?? []))
+  const [invalidContactKeys, setInvalidContactKeys] = useState<ReadonlySet<string>>(new Set())
+  const [conflict, setConflict] = useState(false)
+  const [reloadError, setReloadError] = useState<string | null>(null)
   // Cities are a ~4000-entry core catalog searched on the server by the
   // picker; the form only keeps the chosen one (from the customer's own
   // cityName/provinceName at edit, so showing it costs no request).
@@ -118,6 +131,15 @@ export function CustomerForm({ customer, businessTypes = [], onSaved, onCancel }
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault()
     setError(null)
+    setConflict(false)
+    setReloadError(null)
+    // Rows left completely blank are dropped; any other row needs a first name.
+    const filledContacts = contacts.filter((c) =>
+      [c.firstName, c.lastName, c.phone, c.email, c.role].some((value) => value.trim() !== ''),
+    )
+    const missingFirstName = filledContacts.filter((c) => c.firstName.trim() === '')
+    setInvalidContactKeys(new Set(missingFirstName.map((c) => c.key)))
+    if (missingFirstName.length > 0) return
     if (!isValidTaxId(taxIdType, taxId)) {
       setTaxIdError(t(taxIdType === TaxIdType.Dni ? 'form.errors.dniInvalid' : 'form.errors.cuitInvalid'))
       return
@@ -134,11 +156,10 @@ export function CustomerForm({ customer, businessTypes = [], onSaved, onCancel }
         // PUT keeps an omitted value, so clearing sends the sentinel / empty
         // string; on create an empty choice is simply left out.
         ...(isEdit
-          ? { cityId: city?.id ?? NO_ID, businessTypeId: businessTypeId || NO_ID, contactName: contactName.trim() }
+          ? { cityId: city?.id ?? NO_ID, businessTypeId: businessTypeId || NO_ID }
           : {
               ...(city ? { cityId: city.id } : {}),
               ...(businessTypeId ? { businessTypeId } : {}),
-              ...(contactName.trim() ? { contactName: contactName.trim() } : {}),
             }),
         phone: phone || null,
         email: email || null,
@@ -154,17 +175,50 @@ export function CustomerForm({ customer, businessTypes = [], onSaved, onCancel }
         notes: notes || null,
       }
 
+      // Replace-set: sent in screen order, so the position is the sort order.
+      const contactInputs: CustomerContactInput[] = filledContacts.map((c, index) => ({
+        ...(c.id ? { id: c.id } : {}),
+        firstName: c.firstName.trim(),
+        lastName: c.lastName.trim() || null,
+        phone: c.phone.trim() || null,
+        email: c.email.trim() || null,
+        role: c.role.trim() || null,
+        isPrimary: c.isPrimary,
+        sortOrder: index,
+      }))
+
       if (isEdit) {
-        await updateCustomer(customer.id, { ...shared, isEnabled })
+        // On edit `contacts` is always sent (an empty list clears them) and the
+        // `updatedAtUtc` we read guards against overwriting a concurrent change.
+        await updateCustomer(customer.id, {
+          ...shared,
+          contacts: contactInputs,
+          isEnabled,
+          expectedUpdatedAtUtc: customer.updatedAtUtc,
+        })
       } else {
-        await createCustomer({ ...shared, customerKind })
+        await createCustomer({ ...shared, ...(contactInputs.length > 0 ? { contacts: contactInputs } : {}), customerKind })
       }
 
       onSaved()
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : t('errors.unexpectedSave'))
+      if (err instanceof ApiError && err.status === 409 && err.code === 'customer-modified') {
+        setConflict(true)
+      } else {
+        setError(err instanceof ApiError ? err.message : t('errors.unexpectedSave'))
+      }
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  const handleReload = async () => {
+    if (!customer) return
+    setReloadError(null)
+    try {
+      onReload?.(await getCustomer(customer.id))
+    } catch {
+      setReloadError(t('form.conflict.reloadFailed'))
     }
   }
 
@@ -194,9 +248,12 @@ export function CustomerForm({ customer, businessTypes = [], onSaved, onCancel }
         </FormSection>
 
         <FormSection title={t('form.sections.contact')}>
-          <Field id="contactName" label={t('form.fields.contactName')} value={contactName} onChange={setContactName} />
           <Field id="phone" label={t('form.fields.phone')} value={phone} onChange={setPhone} />
           <Field id="email" label={t('form.fields.email')} value={email} onChange={setEmail} />
+        </FormSection>
+
+        <FormSection title={t('form.sections.contacts')} wide>
+          <ContactsEditor contacts={contacts} onChange={setContacts} invalidKeys={invalidContactKeys} />
         </FormSection>
 
         <FormSection title={t('form.sections.address')}>
@@ -310,6 +367,22 @@ export function CustomerForm({ customer, businessTypes = [], onSaved, onCancel }
           <Textarea id="notes" rows={4} value={notes} onChange={(e) => setNotes(e.target.value)} />
         </FormSection>
 
+        {conflict && (
+          <div
+            role="alert"
+            className="flex flex-wrap items-center gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+          >
+            <p>{t('form.conflict.message')}</p>
+            <Button type="button" variant="outline" size="sm" onClick={() => void handleReload()}>
+              {t('form.conflict.reload')}
+            </Button>
+          </div>
+        )}
+        {reloadError && (
+          <p role="alert" className="text-sm text-destructive">
+            {reloadError}
+          </p>
+        )}
         {error && (
           <p role="alert" className="text-sm text-destructive">
             {error}

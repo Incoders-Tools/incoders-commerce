@@ -51,7 +51,8 @@
       "address": "Location",
       "tax": "Tax",
       "commercial": "Commercial",
-      "notes": "Notes"
+      "notes": "Notes",
+      "contacts": "Contact people"
     },
     "fields": {
       "customerKind": "Customer kind",
@@ -73,7 +74,6 @@
       "paymentTerms": "Payment terms",
       "notes": "Notes",
       "enabled": "Enabled",
-      "contactName": "Contact name",
       "city": "City",
       "businessType": "Business type",
       "dni": "DNI"
@@ -93,6 +93,26 @@
     "errors": {
       "dniInvalid": "The DNI must have 7 or 8 digits.",
       "cuitInvalid": "The CUIT/CUIL must have 11 digits."
+    },
+    "contacts": {
+      "empty": "There are no contact people yet.",
+      "add": "Add contact",
+      "rowLabel": "Contact {{position}}",
+      "firstName": "First name",
+      "lastName": "Last name",
+      "phone": "Phone",
+      "email": "Email",
+      "role": "Role",
+      "primary": "Primary",
+      "moveUp": "Move contact {{position}} up",
+      "moveDown": "Move contact {{position}} down",
+      "remove": "Remove contact {{position}}",
+      "firstNameRequired": "The contact first name is required."
+    },
+    "conflict": {
+      "message": "Someone else changed this customer while you were editing. Reload to see the latest changes; your unsaved changes will be lost.",
+      "reload": "Reload",
+      "reloadFailed": "The customer could not be reloaded."
     }
   },
   "filters": {
