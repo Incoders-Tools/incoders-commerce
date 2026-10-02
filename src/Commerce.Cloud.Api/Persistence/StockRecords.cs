@@ -44,3 +44,6 @@ public sealed record StockHistoryPage(
 public sealed record StockAdjustmentResult(StockMovementRecord Movement, decimal OnHand);
 
 public sealed record StockMinimumRecord(Guid PresentationId, decimal? MinimumQuantity, DateTimeOffset? UpdatedAtUtc);
+
+/// <summary>One row of the cloud -> branch stock replica: the DERIVED on-hand of a presentation (may be negative).</summary>
+public sealed record StockReplicaRow(Guid PresentationId, decimal OnHand);

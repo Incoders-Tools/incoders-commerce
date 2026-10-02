@@ -26,6 +26,58 @@ public sealed class PostgresStockStore
     private static string EscapeLike(string value) =>
         value.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
 
+    /// <summary>
+    /// Cloud -> branch stock replica (`GET /device/stock/sync`). Returns the absolute DERIVED on-hand of every presentation
+    /// of the scoped branch that has a movement created at or after <paramref name="since"/> minus a grace window.
+    /// <para>
+    /// WHY created_at_utc + grace: the cursor is a timestamp (as for customers/catalog) and `created_at_utc` is `now()` of
+    /// the transaction that wrote the movement, i.e. its START. A slow transaction can commit after a later cursor was
+    /// issued and would be skipped forever; re-reading the last <see cref="ReplicaGrace"/> is safe because every item is an
+    /// absolute snapshot (idempotent upsert on the branch). Cost: one index range scan (`stock_movements_created_idx`,
+    /// 0034) plus the SUM of only the changed presentations (`stock_movements_on_hand_idx`), so a sweep with no news is
+    /// near-free and nothing is stored or maintained per presentation.
+    /// </para>
+    /// </summary>
+    public async Task<IReadOnlyList<StockReplicaRow>> ListOnHandChangedSinceAsync(
+        CloudTenantScope scope, DateTimeOffset since, CancellationToken ct)
+    {
+        var branchId = RequireBranch(scope);
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+        await TenantScopeSql.ApplyAsync(connection, tx, scope, ct);
+
+        await using var cmd = new NpgsqlCommand(
+            """
+            SELECT m.presentation_id, SUM(m.quantity)
+            FROM stock_movements m
+            WHERE m.organization_id = $1 AND m.branch_id = $2
+              AND m.presentation_id IN (
+                  SELECT DISTINCT presentation_id FROM stock_movements
+                  WHERE organization_id = $1 AND branch_id = $2 AND created_at_utc >= $3::timestamptz - make_interval(secs => $4))
+            GROUP BY m.presentation_id
+            ORDER BY m.presentation_id
+            """, connection, tx);
+        cmd.Parameters.AddWithValue(scope.OrganizationId);
+        cmd.Parameters.AddWithValue(branchId);
+        cmd.Parameters.AddWithValue(NpgsqlDbType.TimestampTz, since);
+        cmd.Parameters.AddWithValue(ReplicaGrace.TotalSeconds);
+
+        var rows = new List<StockReplicaRow>();
+        await using (var reader = await cmd.ExecuteReaderAsync(ct))
+        {
+            while (await reader.ReadAsync(ct))
+            {
+                rows.Add(new StockReplicaRow(reader.GetGuid(0), reader.GetDecimal(1)));
+            }
+        }
+
+        await tx.CommitAsync(ct);
+        return rows;
+    }
+
+    /// <summary>How far before the cursor the replica query looks back (see <see cref="ListOnHandChangedSinceAsync"/>).</summary>
+    public static readonly TimeSpan ReplicaGrace = TimeSpan.FromMinutes(5);
+
     public async Task<IReadOnlyList<StockLevelRecord>> ListLevelsAsync(
         CloudTenantScope scope, StockLevelFilter filter, CancellationToken ct)
     {

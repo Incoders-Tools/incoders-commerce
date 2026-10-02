@@ -415,6 +415,31 @@ public static class DeviceEndpoints
             return Results.Ok(new CatalogSyncResponse(items, RemovedPresentationIds: [], serverTimeUtc));
         });
 
+        // Cloud->local stock replica (purchases-receptions-and-stock T5, channel `stock`): device bearer; org AND branch come
+        // from the STORED device credential (the tenant filter reads the branch claim), never from the request. Items are
+        // absolute on-hand snapshots of the presentations that moved since `since`.
+        var stockGroup = group.MapGroup("/stock")
+            .RequireAuthorization("DeviceBearer")
+            .AddEndpointFilter<TenantScopeEndpointFilter>();
+
+        stockGroup.MapGet("/sync", async (
+            DateTimeOffset since,
+            HttpContext httpContext,
+            PostgresStockStore stockStore,
+            CancellationToken ct) =>
+        {
+            var scope = TenantScopeEndpointFilter.GetScope(httpContext);
+            if (!DeviceIdentity.TryResolve(httpContext.User, out var deviceIdentity) || deviceIdentity is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            // Captured BEFORE the read so the next cursor never skips a movement written while this request was in flight.
+            var serverTimeUtc = DateTimeOffset.UtcNow;
+            var items = await stockStore.ListOnHandChangedSinceAsync(scope, since, ct);
+            return Results.Ok(new StockSyncResponse(items, serverTimeUtc));
+        });
+
         // Discount PIN verifier of THIS terminal branch (branch-discount-pin
         // spec): the branch comes from the STORED device_credentials row via
         // the minted claim, never from the request, so a terminal can only ever
@@ -542,3 +567,10 @@ public sealed record CatalogSyncResponse(
     IReadOnlyList<CatalogReplicaRow> Items,
     IReadOnlyList<Guid> RemovedPresentationIds,
     DateTimeOffset ServerTimeUtc);
+
+/// <summary>
+/// `GET /device/stock/sync` response (purchases-receptions-and-stock T5, cursor/replica channel `stock`). Each item is an
+/// ABSOLUTE on-hand snapshot of a presentation that had a movement since the cursor, never a delta, so redelivery and the
+/// server-side grace window are harmless. A presentation with no movement is simply absent (unknown to the replica).
+/// </summary>
+public sealed record StockSyncResponse(IReadOnlyList<StockReplicaRow> Items, DateTimeOffset ServerTimeUtc);
