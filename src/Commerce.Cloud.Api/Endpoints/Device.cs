@@ -409,10 +409,12 @@ public static class DeviceEndpoints
                     catalogRow.CategoryId, catalogRow.CategoryName, catalogRow.CategoryIconKey));
             }
 
-            // No deactivation/delete capability exists for presentations yet
-            // (design.md "no DELETE grant"): removed ids are always empty
-            // rather than a fabricated signal.
-            return Results.Ok(new CatalogSyncResponse(items, RemovedPresentationIds: [], serverTimeUtc));
+            // Soft deletion (0036): presentations of a deactivated product are
+            // announced as removed so the branch drops them; reactivation sends
+            // them again as ordinary changed rows. Physical deletes still do not
+            // exist (design.md "no DELETE grant").
+            var removedIds = await catalogStore.ListDeactivatedSinceAsync(scope, since, ct);
+            return Results.Ok(new CatalogSyncResponse(items, removedIds, serverTimeUtc));
         });
 
         // Cloud->local stock replica (purchases-receptions-and-stock T5, channel `stock`): device bearer; org AND branch come

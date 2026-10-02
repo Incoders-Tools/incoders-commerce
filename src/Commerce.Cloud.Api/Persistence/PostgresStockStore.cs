@@ -102,6 +102,8 @@ public sealed class PostgresStockStore
             WHERE p.organization_id = $1 AND p.branch_id = $2
               AND ($3::text IS NULL OR pr.name ILIKE $3 OR p.name ILIKE $3 OR p.identification_code ILIKE $3)
               AND (NOT $4 OR (m.minimum_quantity IS NOT NULL AND COALESCE(s.on_hand, 0) < m.minimum_quantity))
+              -- A soft-deleted product (0036) stays visible only while it still holds stock, so it can be run down.
+              AND (pr.is_active OR COALESCE(s.on_hand, 0) <> 0)
             ORDER BY pr.name, p.name, p.id
             """, connection, tx);
         cmd.Parameters.AddWithValue(scope.OrganizationId);

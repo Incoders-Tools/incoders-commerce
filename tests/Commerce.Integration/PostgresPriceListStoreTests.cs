@@ -64,6 +64,7 @@ public sealed class PostgresPriceListStoreTests : IDisposable
         Apply("0003_organizations_branches.sql");
         Apply("0009_catalog_and_pricing.sql");
         Apply("0016_catalog_branch_ownership.sql");
+        Apply("0036_product_soft_delete.sql");
         Apply("0017_pricing_branch_ownership.sql");
 
         using var resetCmd = new NpgsqlCommand(

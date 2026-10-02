@@ -37,7 +37,9 @@ public static class CatalogEndpoints
             .RequireAuthorization()
             .AddEndpointFilter<TenantScopeEndpointFilter>();
 
+        // Soft-deleted products (0036) are left out unless `?includeInactive=true`.
         group.MapGet("/products", async (
+            bool? includeInactive,
             HttpContext httpContext,
             PostgresUserAccountStore userStore,
             PostgresCatalogStore catalogStore,
@@ -55,7 +57,7 @@ public static class CatalogEndpoints
                 return Results.Forbid();
             }
 
-            var products = await catalogStore.ListProductsAsync(auth.Value.Scope, ct);
+            var products = await catalogStore.ListProductsAsync(auth.Value.Scope, ct, includeInactive == true);
             return Results.Ok(products);
         });
 
@@ -179,6 +181,14 @@ public static class CatalogEndpoints
             return updated is null ? Results.NotFound() : Results.Ok(updated);
         });
 
+        group.MapPost("/products/{productId:guid}/deactivate", (
+            Guid productId, HttpContext httpContext, PostgresUserAccountStore userStore, PostgresCatalogStore catalogStore,
+            CancellationToken ct) => SetActiveAsync(productId, false, httpContext, userStore, catalogStore, ct));
+
+        group.MapPost("/products/{productId:guid}/reactivate", (
+            Guid productId, HttpContext httpContext, PostgresUserAccountStore userStore, PostgresCatalogStore catalogStore,
+            CancellationToken ct) => SetActiveAsync(productId, true, httpContext, userStore, catalogStore, ct));
+
         group.MapPost("/products/{productId:guid}/rename", async (
             Guid productId,
             RenameProductRequest request,
@@ -239,6 +249,7 @@ public static class CatalogEndpoints
         });
 
         group.MapGet("/presentations", async (
+            bool? includeInactive,
             HttpContext httpContext,
             PostgresUserAccountStore userStore,
             PostgresCatalogStore catalogStore,
@@ -256,7 +267,7 @@ public static class CatalogEndpoints
                 return Results.Forbid();
             }
 
-            var presentations = await catalogStore.ListPresentationsAsync(auth.Value.Scope, ct);
+            var presentations = await catalogStore.ListPresentationsAsync(auth.Value.Scope, ct, includeInactive == true);
             return Results.Ok(presentations);
         });
 
@@ -292,6 +303,12 @@ public static class CatalogEndpoints
             if (product is null)
             {
                 return Results.NotFound();
+            }
+
+            if (!product.IsActive)
+            {
+                // A soft-deleted product (0036) takes no new presentations until it is reactivated.
+                return Results.Conflict(new { error = "product-inactive" });
             }
 
             PresentationRecord created;
@@ -439,6 +456,31 @@ public static class CatalogEndpoints
         });
 
         return group;
+    }
+
+    /// <summary>
+    /// Soft deletion (0036): same gate as every catalog write (selected branch, store-loaded caller, ManageCatalog); the store
+    /// audits the change and bumps the replica cursor. History (receptions, stock, sales) is never touched.
+    /// </summary>
+    private static async Task<IResult> SetActiveAsync(
+        Guid productId, bool active, HttpContext httpContext, PostgresUserAccountStore userStore,
+        PostgresCatalogStore catalogStore, CancellationToken ct)
+    {
+        var branchFailure = BranchSelectionRequirement.Enforce(httpContext);
+        if (branchFailure is not null)
+        {
+            return branchFailure;
+        }
+
+        var auth = await AuthorizeCallerAsync(httpContext, userStore, ct);
+        if (auth is null)
+        {
+            return Results.Forbid();
+        }
+        var (scope, caller) = auth.Value;
+
+        var product = await catalogStore.SetProductActiveAsync(scope, productId, active, "org-user", caller.Id, ct);
+        return product is null ? Results.NotFound() : Results.Ok(product);
     }
 
     private static IResult CategoryNotFound() =>

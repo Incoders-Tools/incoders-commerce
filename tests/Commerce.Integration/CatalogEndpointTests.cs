@@ -102,6 +102,7 @@ public sealed class CatalogEndpointTests : IClassFixture<WebApplicationFactory<P
         // route now requires a selected branch.
         var branchOwnershipSql = File.ReadAllText(Path.Combine(repoRoot.FullName, "deploy", "db", "migrations", "0016_catalog_branch_ownership.sql"));
         using (var cmd = new NpgsqlCommand(branchOwnershipSql, owner)) cmd.ExecuteNonQuery();
+        PostgresTestFixture.ApplyMigration(owner, "0036_product_soft_delete.sql");
 
         // B7 U5: keep this class's schema at the same point as every other
         // fixture in the shared `commerce_test` database.

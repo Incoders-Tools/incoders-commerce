@@ -39,7 +39,9 @@ public sealed record ProductRecord(
     Guid DefaultUnitId,
     DateTimeOffset CreatedAtUtc,
     Guid CreatedByUserId,
-    DateTimeOffset UpdatedAtUtc)
+    DateTimeOffset UpdatedAtUtc,
+    bool IsActive = true,
+    DateTimeOffset? DeactivatedAtUtc = null)
 {
     public Product ToDomain() => new(Id, OrganizationId, Name, CategoryId, DefaultUnitId);
 }

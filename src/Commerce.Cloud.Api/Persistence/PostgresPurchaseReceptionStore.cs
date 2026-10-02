@@ -310,7 +310,10 @@ public sealed class PostgresPurchaseReceptionStore
 
         var behaviors = new Dictionary<Guid, QuantityBehavior>();
         var ids = content.Lines.Select(l => l.PresentationId).Distinct().ToArray();
-        await using (var cmd = new NpgsqlCommand("SELECT id, quantity_behavior FROM presentations WHERE id = ANY($1)", connection, tx))
+        await using (var cmd = new NpgsqlCommand(
+            // A presentation of a soft-deleted product (0036) is not receivable: it reads as not found.
+            "SELECT p.id, p.quantity_behavior FROM presentations p JOIN products pr ON pr.id = p.product_id WHERE p.id = ANY($1) AND pr.is_active",
+            connection, tx))
         {
             cmd.Parameters.AddWithValue(NpgsqlDbType.Array | NpgsqlDbType.Uuid, ids);
             await using var reader = await cmd.ExecuteReaderAsync(ct);

@@ -82,6 +82,7 @@ public sealed class GuestOrderingTests : IDisposable
         Apply("0009_catalog_and_pricing.sql");
         Apply("0010_guest_ordering.sql");
         Apply("0016_catalog_branch_ownership.sql");
+        Apply("0036_product_soft_delete.sql");
         Apply("0017_pricing_branch_ownership.sql");
         Apply("0025_orders.sql");
         Apply("0026_orders_guest_check.sql");

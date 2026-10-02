@@ -79,6 +79,7 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
         // catalog-rename test below selects a branch via X-Branch-Id.
         var branchOwnershipSql = File.ReadAllText(Path.Combine(repoRoot.FullName, "deploy", "db", "migrations", "0016_catalog_branch_ownership.sql"));
         using (var cmd = new NpgsqlCommand(branchOwnershipSql, owner)) cmd.ExecuteNonQuery();
+        PostgresTestFixture.ApplyMigration(owner, "0036_product_soft_delete.sql");
 
         // B7 U5: price_lists/etc. are branch-owned now too — keep this
         // class's schema at the same point as every other fixture in the

@@ -94,6 +94,7 @@ public sealed class PublicRateLimitTests : IDisposable
         Apply("0009_catalog_and_pricing.sql");
         Apply("0010_guest_ordering.sql");
         Apply("0016_catalog_branch_ownership.sql");
+        Apply("0036_product_soft_delete.sql");
         Apply("0017_pricing_branch_ownership.sql");
 
         using var resetCmd = new NpgsqlCommand(

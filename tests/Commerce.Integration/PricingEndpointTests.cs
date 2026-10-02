@@ -90,6 +90,7 @@ public sealed class PricingEndpointTests : IClassFixture<WebApplicationFactory<P
         Apply("0024_terminal_registers_assign_result.sql");
         Apply("0009_catalog_and_pricing.sql");
         Apply("0016_catalog_branch_ownership.sql");
+        Apply("0036_product_soft_delete.sql");
         Apply("0017_pricing_branch_ownership.sql");
 
         using var resetCmd = new NpgsqlCommand(
