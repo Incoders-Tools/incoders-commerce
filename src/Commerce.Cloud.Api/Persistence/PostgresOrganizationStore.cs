@@ -340,11 +340,11 @@ public sealed class PostgresOrganizationStore
         await TenantScopeSql.ApplyAsync(connection, tx, organizationId, branchId: null, ct);
 
         OrganizationSettings? settings = null;
-        await using (var cmd = new NpgsqlCommand("SELECT quantity_decimal_separator FROM organizations WHERE id = $1", connection, tx))
+        await using (var cmd = new NpgsqlCommand("SELECT quantity_decimal_separator, default_customer_price_list_id FROM organizations WHERE id = $1", connection, tx))
         {
             cmd.Parameters.AddWithValue(organizationId);
             await using var reader = await cmd.ExecuteReaderAsync(ct);
-            if (await reader.ReadAsync(ct)) settings = new OrganizationSettings(reader.GetString(0));
+            if (await reader.ReadAsync(ct)) settings = new OrganizationSettings(reader.GetString(0), reader.IsDBNull(1) ? null : reader.GetGuid(1));
         }
 
         await tx.CommitAsync(ct);
@@ -363,9 +363,10 @@ public sealed class PostgresOrganizationStore
         await TenantScopeSql.ApplyAsync(connection, tx, organizationId, branchId: null, ct);
 
         int rowsAffected;
-        await using (var cmd = new NpgsqlCommand("UPDATE organizations SET quantity_decimal_separator = $1 WHERE id = $2", connection, tx))
+        await using (var cmd = new NpgsqlCommand("UPDATE organizations SET quantity_decimal_separator = $1, default_customer_price_list_id = $2 WHERE id = $3", connection, tx))
         {
             cmd.Parameters.AddWithValue(settings.QuantityDecimalSeparator);
+            cmd.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Uuid, (object?)settings.DefaultCustomerPriceListId ?? DBNull.Value);
             cmd.Parameters.AddWithValue(organizationId);
             rowsAffected = await cmd.ExecuteNonQueryAsync(ct);
         }

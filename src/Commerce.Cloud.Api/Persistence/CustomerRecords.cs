@@ -33,7 +33,8 @@ public sealed record NewCustomer(
     Guid CreatedByUserId,
     Guid? CityId = null,
     Guid? BusinessTypeId = null,
-    IReadOnlyList<CustomerContactInput>? Contacts = null);
+    IReadOnlyList<CustomerContactInput>? Contacts = null,
+    Guid? PriceListId = null);
 
 /// <summary>
 /// One contact person of a customer as written by create/update. `Id` is null for
@@ -97,7 +98,8 @@ public sealed record UpdateCustomer(
     ColumnChange<Guid?>? City = null,
     ColumnChange<Guid?>? BusinessType = null,
     IReadOnlyList<CustomerContactInput>? Contacts = null,
-    DateTimeOffset? ExpectedUpdatedAtUtc = null);
+    DateTimeOffset? ExpectedUpdatedAtUtc = null,
+    ColumnChange<Guid?>? PriceList = null);
 
 /// <summary>
 /// Thrown by <see cref="PostgresCustomerStore.UpdateAsync"/> when the update
@@ -150,7 +152,9 @@ public sealed record CustomerRecord(
     Guid? BusinessTypeId = null,
     string? BusinessTypeName = null,
     string? ProvinceId = null,
-    string? ProvinceName = null)
+    string? ProvinceName = null,
+    Guid? PriceListId = null,
+    string? PriceListName = null)
 {
     /// <summary>The customer's contact people (never null), primary first by flag, ordered by `sortOrder`.</summary>
     public IReadOnlyList<CustomerContactRecord> Contacts { get; init; } = [];

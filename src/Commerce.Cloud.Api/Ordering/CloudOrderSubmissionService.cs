@@ -114,7 +114,7 @@ public sealed class CloudOrderSubmissionService
         // commerce-pricing-engine: resolution runs here, strictly AFTER the
         // four checks above and BEFORE _orderStore.SubmitAsync — REGISTERED path,
         // customer.DiscountPercentage applied.
-        var (deniedReason, snapshots) = await ResolveLinesAsync(scope, lines, customer.DiscountPercentage, ct);
+        var (deniedReason, snapshots) = await ResolveLinesAsync(scope, lines, customer.DiscountPercentage, isCustomer: true, customer.PriceListId, ct);
         if (deniedReason is not null)
         {
             return new OrderSubmissionOutcome(OrderSubmissionOutcomeStatus.Denied, deniedReason, Order: null, WasNewlyAccepted: false);
@@ -169,7 +169,7 @@ public sealed class CloudOrderSubmissionService
         // commerce-pricing-engine: resolution runs here, strictly AFTER the
         // checks above and BEFORE _orderStore.SubmitAsync — REGISTERED path,
         // customer.DiscountPercentage applied, identical to SubmitAsync.
-        var (deniedReason, snapshots) = await ResolveLinesAsync(scope, lines, customer.DiscountPercentage, ct);
+        var (deniedReason, snapshots) = await ResolveLinesAsync(scope, lines, customer.DiscountPercentage, isCustomer: true, customer.PriceListId, ct);
         if (deniedReason is not null)
         {
             return new OrderSubmissionOutcome(OrderSubmissionOutcomeStatus.Denied, deniedReason, Order: null, WasNewlyAccepted: false);
@@ -214,7 +214,7 @@ public sealed class CloudOrderSubmissionService
                 $"{nameof(SubmitGuestAsync)} requires a {nameof(GuestVerificationService)} to be supplied to this {nameof(CloudOrderSubmissionService)}.");
         }
 
-        var (deniedReason, snapshots) = await ResolveLinesAsync(scope, lines, discountPercentage: null, ct);
+        var (deniedReason, snapshots) = await ResolveLinesAsync(scope, lines, discountPercentage: null, isCustomer: false, customerPriceListId: null, ct);
         if (deniedReason is not null)
         {
             // Pricing denies BEFORE the verification is ever consumed.
@@ -241,7 +241,8 @@ public sealed class CloudOrderSubmissionService
     /// (no partial acceptance) → catalog lookup → snapshot.
     /// </summary>
     private async Task<(string? DeniedReason, List<OrderLineSnapshot>? Snapshots)> ResolveLinesAsync(
-        CloudTenantScope scope, IReadOnlyList<SubmitOrderLine> lines, decimal? discountPercentage, CancellationToken ct)
+        CloudTenantScope scope, IReadOnlyList<SubmitOrderLine> lines, decimal? discountPercentage,
+        bool isCustomer, Guid? customerPriceListId, CancellationToken ct)
     {
         // No default price list at all is treated the same as zero effective
         // rows for every line — never a silent 0m fallback. A zero-line
@@ -252,15 +253,18 @@ public sealed class CloudOrderSubmissionService
         PricingResolutionService? pricingService = null;
         if (lines.Count > 0)
         {
-            var defaultPriceList = await _priceListStore.FindDefaultPriceListAsync(scope, ct);
-            pricingService = defaultPriceList is null
+            // customer-price-lists T2: the list is chosen by the BUYER (the customer's own list, else the
+            // organization's default customer list, else the default list; a guest gets the default list), never
+            // by the channel the order came through.
+            var buyerPriceList = await _priceListStore.ResolveBuyerPriceListAsync(scope, isCustomer, customerPriceListId, ct);
+            pricingService = buyerPriceList is null
                 ? null
-                // commerce-price-composition slice 2: the SAME default price
+                // commerce-price-composition slice 2: the SAME price
                 // list binds both ports, so the entry's base price and the
                 // components composed onto it can never come from two lists.
                 : new PricingResolutionService(
-                    new PostgresEffectivePriceSource(_priceListStore, scope, defaultPriceList.Id),
-                    new PostgresRateComponentSource(_rateComponentStore, scope, defaultPriceList.Id));
+                    new PostgresEffectivePriceSource(_priceListStore, scope, buyerPriceList.Id),
+                    new PostgresRateComponentSource(_rateComponentStore, scope, buyerPriceList.Id));
         }
 
         var snapshots = new List<OrderLineSnapshot>(lines.Count);

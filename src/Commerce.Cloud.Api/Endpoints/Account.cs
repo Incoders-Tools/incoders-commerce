@@ -13,6 +13,7 @@ using Commerce.Domain.Identity;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Identity;
+using Npgsql;
 
 namespace Commerce.Cloud.Api.Endpoints;
 
@@ -452,7 +453,7 @@ public static class AccountEndpoints
         {
             var scope = TenantScopeEndpointFilter.GetScope(httpContext);
             var settings = await organizationStore.GetSettingsAsync(scope.OrganizationId, ct);
-            return settings is null ? Results.NotFound() : Results.Ok(new OrganizationSettingsResponse(settings.QuantityDecimalSeparator));
+            return settings is null ? Results.NotFound() : Results.Ok(new OrganizationSettingsResponse(settings.QuantityDecimalSeparator, settings.DefaultCustomerPriceListId));
         });
 
         ownOrganizationGroup.MapPut("/settings", async (UpdateOrganizationSettingsRequest request, HttpContext httpContext, PostgresUserAccountStore userStore, PostgresOrganizationStore organizationStore, CancellationToken ct) =>
@@ -463,16 +464,37 @@ public static class AccountEndpoints
             var caller = await userStore.LoadActorAsync(scope.IdentityScope, callerId, ct);
             if (caller is null || caller.IsRevoked || !ActingPermissions.For(caller, scope).HasFlag(Permission.ManageBranchSettings)) return Results.StatusCode(StatusCodes.Status403Forbidden);
 
-            if (!OrganizationSettings.IsValidQuantityDecimalSeparator(request.QuantityDecimalSeparator))
+            var current = await organizationStore.GetSettingsAsync(scope.OrganizationId, ct);
+            if (current is null) return Results.NotFound();
+
+            // The number format is required unless the call only changes the default customer price list.
+            var changesOnlyThePriceList = request.QuantityDecimalSeparator is null
+                && (request.DefaultCustomerPriceListId is not null || request.ClearDefaultCustomerPriceList);
+            if (!changesOnlyThePriceList && !OrganizationSettings.IsValidQuantityDecimalSeparator(request.QuantityDecimalSeparator))
             {
                 return Results.ValidationProblem(new Dictionary<string, string[]> { ["quantityDecimalSeparator"] = ["quantityDecimalSeparator must be Comma or Dot."] });
             }
 
-            var settings = new OrganizationSettings(request.QuantityDecimalSeparator!);
+            if (request.QuantityDecimalSeparator is not null && !OrganizationSettings.IsValidQuantityDecimalSeparator(request.QuantityDecimalSeparator))
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]> { ["quantityDecimalSeparator"] = ["quantityDecimalSeparator must be Comma or Dot."] });
+            }
+
+            // customer-price-lists: the default list for customers. Absent = unchanged; a list id = set it;
+            // clearDefaultCustomerPriceList = true = no default. The list must belong to this organization (foreign key).
+            var priceListId = request.ClearDefaultCustomerPriceList ? null : request.DefaultCustomerPriceListId ?? current.DefaultCustomerPriceListId;
+            var settings = new OrganizationSettings(request.QuantityDecimalSeparator ?? current.QuantityDecimalSeparator, priceListId);
             var audit = new UserManagementAuditEntry(
                 "org-user", callerId, scope.OrganizationId, "organization", scope.OrganizationId, "organization.settings_updated", null,
-                JsonSerializer.Serialize(new { quantityDecimalSeparator = settings.QuantityDecimalSeparator }));
-            return await organizationStore.UpdateSettingsAsync(scope.OrganizationId, settings, audit, ct) ? Results.NoContent() : Results.NotFound();
+                JsonSerializer.Serialize(new { quantityDecimalSeparator = settings.QuantityDecimalSeparator, defaultCustomerPriceListId = settings.DefaultCustomerPriceListId }));
+            try
+            {
+                return await organizationStore.UpdateSettingsAsync(scope.OrganizationId, settings, audit, ct) ? Results.NoContent() : Results.NotFound();
+            }
+            catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.ForeignKeyViolation)
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]> { ["defaultCustomerPriceListId"] = ["price-list-not-found"] });
+            }
         });
 
         var branchGroup = app.MapGroup("/account/branches")
@@ -1104,8 +1126,8 @@ public sealed record CreateOrganizationRequest(string OrganizationName, string? 
 public sealed record CreateOrganizationResponse(Guid OrganizationId, Guid BranchId, Guid UserId);
 public sealed record OrganizationBrandingResponse(string? LogoUrl, string? PrimaryColor);
 public sealed record UpdateOrganizationBrandingRequest(string? LogoUrl, string? PrimaryColor);
-public sealed record OrganizationSettingsResponse(string QuantityDecimalSeparator);
-public sealed record UpdateOrganizationSettingsRequest(string? QuantityDecimalSeparator);
+public sealed record OrganizationSettingsResponse(string QuantityDecimalSeparator, Guid? DefaultCustomerPriceListId = null);
+public sealed record UpdateOrganizationSettingsRequest(string? QuantityDecimalSeparator, Guid? DefaultCustomerPriceListId = null, bool ClearDefaultCustomerPriceList = false);
 
 public sealed record AssignRolesRequest(string[] RoleNames);
 public sealed record ReplaceBranchesRequest(Guid[] BranchIds);

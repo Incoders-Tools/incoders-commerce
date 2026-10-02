@@ -11,6 +11,12 @@ namespace Commerce.Application.Pricing;
 /// exact same compiled method: channel independence is a structural
 /// property of this signature (no channel/caller-identity parameter exists
 /// anywhere), not merely a tested convention.
+///
+/// customer-price-lists: WHICH price list the two ports are bound to is decided
+/// by the BUYER alone, through <see cref="BuyerPriceListSelector"/> — the
+/// customer's own list, else the organization's default list for customers,
+/// else the default list; a walk-in buyer gets the default list. This service
+/// still has no channel parameter and composes with the rate set of that list.
 /// </summary>
 public sealed class PricingResolutionService
 {

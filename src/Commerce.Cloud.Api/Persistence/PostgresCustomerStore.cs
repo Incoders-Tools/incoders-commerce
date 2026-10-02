@@ -57,7 +57,9 @@ public sealed class PostgresCustomerStore
         BusinessTypeId: reader.IsDBNull(26) ? null : reader.GetGuid(26),
         BusinessTypeName: reader.IsDBNull(27) ? null : reader.GetString(27),
         ProvinceId: reader.IsDBNull(28) ? null : reader.GetString(28),
-        ProvinceName: reader.IsDBNull(29) ? null : reader.GetString(29));
+        ProvinceName: reader.IsDBNull(29) ? null : reader.GetString(29),
+        PriceListId: reader.IsDBNull(30) ? null : reader.GetGuid(30),
+        PriceListName: reader.IsDBNull(31) ? null : reader.GetString(31));
 
     // The LEFT JOINs resolve the display names of the optional city (global
     // geography, with its province) and business type (organization catalog;
@@ -68,7 +70,8 @@ public sealed class PostgresCustomerStore
         c.tax_condition, c.phone, c.email, c.address_street, c.address_number, c.neighborhood, c.locality,
         c.province, c.postal_code, c.delivery_notes, c.discount_percentage, c.payment_terms, c.notes,
         c.is_enabled, c.created_at_utc, c.created_by_user_id, c.updated_at_utc,
-        c.city_id, ci.name, c.business_type_id, bt.name, ci.province_id, pr.name
+        c.city_id, ci.name, c.business_type_id, bt.name, ci.province_id, pr.name,
+        c.price_list_id, pl.name
         """;
 
     private const string FromClause =
@@ -77,6 +80,7 @@ public sealed class PostgresCustomerStore
         LEFT JOIN cities ci ON ci.id = c.city_id
         LEFT JOIN provinces pr ON pr.id = ci.province_id
         LEFT JOIN business_types bt ON bt.organization_id = c.organization_id AND bt.id = c.business_type_id
+        LEFT JOIN price_lists pl ON pl.id = c.price_list_id
         """;
 
     private static async Task<CustomerRecord?> SelectByIdAsync(
@@ -223,10 +227,11 @@ public sealed class PostgresCustomerStore
                 (id, organization_id, customer_kind, display_name, legal_name, tax_id_type, tax_id,
                  tax_condition, phone, email, address_street, address_number, neighborhood, locality,
                  province, postal_code, delivery_notes, discount_percentage, payment_terms, notes,
-                 created_by_user_id, city_id, business_type_id)
+                 created_by_user_id, city_id, business_type_id, price_list_id)
             VALUES
                 ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21,
-                 $22, $23)
+                 $22, $23,
+                 COALESCE($24::uuid, (SELECT default_customer_price_list_id FROM organizations WHERE id = $2)))
             """, connection, tx))
         {
             cmd.Parameters.AddWithValue(customer.Id);
@@ -252,6 +257,8 @@ public sealed class PostgresCustomerStore
             cmd.Parameters.AddWithValue(customer.CreatedByUserId);
             cmd.Parameters.AddWithValue((object?)customer.CityId ?? DBNull.Value);
             cmd.Parameters.AddWithValue((object?)customer.BusinessTypeId ?? DBNull.Value);
+            // A new customer without an explicit list starts on the organization's default customer list (may be none).
+            cmd.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Uuid, (object?)customer.PriceListId ?? DBNull.Value);
 
             await cmd.ExecuteNonQueryAsync(ct);
         }
@@ -313,6 +320,7 @@ public sealed class PostgresCustomerStore
                 discount_percentage = $15, payment_terms = $16, notes = $17, is_enabled = $18,
                 city_id = CASE WHEN $19 THEN $20::uuid ELSE city_id END,
                 business_type_id = CASE WHEN $21 THEN $22::uuid ELSE business_type_id END,
+                price_list_id = CASE WHEN $25 THEN $26::uuid ELSE price_list_id END,
                 updated_at_utc = now()
             WHERE id = $23 AND ($24::timestamptz IS NULL OR updated_at_utc = $24)
             """, connection, tx))
@@ -341,6 +349,8 @@ public sealed class PostgresCustomerStore
             cmd.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Uuid, (object?)update.BusinessType?.Value ?? DBNull.Value);
             cmd.Parameters.AddWithValue(customerId);
             cmd.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.TimestampTz, (object?)update.ExpectedUpdatedAtUtc ?? DBNull.Value);
+            cmd.Parameters.AddWithValue(update.PriceList is not null);
+            cmd.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Uuid, (object?)update.PriceList?.Value ?? DBNull.Value);
 
             if (await cmd.ExecuteNonQueryAsync(ct) == 0)
             {

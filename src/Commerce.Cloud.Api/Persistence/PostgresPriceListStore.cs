@@ -30,7 +30,7 @@ public sealed class PostgresPriceListStore
 
     // --- Price lists ------------------------------------------------------
 
-    private const string PriceListColumns = "id, organization_id, branch_id, name, is_default, created_at_utc, created_by_user_id";
+    private const string PriceListColumns = "id, organization_id, branch_id, name, is_default, created_at_utc, created_by_user_id, floor_price_list_id";
 
     private static PriceListRecord ReadPriceList(NpgsqlDataReader reader) => new(
         Id: reader.GetGuid(0),
@@ -39,7 +39,8 @@ public sealed class PostgresPriceListStore
         Name: reader.GetString(3),
         IsDefault: reader.GetBoolean(4),
         CreatedAtUtc: reader.GetFieldValue<DateTimeOffset>(5),
-        CreatedByUserId: reader.GetGuid(6));
+        CreatedByUserId: reader.GetGuid(6),
+        FloorPriceListId: reader.IsDBNull(7) ? null : reader.GetGuid(7));
 
     /// <summary>
     /// A second `is_default = true` list for the same branch surfaces
@@ -159,7 +160,58 @@ public sealed class PostgresPriceListStore
         return results;
     }
 
-    // --- Price list entries (append-only) ----------------------------------
+    /// <summary>
+    /// customer-price-lists T2: the price list that prices a sale to this BUYER in the selling branch
+    /// (<paramref name="scope"/>). Applies <see cref="Commerce.Application.Pricing.BuyerPriceListSelector"/>: a walk-in
+    /// buyer is priced from the branch's default list; a customer from their own list, else the organization's default
+    /// customer list, else the branch default. Price lists are branch scoped (RLS) and a customer is organization
+    /// scoped, so a list that is not visible in the selling branch is skipped. `null` = nothing to price from.
+    /// </summary>
+    public async Task<PriceListRecord?> ResolveBuyerPriceListAsync(
+        CloudTenantScope scope, bool isCustomer, Guid? customerPriceListId, CancellationToken ct)
+    {
+        var defaultList = await FindDefaultPriceListAsync(scope, ct);
+        if (!isCustomer)
+        {
+            return defaultList;
+        }
+
+        var organizationDefault = await FindOrganizationDefaultCustomerPriceListIdAsync(scope, ct);
+        var visible = new Dictionary<Guid, PriceListRecord>();
+        foreach (var id in new[] { customerPriceListId, organizationDefault })
+        {
+            if (id is { } candidate && !visible.ContainsKey(candidate)
+                && await FindPriceListAsync(scope, candidate, ct) is { } found)
+            {
+                visible[candidate] = found;
+            }
+        }
+
+        var selected = Commerce.Application.Pricing.BuyerPriceListSelector.Select(
+            isCustomer: true, customerPriceListId, organizationDefault, defaultList?.Id, visible.ContainsKey);
+        return selected is { } chosen ? (visible.TryGetValue(chosen, out var record) ? record : defaultList) : null;
+    }
+
+    /// <summary>The organization's default price list for customers (`organizations.default_customer_price_list_id`), or `null`.</summary>
+    public async Task<Guid?> FindOrganizationDefaultCustomerPriceListIdAsync(CloudTenantScope scope, CancellationToken ct)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+
+        await SetTenantScopeAsync(connection, tx, scope, ct);
+
+        Guid? id;
+        await using (var cmd = new NpgsqlCommand("SELECT default_customer_price_list_id FROM organizations WHERE id = $1", connection, tx))
+        {
+            cmd.Parameters.AddWithValue(scope.OrganizationId);
+            id = await cmd.ExecuteScalarAsync(ct) is Guid guid ? guid : null;
+        }
+
+        await tx.CommitAsync(ct);
+        return id;
+    }
+
+    // --- Price list entries (append-only)----------------------------------
 
     private const string EntryColumns =
         "id, organization_id, branch_id, price_list_id, presentation_id, unit_price, effective_from, source, " +

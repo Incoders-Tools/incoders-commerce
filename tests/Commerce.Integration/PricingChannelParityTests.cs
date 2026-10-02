@@ -246,6 +246,99 @@ public sealed class PricingChannelParityTests : IDisposable
     }
 
     /// <summary>
+    /// customer-price-lists T2, the parity requirement over the BUYER's list: which list prices a sale is decided by
+    /// the buyer alone (<see cref="BuyerPriceListSelector"/>), so the cloud (Postgres sources) and a second channel
+    /// (independently written sources) pick the same list and compute byte-identical prices for the same buyer, with no
+    /// channel parameter anywhere. A Reparto customer: 11.400 x 1,45 = 16.530; a walk-in: Mostrador, 11.400 x 1,48 = 16.872.
+    /// </summary>
+    [Fact]
+    public async Task ResolveAsync_ForTheSameBuyer_PostgresAndSecondChannel_PickTheSameListAndPriceIdentically()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var organizationId = Guid.NewGuid();
+        SeedOrganization(organizationId);
+        var branchId = SeedBranch(organizationId);
+        var scope = new CloudTenantScope(organizationId, BranchId: branchId);
+        var actorId = Guid.NewGuid();
+
+        var catalogStore = new PostgresCatalogStore(_dataSource!);
+        var product = await catalogStore.CreateProductAsync(
+            scope, new NewProduct(Guid.NewGuid(), "Bola de lomo", CategoryFixture.Create(scope), Guid.NewGuid(), actorId),
+            "org-user", actorId, CancellationToken.None);
+        var presentation = await catalogStore.CreatePresentationAsync(
+            scope, new NewPresentation(Guid.NewGuid(), product.Id, "Kg", QuantityBehavior.Weighted, Guid.NewGuid(), null, actorId),
+            "org-user", actorId, CancellationToken.None);
+
+        var priceStore = new PostgresPriceListStore(_dataSource!);
+        var componentStore = new PostgresRateComponentStore(_dataSource!);
+        var effectiveFrom = new DateOnly(2026, 1, 1);
+
+        async Task<Guid> NewList(string name, bool isDefault, params RateComponent[] components)
+        {
+            var list = await priceStore.CreatePriceListAsync(
+                scope, new NewPriceList(Guid.NewGuid(), name, isDefault, actorId), "org-user", actorId, CancellationToken.None);
+            await priceStore.AppendEntryAsync(
+                scope, new NewPriceListEntry(Guid.NewGuid(), list.Id, presentation.Id, 11400m, effectiveFrom, "Manual", null, actorId),
+                "org-user", actorId, CancellationToken.None);
+            await componentStore.PublishSetAsync(
+                scope, new NewRateComponentSet(Guid.NewGuid(), list.Id, effectiveFrom, components, actorId),
+                "org-user", actorId, CancellationToken.None);
+            return list.Id;
+        }
+
+        RateComponent[] mostradorSet =
+        [
+            new("IVA", "IVA (10,5%)", 10.5m, RateCalculationBase.Base, 1),
+            new("IB", "IB (2,5%)", 2.5m, RateCalculationBase.Base, 2),
+            new("REMARCACION", "Remarcación (35%)", 35m, RateCalculationBase.Base, 3),
+        ];
+        RateComponent[] repartoSet =
+        [
+            new("IVA", "IVA (10,5%)", 10.5m, RateCalculationBase.Base, 1),
+            new("IB", "IB (2,5%)", 2.5m, RateCalculationBase.Base, 2),
+            new("FLETE", "Flete (7%)", 7m, RateCalculationBase.Base, 3),
+            new("REMARCACION", "Remarcación (25%)", 25m, RateCalculationBase.Base, 4),
+        ];
+        var mostrador = await NewList("Mostrador", true, mostradorSet);
+        var reparto = await NewList("Reparto", false, repartoSet);
+
+        // Second channel: one independently written source per list, chosen with the same shared selector.
+        using var sqliteSource = new SqliteEffectivePriceSourceStub();
+        sqliteSource.Seed(presentation.Id, 11400m, effectiveFrom);
+        var secondChannelSets = new Dictionary<Guid, RateComponentSet>
+        {
+            [mostrador] = RateComponentSet.ForPriceList(Guid.NewGuid(), organizationId, mostrador, effectiveFrom, mostradorSet),
+            [reparto] = RateComponentSet.ForPriceList(Guid.NewGuid(), organizationId, reparto, effectiveFrom, repartoSet),
+        };
+
+        async Task<(Guid ListId, PriceResolutionOutcome.Resolved Cloud, PriceResolutionOutcome.Resolved Second)> Resolve(bool isCustomer, Guid? customerList)
+        {
+            var cloudList = (await priceStore.ResolveBuyerPriceListAsync(scope, isCustomer, customerList, CancellationToken.None))!;
+            var cloud = new PricingResolutionService(
+                new PostgresEffectivePriceSource(priceStore, scope, cloudList.Id),
+                new PostgresRateComponentSource(componentStore, scope, cloudList.Id));
+
+            var secondList = BuyerPriceListSelector.Select(isCustomer, customerList, null, mostrador)!.Value;
+            var second = new PricingResolutionService(sqliteSource, new ReplicatedRateComponentSourceStub(secondChannelSets[secondList]));
+
+            Assert.Equal(cloudList.Id, secondList);
+            var on = new DateOnly(2026, 3, 1);
+            return (secondList,
+                Assert.IsType<PriceResolutionOutcome.Resolved>(await cloud.ResolveAsync(presentation.Id, 1m, null, on, CancellationToken.None)),
+                Assert.IsType<PriceResolutionOutcome.Resolved>(await second.ResolveAsync(presentation.Id, 1m, null, on, CancellationToken.None)));
+        }
+
+        var customer = await Resolve(isCustomer: true, reparto);
+        Assert.Equal(customer.Cloud, customer.Second);
+        Assert.Equal(16530m, customer.Cloud.UnitListPrice);
+
+        var walkIn = await Resolve(isCustomer: false, customerList: null);
+        Assert.Equal(walkIn.Cloud, walkIn.Second);
+        Assert.Equal(16872m, walkIn.Cloud.UnitListPrice);
+    }
+
+    /// <summary>
     /// Test-only stand-in for a replica-backed component source, written
     /// independently of <see cref="PostgresRateComponentSource"/> so the parity
     /// assertion compares two implementations rather than one called twice.

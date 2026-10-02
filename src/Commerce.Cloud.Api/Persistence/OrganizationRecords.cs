@@ -41,9 +41,10 @@ public sealed record OrganizationBranding(string? LogoUrl, string? PrimaryColor)
 
 /// <summary>
 /// One organization's settings (purchases-receptions-and-stock T7). The first field is the decimal separator the
-/// business types quantities with: <c>Comma</c> ("1,5", the default) or <c>Dot</c> ("1.5").
+/// business types quantities with: <c>Comma</c> ("1,5", the default) or <c>Dot</c> ("1.5"). The second is the price list a
+/// customer without one of its own is priced from, and that a new customer starts on (customer-price-lists; <c>null</c> = none).
 /// </summary>
-public sealed record OrganizationSettings(string QuantityDecimalSeparator)
+public sealed record OrganizationSettings(string QuantityDecimalSeparator, Guid? DefaultCustomerPriceListId = null)
 {
     public const string Comma = "Comma";
     public const string Dot = "Dot";

@@ -15,7 +15,8 @@ public sealed record PriceListRecord(
     string Name,
     bool IsDefault,
     DateTimeOffset CreatedAtUtc,
-    Guid CreatedByUserId);
+    Guid CreatedByUserId,
+    Guid? FloorPriceListId = null);
 
 /// <summary>
 /// Input to <see cref="PostgresPriceListStore.AppendEntryAsync"/> — a NEW

@@ -152,4 +152,56 @@ public sealed class OrganizationSettingsTests : IClassFixture<WebApplicationFact
         Assert.Equal(HttpStatusCode.NoContent, (await a.PutAsJsonAsync("/account/organization/settings", new UpdateOrganizationSettingsRequest("Dot"))).StatusCode);
         Assert.Equal("Comma", (await b.GetFromJsonAsync<OrganizationSettingsResponse>("/account/organization/settings"))!.QuantityDecimalSeparator);
     }
+
+    private static Guid NewPriceList(Guid organizationId, Guid branchId, string name)
+    {
+        var id = Guid.NewGuid();
+        using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        owner.Open();
+        using var cmd = new NpgsqlCommand("INSERT INTO price_lists (id, organization_id, branch_id, name, is_default, created_by_user_id) VALUES ($1, $2, $3, $4, false, $5)", owner);
+        cmd.Parameters.AddWithValue(id); cmd.Parameters.AddWithValue(organizationId); cmd.Parameters.AddWithValue(branchId);
+        cmd.Parameters.AddWithValue(name); cmd.Parameters.AddWithValue(Guid.NewGuid());
+        cmd.ExecuteNonQuery();
+        return id;
+    }
+
+    [Fact]
+    public async Task Settings_DefaultCustomerPriceList_IsSetKeptWhenAbsentClearedAndOnlyOfTheOwnOrganization()
+    {
+        if (!_postgresAvailable) return;
+        var organizationId = Guid.NewGuid();
+        var token = _factory.Services.GetRequiredService<BootstrapTokenRegistry>().Issue(organizationId);
+        var bootstrap = await _factory.CreateClient().PostAsJsonAsync(
+            "/account/bootstrap", new BootstrapRequest(organizationId, token, "Org " + organizationId, "HQ", "settings-list@example.com", Password));
+        bootstrap.EnsureSuccessStatusCode();
+        var body = (await bootstrap.Content.ReadFromJsonAsync<BootstrapResponse>())!;
+        var admin = await SignInAsync("settings-list@example.com");
+        var reparto = NewPriceList(organizationId, body.BranchId, "Reparto");
+
+        Assert.Null((await admin.GetFromJsonAsync<OrganizationSettingsResponse>("/account/organization/settings"))!.DefaultCustomerPriceListId);
+
+        // Setting only the list leaves the number format alone.
+        Assert.Equal(HttpStatusCode.NoContent, (await admin.PutAsJsonAsync("/account/organization/settings", new UpdateOrganizationSettingsRequest(null, reparto))).StatusCode);
+        var settings = (await admin.GetFromJsonAsync<OrganizationSettingsResponse>("/account/organization/settings"))!;
+        Assert.Equal(reparto, settings.DefaultCustomerPriceListId);
+        Assert.Equal("Comma", settings.QuantityDecimalSeparator);
+
+        // Changing only the number format keeps the list.
+        Assert.Equal(HttpStatusCode.NoContent, (await admin.PutAsJsonAsync("/account/organization/settings", new UpdateOrganizationSettingsRequest("Dot"))).StatusCode);
+        settings = (await admin.GetFromJsonAsync<OrganizationSettingsResponse>("/account/organization/settings"))!;
+        Assert.Equal(reparto, settings.DefaultCustomerPriceListId);
+        Assert.Equal("Dot", settings.QuantityDecimalSeparator);
+        Assert.True((long)OwnerScalar("SELECT count(*) FROM audit_log WHERE organization_id = $1 AND action = 'organization.settings_updated' AND new_value::text LIKE '%' || $2 || '%'", organizationId, reparto.ToString())! >= 1);
+
+        // A list of ANOTHER organization is refused, and the default stays.
+        var (otherOrg, _) = await BootstrapAsync("settings-list-other@example.com");
+        var foreign = NewPriceList(otherOrg, (Guid)OwnerScalar("SELECT id FROM branches WHERE organization_id = $1", otherOrg)!, "Ajena");
+        var refused = await admin.PutAsJsonAsync("/account/organization/settings", new UpdateOrganizationSettingsRequest(null, foreign));
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        Assert.Equal(reparto, (await admin.GetFromJsonAsync<OrganizationSettingsResponse>("/account/organization/settings"))!.DefaultCustomerPriceListId);
+
+        // Explicit clear.
+        Assert.Equal(HttpStatusCode.NoContent, (await admin.PutAsJsonAsync("/account/organization/settings", new UpdateOrganizationSettingsRequest(null, null, ClearDefaultCustomerPriceList: true))).StatusCode);
+        Assert.Null((await admin.GetFromJsonAsync<OrganizationSettingsResponse>("/account/organization/settings"))!.DefaultCustomerPriceListId);
+    }
 }

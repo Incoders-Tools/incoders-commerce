@@ -125,7 +125,7 @@ public static class CustomerEndpoints
                 taxCondition, request.Phone, request.Email, request.AddressStreet, request.AddressNumber,
                 request.Neighborhood, request.Locality, request.Province, request.PostalCode, request.DeliveryNotes,
                 request.DiscountPercentage, request.PaymentTerms, request.Notes, caller.Id,
-                NullIfEmpty(request.CityId), NullIfEmpty(request.BusinessTypeId), contacts);
+                NullIfEmpty(request.CityId), NullIfEmpty(request.BusinessTypeId), contacts, NullIfEmpty(request.PriceListId));
 
             CustomerRecord created;
             try
@@ -215,7 +215,8 @@ public static class CustomerEndpoints
                 request.CityId is { } city ? new ColumnChange<Guid?>(NullIfEmpty(city)) : null,
                 request.BusinessTypeId is { } type ? new ColumnChange<Guid?>(NullIfEmpty(type)) : null,
                 contacts,
-                request.ExpectedUpdatedAtUtc);
+                request.ExpectedUpdatedAtUtc,
+                request.PriceListId is { } priceList ? new ColumnChange<Guid?>(NullIfEmpty(priceList)) : null);
 
             CustomerRecord? updated;
             try
@@ -401,6 +402,10 @@ public static class CustomerEndpoints
                 {
                     ["businessTypeId"] = ["businessTypeId does not match a business type of this organization."],
                 }),
+                "customers_price_list_org_fk" => Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["priceListId"] = ["priceListId does not match a price list of this organization."],
+                }),
                 _ => null,
             }
             : null;
@@ -441,7 +446,7 @@ public sealed record CreateCustomerRequest(
     string? AddressStreet, string? AddressNumber, string? Neighborhood,
     string? Locality, string? Province, string? PostalCode,
     string? DeliveryNotes, decimal? DiscountPercentage, string? PaymentTerms, string? Notes,
-    Guid? CityId = null, Guid? BusinessTypeId = null, ContactRequest[]? Contacts = null);
+    Guid? CityId = null, Guid? BusinessTypeId = null, ContactRequest[]? Contacts = null, Guid? PriceListId = null);
 
 /// <summary>
 /// <see cref="CreateCustomerRequest"/> minus <c>CustomerKind</c> (read-only at
@@ -457,7 +462,7 @@ public sealed record UpdateCustomerRequest(
     string? DeliveryNotes, decimal? DiscountPercentage, string? PaymentTerms, string? Notes,
     bool IsEnabled,
     Guid? CityId = null, Guid? BusinessTypeId = null, ContactRequest[]? Contacts = null,
-    DateTimeOffset? ExpectedUpdatedAtUtc = null);
+    DateTimeOffset? ExpectedUpdatedAtUtc = null, Guid? PriceListId = null);
 
 /// <summary>
 /// One contact person in a customer create/update body. `Id` is optional: a sent id is kept (it updates the
