@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Commerce.Domain.Customers;
 
 namespace Commerce.Cloud.Api.Persistence;
@@ -29,7 +30,10 @@ public sealed record NewCustomer(
     decimal? DiscountPercentage,
     string? PaymentTerms,
     string? Notes,
-    Guid CreatedByUserId);
+    Guid CreatedByUserId,
+    Guid? CityId = null,
+    Guid? BusinessTypeId = null,
+    string? ContactName = null);
 
 /// <summary>
 /// Fields an edit MAY change. `CustomerKind` is deliberately absent — it is
@@ -55,7 +59,18 @@ public sealed record UpdateCustomer(
     decimal? DiscountPercentage,
     string? PaymentTerms,
     string? Notes,
-    bool IsEnabled);
+    bool IsEnabled,
+    ColumnChange<Guid?>? City = null,
+    ColumnChange<Guid?>? BusinessType = null,
+    ColumnChange<string?>? ContactName = null);
+
+/// <summary>
+/// An optional column of an update: <see langword="null"/> (the property is
+/// absent) keeps the stored value, a present one replaces it - with
+/// <see langword="null"/> clearing the column. Lets clients that predate the
+/// column (the POS) PUT a customer without wiping it.
+/// </summary>
+public sealed record ColumnChange<T>(T Value);
 
 /// <summary>
 /// Full persisted shape of one `customers` row, returned by
@@ -64,12 +79,12 @@ public sealed record UpdateCustomer(
 public sealed record CustomerRecord(
     Guid Id,
     Guid OrganizationId,
-    CustomerKind CustomerKind,
+    [property: JsonConverter(typeof(JsonStringEnumConverter))] CustomerKind CustomerKind,
     string DisplayName,
     string? LegalName,
-    TaxIdType TaxIdType,
+    [property: JsonConverter(typeof(JsonStringEnumConverter))] TaxIdType TaxIdType,
     string? TaxId,
-    TaxCondition TaxCondition,
+    [property: JsonConverter(typeof(JsonStringEnumConverter))] TaxCondition TaxCondition,
     string? Phone,
     string? Email,
     string? AddressStreet,
@@ -85,7 +100,15 @@ public sealed record CustomerRecord(
     bool IsEnabled,
     DateTimeOffset CreatedAtUtc,
     Guid CreatedByUserId,
-    DateTimeOffset UpdatedAtUtc);
+    DateTimeOffset UpdatedAtUtc,
+    Guid? CityId = null,
+    string? CityName = null,
+    Guid? BusinessTypeId = null,
+    string? BusinessTypeName = null,
+    string? ContactName = null);
+
+/// <summary>Optional filters of the customer list; every member is optional and they combine with AND.</summary>
+public sealed record CustomerListFilter(string? Search = null, Guid? CityId = null, Guid? BusinessTypeId = null);
 
 /// <summary>
 /// Minimum viable pull projection for `GET /device/customers/sync` (Unit 6;

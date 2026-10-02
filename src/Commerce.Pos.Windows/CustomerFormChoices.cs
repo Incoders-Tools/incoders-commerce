@@ -13,7 +13,7 @@ public static class CustomerFormChoices
         [new("Retail", "Minorista"), new("Wholesale", "Mayorista")];
 
     public static IReadOnlyList<FormChoice> TaxIdTypes { get; } =
-        [new("None", "Ninguno"), new("Cuit", "CUIT"), new("Cuil", "CUIL")];
+        [new("None", "Ninguno"), new("Cuit", "CUIT"), new("Cuil", "CUIL"), new("Dni", "DNI")];
 
     public static IReadOnlyList<FormChoice> TaxConditions { get; } =
     [

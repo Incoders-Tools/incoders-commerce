@@ -27,6 +27,9 @@ public static class CustomerEndpoints
             .AddEndpointFilter<TenantScopeEndpointFilter>();
 
         group.MapGet("", async (
+            string? search,
+            Guid? cityId,
+            Guid? businessTypeId,
             HttpContext httpContext,
             PostgresUserAccountStore userStore,
             PostgresCustomerStore customerStore,
@@ -38,7 +41,8 @@ public static class CustomerEndpoints
                 return Results.Forbid();
             }
 
-            var customers = await customerStore.ListAsync(auth.Value.Scope, ct);
+            var customers = await customerStore.ListAsync(
+                auth.Value.Scope, new CustomerListFilter(search, cityId, businessTypeId), ct);
             return Results.Ok(customers);
         });
 
@@ -93,8 +97,13 @@ public static class CustomerEndpoints
             {
                 return Results.ValidationProblem(new Dictionary<string, string[]>
                 {
-                    ["taxIdType"] = ["taxIdType must be one of: None, Cuit, Cuil."],
+                    ["taxIdType"] = [TaxIdTypeMessage],
                 });
+            }
+
+            if (!TaxIdRules.TryNormalize(taxIdType, request.TaxId, out var normalizedTaxId, out var taxIdError))
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]> { ["taxId"] = [taxIdError!] });
             }
 
             if (!Enum.TryParse<TaxCondition>(request.TaxCondition, out var taxCondition))
@@ -107,10 +116,11 @@ public static class CustomerEndpoints
 
             var customerId = Guid.NewGuid();
             var newCustomer = new NewCustomer(
-                customerId, customerKind, request.DisplayName.Trim(), request.LegalName, taxIdType, request.TaxId,
+                customerId, customerKind, request.DisplayName.Trim(), request.LegalName, taxIdType, normalizedTaxId,
                 taxCondition, request.Phone, request.Email, request.AddressStreet, request.AddressNumber,
                 request.Neighborhood, request.Locality, request.Province, request.PostalCode, request.DeliveryNotes,
-                request.DiscountPercentage, request.PaymentTerms, request.Notes, caller.Id);
+                request.DiscountPercentage, request.PaymentTerms, request.Notes, caller.Id,
+                NullIfEmpty(request.CityId), NullIfEmpty(request.BusinessTypeId), BlankToNull(request.ContactName));
 
             CustomerRecord created;
             try
@@ -127,6 +137,10 @@ public static class CustomerEndpoints
                 {
                     ["taxId"] = ["taxId is required exactly when taxIdType is not None."],
                 });
+            }
+            catch (PostgresException ex) when (MasterDataReferenceProblem(ex) is { } problem)
+            {
+                return problem;
             }
 
             return Results.Created($"/customers/{created.Id}", new CreateCustomerResponse(created.Id));
@@ -159,8 +173,13 @@ public static class CustomerEndpoints
             {
                 return Results.ValidationProblem(new Dictionary<string, string[]>
                 {
-                    ["taxIdType"] = ["taxIdType must be one of: None, Cuit, Cuil."],
+                    ["taxIdType"] = [TaxIdTypeMessage],
                 });
+            }
+
+            if (!TaxIdRules.TryNormalize(taxIdType, request.TaxId, out var normalizedTaxId, out var taxIdError))
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]> { ["taxId"] = [taxIdError!] });
             }
 
             if (!Enum.TryParse<TaxCondition>(request.TaxCondition, out var taxCondition))
@@ -171,11 +190,17 @@ public static class CustomerEndpoints
                 });
             }
 
+            // Master data on update: an omitted property keeps the stored value
+            // (so the POS, which predates these fields, never wipes them);
+            // Guid.Empty / "" clears it.
             var update = new UpdateCustomer(
-                request.DisplayName.Trim(), request.LegalName, taxIdType, request.TaxId, taxCondition,
+                request.DisplayName.Trim(), request.LegalName, taxIdType, normalizedTaxId, taxCondition,
                 request.Phone, request.Email, request.AddressStreet, request.AddressNumber, request.Neighborhood,
                 request.Locality, request.Province, request.PostalCode, request.DeliveryNotes,
-                request.DiscountPercentage, request.PaymentTerms, request.Notes, request.IsEnabled);
+                request.DiscountPercentage, request.PaymentTerms, request.Notes, request.IsEnabled,
+                request.CityId is { } city ? new ColumnChange<Guid?>(NullIfEmpty(city)) : null,
+                request.BusinessTypeId is { } type ? new ColumnChange<Guid?>(NullIfEmpty(type)) : null,
+                request.ContactName is { } contact ? new ColumnChange<string?>(BlankToNull(contact)) : null);
 
             CustomerRecord? updated;
             try
@@ -192,6 +217,10 @@ public static class CustomerEndpoints
                 {
                     ["taxId"] = ["taxId is required exactly when taxIdType is not None."],
                 });
+            }
+            catch (PostgresException ex) when (MasterDataReferenceProblem(ex) is { } problem)
+            {
+                return problem;
             }
 
             return updated is null ? Results.NotFound() : Results.Ok(updated);
@@ -256,6 +285,33 @@ public static class CustomerEndpoints
         return group;
     }
 
+    private const string TaxIdTypeMessage = "taxIdType must be one of: None, Cuit, Cuil, Dni.";
+
+    private static Guid? NullIfEmpty(Guid? id) => id is { } value && value != Guid.Empty ? value : null;
+
+    private static string? BlankToNull(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    /// <summary>
+    /// The composite foreign keys of 0027 refuse a city or business type that
+    /// does not exist in the caller's organization (another organization's id
+    /// is indistinguishable from an unknown one): a 400 on the offending field.
+    /// </summary>
+    private static IResult? MasterDataReferenceProblem(PostgresException ex) =>
+        ex.SqlState == PostgresErrorCodes.ForeignKeyViolation
+            ? ex.ConstraintName switch
+            {
+                "customers_city_org_fk" => Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["cityId"] = ["cityId does not match a city of this organization."],
+                }),
+                "customers_business_type_org_fk" => Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["businessTypeId"] = ["businessTypeId does not match a business type of this organization."],
+                }),
+                _ => null,
+            }
+            : null;
+
     /// <summary>
     /// Account.cs's adminGroup check, factored once for this file's six
     /// routes rather than repeated verbatim six times: caller id from the
@@ -291,7 +347,8 @@ public sealed record CreateCustomerRequest(
     string? Phone, string? Email,
     string? AddressStreet, string? AddressNumber, string? Neighborhood,
     string? Locality, string? Province, string? PostalCode,
-    string? DeliveryNotes, decimal? DiscountPercentage, string? PaymentTerms, string? Notes);
+    string? DeliveryNotes, decimal? DiscountPercentage, string? PaymentTerms, string? Notes,
+    Guid? CityId = null, Guid? BusinessTypeId = null, string? ContactName = null);
 
 /// <summary>
 /// <see cref="CreateCustomerRequest"/> minus <c>CustomerKind</c> (read-only at
@@ -305,7 +362,8 @@ public sealed record UpdateCustomerRequest(
     string? AddressStreet, string? AddressNumber, string? Neighborhood,
     string? Locality, string? Province, string? PostalCode,
     string? DeliveryNotes, decimal? DiscountPercentage, string? PaymentTerms, string? Notes,
-    bool IsEnabled);
+    bool IsEnabled,
+    Guid? CityId = null, Guid? BusinessTypeId = null, string? ContactName = null);
 
 public sealed record CreateCustomerResponse(Guid CustomerId);
 

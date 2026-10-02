@@ -41,6 +41,15 @@ public sealed class Customer
     /// </summary>
     public string? BillingInstrumentReference { get; }
     public string? Notes { get; }
+
+    /// <summary>Optional reference to the organization's city catalog.</summary>
+    public Guid? CityId { get; }
+
+    /// <summary>Optional reference to the organization's business type catalog.</summary>
+    public Guid? BusinessTypeId { get; }
+
+    /// <summary>The person to talk to at the customer (free text).</summary>
+    public string? ContactName { get; }
     public bool IsEnabled { get; private set; }
     public DateTimeOffset CreatedAtUtc { get; }
     public Guid CreatedByUserId { get; }
@@ -69,7 +78,10 @@ public sealed class Customer
         Guid createdByUserId,
         bool isEnabled = true,
         DateTimeOffset? createdAtUtc = null,
-        string? billingInstrumentReference = null)
+        string? billingInstrumentReference = null,
+        Guid? cityId = null,
+        Guid? businessTypeId = null,
+        string? contactName = null)
     {
         if (string.IsNullOrWhiteSpace(displayName))
         {
@@ -88,6 +100,20 @@ public sealed class Customer
         if (taxIdType != TaxIdType.None && !hasTaxId)
         {
             throw new ArgumentException("TaxId is required when TaxIdType is not None.", nameof(taxId));
+        }
+
+        // Shape per type: a DNI is stored as 7-8 bare digits; CUIT/CUIL must
+        // hold 11 digits (separators tolerated here, endpoints store them
+        // normalized through TaxIdRules).
+        if (hasTaxId && taxIdType == TaxIdType.Dni && !TaxIdRules.IsValidDigits(taxIdType, taxId!))
+        {
+            throw new ArgumentException("TaxId must be 7 or 8 digits when TaxIdType is Dni.", nameof(taxId));
+        }
+
+        if (hasTaxId && taxIdType is TaxIdType.Cuit or TaxIdType.Cuil
+            && !TaxIdRules.TryNormalize(taxIdType, taxId, out _, out _))
+        {
+            throw new ArgumentException("TaxId must be 11 digits when TaxIdType is Cuit or Cuil.", nameof(taxId));
         }
 
         // commerce-payments design.md "Customer instrument reference": reject
@@ -121,6 +147,9 @@ public sealed class Customer
         PaymentTerms = paymentTerms;
         BillingInstrumentReference = billingInstrumentReference;
         Notes = notes;
+        CityId = cityId;
+        BusinessTypeId = businessTypeId;
+        ContactName = contactName;
         CreatedByUserId = createdByUserId;
         IsEnabled = isEnabled;
         CreatedAtUtc = createdAtUtc ?? DateTimeOffset.UtcNow;

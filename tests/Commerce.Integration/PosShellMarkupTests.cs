@@ -104,7 +104,7 @@ public sealed class PosShellMarkupTests
     {
         Assert.Equal(["Retail", "Wholesale"], CustomerFormChoices.Kinds.Select(c => c.Value));
         Assert.Equal(["Minorista", "Mayorista"], CustomerFormChoices.Kinds.Select(c => c.Label));
-        Assert.Equal(["None", "Cuit", "Cuil"], CustomerFormChoices.TaxIdTypes.Select(c => c.Value));
+        Assert.Equal(["None", "Cuit", "Cuil", "Dni"], CustomerFormChoices.TaxIdTypes.Select(c => c.Value));
         Assert.Equal(
             ["ConsumidorFinal", "ResponsableInscripto", "Monotributo", "Exento", "NoAplica"],
             CustomerFormChoices.TaxConditions.Select(c => c.Value));
