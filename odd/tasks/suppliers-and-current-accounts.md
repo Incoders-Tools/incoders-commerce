@@ -87,6 +87,23 @@ total / overdue / aging.
 
 - 2026-10-02: T4-T5 (web) done. Final web checks: npm test 65 files / 476 tests pass; npm run lint 0 errors (existing-style warnings only); npm run build passes. Statement defaults to the last 90 days; phone viewport defaults to cards; reversal is an inline alertdialog confirmation.
 
+## Reviews (owner granted each slice, 2026-10-02)
+
+- Suppliers migrations + API `b04081c..ba69618`: approved, 4 lenses (`review-637e436f3d05f4b3`).
+- Current-account API `ba69618..4a0d9b7`: approved (`review-eac063cc8857595e`).
+- Suppliers web `4a0d9b7..3f4f96f`: approved (`review-e6e41576031c73fb`); its "account link without route" findings are resolved by T5 (`d76aeaf`).
+- Current-account web `3f4f96f..cfb6651`: approved (`review-b2a75632cdc50df6`).
+- Owner decision: an adjustment has no default effect; the user must choose. Commit after `cfb6651`, review approved (`review-2c5340b72fcca622`).
+
+## Follow-ups (non-blocking review findings)
+
+- [ ] S1 Supplier list balances load every movement of the organization in memory; move to a SQL aggregate before volumes grow (`PostgresSupplierStore.cs:61-63`).
+- [ ] S2 Any CHECK violation on supplier write is reported as one field; map constraint names (`Suppliers.cs:207-209`).
+- [ ] S3 `paymentTermsDays` 0-365 is enforced only in the API, not in the database (`SupplierRules.cs:3-11`).
+- [ ] S4 An undefined numeric `kind` value is not rejected on movement registration (`SupplierAccount.cs:154-155`).
+- [ ] S5 Statement screen: an empty date range is not validated, and the reverse panel is not keyed by movement (`SupplierAccountScreen.tsx:88-96`, `210-219`).
+- [ ] S6 Supplier form: CBU separators sent raw, display name whitespace not trimmed client-side (`SupplierForm.tsx:119`, `134`).
+
 ## Next step
 
 Parent: review the feature as a whole and the acceptance criteria; promote when ready.
