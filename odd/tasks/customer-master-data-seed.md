@@ -142,6 +142,12 @@ of them. Licence/attribution to be confirmed and recorded in the README.
 - [ ] G5 Cities screen: toggling active ignores the active filter and can show a stale name (`CitiesScreen.tsx:96-108`).
 - [ ] G6 The contacts-editor Vitest case runs close to the 5 s timeout and timed out under load (`CustomerForm.test.tsx`, "adds contacts, makes the first one primary...").
 
+### Geography review outcome (owner-authorized, 2026-10-02)
+
+- Splitting `528d84e` into code + data was tried: the code slice was blocked (5 deterministic findings: without its data, 0028 maps every city to NULL and irreversibly drops the organization cities) and the data slice still exceeded the reviewer budget. The owner authorized abandoning that lineage (`review-90d74e635ae1939e`, reason `operator_disposition`) and restoring `dev` from `backup/pre-geo-split` (identical tree). The geography commit itself stays unreviewed.
+- Guard `330f4dd`: 0028 aborts (whole transaction) when no Georef locality is loaded; a customer whose city has no Georef match keeps the name in `locality`. Review approved, 4 lenses, acknowledged (`review-685ca5ab832d82e2`). Full `dotnet test`: 1750 passed, 1 failed (known PublicRateLimitTests launcher failure), 0 skipped.
+- [ ] G7 The locality-preserving branch keeps an existing locality untouched; that case has no test (`0028_core_geography.sql:4345-4347`).
+
 ## Next step
 
 Owner review of `deploy/db/seeds/vaca-verde/report.md` (open questions: possible duplicates, "Ruta 9" locality, customers without city or business type); then promote `dev` to `main` and run the README runbook per environment once the organization is provisioned there.
