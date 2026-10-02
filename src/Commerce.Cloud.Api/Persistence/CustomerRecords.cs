@@ -62,7 +62,17 @@ public sealed record UpdateCustomer(
     bool IsEnabled,
     ColumnChange<Guid?>? City = null,
     ColumnChange<Guid?>? BusinessType = null,
-    ColumnChange<string?>? ContactName = null);
+    ColumnChange<string?>? ContactName = null,
+    DateTimeOffset? ExpectedUpdatedAtUtc = null);
+
+/// <summary>
+/// Thrown by <see cref="PostgresCustomerStore.UpdateAsync"/> when the update
+/// carried an `ExpectedUpdatedAtUtc` that no longer matches the stored row
+/// (someone else saved it first). The transaction is rolled back; the endpoint
+/// answers 409 `customer-modified`.
+/// </summary>
+public sealed class CustomerModifiedException(Guid customerId)
+    : Exception($"Customer {customerId} was modified after the supplied expectedUpdatedAtUtc.");
 
 /// <summary>
 /// An optional column of an update: <see langword="null"/> (the property is

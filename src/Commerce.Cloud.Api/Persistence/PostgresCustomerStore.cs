@@ -176,11 +176,11 @@ public sealed class PostgresCustomerStore
             return null;
         }
 
-        // Master data columns: an absent change keeps the stored value.
-        var cityId = update.City is null ? existing.CityId : update.City.Value;
-        var businessTypeId = update.BusinessType is null ? existing.BusinessTypeId : update.BusinessType.Value;
-        var contactName = update.ContactName is null ? existing.ContactName : update.ContactName.Value;
-
+        // Optional columns: an absent change keeps the stored value, decided IN
+        // SQL (CASE on a flag) so a concurrent write to that column between our
+        // read and our write is never overwritten with a stale copy (F2). The
+        // optimistic token is part of the WHERE for the same reason: the check
+        // and the write are one statement, not a read followed by a write.
         await using (var cmd = new NpgsqlCommand(
             """
             UPDATE customers
@@ -188,9 +188,11 @@ public sealed class PostgresCustomerStore
                 phone = $6, email = $7, address_street = $8, address_number = $9, neighborhood = $10,
                 locality = $11, province = $12, postal_code = $13, delivery_notes = $14,
                 discount_percentage = $15, payment_terms = $16, notes = $17, is_enabled = $18,
-                city_id = $19, business_type_id = $20, contact_name = $21,
+                city_id = CASE WHEN $19 THEN $20::uuid ELSE city_id END,
+                business_type_id = CASE WHEN $21 THEN $22::uuid ELSE business_type_id END,
+                contact_name = CASE WHEN $23 THEN $24::text ELSE contact_name END,
                 updated_at_utc = now()
-            WHERE id = $22
+            WHERE id = $25 AND ($26::timestamptz IS NULL OR updated_at_utc = $26)
             """, connection, tx))
         {
             cmd.Parameters.AddWithValue(update.DisplayName);
@@ -211,12 +213,21 @@ public sealed class PostgresCustomerStore
             cmd.Parameters.AddWithValue((object?)update.PaymentTerms ?? DBNull.Value);
             cmd.Parameters.AddWithValue((object?)update.Notes ?? DBNull.Value);
             cmd.Parameters.AddWithValue(update.IsEnabled);
-            cmd.Parameters.AddWithValue((object?)cityId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue((object?)businessTypeId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue((object?)contactName ?? DBNull.Value);
+            cmd.Parameters.AddWithValue(update.City is not null);
+            cmd.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Uuid, (object?)update.City?.Value ?? DBNull.Value);
+            cmd.Parameters.AddWithValue(update.BusinessType is not null);
+            cmd.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Uuid, (object?)update.BusinessType?.Value ?? DBNull.Value);
+            cmd.Parameters.AddWithValue(update.ContactName is not null);
+            cmd.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Text, (object?)update.ContactName?.Value ?? DBNull.Value);
             cmd.Parameters.AddWithValue(customerId);
+            cmd.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.TimestampTz, (object?)update.ExpectedUpdatedAtUtc ?? DBNull.Value);
 
-            await cmd.ExecuteNonQueryAsync(ct);
+            if (await cmd.ExecuteNonQueryAsync(ct) == 0)
+            {
+                // The row was visible a moment ago, so the token did not match.
+                await tx.RollbackAsync(ct);
+                throw new CustomerModifiedException(customerId);
+            }
         }
 
         var updated = (await SelectByIdAsync(connection, tx, customerId, ct))!;

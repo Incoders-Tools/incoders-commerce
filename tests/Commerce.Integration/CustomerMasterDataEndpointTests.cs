@@ -379,4 +379,63 @@ public sealed class CustomerMasterDataEndpointTests : IClassFixture<WebApplicati
         Assert.Equal(JsonValueKind.Null, clearedBody.GetProperty("businessTypeId").ValueKind);
         Assert.Equal(JsonValueKind.Null, clearedBody.GetProperty("contactName").ValueKind);
     }
+    private static object PutBody(string displayName, DateTimeOffset? expected = null) => new
+    {
+        displayName, taxIdType = "None", taxCondition = "ConsumidorFinal", isEnabled = true,
+        expectedUpdatedAtUtc = expected,
+    };
+
+    [Fact]
+    public async Task CustomerUpdate_WithExpectedUpdatedAtUtc_Returns409WhenTheRowChangedInTheMeantime()
+    {
+        if (!_postgresAvailable) return;
+        await BootstrapAsync("md-occ@example.com");
+        var admin = await SignInAsync("md-occ@example.com");
+        var id = (await PostOkAsync(admin, "/customers", CustomerBody("Bar Pepe"))).GetProperty("customerId").GetGuid();
+        var loaded = await admin.GetFromJsonAsync<JsonElement>($"/customers/{id}");
+        var token = loaded.GetProperty("updatedAtUtc").GetDateTimeOffset();
+
+        var first = await admin.PutAsJsonAsync($"/customers/{id}", PutBody("Bar Pepe 2", token));
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        var firstBody = await first.Content.ReadFromJsonAsync<JsonElement>();
+        var newToken = firstBody.GetProperty("updatedAtUtc").GetDateTimeOffset();
+        Assert.True(newToken > token);
+
+        var stale = await admin.PutAsJsonAsync($"/customers/{id}", PutBody("Perdido", token));
+        Assert.Equal(HttpStatusCode.Conflict, stale.StatusCode);
+        Assert.Equal("customer-modified", (await stale.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("error").GetString());
+        Assert.Equal("Bar Pepe 2", (await admin.GetFromJsonAsync<JsonElement>($"/customers/{id}")).GetProperty("displayName").GetString());
+
+        var fresh = await admin.PutAsJsonAsync($"/customers/{id}", PutBody("Bar Pepe 3", newToken));
+        Assert.Equal(HttpStatusCode.OK, fresh.StatusCode);
+
+        // Legacy clients (the POS) send no token: no check, last write wins.
+        var legacy = await admin.PutAsJsonAsync($"/customers/{id}", PutBody("Bar Pepe 4"));
+        Assert.Equal(HttpStatusCode.OK, legacy.StatusCode);
+
+        var unknown = await admin.PutAsJsonAsync($"/customers/{Guid.NewGuid()}", PutBody("Nadie", token));
+        Assert.Equal(HttpStatusCode.NotFound, unknown.StatusCode);
+    }
+
+    [Fact]
+    public async Task CustomerUpdate_TwoConcurrentWritersWithTheSameToken_OnlyOneWins()
+    {
+        if (!_postgresAvailable) return;
+        await BootstrapAsync("md-race@example.com");
+        var admin = await SignInAsync("md-race@example.com");
+        var id = (await PostOkAsync(admin, "/customers", CustomerBody("Bar Pepe"))).GetProperty("customerId").GetGuid();
+        var token = (await admin.GetFromJsonAsync<JsonElement>($"/customers/{id}")).GetProperty("updatedAtUtc").GetDateTimeOffset();
+
+        for (var round = 0; round < 5; round++)
+        {
+            var responses = await Task.WhenAll(
+                admin.PutAsJsonAsync($"/customers/{id}", PutBody("Writer A", token)),
+                admin.PutAsJsonAsync($"/customers/{id}", PutBody("Writer B", token)));
+            var statuses = responses.Select(r => r.StatusCode).OrderBy(s => (int)s).ToArray();
+            Assert.Equal([HttpStatusCode.OK, HttpStatusCode.Conflict], statuses);
+
+            var winner = responses.Single(r => r.StatusCode == HttpStatusCode.OK);
+            token = (await winner.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("updatedAtUtc").GetDateTimeOffset();
+        }
+    }
 }

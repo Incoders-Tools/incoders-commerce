@@ -200,7 +200,8 @@ public static class CustomerEndpoints
                 request.DiscountPercentage, request.PaymentTerms, request.Notes, request.IsEnabled,
                 request.CityId is { } city ? new ColumnChange<Guid?>(NullIfEmpty(city)) : null,
                 request.BusinessTypeId is { } type ? new ColumnChange<Guid?>(NullIfEmpty(type)) : null,
-                request.ContactName is { } contact ? new ColumnChange<string?>(BlankToNull(contact)) : null);
+                request.ContactName is { } contact ? new ColumnChange<string?>(BlankToNull(contact)) : null,
+                request.ExpectedUpdatedAtUtc);
 
             CustomerRecord? updated;
             try
@@ -217,6 +218,10 @@ public static class CustomerEndpoints
                 {
                     ["taxId"] = ["taxId is required exactly when taxIdType is not None."],
                 });
+            }
+            catch (CustomerModifiedException)
+            {
+                return Results.Conflict(new { error = "customer-modified" });
             }
             catch (PostgresException ex) when (MasterDataReferenceProblem(ex) is { } problem)
             {
@@ -363,7 +368,8 @@ public sealed record UpdateCustomerRequest(
     string? Locality, string? Province, string? PostalCode,
     string? DeliveryNotes, decimal? DiscountPercentage, string? PaymentTerms, string? Notes,
     bool IsEnabled,
-    Guid? CityId = null, Guid? BusinessTypeId = null, string? ContactName = null);
+    Guid? CityId = null, Guid? BusinessTypeId = null, string? ContactName = null,
+    DateTimeOffset? ExpectedUpdatedAtUtc = null);
 
 public sealed record CreateCustomerResponse(Guid CustomerId);
 
