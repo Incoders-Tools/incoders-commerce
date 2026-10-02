@@ -8,10 +8,10 @@ namespace Commerce.Cloud.Api.Persistence;
 public sealed record NewMasterDataEntry(Guid Id, string Name, string Key, int SortOrder, bool IsActive);
 
 /// <summary>
-/// Input to the master data stores' Update. `Key` and `SortOrder` are null to
-/// keep the stored value; `Name` and `IsActive` always replace it.
+/// Input to the master data stores' Update. `Key`, `SortOrder` and `IsActive` are
+/// null to keep the stored value; `Name` always replaces it.
 /// </summary>
-public sealed record UpdateMasterDataEntry(string Name, string? Key, int? SortOrder, bool IsActive);
+public sealed record UpdateMasterDataEntry(string Name, string? Key, int? SortOrder, bool? IsActive);
 
 /// <summary>Full persisted shape of one `cities` / `business_types` row.</summary>
 public sealed record MasterDataRecord(

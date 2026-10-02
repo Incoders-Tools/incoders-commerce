@@ -173,6 +173,25 @@ public sealed class CustomerMasterDataEndpointTests : IClassFixture<WebApplicati
 
     [Theory]
     [MemberData(nameof(Catalogs))]
+    public async Task Update_KeepsTheStoredIsActive_WhenTheFieldIsOmitted(string route, string auditPrefix)
+    {
+        if (!_postgresAvailable) return;
+        await BootstrapAsync($"md-keep-{auditPrefix}@example.com");
+        var admin = await SignInAsync($"md-keep-{auditPrefix}@example.com");
+        var id = (await PostOkAsync(admin, route, new { name = "Moreno", isActive = false })).GetProperty("id").GetGuid();
+
+        var renamed = await admin.PutAsJsonAsync($"{route}/{id}", new { name = "Moreno Centro" });
+        Assert.Equal(HttpStatusCode.OK, renamed.StatusCode);
+        Assert.False((await renamed.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("isActive").GetBoolean());
+
+        var reactivated = await admin.PutAsJsonAsync($"{route}/{id}", new { name = "Moreno Centro", isActive = true });
+        Assert.True((await reactivated.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("isActive").GetBoolean());
+        var stillActive = await admin.PutAsJsonAsync($"{route}/{id}", new { name = "Moreno Norte" });
+        Assert.True((await stillActive.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("isActive").GetBoolean());
+    }
+
+    [Theory]
+    [MemberData(nameof(Catalogs))]
     public async Task Create_RejectsBlankName_AndDuplicateNameOrKey(string route, string auditPrefix)
     {
         if (!_postgresAvailable) return;

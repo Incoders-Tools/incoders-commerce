@@ -113,7 +113,7 @@ public static class MasterDataEndpoints
             try
             {
                 var updated = await store.UpdateAsync(
-                    scope, id, new UpdateMasterDataEntry(name, key, request.SortOrder, request.IsActive ?? true),
+                    scope, id, new UpdateMasterDataEntry(name, key, request.SortOrder, request.IsActive),
                     "org-user", caller.Id, ct);
                 return updated is null ? Results.NotFound() : Results.Ok(updated);
             }
@@ -177,6 +177,6 @@ public static class MasterDataEndpoints
 /// Body of POST/PUT on a master data catalog. `Key` is derived from `Name` on
 /// create when omitted and kept on update when omitted; `SortOrder` defaults
 /// to 0 on create and is kept on update when omitted; `IsActive` defaults to
-/// true.
+/// true on create and is kept on update when omitted.
 /// </summary>
 public sealed record MasterDataRequest(string? Name, string? Key = null, int? SortOrder = null, bool? IsActive = null);

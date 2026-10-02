@@ -112,7 +112,7 @@ public abstract class PostgresMasterDataStore
             $"""
             UPDATE {_table}
             SET name = $1, key = COALESCE($2::text, key), sort_order = COALESCE($3::integer, sort_order),
-                is_active = $4, updated_at_utc = now()
+                is_active = COALESCE($4::boolean, is_active), updated_at_utc = now()
             WHERE id = $5
             RETURNING {Columns}
             """, connection, tx))
@@ -120,7 +120,7 @@ public abstract class PostgresMasterDataStore
             cmd.Parameters.AddWithValue(update.Name);
             cmd.Parameters.AddWithValue((object?)update.Key ?? DBNull.Value);
             cmd.Parameters.AddWithValue((object?)update.SortOrder ?? DBNull.Value);
-            cmd.Parameters.AddWithValue(update.IsActive);
+            cmd.Parameters.AddWithValue((object?)update.IsActive ?? DBNull.Value);
             cmd.Parameters.AddWithValue(id);
             await using var reader = await cmd.ExecuteReaderAsync(ct);
             if (await reader.ReadAsync(ct))
