@@ -43,7 +43,7 @@ internal static partial class PriceListCompositionEndpoints
             var priceList = await priceListStore.FindPriceListAsync(scope, priceListId, ct);
             if (priceList is null) return Results.NotFound();
 
-            var date = on ?? Today();
+            var date = on ?? httpContext.Today();
             var set = await rateStore.GetEffectiveSetAsync(scope, priceListId, date, ct);
             var items = await priceListStore.ListItemsAsOfAsync(scope, priceListId, date, ct);
 
@@ -67,7 +67,7 @@ internal static partial class PriceListCompositionEndpoints
 
             if (await priceListStore.FindPriceListAsync(scope, priceListId, ct) is null) return Results.NotFound();
 
-            var effective = ToComposition(await rateStore.GetEffectiveSetAsync(scope, priceListId, on ?? Today(), ct));
+            var effective = ToComposition(await rateStore.GetEffectiveSetAsync(scope, priceListId, on ?? httpContext.Today(), ct));
             var history = await rateStore.ListHistoryAsync(scope, priceListId, ct);
             return Results.Ok(new CompositionResponse(
                 effective.Source, effective.EffectiveFrom, effective.Components,
@@ -145,7 +145,7 @@ internal static partial class PriceListCompositionEndpoints
                 return Results.Conflict(new { error = "price-list-name-taken" });
             }
 
-            var effectiveFrom = request.EffectiveFrom ?? Today();
+            var effectiveFrom = request.EffectiveFrom ?? httpContext.Today();
             var sourceSet = await rateStore.GetEffectiveSetAsync(scope, priceListId, effectiveFrom, ct);
 
             IReadOnlyList<RateComponent>? components;
@@ -235,7 +235,7 @@ internal static partial class PriceListCompositionEndpoints
                     return Results.Conflict(new { error = "floor-cycle" });
                 }
 
-                var violations = await floorValidator.CheckFloorAsync(scope, priceListId, floorId, Today(), ct);
+                var violations = await floorValidator.CheckFloorAsync(scope, priceListId, floorId, httpContext.Today(), ct);
                 if (violations.Count > 0) return BelowFloor(violations);
             }
 
@@ -255,7 +255,6 @@ internal static partial class PriceListCompositionEndpoints
     internal static IResult BelowFloor(IReadOnlyList<FloorViolation> violations) =>
         Results.Conflict(new { error = "price-below-floor", violations });
 
-    private static DateOnly Today() => DateOnly.FromDateTime(DateTime.UtcNow);
 
     private static async Task<(IResult? Failure, (CloudTenantScope Scope, Commerce.Domain.Identity.UserAccount Caller)? Auth)> AuthorizeAsync(
         HttpContext httpContext, PostgresUserAccountStore userStore, CancellationToken ct)

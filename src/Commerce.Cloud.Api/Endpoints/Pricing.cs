@@ -224,7 +224,7 @@ public static class PricingEndpoints
             // existence check needed.
             IReadOnlyList<PriceListEntryRecord> prices = isRange
                 ? await priceListStore.ListRangeAsync(auth.Value.Scope, priceListId, from!.Value, to!.Value, ct)
-                : await priceListStore.ListAsOfAsync(auth.Value.Scope, priceListId, asOf ?? DateOnly.FromDateTime(DateTime.UtcNow), ct);
+                : await priceListStore.ListAsOfAsync(auth.Value.Scope, priceListId, asOf ?? httpContext.Today(), ct);
 
             return Results.Ok(prices);
         });
@@ -475,7 +475,7 @@ public static class PricingEndpoints
                 if (defaultPriceList is not null)
                 {
                     var effective = await priceListStore.GetEffectiveAsync(
-                        scope, defaultPriceList.Id, presentation.Id, DateOnly.FromDateTime(DateTime.UtcNow), ct);
+                        scope, defaultPriceList.Id, presentation.Id, httpContext.Today(), ct);
                     currentPrice = effective?.UnitPrice;
                 }
 
@@ -556,7 +556,7 @@ public static class PricingEndpoints
             }
 
             // The matched rows are about to become entries of the default list today: the floor rule applies to them too.
-            var importDate = DateOnly.FromDateTime(DateTime.UtcNow);
+            var importDate = httpContext.Today();
             var proposed = (await priceListStore.ListImportRowsAsync(scope, batchId, ct))
                 .Where(r => r.MatchStatus == nameof(ImportMatchStatus.Matched) && r.PresentationId is not null && r.ProposedPrice is not null)
                 .GroupBy(r => r.PresentationId!.Value)

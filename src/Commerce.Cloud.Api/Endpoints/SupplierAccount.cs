@@ -18,9 +18,6 @@ public static class SupplierAccountEndpoints
     private const int MaxConceptLength = 500;
     private const int MaxReferenceLength = 100;
 
-    /// <summary>Today in Argentina (UTC-3, no daylight saving): the default date of movements and of the summary.</summary>
-    private static DateOnly Today() => DateOnly.FromDateTime(DateTime.UtcNow.AddHours(-3));
-
     public static RouteGroupBuilder MapSupplierAccountEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/suppliers")
@@ -38,7 +35,7 @@ public static class SupplierAccountEndpoints
             }
             var (scope, caller) = auth.Value;
 
-            if (Validate(request, Today()) is { } problem)
+            if (Validate(request, httpContext.Today()) is { } problem)
             {
                 return problem;
             }
@@ -47,7 +44,7 @@ public static class SupplierAccountEndpoints
             var kind = Enum.Parse<AccountMovementKind>(request.Kind!);
             CurrentAccountRules.TryResolveDirection(kind, ParseDirection(request.Direction), out var direction, out _);
             var movement = new NewAccountMovement(
-                Guid.NewGuid(), kind, direction, request.Amount!.Value, request.OccurredOn ?? Today(), request.DueOn,
+                Guid.NewGuid(), kind, direction, request.Amount!.Value, request.OccurredOn ?? httpContext.Today(), request.DueOn,
                 CustomerEndpoints.BlankToNull(request.DocumentReference), request.Concept!.Trim(), caller.Id);
 
             var created = await store.RegisterAsync(scope, id, movement, "org-user", caller.Id, ct);
@@ -73,7 +70,7 @@ public static class SupplierAccountEndpoints
             }
 
             var result = await store.ReverseAsync(
-                scope, id, movementId, request?.Concept, request?.OccurredOn, Today(), "org-user", caller.Id, ct);
+                scope, id, movementId, request?.Concept, request?.OccurredOn, httpContext.Today(), "org-user", caller.Id, ct);
             return result.Outcome switch
             {
                 ReverseMovementOutcome.Reversed =>
@@ -120,7 +117,7 @@ public static class SupplierAccountEndpoints
                 return Results.NotFound();
             }
 
-            var date = asOf ?? Today();
+            var date = asOf ?? httpContext.Today();
             var summary = CurrentAccountRules.Summarize(movements.Select(m => m.ToFact()).ToList(), date);
             return Results.Ok(new AccountSummaryResponse(
                 date, summary.Balance, summary.Overdue, summary.Current,
@@ -137,7 +134,7 @@ public static class SupplierAccountEndpoints
                 return Results.Forbid();
             }
 
-            return Results.Ok(await store.BalancesAsync(auth.Value.Scope, asOf ?? Today(), ct));
+            return Results.Ok(await store.BalancesAsync(auth.Value.Scope, asOf ?? httpContext.Today(), ct));
         });
 
         return group;

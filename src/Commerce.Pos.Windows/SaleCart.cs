@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using Commerce.Application.Pricing;
+using Commerce.Application.Time;
 using Commerce.BranchNode;
 using Commerce.Domain.Discounts;
 using Commerce.Domain.Sync;
@@ -48,7 +49,7 @@ public sealed class SaleCart : INotifyPropertyChanged
     public SaleCart(Func<Guid?, BuyerPricing> pricingFor, Func<DateOnly>? today = null)
     {
         _pricingFor = pricingFor;
-        _today = today ?? (() => DateOnly.FromDateTime(DateTime.UtcNow));
+        _today = today ?? (() => BusinessClock.System.Today);
         _pricing = pricingFor(null);
     }
 

@@ -1,3 +1,4 @@
+using Commerce.Application.Time;
 using Commerce.Application.Ordering;
 using Commerce.Application.Pricing;
 using Commerce.BranchNode;
@@ -44,6 +45,7 @@ public sealed class CloudOrderSubmissionService
     private readonly PostgresPriceListStore _priceListStore;
     private readonly PostgresRateComponentStore _rateComponentStore;
     private readonly GuestVerificationService? _guestVerificationService;
+    private readonly IBusinessClock _businessClock;
 
     /// <summary>
     /// <paramref name="rateComponentStore"/> is REQUIRED, not optional, even
@@ -59,8 +61,10 @@ public sealed class CloudOrderSubmissionService
         PostgresCatalogStore catalogStore,
         PostgresPriceListStore priceListStore,
         PostgresRateComponentStore rateComponentStore,
-        GuestVerificationService? guestVerificationService = null)
+        GuestVerificationService? guestVerificationService = null,
+        IBusinessClock? businessClock = null)
     {
+        _businessClock = businessClock ?? BusinessClock.System;
         _accessService = accessService;
         _customerStore = customerStore;
         _orderStore = orderStore;
@@ -254,7 +258,7 @@ public sealed class CloudOrderSubmissionService
         // order never touches pricing at all (pre-existing regression-guard
         // tests submit empty-line orders against schemas that predate this
         // unit).
-        var effectiveOn = DateOnly.FromDateTime(DateTimeOffset.UtcNow.UtcDateTime);
+        var effectiveOn = _businessClock.Today;
         PricingResolutionService? pricingService = null;
         if (lines.Count > 0)
         {

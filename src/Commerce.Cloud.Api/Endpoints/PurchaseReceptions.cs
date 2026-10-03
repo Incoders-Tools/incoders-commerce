@@ -20,7 +20,6 @@ public static class PurchaseReceptionEndpoints
     private const int MaxLotLength = 100;
     private const int MaxReasonLength = 300;
 
-    private static DateOnly Today() => DateOnly.FromDateTime(DateTime.UtcNow.AddHours(-3));
 
     public static RouteGroupBuilder MapPurchaseReceptionEndpoints(this IEndpointRouteBuilder app)
     {
@@ -98,7 +97,7 @@ public static class PurchaseReceptionEndpoints
             }
             var (scope, caller) = auth.Value;
 
-            if (!TryBuildContent(request, out var content, out var problem))
+            if (!TryBuildContent(request, httpContext.Today(), out var content, out var problem))
             {
                 return problem!;
             }
@@ -126,7 +125,7 @@ public static class PurchaseReceptionEndpoints
             }
             var (scope, caller) = auth.Value;
 
-            if (!TryBuildContent(request, out var content, out var problem))
+            if (!TryBuildContent(request, httpContext.Today(), out var content, out var problem))
             {
                 return problem!;
             }
@@ -190,7 +189,7 @@ public static class PurchaseReceptionEndpoints
                 return Problem("reason", $"reason is required and must be {MaxReasonLength} characters or fewer.");
             }
 
-            var result = await store.VoidAsync(auth.Value.Scope, id, reason, Today(), "org-user", auth.Value.Caller.Id, ct);
+            var result = await store.VoidAsync(auth.Value.Scope, id, reason, httpContext.Today(), "org-user", auth.Value.Caller.Id, ct);
             return result.Outcome switch
             {
                 ReceptionVoidOutcome.Voided => Results.Ok(result.Reception),
@@ -207,7 +206,7 @@ public static class PurchaseReceptionEndpoints
 
     private static IResult WriteProblem(ReceptionWriteResult result) => Problem(result.Field ?? "lines", result.Message ?? "Invalid reception.");
 
-    private static bool TryBuildContent(ReceptionRequest request, out ReceptionContent? content, out IResult? problem)
+    private static bool TryBuildContent(ReceptionRequest request, DateOnly today, out ReceptionContent? content, out IResult? problem)
     {
         content = null;
         problem = null;
@@ -237,7 +236,7 @@ public static class PurchaseReceptionEndpoints
             return false;
         }
 
-        var occurredOn = request.OccurredOn ?? Today();
+        var occurredOn = request.OccurredOn ?? today;
         if (request.DueOn is { } due && due < occurredOn)
         {
             problem = Problem("dueOn", "dueOn cannot be before occurredOn.");

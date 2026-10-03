@@ -17,6 +17,7 @@ using Commerce.Domain.Identity;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Identity;
+using Commerce.Application.Time;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Npgsql;
@@ -174,6 +175,9 @@ builder.Services.AddSingleton<IOrderStore>(sp => new PostgresOrderStore(sp.GetRe
 builder.Services.AddSingleton<PostgresRateComponentStore>();
 builder.Services.AddSingleton<Commerce.Cloud.Api.Pricing.PriceFloorValidator>();
 builder.Services.AddSingleton<CloudOrderSubmissionService>();
+// Effective dates of pricing and stock follow the business day, not the UTC date (config `Business:TimeZone`, default Buenos Aires).
+builder.Services.AddSingleton<IBusinessClock>(_ =>
+    new BusinessClock(TimeProvider.System, BusinessTimeZone.Resolve(builder.Configuration["Business:TimeZone"])));
 
 // --- Auth: Identity cookie (browser, same-origin SPA) + device bearer
 // (Pos.Windows sync) — design.md "Browser auth" / "Device auth" -------------

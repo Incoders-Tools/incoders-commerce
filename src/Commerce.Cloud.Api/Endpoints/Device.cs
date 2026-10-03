@@ -368,7 +368,7 @@ public static class DeviceEndpoints
             // Captured BEFORE the reads so the next cursor never skips a row
             // that changed while this request was in flight.
             var serverTimeUtc = DateTimeOffset.UtcNow;
-            var today = DateOnly.FromDateTime(serverTimeUtc.UtcDateTime);
+            var today = httpContext.Today();
 
             var changedCatalog = await catalogStore.ListChangedSinceAsync(scope, since, ct);
             var defaultList = await priceListStore.FindDefaultPriceListAsync(scope, ct);
@@ -441,7 +441,7 @@ public static class DeviceEndpoints
 
             // Captured BEFORE the reads, like every other replica channel.
             var serverTimeUtc = DateTimeOffset.UtcNow;
-            var today = DateOnly.FromDateTime(serverTimeUtc.UtcDateTime);
+            var today = httpContext.Today();
 
             var lists = await priceListStore.ListPriceListsAsync(scope, ct);
             var entries = new List<PriceEntryReplicaRow>();
