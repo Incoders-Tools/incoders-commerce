@@ -145,8 +145,8 @@ public sealed class CustomerSessionIsolationTests : IClassFixture<WebApplication
     {
         var createCustomerResponse = await adminClient.PostAsJsonAsync(
             "/customers",
-            new CreateCustomerRequest("Retail", "Isolation Test Customer", null, "None", null, "ConsumidorFinal",
-                null, customerEmail, null, null, null, null, null, null, null, null, null, null));
+            new CreateCustomerRequest("Retail", "Isolation Test Customer", "None", null, "ConsumidorFinal",
+                null, customerEmail, null, null, null, null, null, null, null, null));
         createCustomerResponse.EnsureSuccessStatusCode();
         var createdCustomer = await createCustomerResponse.Content.ReadFromJsonAsync<CreateCustomerResponse>();
 

@@ -99,6 +99,8 @@ public sealed class OrderPendingListTests : IDisposable
         Apply("0025_orders.sql");
         Apply("0026_orders_guest_check.sql");
         Apply("0038_order_line_price_provenance.sql");
+        Apply("0039_organization_country_and_city_postal_code.sql");
+        Apply("0040_customer_party_type.sql");
 
         using var resetCmd = new NpgsqlCommand(
             "TRUNCATE TABLE order_lines, orders, guest_order_verifications, price_import_rows, price_import_batches, " +
@@ -182,8 +184,8 @@ public sealed class OrderPendingListTests : IDisposable
     {
         var createCustomerResponse = await adminClient.PostAsJsonAsync(
             "/customers",
-            new CreateCustomerRequest("Retail", "Pending-List Test Customer", null, "None", null, "ConsumidorFinal",
-                null, customerEmail, null, null, null, null, null, null, null, null, null, null));
+            new CreateCustomerRequest("Retail", "Pending-List Test Customer", "None", null, "ConsumidorFinal",
+                null, customerEmail, null, null, null, null, null, null, null, null));
         createCustomerResponse.EnsureSuccessStatusCode();
         var createdCustomer = await createCustomerResponse.Content.ReadFromJsonAsync<CreateCustomerResponse>();
 

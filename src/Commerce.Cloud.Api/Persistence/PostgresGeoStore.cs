@@ -19,7 +19,7 @@ public sealed class PostgresGeoStore
     private const string CityColumns =
         """
         c.id, c.indec_id, c.name, c.province_id, p.name, p.country_code, c.department_name, c.is_active,
-        c.created_at_utc, c.updated_at_utc
+        c.created_at_utc, c.updated_at_utc, c.postal_code
         """;
 
     private const string CityFrom = "cities c JOIN provinces p ON p.id = c.province_id";
@@ -38,24 +38,48 @@ public sealed class PostgresGeoStore
         DepartmentName: reader.IsDBNull(6) ? null : reader.GetString(6),
         IsActive: reader.GetBoolean(7),
         CreatedAtUtc: reader.GetFieldValue<DateTimeOffset>(8),
-        UpdatedAtUtc: reader.GetFieldValue<DateTimeOffset>(9));
+        UpdatedAtUtc: reader.GetFieldValue<DateTimeOffset>(9),
+        PostalCode: reader.IsDBNull(10) ? null : reader.GetString(10));
 
-    public async Task<IReadOnlyList<ProvinceRecord>> ListProvincesAsync(CancellationToken ct)
+    /// <summary>
+    /// The provinces of the given organization's country (`organizations.country_code`, read under that
+    /// organization's tenant scope), or every province when <paramref name="countryOfOrganizationId"/> is null.
+    /// </summary>
+    public async Task<IReadOnlyList<ProvinceRecord>> ListProvincesAsync(Guid? countryOfOrganizationId, CancellationToken ct)
     {
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
-        await using var cmd = new NpgsqlCommand(
-            """
-            SELECT p.id, p.iso_code, p.name, p.country_code, co.name
-            FROM provinces p JOIN countries co ON co.code = p.country_code
-            ORDER BY translate(lower(p.name), 'áéíóúüñàèìòùâêîôûäëïöç', 'aeiouunaeiouaeiouaeioc'), p.id
-            """, connection);
-        var results = new List<ProvinceRecord>();
-        await using var reader = await cmd.ExecuteReaderAsync(ct);
-        while (await reader.ReadAsync(ct))
+        await using var tx = await connection.BeginTransactionAsync(ct);
+        if (countryOfOrganizationId is { } organizationId)
         {
-            results.Add(new ProvinceRecord(reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetString(3), reader.GetString(4)));
+            await TenantScopeSql.ApplyAsync(connection, tx, organizationId, branchId: null, ct);
         }
 
+        // The organizations table is only touched when filtering, i.e. only under a tenant scope.
+        var countryFilter = countryOfOrganizationId is null
+            ? string.Empty
+            : "WHERE p.country_code = (SELECT o.country_code FROM organizations o WHERE o.id = $1)";
+        var results = new List<ProvinceRecord>();
+        await using (var cmd = new NpgsqlCommand(
+            $"""
+            SELECT p.id, p.iso_code, p.name, p.country_code, co.name
+            FROM provinces p JOIN countries co ON co.code = p.country_code
+            {countryFilter}
+            ORDER BY translate(lower(p.name), 'áéíóúüñàèìòùâêîôûäëïöç', 'aeiouunaeiouaeiouaeioc'), p.id
+            """, connection, tx))
+        {
+            if (countryOfOrganizationId is { } filterOrganizationId)
+            {
+                cmd.Parameters.AddWithValue(filterOrganizationId);
+            }
+
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+            {
+                results.Add(new ProvinceRecord(reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetString(3), reader.GetString(4)));
+            }
+        }
+
+        await tx.CommitAsync(ct);
         return results;
     }
 
@@ -116,13 +140,14 @@ public sealed class PostgresGeoStore
         await TenantScopeSql.ApplyAsync(connection, tx, scope.IdentityScope, ct);
 
         await using (var cmd = new NpgsqlCommand(
-            "INSERT INTO cities (id, name, province_id, department_name, is_active) VALUES ($1, $2, $3, $4, $5)", connection, tx))
+            "INSERT INTO cities (id, name, province_id, department_name, is_active, postal_code) VALUES ($1, $2, $3, $4, $5, $6)", connection, tx))
         {
             cmd.Parameters.AddWithValue(city.Id);
             cmd.Parameters.AddWithValue(city.Name);
             cmd.Parameters.AddWithValue(city.ProvinceId);
             cmd.Parameters.AddWithValue((object?)city.DepartmentName ?? DBNull.Value);
             cmd.Parameters.AddWithValue(city.IsActive);
+            cmd.Parameters.AddWithValue(NpgsqlDbType.Text, (object?)city.PostalCode ?? DBNull.Value);
             await cmd.ExecuteNonQueryAsync(ct);
         }
 
@@ -147,6 +172,7 @@ public sealed class PostgresGeoStore
                 province_id = COALESCE($2::text, province_id),
                 department_name = CASE WHEN $3::text IS NULL THEN department_name ELSE NULLIF(btrim($3), '') END,
                 is_active = COALESCE($4::boolean, is_active),
+                postal_code = CASE WHEN $6 THEN $7::text ELSE postal_code END,
                 updated_at_utc = now()
             WHERE id = $5
             """, connection, tx))
@@ -156,6 +182,8 @@ public sealed class PostgresGeoStore
             cmd.Parameters.AddWithValue(NpgsqlDbType.Text, (object?)update.DepartmentName ?? DBNull.Value);
             cmd.Parameters.AddWithValue(NpgsqlDbType.Boolean, (object?)update.IsActive ?? DBNull.Value);
             cmd.Parameters.AddWithValue(id);
+            cmd.Parameters.AddWithValue(update.PostalCode is not null);
+            cmd.Parameters.AddWithValue(NpgsqlDbType.Text, (object?)update.PostalCode?.Value ?? DBNull.Value);
             affected = await cmd.ExecuteNonQueryAsync(ct);
         }
 

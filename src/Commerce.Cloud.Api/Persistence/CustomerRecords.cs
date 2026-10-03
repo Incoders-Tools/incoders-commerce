@@ -8,7 +8,9 @@ namespace Commerce.Cloud.Api.Persistence;
 /// to insert. No `OrganizationId` (comes from the tenant scope, never a
 /// request field), no `IsEnabled` (true at birth), no `CreatedAtUtc`
 /// (database default) — commerce-customer-identity design.md "Interfaces /
-/// Contracts".
+/// Contracts". A null `PartyType` takes the default for the tax id type
+/// (<see cref="PartyTypeRules.DefaultFor"/>). The admin API passes null
+/// `LegalName`, `Locality` and `Province`: it no longer writes them.
 /// </summary>
 public sealed record NewCustomer(
     Guid Id,
@@ -34,7 +36,8 @@ public sealed record NewCustomer(
     Guid? CityId = null,
     Guid? BusinessTypeId = null,
     IReadOnlyList<CustomerContactInput>? Contacts = null,
-    Guid? PriceListId = null);
+    Guid? PriceListId = null,
+    PartyType? PartyType = null);
 
 /// <summary>
 /// One contact person of a customer as written by create/update. `Id` is null for
@@ -75,10 +78,12 @@ public sealed class CustomerContactRejectedException(string message) : Exception
 /// drives which price list applies in Phase C, so flipping it retroactively
 /// changes commercial meaning and is a future, deliberate operation.
 /// `Contacts` null keeps the stored contact set; a list REPLACES it.
+/// `PartyType` null keeps the stored one. `legal_name`, `locality` and
+/// `province` are not editable any more (admin-console-field-fixes): an
+/// update leaves whatever is stored.
 /// </summary>
 public sealed record UpdateCustomer(
     string DisplayName,
-    string? LegalName,
     TaxIdType TaxIdType,
     string? TaxId,
     TaxCondition TaxCondition,
@@ -87,8 +92,6 @@ public sealed record UpdateCustomer(
     string? AddressStreet,
     string? AddressNumber,
     string? Neighborhood,
-    string? Locality,
-    string? Province,
     string? PostalCode,
     string? DeliveryNotes,
     decimal? DiscountPercentage,
@@ -99,7 +102,8 @@ public sealed record UpdateCustomer(
     ColumnChange<Guid?>? BusinessType = null,
     IReadOnlyList<CustomerContactInput>? Contacts = null,
     DateTimeOffset? ExpectedUpdatedAtUtc = null,
-    ColumnChange<Guid?>? PriceList = null);
+    ColumnChange<Guid?>? PriceList = null,
+    PartyType? PartyType = null);
 
 /// <summary>
 /// Thrown by <see cref="PostgresCustomerStore.UpdateAsync"/> when the update
@@ -154,7 +158,8 @@ public sealed record CustomerRecord(
     string? ProvinceId = null,
     string? ProvinceName = null,
     Guid? PriceListId = null,
-    string? PriceListName = null)
+    string? PriceListName = null,
+    [property: JsonConverter(typeof(JsonStringEnumConverter))] PartyType PartyType = PartyType.Person)
 {
     /// <summary>The customer's contact people (never null), primary first by flag, ordered by `sortOrder`.</summary>
     public IReadOnlyList<CustomerContactRecord> Contacts { get; init; } = [];

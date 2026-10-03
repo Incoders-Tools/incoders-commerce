@@ -61,8 +61,8 @@ public sealed class CustomerPriceListCustomerTests : IDisposable
             null, null, null, null, null, null, null, null, null, null, actor, PriceListId: priceListId);
 
     private static UpdateCustomer UpdateOf(CustomerRecord c, ColumnChange<Guid?>? priceList) =>
-        new(c.DisplayName, c.LegalName, c.TaxIdType, c.TaxId, c.TaxCondition, c.Phone, c.Email, c.AddressStreet, c.AddressNumber,
-            c.Neighborhood, c.Locality, c.Province, c.PostalCode, c.DeliveryNotes, c.DiscountPercentage, c.PaymentTerms, c.Notes,
+        new(c.DisplayName, c.TaxIdType, c.TaxId, c.TaxCondition, c.Phone, c.Email, c.AddressStreet, c.AddressNumber,
+            c.Neighborhood, c.PostalCode, c.DeliveryNotes, c.DiscountPercentage, c.PaymentTerms, c.Notes,
             c.IsEnabled, PriceList: priceList);
 
     [Fact]

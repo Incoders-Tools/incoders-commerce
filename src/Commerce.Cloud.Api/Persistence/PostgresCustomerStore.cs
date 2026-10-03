@@ -59,7 +59,8 @@ public sealed class PostgresCustomerStore
         ProvinceId: reader.IsDBNull(28) ? null : reader.GetString(28),
         ProvinceName: reader.IsDBNull(29) ? null : reader.GetString(29),
         PriceListId: reader.IsDBNull(30) ? null : reader.GetGuid(30),
-        PriceListName: reader.IsDBNull(31) ? null : reader.GetString(31));
+        PriceListName: reader.IsDBNull(31) ? null : reader.GetString(31),
+        PartyType: Enum.Parse<PartyType>(reader.GetString(32)));
 
     // The LEFT JOINs resolve the display names of the optional city (global
     // geography, with its province) and business type (organization catalog;
@@ -71,7 +72,7 @@ public sealed class PostgresCustomerStore
         c.province, c.postal_code, c.delivery_notes, c.discount_percentage, c.payment_terms, c.notes,
         c.is_enabled, c.created_at_utc, c.created_by_user_id, c.updated_at_utc,
         c.city_id, ci.name, c.business_type_id, bt.name, ci.province_id, pr.name,
-        c.price_list_id, pl.name
+        c.price_list_id, pl.name, c.party_type
         """;
 
     private const string FromClause =
@@ -227,11 +228,12 @@ public sealed class PostgresCustomerStore
                 (id, organization_id, customer_kind, display_name, legal_name, tax_id_type, tax_id,
                  tax_condition, phone, email, address_street, address_number, neighborhood, locality,
                  province, postal_code, delivery_notes, discount_percentage, payment_terms, notes,
-                 created_by_user_id, city_id, business_type_id, price_list_id)
+                 created_by_user_id, city_id, business_type_id, price_list_id, party_type)
             VALUES
                 ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21,
                  $22, $23,
-                 COALESCE($24::uuid, (SELECT default_customer_price_list_id FROM organizations WHERE id = $2)))
+                 COALESCE($24::uuid, (SELECT default_customer_price_list_id FROM organizations WHERE id = $2)),
+                 $25)
             """, connection, tx))
         {
             cmd.Parameters.AddWithValue(customer.Id);
@@ -259,6 +261,7 @@ public sealed class PostgresCustomerStore
             cmd.Parameters.AddWithValue((object?)customer.BusinessTypeId ?? DBNull.Value);
             // A new customer without an explicit list starts on the organization's default customer list (may be none).
             cmd.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Uuid, (object?)customer.PriceListId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue((customer.PartyType ?? PartyTypeRules.DefaultFor(customer.TaxIdType)).ToString());
 
             await cmd.ExecuteNonQueryAsync(ct);
         }
@@ -314,19 +317,21 @@ public sealed class PostgresCustomerStore
         await using (var cmd = new NpgsqlCommand(
             """
             UPDATE customers
-            SET display_name = $1, legal_name = $2, tax_id_type = $3, tax_id = $4, tax_condition = $5,
+            SET display_name = $1, tax_id_type = $3, tax_id = $4, tax_condition = $5,
                 phone = $6, email = $7, address_street = $8, address_number = $9, neighborhood = $10,
-                locality = $11, province = $12, postal_code = $13, delivery_notes = $14,
-                discount_percentage = $15, payment_terms = $16, notes = $17, is_enabled = $18,
-                city_id = CASE WHEN $19 THEN $20::uuid ELSE city_id END,
-                business_type_id = CASE WHEN $21 THEN $22::uuid ELSE business_type_id END,
-                price_list_id = CASE WHEN $25 THEN $26::uuid ELSE price_list_id END,
+                postal_code = $11, delivery_notes = $12,
+                discount_percentage = $13, payment_terms = $14, notes = $15, is_enabled = $16,
+                city_id = CASE WHEN $17 THEN $18::uuid ELSE city_id END,
+                business_type_id = CASE WHEN $19 THEN $20::uuid ELSE business_type_id END,
+                price_list_id = CASE WHEN $23 THEN $24::uuid ELSE price_list_id END,
+                party_type = COALESCE($2::text, party_type),
                 updated_at_utc = now()
-            WHERE id = $23 AND ($24::timestamptz IS NULL OR updated_at_utc = $24)
+            WHERE id = $21 AND ($22::timestamptz IS NULL OR updated_at_utc = $22)
             """, connection, tx))
         {
+            // legal_name, locality and province are no longer written (admin-console-field-fixes).
             cmd.Parameters.AddWithValue(update.DisplayName);
-            cmd.Parameters.AddWithValue((object?)update.LegalName ?? DBNull.Value);
+            cmd.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Text, (object?)update.PartyType?.ToString() ?? DBNull.Value);
             cmd.Parameters.AddWithValue(update.TaxIdType.ToString());
             cmd.Parameters.AddWithValue((object?)update.TaxId ?? DBNull.Value);
             cmd.Parameters.AddWithValue(update.TaxCondition.ToString());
@@ -335,8 +340,6 @@ public sealed class PostgresCustomerStore
             cmd.Parameters.AddWithValue((object?)update.AddressStreet ?? DBNull.Value);
             cmd.Parameters.AddWithValue((object?)update.AddressNumber ?? DBNull.Value);
             cmd.Parameters.AddWithValue((object?)update.Neighborhood ?? DBNull.Value);
-            cmd.Parameters.AddWithValue((object?)update.Locality ?? DBNull.Value);
-            cmd.Parameters.AddWithValue((object?)update.Province ?? DBNull.Value);
             cmd.Parameters.AddWithValue((object?)update.PostalCode ?? DBNull.Value);
             cmd.Parameters.AddWithValue((object?)update.DeliveryNotes ?? DBNull.Value);
             cmd.Parameters.AddWithValue((object?)update.DiscountPercentage ?? DBNull.Value);

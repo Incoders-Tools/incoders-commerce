@@ -453,7 +453,7 @@ public static class AccountEndpoints
         {
             var scope = TenantScopeEndpointFilter.GetScope(httpContext);
             var settings = await organizationStore.GetSettingsAsync(scope.OrganizationId, ct);
-            return settings is null ? Results.NotFound() : Results.Ok(new OrganizationSettingsResponse(settings.QuantityDecimalSeparator, settings.DefaultCustomerPriceListId));
+            return settings is null ? Results.NotFound() : Results.Ok(new OrganizationSettingsResponse(settings.QuantityDecimalSeparator, settings.DefaultCustomerPriceListId, settings.CountryCode));
         });
 
         ownOrganizationGroup.MapPut("/settings", async (UpdateOrganizationSettingsRequest request, HttpContext httpContext, PostgresUserAccountStore userStore, PostgresOrganizationStore organizationStore, CancellationToken ct) =>
@@ -467,10 +467,11 @@ public static class AccountEndpoints
             var current = await organizationStore.GetSettingsAsync(scope.OrganizationId, ct);
             if (current is null) return Results.NotFound();
 
-            // The number format is required unless the call only changes the default customer price list.
-            var changesOnlyThePriceList = request.QuantityDecimalSeparator is null
-                && (request.DefaultCustomerPriceListId is not null || request.ClearDefaultCustomerPriceList);
-            if (!changesOnlyThePriceList && !OrganizationSettings.IsValidQuantityDecimalSeparator(request.QuantityDecimalSeparator))
+            // The number format is required unless the call only changes other settings (the default customer price
+            // list, the country).
+            var changesOnlyOtherSettings = request.QuantityDecimalSeparator is null
+                && (request.DefaultCustomerPriceListId is not null || request.ClearDefaultCustomerPriceList || request.CountryCode is not null);
+            if (!changesOnlyOtherSettings && !OrganizationSettings.IsValidQuantityDecimalSeparator(request.QuantityDecimalSeparator))
             {
                 return Results.ValidationProblem(new Dictionary<string, string[]> { ["quantityDecimalSeparator"] = ["quantityDecimalSeparator must be Comma or Dot."] });
             }
@@ -480,20 +481,29 @@ public static class AccountEndpoints
                 return Results.ValidationProblem(new Dictionary<string, string[]> { ["quantityDecimalSeparator"] = ["quantityDecimalSeparator must be Comma or Dot."] });
             }
 
+            // admin-console-field-fixes: the country. Absent = unchanged; otherwise two letters of a loaded country (foreign key).
+            string? countryCode = null;
+            if (request.CountryCode is not null && !OrganizationSettings.TryNormalizeCountryCode(request.CountryCode, out countryCode))
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]> { ["countryCode"] = ["countryCode must be a two-letter country code."] });
+            }
+
             // customer-price-lists: the default list for customers. Absent = unchanged; a list id = set it;
             // clearDefaultCustomerPriceList = true = no default. The list must belong to this organization (foreign key).
             var priceListId = request.ClearDefaultCustomerPriceList ? null : request.DefaultCustomerPriceListId ?? current.DefaultCustomerPriceListId;
-            var settings = new OrganizationSettings(request.QuantityDecimalSeparator ?? current.QuantityDecimalSeparator, priceListId);
+            var settings = new OrganizationSettings(request.QuantityDecimalSeparator ?? current.QuantityDecimalSeparator, priceListId, countryCode ?? current.CountryCode);
             var audit = new UserManagementAuditEntry(
                 "org-user", callerId, scope.OrganizationId, "organization", scope.OrganizationId, "organization.settings_updated", null,
-                JsonSerializer.Serialize(new { quantityDecimalSeparator = settings.QuantityDecimalSeparator, defaultCustomerPriceListId = settings.DefaultCustomerPriceListId }));
+                JsonSerializer.Serialize(new { quantityDecimalSeparator = settings.QuantityDecimalSeparator, defaultCustomerPriceListId = settings.DefaultCustomerPriceListId, countryCode = settings.CountryCode }));
             try
             {
                 return await organizationStore.UpdateSettingsAsync(scope.OrganizationId, settings, audit, ct) ? Results.NoContent() : Results.NotFound();
             }
             catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.ForeignKeyViolation)
             {
-                return Results.ValidationProblem(new Dictionary<string, string[]> { ["defaultCustomerPriceListId"] = ["price-list-not-found"] });
+                return ex.ConstraintName == "organizations_country_fk"
+                    ? Results.ValidationProblem(new Dictionary<string, string[]> { ["countryCode"] = ["country-not-found"] })
+                    : Results.ValidationProblem(new Dictionary<string, string[]> { ["defaultCustomerPriceListId"] = ["price-list-not-found"] });
             }
         });
 
@@ -646,6 +656,12 @@ public static class AccountEndpoints
                 {
                     ["request"] = ["email and password are required."],
                 });
+            }
+
+            // admin-console-field-fixes: the shared email rule (the store normalizes case).
+            if (!CustomerEndpoints.TryNormalizeEmail(request.Email, out _, out var emailProblem))
+            {
+                return emailProblem!;
             }
 
             var scope = TenantScopeEndpointFilter.GetScope(httpContext);
@@ -1126,8 +1142,8 @@ public sealed record CreateOrganizationRequest(string OrganizationName, string? 
 public sealed record CreateOrganizationResponse(Guid OrganizationId, Guid BranchId, Guid UserId);
 public sealed record OrganizationBrandingResponse(string? LogoUrl, string? PrimaryColor);
 public sealed record UpdateOrganizationBrandingRequest(string? LogoUrl, string? PrimaryColor);
-public sealed record OrganizationSettingsResponse(string QuantityDecimalSeparator, Guid? DefaultCustomerPriceListId = null);
-public sealed record UpdateOrganizationSettingsRequest(string? QuantityDecimalSeparator, Guid? DefaultCustomerPriceListId = null, bool ClearDefaultCustomerPriceList = false);
+public sealed record OrganizationSettingsResponse(string QuantityDecimalSeparator, Guid? DefaultCustomerPriceListId = null, string CountryCode = OrganizationSettings.DefaultCountryCode);
+public sealed record UpdateOrganizationSettingsRequest(string? QuantityDecimalSeparator, Guid? DefaultCustomerPriceListId = null, bool ClearDefaultCustomerPriceList = false, string? CountryCode = null);
 
 public sealed record AssignRolesRequest(string[] RoleNames);
 public sealed record ReplaceBranchesRequest(Guid[] BranchIds);

@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Commerce.Cloud.Api.Persistence;
 using Commerce.Cloud.Api.Tenancy;
+using Commerce.Domain.Geography;
 using Commerce.Domain.Identity;
 using Npgsql;
 
@@ -15,6 +16,10 @@ namespace Commerce.Cloud.Api.Endpoints;
 /// the caller is loaded from the store (never trusted from a claim) and must be
 /// a non-revoked <c>IsSystemAdmin</c>. Cities are never deleted: deactivating
 /// one hides it from searches while customers keep their reference.
+///
+/// The province list is the caller organization's country (admin-console-field-fixes T2):
+/// a system administrator acting on a selected organization sees that organization's
+/// country, a system administrator without a selection sees every province.
 /// </summary>
 public static class GeographyEndpoints
 {
@@ -28,8 +33,14 @@ public static class GeographyEndpoints
             .RequireAuthorization()
             .AddEndpointFilter<TenantScopeEndpointFilter>();
 
-        group.MapGet("/provinces", async (PostgresGeoStore store, CancellationToken ct) =>
-            Results.Ok(await store.ListProvincesAsync(ct)));
+        group.MapGet("/provinces", async (
+            HttpContext httpContext, PostgresUserAccountStore userStore, PostgresGeoStore store, CancellationToken ct) =>
+        {
+            var scope = TenantScopeEndpointFilter.GetScope(httpContext);
+            var everyCountry = !scope.IsActingOnSelectedOrganization
+                && await AuthorizeSystemAdminAsync(httpContext, userStore, ct) is not null;
+            return Results.Ok(await store.ListProvincesAsync(everyCountry ? null : scope.OrganizationId, ct));
+        });
 
         group.MapGet("/cities", async (
             string? search,
@@ -68,7 +79,7 @@ public static class GeographyEndpoints
 
             var name = request.Name?.Trim() ?? string.Empty;
             var provinceId = request.ProvinceId?.Trim() ?? string.Empty;
-            if (Validate(name, provinceId, requireProvince: true) is { } invalid)
+            if (Validate(name, provinceId, requireProvince: true, request.PostalCode, out var postalCode) is { } invalid)
             {
                 return invalid;
             }
@@ -77,7 +88,7 @@ public static class GeographyEndpoints
             {
                 var created = await store.CreateCityAsync(
                     TenantScopeEndpointFilter.GetScope(httpContext),
-                    new NewCity(Guid.NewGuid(), name, provinceId, BlankToNull(request.DepartmentName), request.IsActive ?? true),
+                    new NewCity(Guid.NewGuid(), name, provinceId, BlankToNull(request.DepartmentName), request.IsActive ?? true, postalCode),
                     caller.Id, ct);
                 return Results.Created($"/geo/cities/{created.Id}", created);
             }
@@ -103,18 +114,21 @@ public static class GeographyEndpoints
 
             var name = request.Name?.Trim() ?? string.Empty;
             var provinceId = string.IsNullOrWhiteSpace(request.ProvinceId) ? null : request.ProvinceId.Trim();
-            if (Validate(name, provinceId ?? "00", requireProvince: false) is { } invalid)
+            if (Validate(name, provinceId ?? "00", requireProvince: false, request.PostalCode, out var postalCode) is { } invalid)
             {
                 return invalid;
             }
 
             try
             {
-                // An omitted department / province / isActive keeps the stored value;
-                // a blank department name clears it.
+                // An omitted department / province / isActive / postal code keeps the stored value;
+                // a blank department name or postal code clears it.
                 var updated = await store.UpdateCityAsync(
                     TenantScopeEndpointFilter.GetScope(httpContext), id,
-                    new UpdateCity(name, provinceId, request.DepartmentName, request.IsActive), caller.Id, ct);
+                    new UpdateCity(
+                        name, provinceId, request.DepartmentName, request.IsActive,
+                        request.PostalCode is null ? null : new ColumnChange<string?>(postalCode)),
+                    caller.Id, ct);
                 return updated is null ? Results.NotFound() : Results.Ok(updated);
             }
             catch (PostgresException ex) when (CityProblem(ex) is { } problem)
@@ -128,9 +142,14 @@ public static class GeographyEndpoints
 
     private static string? BlankToNull(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
-    private static IResult? Validate(string name, string provinceId, bool requireProvince)
+    private static IResult? Validate(string name, string provinceId, bool requireProvince, string? rawPostalCode, out string? postalCode)
     {
         var errors = new Dictionary<string, string[]>();
+        if (!PostalCodeRules.TryNormalize(rawPostalCode, out postalCode))
+        {
+            errors["postalCode"] = ["postalCode must be a CP of 4 digits (2000) or a CPA (S2000ABC)."];
+        }
+
         if (name.Length == 0)
         {
             errors["name"] = ["name is required."];
@@ -176,8 +195,9 @@ public static class GeographyEndpoints
 
 /// <summary>
 /// Body of POST/PUT /geo/cities. `ProvinceId` is the INDEC province code ("06"),
-/// required on create. On update `ProvinceId`, `DepartmentName` and `IsActive` are
-/// kept when omitted; a blank `DepartmentName` clears it. The INDEC id of a city is
-/// never a request field.
+/// required on create. `PostalCode` is optional: a CP ("2000") or a CPA ("S2000ABC"),
+/// stored upper case. On update `ProvinceId`, `DepartmentName`, `IsActive` and
+/// `PostalCode` are kept when omitted; a blank `DepartmentName` or `PostalCode` clears
+/// it. The INDEC id of a city is never a request field.
 /// </summary>
-public sealed record CityRequest(string? Name, string? ProvinceId = null, string? DepartmentName = null, bool? IsActive = null);
+public sealed record CityRequest(string? Name, string? ProvinceId = null, string? DepartmentName = null, bool? IsActive = null, string? PostalCode = null);

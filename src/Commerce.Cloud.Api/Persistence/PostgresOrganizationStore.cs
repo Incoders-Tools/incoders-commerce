@@ -340,11 +340,11 @@ public sealed class PostgresOrganizationStore
         await TenantScopeSql.ApplyAsync(connection, tx, organizationId, branchId: null, ct);
 
         OrganizationSettings? settings = null;
-        await using (var cmd = new NpgsqlCommand("SELECT quantity_decimal_separator, default_customer_price_list_id FROM organizations WHERE id = $1", connection, tx))
+        await using (var cmd = new NpgsqlCommand("SELECT quantity_decimal_separator, default_customer_price_list_id, country_code FROM organizations WHERE id = $1", connection, tx))
         {
             cmd.Parameters.AddWithValue(organizationId);
             await using var reader = await cmd.ExecuteReaderAsync(ct);
-            if (await reader.ReadAsync(ct)) settings = new OrganizationSettings(reader.GetString(0), reader.IsDBNull(1) ? null : reader.GetGuid(1));
+            if (await reader.ReadAsync(ct)) settings = new OrganizationSettings(reader.GetString(0), reader.IsDBNull(1) ? null : reader.GetGuid(1), reader.GetString(2));
         }
 
         await tx.CommitAsync(ct);
@@ -363,11 +363,12 @@ public sealed class PostgresOrganizationStore
         await TenantScopeSql.ApplyAsync(connection, tx, organizationId, branchId: null, ct);
 
         int rowsAffected;
-        await using (var cmd = new NpgsqlCommand("UPDATE organizations SET quantity_decimal_separator = $1, default_customer_price_list_id = $2 WHERE id = $3", connection, tx))
+        await using (var cmd = new NpgsqlCommand("UPDATE organizations SET quantity_decimal_separator = $1, default_customer_price_list_id = $2, country_code = $4 WHERE id = $3", connection, tx))
         {
             cmd.Parameters.AddWithValue(settings.QuantityDecimalSeparator);
             cmd.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Uuid, (object?)settings.DefaultCustomerPriceListId ?? DBNull.Value);
             cmd.Parameters.AddWithValue(organizationId);
+            cmd.Parameters.AddWithValue(settings.CountryCode);
             rowsAffected = await cmd.ExecuteNonQueryAsync(ct);
         }
 

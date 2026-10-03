@@ -3,6 +3,7 @@ using Commerce.Cloud.Api.Persistence;
 using Commerce.Cloud.Api.Tenancy;
 using Commerce.Domain.Customers;
 using Commerce.Domain.Identity;
+using Commerce.Domain.Validation;
 using Microsoft.AspNetCore.Mvc;
 using Npgsql;
 
@@ -114,18 +115,31 @@ public static class CustomerEndpoints
                 });
             }
 
+            if (!TryParsePartyType(request.PartyType, out var partyType, out var partyTypeProblem))
+            {
+                return partyTypeProblem!;
+            }
+
+            if (!TryNormalizeEmail(request.Email, out var email, out var emailProblem))
+            {
+                return emailProblem!;
+            }
+
             if (!TryBuildContacts(request.Contacts, out var contacts, out var contactsProblem))
             {
                 return contactsProblem!;
             }
 
+            // The name is always `displayName` (a person's full name or a company's legal name, per `partyType`);
+            // legal name, locality and province are no longer written.
             var customerId = Guid.NewGuid();
             var newCustomer = new NewCustomer(
-                customerId, customerKind, request.DisplayName.Trim(), request.LegalName, taxIdType, normalizedTaxId,
-                taxCondition, request.Phone, request.Email, request.AddressStreet, request.AddressNumber,
-                request.Neighborhood, request.Locality, request.Province, request.PostalCode, request.DeliveryNotes,
+                customerId, customerKind, request.DisplayName.Trim(), LegalName: null, taxIdType, normalizedTaxId,
+                taxCondition, request.Phone, email, request.AddressStreet, request.AddressNumber,
+                request.Neighborhood, Locality: null, Province: null, request.PostalCode, request.DeliveryNotes,
                 request.DiscountPercentage, request.PaymentTerms, request.Notes, caller.Id,
-                NullIfEmpty(request.CityId), NullIfEmpty(request.BusinessTypeId), contacts, NullIfEmpty(request.PriceListId));
+                NullIfEmpty(request.CityId), NullIfEmpty(request.BusinessTypeId), contacts, NullIfEmpty(request.PriceListId),
+                partyType ?? PartyTypeRules.DefaultFor(taxIdType));
 
             CustomerRecord created;
             try
@@ -199,6 +213,16 @@ public static class CustomerEndpoints
                 });
             }
 
+            if (!TryParsePartyType(request.PartyType, out var partyType, out var partyTypeProblem))
+            {
+                return partyTypeProblem!;
+            }
+
+            if (!TryNormalizeEmail(request.Email, out var email, out var emailProblem))
+            {
+                return emailProblem!;
+            }
+
             if (!TryBuildContacts(request.Contacts, out var contacts, out var contactsProblem))
             {
                 return contactsProblem!;
@@ -206,17 +230,18 @@ public static class CustomerEndpoints
 
             // Master data on update: an omitted property keeps the stored value
             // (so the POS, which predates these fields, never wipes them);
-            // Guid.Empty / "" clears it.
+            // Guid.Empty / "" clears it. An omitted partyType keeps the stored one.
             var update = new UpdateCustomer(
-                request.DisplayName.Trim(), request.LegalName, taxIdType, normalizedTaxId, taxCondition,
-                request.Phone, request.Email, request.AddressStreet, request.AddressNumber, request.Neighborhood,
-                request.Locality, request.Province, request.PostalCode, request.DeliveryNotes,
+                request.DisplayName.Trim(), taxIdType, normalizedTaxId, taxCondition,
+                request.Phone, email, request.AddressStreet, request.AddressNumber, request.Neighborhood,
+                request.PostalCode, request.DeliveryNotes,
                 request.DiscountPercentage, request.PaymentTerms, request.Notes, request.IsEnabled,
                 request.CityId is { } city ? new ColumnChange<Guid?>(NullIfEmpty(city)) : null,
                 request.BusinessTypeId is { } type ? new ColumnChange<Guid?>(NullIfEmpty(type)) : null,
                 contacts,
                 request.ExpectedUpdatedAtUtc,
-                request.PriceListId is { } priceList ? new ColumnChange<Guid?>(NullIfEmpty(priceList)) : null);
+                request.PriceListId is { } priceList ? new ColumnChange<Guid?>(NullIfEmpty(priceList)) : null,
+                partyType);
 
             CustomerRecord? updated;
             try
@@ -313,6 +338,42 @@ public static class CustomerEndpoints
 
     internal static Guid? NullIfEmpty(Guid? id) => id is { } value && value != Guid.Empty ? value : null;
 
+    /// <summary>
+    /// An optional email field under the shared rule (<see cref="EmailAddressRules"/>): blank is no email, otherwise
+    /// the trimmed address; an invalid one is a 400 on <paramref name="field"/>.
+    /// </summary>
+    internal static bool TryNormalizeEmail(string? raw, out string? email, out IResult? problem, string field = "email")
+    {
+        problem = null;
+        if (EmailAddressRules.TryNormalize(raw, out email))
+        {
+            return true;
+        }
+
+        problem = Results.ValidationProblem(new Dictionary<string, string[]> { [field] = [$"{field} must be a valid email address."] });
+        return false;
+    }
+
+    /// <summary>An omitted party type is null (create: default for the tax id type; update: keep the stored one).</summary>
+    private static bool TryParsePartyType(string? raw, out PartyType? partyType, out IResult? problem)
+    {
+        partyType = null;
+        problem = null;
+        if (raw is null)
+        {
+            return true;
+        }
+
+        if (!PartyTypeRules.TryParse(raw, out var parsed))
+        {
+            problem = Results.ValidationProblem(new Dictionary<string, string[]> { ["partyType"] = [PartyTypeRules.Message] });
+            return false;
+        }
+
+        partyType = parsed;
+        return true;
+    }
+
     internal static string? BlankToNull(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     internal const int MaxContacts = 50;
@@ -324,8 +385,8 @@ public static class CustomerEndpoints
     /// <summary>
     /// Validates and normalizes the request's contact list. A null array (property omitted) yields a null
     /// list, which on update means "keep the stored contacts"; an empty array yields an empty list (clear).
-    /// Rules: at most 50 contacts, a first name on each, at most one primary, no repeated id. A contact
-    /// without `sortOrder` takes its position in the array.
+    /// Rules: at most 50 contacts, a first name on each, an email (when present) under the shared email rule, at
+    /// most one primary, no repeated id. A contact without `sortOrder` takes its position in the array.
     /// </summary>
     internal static bool TryBuildContacts(
         ContactRequest[]? requested, out IReadOnlyList<CustomerContactInput>? contacts, out IResult? problem)
@@ -362,6 +423,12 @@ public static class CustomerEndpoints
                 return false;
             }
 
+            if (!EmailAddressRules.TryNormalize(contact.Email, out var contactEmail))
+            {
+                problem = ContactsProblem($"contacts[{i}].email must be a valid email address.");
+                return false;
+            }
+
             var id = NullIfEmpty(contact.Id);
             if (id is { } contactId && !ids.Add(contactId))
             {
@@ -370,7 +437,7 @@ public static class CustomerEndpoints
             }
 
             result.Add(new CustomerContactInput(
-                id, firstName, BlankToNull(contact.LastName), BlankToNull(contact.Phone), BlankToNull(contact.Email),
+                id, firstName, BlankToNull(contact.LastName), BlankToNull(contact.Phone), contactEmail,
                 BlankToNull(contact.Role), contact.IsPrimary ?? false, contact.SortOrder ?? i));
         }
 
@@ -439,30 +506,34 @@ public static class CustomerEndpoints
     }
 }
 
+/// <summary>
+/// Create body. `DisplayName` is the one customer name: a person's full name or a company's legal name, per
+/// `PartyType` ("Person" | "Company"; omitted = Company for a CUIT, otherwise Person). `Email` follows the shared email
+/// rule. The old `legalName`, `locality` and `province` properties are no longer read (sending them is harmless).
+/// </summary>
 public sealed record CreateCustomerRequest(
-    string CustomerKind, string DisplayName, string? LegalName,
+    string CustomerKind, string DisplayName,
     string TaxIdType, string? TaxId, string TaxCondition,
     string? Phone, string? Email,
-    string? AddressStreet, string? AddressNumber, string? Neighborhood,
-    string? Locality, string? Province, string? PostalCode,
+    string? AddressStreet, string? AddressNumber, string? Neighborhood, string? PostalCode,
     string? DeliveryNotes, decimal? DiscountPercentage, string? PaymentTerms, string? Notes,
-    Guid? CityId = null, Guid? BusinessTypeId = null, ContactRequest[]? Contacts = null, Guid? PriceListId = null);
+    Guid? CityId = null, Guid? BusinessTypeId = null, ContactRequest[]? Contacts = null, Guid? PriceListId = null,
+    string? PartyType = null);
 
 /// <summary>
 /// <see cref="CreateCustomerRequest"/> minus <c>CustomerKind</c> (read-only at
 /// edit — design.md "Web form shape (create vs. edit)"), plus
-/// <c>IsEnabled</c>.
+/// <c>IsEnabled</c>. An omitted <c>PartyType</c> keeps the stored one.
 /// </summary>
 public sealed record UpdateCustomerRequest(
-    string DisplayName, string? LegalName,
+    string DisplayName,
     string TaxIdType, string? TaxId, string TaxCondition,
     string? Phone, string? Email,
-    string? AddressStreet, string? AddressNumber, string? Neighborhood,
-    string? Locality, string? Province, string? PostalCode,
+    string? AddressStreet, string? AddressNumber, string? Neighborhood, string? PostalCode,
     string? DeliveryNotes, decimal? DiscountPercentage, string? PaymentTerms, string? Notes,
     bool IsEnabled,
     Guid? CityId = null, Guid? BusinessTypeId = null, ContactRequest[]? Contacts = null,
-    DateTimeOffset? ExpectedUpdatedAtUtc = null, Guid? PriceListId = null);
+    DateTimeOffset? ExpectedUpdatedAtUtc = null, Guid? PriceListId = null, string? PartyType = null);
 
 /// <summary>
 /// One contact person in a customer create/update body. `Id` is optional: a sent id is kept (it updates the

@@ -72,7 +72,7 @@ public static class SupplierEndpoints
             var supplierId = Guid.NewGuid();
             var newSupplier = new NewSupplier(
                 supplierId, common!.DisplayName, request.LegalName, common.TaxIdType, common.TaxId, common.TaxCondition,
-                request.Phone, request.Email, request.AddressStreet, request.AddressNumber, request.Neighborhood,
+                request.Phone, common.Email, request.AddressStreet, request.AddressNumber, request.Neighborhood,
                 request.PostalCode, CustomerEndpoints.NullIfEmpty(request.CityId), CustomerEndpoints.NullIfEmpty(request.CategoryId),
                 request.PaymentTermsDays, common.BankCbu, common.BankAlias, request.Notes, caller.Id, common.Contacts);
 
@@ -106,7 +106,7 @@ public static class SupplierEndpoints
             // An omitted cityId/categoryId/contacts/isEnabled keeps the stored value; Guid.Empty clears a reference.
             var update = new UpdateSupplier(
                 common!.DisplayName, request.LegalName, common.TaxIdType, common.TaxId, common.TaxCondition,
-                request.Phone, request.Email, request.AddressStreet, request.AddressNumber, request.Neighborhood,
+                request.Phone, common.Email, request.AddressStreet, request.AddressNumber, request.Neighborhood,
                 request.PostalCode, request.PaymentTermsDays, common.BankCbu, common.BankAlias, request.Notes,
                 request.IsEnabled,
                 request.CityId is { } city ? new ColumnChange<Guid?>(CustomerEndpoints.NullIfEmpty(city)) : null,
@@ -133,7 +133,7 @@ public static class SupplierEndpoints
 
     private sealed record Validated(
         string DisplayName, TaxIdType TaxIdType, string? TaxId, TaxCondition TaxCondition,
-        string? BankCbu, string? BankAlias, IReadOnlyList<SupplierContactInput>? Contacts);
+        string? BankCbu, string? BankAlias, IReadOnlyList<SupplierContactInput>? Contacts, string? Email);
 
     private static bool TryValidate(ISupplierBody body, out Validated? validated, out IResult? problem)
     {
@@ -184,6 +184,12 @@ public static class SupplierEndpoints
             return false;
         }
 
+        if (!CustomerEndpoints.TryNormalizeEmail(body.Email, out var email, out var emailProblem))
+        {
+            problem = emailProblem;
+            return false;
+        }
+
         if (!CustomerEndpoints.TryBuildContacts(body.Contacts, out var customerContacts, out var contactsProblem))
         {
             problem = contactsProblem;
@@ -194,7 +200,7 @@ public static class SupplierEndpoints
             .Select(c => new SupplierContactInput(c.Id, c.FirstName, c.LastName, c.Phone, c.Email, c.Role, c.IsPrimary, c.SortOrder))
             .ToList();
 
-        validated = new Validated(body.DisplayName.Trim(), taxIdType, taxId, taxCondition, cbu, alias, contacts);
+        validated = new Validated(body.DisplayName.Trim(), taxIdType, taxId, taxCondition, cbu, alias, contacts, email);
         return true;
     }
 
@@ -222,6 +228,7 @@ internal interface ISupplierBody
     string? TaxIdType { get; }
     string? TaxId { get; }
     string? TaxCondition { get; }
+    string? Email { get; }
     int? PaymentTermsDays { get; }
     string? BankCbu { get; }
     string? BankAlias { get; }
@@ -230,7 +237,8 @@ internal interface ISupplierBody
 
 /// <summary>
 /// Create body. `TaxIdType` defaults to None and `TaxCondition` to NoAplica when omitted. `BankCbu` accepts
-/// separators (stored as 22 digits). `Contacts`: same shape and rules as customers.
+/// separators (stored as 22 digits). `Email` follows the shared email rule (stored trimmed). `Contacts`: same shape
+/// and rules as customers.
 /// </summary>
 public sealed record CreateSupplierRequest(
     string DisplayName, string? LegalName = null,
