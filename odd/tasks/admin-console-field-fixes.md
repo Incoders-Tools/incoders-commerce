@@ -62,11 +62,16 @@ signed-in admin for their password again on every management section.
 
 ## Tasks
 
-- [ ] T1 Web branch selection: mount `BranchProvider` inside the
+- [x] T1 Web branch selection: mount `BranchProvider` inside the
   authenticated tree (inside `OrganizationProvider`), render the branch
   switcher in the top navbar, and keep the "select a branch" state for
   branch-owned screens; App-level regression test that a branch-owned screen
-  request carries `X-Branch-Id` (route: delegated web writer).
+  request carries `X-Branch-Id` (route: delegated web writer) - done 5493587:
+  provider mounted, Catalog/Price lists guarded like Stock/Receptions,
+  `apiFetchForm`/`apiFetchOutcome` now send the tenant headers too (price
+  import, catalog rename, orders); RED 3 App + 2 screen + 2 client tests,
+  GREEN `npm test` 557 passed (75 files), `npm run lint` 0 errors, `npm run
+  build` ok.
 - [ ] T2 Data and API: `organizations.country_code` (FK `countries`, default
   `AR`, backfilled), exposed in organization settings; `cities.postal_code`
   (optional, validated format) returned by `/geo/cities` and editable in
