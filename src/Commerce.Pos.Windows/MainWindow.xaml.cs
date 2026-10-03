@@ -55,6 +55,8 @@ public partial class MainWindow : Window
     private readonly Guid _installationId;
     private readonly TerminalIdentityRefresher _terminalIdentityRefresher;
     private readonly SaleCart _cart;
+    private readonly SaleBuyerSelection _buyer;
+    private string? _shownBuyerMessage;
     private readonly ObservableCollection<ProductCardViewModel> _catalogCards = new();
     private readonly System.Windows.Threading.DispatcherTimer _searchDebounce;
     private readonly SyncRunner _syncRunner;
@@ -127,6 +129,9 @@ public partial class MainWindow : Window
         // customer-price-lists T4: the sale is priced from the list of its buyer (walk-in -> the default list, a selected
         // customer -> the customer's list), read from the replica with the same compiled code as the cloud.
         _cart = new SaleCart(new BuyerPricingFactory(_store, _pricingResolutionService).For);
+        // customer-price-lists L1: the cart owns the buyer; the picker only reflects it (clear, refusal, vanished customer).
+        _buyer = new SaleBuyerSelection(_cart);
+        _buyer.Changed += ApplyBuyerToPicker;
         // Discounts are authorized with the branch PIN cached in branch.db; the
         // branch is read through the pairing so a re-pair is followed.
         _discountAuthorizer = new BranchPinDiscountAuthorizer(_store, () => _pairing.BranchId);
@@ -558,7 +563,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var customerId = (CustomerPickerComboBox.SelectedItem as SaleCustomerPickerItem)?.CustomerId;
+        var customerId = _cart.CustomerId;
 
         // Zero references to DeviceToken, zero HTTP, zero credential validity
         // check — a fully revoked device credential never reaches this path.
@@ -587,8 +592,8 @@ public partial class MainWindow : Window
 
         // commerce-customer-identity follow-up: the picker is optional and
         // resets to walk-in after every commit — anonymous counter sale stays
-        // the fastest, zero-friction default for the NEXT sale too.
-        CustomerPickerComboBox.SelectedIndex = 0;
+        // the fastest, zero-friction default for the NEXT sale too. Clearing the cart resets the buyer; the picker follows.
+        _cart.Clear();
 
         // Task 4.6: fire-and-forget post-sale nudge — never awaited, so a
         // slow or unreachable cloud can never delay or fail this commit
@@ -614,30 +619,40 @@ public partial class MainWindow : Window
     /// walk-in retail stays the default, zero-friction path;
     /// <see cref="CommitSaleButton_Click"/> never requires a selection.
     /// </summary>
-    private void RefreshCustomerPicker()
-    {
-        var selectedCustomerId = (CustomerPickerComboBox.SelectedItem as SaleCustomerPickerItem)?.CustomerId;
+    private void RefreshCustomerPicker() => _ = RefreshBuyerAsync();
 
-        var items = SaleCustomerPicker.BuildItems(_store.ListCustomers());
+    private async Task RefreshBuyerAsync()
+    {
+        await _buyer.RefreshAsync(_store.ListCustomers());
+        RefreshCatalogCards();
+        RefreshScannedTotal();
+    }
+
+    /// <summary>The picker, the message and the list label follow the buyer the cart holds (never the other way round).</summary>
+    private void ApplyBuyerToPicker()
+    {
         _customerPickerUpdating = true;
         try
         {
-            CustomerPickerComboBox.ItemsSource = items;
-            CustomerPickerComboBox.SelectedIndex = selectedCustomerId is null
-                ? 0
-                : Math.Max(0, items.ToList().FindIndex(i => i.CustomerId == selectedCustomerId));
+            if (!ReferenceEquals(CustomerPickerComboBox.ItemsSource, _buyer.Items))
+            {
+                CustomerPickerComboBox.ItemsSource = _buyer.Items;
+            }
+
+            CustomerPickerComboBox.SelectedIndex = _buyer.SelectedIndex;
         }
         finally
         {
             _customerPickerUpdating = false;
         }
 
-        // The pick that survived the refresh is the buyer of the sale; a customer that vanished falls back to walk-in.
-        var survivor = (CustomerPickerComboBox.SelectedItem as SaleCustomerPickerItem)?.CustomerId;
-        if (survivor != _cart.CustomerId)
+        if (_buyer.Message != _shownBuyerMessage)
         {
-            _ = ChangeSaleCustomerAsync(survivor);
+            _shownBuyerMessage = _buyer.Message;
+            ScanMessageText.Text = _buyer.Message ?? string.Empty;
         }
+
+        PriceListText.Text = _cart.PriceListLabel ?? string.Empty;
     }
 
     private bool _customerPickerUpdating;
@@ -655,29 +670,11 @@ public partial class MainWindow : Window
     /// <summary>
     /// Selecting a customer re-prices the whole open sale from that customer's list (see
     /// <see cref="SaleCart.SetCustomerAsync"/>). When the new list cannot price some line the change is refused, the
-    /// picker returns to the previous buyer and the operator is told which products block it.
+    /// picker returns to the buyer the cart still has and the operator is told which products block it.
     /// </summary>
     private async Task ChangeSaleCustomerAsync(Guid? customerId)
     {
-        if (customerId != _cart.CustomerId)
-        {
-            var result = await _cart.SetCustomerAsync(customerId);
-            ScanMessageText.Text = result.Succeeded ? string.Empty : result.Message ?? string.Empty;
-            if (!result.Succeeded)
-            {
-                var items = (IReadOnlyList<SaleCustomerPickerItem>)CustomerPickerComboBox.ItemsSource;
-                _customerPickerUpdating = true;
-                try
-                {
-                    CustomerPickerComboBox.SelectedIndex = Math.Max(0, items.ToList().FindIndex(i => i.CustomerId == _cart.CustomerId));
-                }
-                finally
-                {
-                    _customerPickerUpdating = false;
-                }
-            }
-        }
-
+        await _buyer.ChooseAsync(customerId);
         RefreshCatalogCards();
         RefreshScannedTotal();
     }
@@ -968,7 +965,7 @@ public partial class MainWindow : Window
 
         var saleId = Guid.NewGuid();
         var lines = _cart.BuildSaleLines(saleId);
-        var customerId = (CustomerPickerComboBox.SelectedItem as SaleCustomerPickerItem)?.CustomerId;
+        var customerId = _cart.CustomerId;
 
         var result = _branchNodeService.CompleteScannedSale(
             organizationId: _pairing.OrganizationId,
@@ -997,7 +994,6 @@ public partial class MainWindow : Window
         _cart.Clear();
         RefreshScannedTotal();
         RefreshStatus();
-        CustomerPickerComboBox.SelectedIndex = 0;
 
         // Task 4.6: same fire-and-forget post-sale nudge as the manual-total path.
         _ = RunSyncAsync(SyncTrigger.PostSale);
