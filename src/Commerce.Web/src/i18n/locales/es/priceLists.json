@@ -35,7 +35,9 @@
     "created": "Creada"
   },
   "actions": {
-    "managePrices": "Gestionar precios"
+    "managePrices": "Gestionar precios",
+    "composition": "Composición",
+    "copy": "Copiar lista"
   },
   "suppliersPlaceholder": "Los mapeos de proveedores (mapeo de columnas para importaciones de Excel) llegarán en una futura versión; la tabla `supplier_price_mappings` todavía no existe.",
   "detail": {
@@ -115,6 +117,101 @@
       "committing": "Confirmando…",
       "commit": "Confirmar",
       "reject": "Rechazar"
+    }
+  },
+  "breakdown": {
+    "title": "Composición de {{name}}",
+    "description": "Cómo se arma cada precio: el precio base más cada componente.",
+    "backLabel": "Volver a listas de precios",
+    "dateLabel": "Precios al día",
+    "loading": "Cargando composición…",
+    "empty": "No hay productos con precio en esta fecha.",
+    "editComposition": "Editar composición",
+    "noComposition": "Sin composición: el precio final es el precio base.",
+    "onBase": "sobre base",
+    "componentOnSubtotal": "{{label}} {{percentage}} % sobre subtotal",
+    "component": "{{label}} {{percentage}} %",
+    "floor": "Piso: {{name}}",
+    "noFloor": "Sin piso",
+    "floorSelect": "Lista piso",
+    "floorHint": "Esta lista nunca puede quedar por debajo del piso, producto por producto.",
+    "historyTitle": "Historial de composiciones",
+    "historyEmpty": "Todavía no hay versiones anteriores.",
+    "historyLine": "Desde {{date}}: {{summary}}",
+    "copied": "Lista creada. Precios copiados: {{count}}.",
+    "columns": {
+      "code": "Código",
+      "product": "Producto",
+      "base": "Base",
+      "final": "Precio final"
+    },
+    "errors": {
+      "unexpectedLoad": "Error inesperado al cargar la composición.",
+      "floorCycle": "Esa lista ya depende de esta: el piso formaría un ciclo.",
+      "unexpectedFloor": "Error inesperado al cambiar la lista piso."
+    }
+  },
+  "compositionForm": {
+    "title": "Editar composición de {{name}}",
+    "description": "Publica una versión nueva a partir de la fecha elegida; las versiones anteriores quedan en el historial.",
+    "loading": "Cargando composición…",
+    "effectiveFrom": "Vigente desde",
+    "effectiveFromHint": "Por defecto mañana. No se edita la versión vigente: se publica una nueva y el historial se conserva.",
+    "mode": "Cómo editar",
+    "modeComponents": "Componentes",
+    "modeMarkup": "Solo remarcación",
+    "markup": "Remarcación %",
+    "markupHint": "Cambia solo la remarcación; el resto de los componentes se mantiene.",
+    "componentsTitle": "Componentes",
+    "label": "Etiqueta {{index}}",
+    "code": "Código {{index}}",
+    "percentage": "Porcentaje {{index}}",
+    "base": "Base de cálculo {{index}}",
+    "order": "Orden {{index}}",
+    "baseOptions": {
+      "Base": "Sobre base",
+      "Subtotal": "Sobre subtotal"
+    },
+    "add": "Agregar componente",
+    "remove": "Quitar componente {{index}}",
+    "publish": "Publicar composición",
+    "publishing": "Publicando…",
+    "cancel": "Cancelar",
+    "errors": {
+      "dateTaken": "Ya existe una composición con esa fecha de vigencia. Elegí otra fecha.",
+      "incomplete": "Completá la etiqueta, el código y el porcentaje de cada componente.",
+      "markupRequired": "Ingresá la remarcación.",
+      "unexpected": "Error inesperado al publicar la composición.",
+      "unexpectedLoad": "Error inesperado al cargar la composición."
+    }
+  },
+  "copyForm": {
+    "title": "Copiar {{name}}",
+    "description": "Crea una lista nueva con los precios base de esta y su composición con otra remarcación. La lista de origen no cambia.",
+    "name": "Nombre de la nueva lista",
+    "markup": "Remarcación %",
+    "markupHint": "Reemplaza la remarcación de la composición copiada.",
+    "effectiveFrom": "Vigente desde",
+    "floor": "Piso de la nueva lista",
+    "floorKeep": "Mantener el piso de la lista de origen",
+    "floorNone": "Sin piso",
+    "submit": "Crear copia",
+    "submitting": "Copiando…",
+    "cancel": "Cancelar",
+    "errors": {
+      "nameTaken": "Ya existe una lista con ese nombre.",
+      "invalid": "Revisá el nombre y la remarcación.",
+      "unexpected": "Error inesperado al copiar la lista."
+    }
+  },
+  "violations": {
+    "title": "Estos productos quedarían por debajo de {{floor}}",
+    "hint": "No se guardó nada. Subí esos precios o la remarcación y volvé a intentar.",
+    "columns": {
+      "list": "Lista",
+      "product": "Producto",
+      "price": "Precio",
+      "floor": "Piso"
     }
   }
 }

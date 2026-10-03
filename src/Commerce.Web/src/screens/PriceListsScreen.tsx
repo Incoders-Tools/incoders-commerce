@@ -9,6 +9,9 @@ import { PageHeader } from '@/components/data/PageHeader'
 import { useViewPreference } from '@/components/data/useViewPreference'
 import { FormPage } from '@/components/layout/FormPage'
 import { PriceDateFilter } from './PriceDateFilter'
+import { PriceListBreakdownPage } from './PriceListBreakdownPage'
+import { CompositionForm } from './CompositionForm'
+import { CopyPriceListForm } from './CopyPriceListForm'
 import { PriceHistory } from './PriceHistory'
 import { ImportReviewTable, type ImportReviewRow } from './ImportReviewTable'
 import { listPresentations } from '@/api/catalog'
@@ -27,6 +30,9 @@ import { ApiError } from '@/api/client'
 import type { PresentationRecord, PriceListRecord, SupplierPriceMappingRecord } from '@/api/types'
 
 type Tab = 'prices' | 'suppliers' | 'import'
+
+/** The composition pages of one list, each a full-screen page (like "Gestionar precios"). */
+type CompositionPage = { kind: 'breakdown' | 'composition' | 'copy'; listId: string; notice?: string }
 
 function formatCreatedAt(value: string): string {
   const parsed = new Date(value)
@@ -79,6 +85,7 @@ export function PriceListsScreen() {
   // opened, never auto-shown for the default list (see the T9 remark above).
   const [managingListId, setManagingListId] = useState<string | null>(null)
   const [publishingFor, setPublishingFor] = useState<string | null>(null)
+  const [page, setPage] = useState<CompositionPage | null>(null)
   const [search, setSearch] = useState('')
   const [view, setView] = useViewPreference('price-lists')
 
@@ -136,6 +143,45 @@ export function PriceListsScreen() {
       hideOnMobile: true,
     },
   ]
+
+  const pageList = priceLists.find((list) => list.id === page?.listId) ?? null
+  if (page && pageList) {
+    const toBreakdown = () => setPage({ kind: 'breakdown', listId: pageList.id })
+    if (page.kind === 'composition') {
+      return <CompositionForm priceList={pageList} onBack={toBreakdown} onPublished={toBreakdown} />
+    }
+    if (page.kind === 'copy') {
+      return (
+        <CopyPriceListForm
+          source={pageList}
+          priceLists={priceLists}
+          onBack={() => setPage(null)}
+          onCopied={(result) => {
+            setPriceLists((current) => [...current, result.priceList])
+            setPage({
+              kind: 'breakdown',
+              listId: result.priceList.id,
+              notice: t('breakdown.copied', { count: result.entriesCopied }),
+            })
+          }}
+        />
+      )
+    }
+    return (
+      <PriceListBreakdownPage
+        // Another list (after a copy) is a fresh page: its own date, history and floor state.
+        key={pageList.id}
+        priceList={pageList}
+        priceLists={priceLists}
+        notice={page.notice}
+        onBack={() => setPage(null)}
+        onEditComposition={() => setPage({ kind: 'composition', listId: pageList.id })}
+        onListChanged={(changed) =>
+          setPriceLists((current) => current.map((list) => (list.id === changed.id ? changed : list)))
+        }
+      />
+    )
+  }
 
   if (managingList) {
     return (
@@ -207,17 +253,25 @@ export function PriceListsScreen() {
             loadErrorMessage={loadError ? t('empty.loadError') : null}
             emptyMessage={priceLists.length === 0 ? t('empty.none') : t('empty.noMatch')}
             renderActions={(list) => (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setManagingListId(list.id)
-                  setPublishingFor(null)
-                }}
-              >
-                {t('actions.managePrices')}
-              </Button>
+              <>
+                <Button type="button" variant="outline" size="sm" onClick={() => setPage({ kind: 'breakdown', listId: list.id })}>
+                  {t('actions.composition')}
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => setPage({ kind: 'copy', listId: list.id })}>
+                  {t('actions.copy')}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setManagingListId(list.id)
+                    setPublishingFor(null)
+                  }}
+                >
+                  {t('actions.managePrices')}
+                </Button>
+              </>
             )}
           />
         </>

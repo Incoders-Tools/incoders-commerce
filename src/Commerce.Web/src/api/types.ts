@@ -413,6 +413,8 @@ export interface PriceListRecord {
   branchId: string
   name: string
   isDefault: boolean
+  /** The list this one may never price below; absent/null when it has no floor. */
+  floorPriceListId?: string | null
   createdAtUtc: string
   createdByUserId: string
 }
@@ -944,4 +946,86 @@ export interface StockMinimum {
   presentationId: string
   minimumQuantity: number | null
   updatedAtUtc: string | null
+}
+
+// --- Price composition: base price + rate components = final price ---
+export type CalculationBase = 'Base' | 'Subtotal'
+
+export interface RateComponent {
+  code: string
+  label: string
+  percentage: number
+  calculationBase: CalculationBase
+  order: number
+}
+
+export interface CompositionVersion {
+  id: string
+  effectiveFrom: string
+  components: RateComponent[]
+}
+
+export interface CompositionRecord {
+  source: 'list' | 'organization' | 'none'
+  effectiveFrom: string | null
+  components: RateComponent[]
+  history: CompositionVersion[]
+}
+
+export interface BreakdownComponent extends RateComponent {
+  calculationAmount: number
+  amount: number
+}
+
+export interface BreakdownItem {
+  presentationId: string
+  productId: string
+  productName: string
+  presentationName: string
+  identificationCode: string | null
+  entryEffectiveFrom: string
+  base: number
+  components: BreakdownComponent[]
+  final: number
+}
+
+export interface PriceListBreakdown {
+  priceListId: string
+  priceListName: string
+  on: string
+  floorPriceListId: string | null
+  composition: CompositionRecord
+  items: BreakdownItem[]
+}
+
+/** Publish a new composition: the full component set, or just the markup. */
+export type PublishCompositionRequest =
+  | { effectiveFrom: string; components: RateComponent[] }
+  | { effectiveFrom: string; remarcacionPercentage: number }
+
+export type CopyPriceListRequest = {
+  name: string
+  effectiveFrom?: string
+  floorPriceListId?: string
+  clearFloor?: boolean
+} & ({ remarcacionPercentage: number } | { components: RateComponent[] })
+
+export interface CopyPriceListResponse {
+  priceList: PriceListRecord
+  entriesCopied: number
+  composition: CompositionRecord
+}
+
+/** One product a change would put below its floor list (409 `price-below-floor`; nothing is written). */
+export interface FloorViolation {
+  priceListId: string
+  priceListName: string
+  floorPriceListId: string
+  floorPriceListName: string
+  presentationId: string
+  productId: string
+  productName: string
+  presentationName: string
+  price: number
+  floorPrice: number
 }

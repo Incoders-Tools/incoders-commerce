@@ -21,13 +21,16 @@ export class ApiError extends Error {
   readonly code?: string
   /** Field errors of a 400 ValidationProblem (`errors[field]`), keyed as the server names the field. */
   readonly fieldErrors?: Record<string, string[]>
+  /** The parsed JSON error body, for typed 409s that carry data (e.g. floor violations). */
+  readonly body?: unknown
 
-  constructor(message: string, status: number, code?: string, fieldErrors?: Record<string, string[]>) {
+  constructor(message: string, status: number, code?: string, fieldErrors?: Record<string, string[]>, body?: unknown) {
     super(message)
     this.name = 'ApiError'
     this.status = status
     this.code = code
     this.fieldErrors = fieldErrors
+    this.body = body
   }
 }
 
@@ -75,8 +78,10 @@ export async function apiFetch<TResponse>(
     let detail = response.statusText
     let code: string | undefined
     let fieldErrors: Record<string, string[]> | undefined
+    let parsedBody: unknown
     try {
       const body = await response.json()
+      parsedBody = body
       detail = body?.title ?? body?.detail ?? JSON.stringify(body)
       if (typeof body?.error === 'string') code = body.error
       if (body?.errors && typeof body.errors === 'object') fieldErrors = body.errors
@@ -88,6 +93,7 @@ export async function apiFetch<TResponse>(
       response.status,
       code,
       fieldErrors,
+      parsedBody,
     )
   }
 

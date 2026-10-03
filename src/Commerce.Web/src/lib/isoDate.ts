@@ -13,3 +13,6 @@ export function daysAgoIso(days: number): string {
   date.setDate(date.getDate() - days)
   return toIsoDate(date)
 }
+
+/** The local date after today, as `yyyy-MM-dd`: the earliest day a published change can take effect. */
+export const tomorrowIso = (): string => daysAgoIso(-1)

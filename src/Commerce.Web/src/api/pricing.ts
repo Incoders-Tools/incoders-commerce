@@ -1,6 +1,13 @@
-import { apiFetch, apiFetchForm } from './client'
+import { ApiError, apiFetch, apiFetchForm } from './client'
 import type {
   AppendPriceEntryRequest,
+  CompositionRecord,
+  CompositionVersion,
+  CopyPriceListRequest,
+  CopyPriceListResponse,
+  FloorViolation,
+  PriceListBreakdown,
+  PublishCompositionRequest,
   CreatePriceListRequest,
   CreateSupplierMappingRequest,
   ImportBatchDetail,
@@ -101,4 +108,47 @@ export function commitImport(batchId: string): Promise<ImportBatchRecord> {
 
 export function rejectImport(batchId: string): Promise<ImportBatchRecord> {
   return apiFetch<ImportBatchRecord>(`/pricing/imports/${batchId}/reject`, { method: 'POST' })
+}
+
+// Customer price lists: composition breakdown, publish, copy and floor.
+
+export function getBreakdown(priceListId: string, on?: string): Promise<PriceListBreakdown> {
+  return apiFetch<PriceListBreakdown>(
+    `/pricing/price-lists/${priceListId}/breakdown${on ? `?on=${encodeURIComponent(on)}` : ''}`,
+  )
+}
+
+export function getComposition(priceListId: string, on?: string): Promise<CompositionRecord> {
+  return apiFetch<CompositionRecord>(
+    `/pricing/price-lists/${priceListId}/composition${on ? `?on=${encodeURIComponent(on)}` : ''}`,
+  )
+}
+
+export function publishComposition(priceListId: string, request: PublishCompositionRequest): Promise<CompositionVersion> {
+  return apiFetch<CompositionVersion>(`/pricing/price-lists/${priceListId}/composition`, {
+    method: 'POST',
+    body: JSON.stringify(request),
+  })
+}
+
+export function copyPriceList(priceListId: string, request: CopyPriceListRequest): Promise<CopyPriceListResponse> {
+  return apiFetch<CopyPriceListResponse>(`/pricing/price-lists/${priceListId}/copy`, {
+    method: 'POST',
+    body: JSON.stringify(request),
+  })
+}
+
+/** `null` removes the floor. */
+export function setFloor(priceListId: string, floorPriceListId: string | null): Promise<PriceListRecord> {
+  return apiFetch<PriceListRecord>(`/pricing/price-lists/${priceListId}/floor`, {
+    method: 'PUT',
+    body: JSON.stringify({ floorPriceListId }),
+  })
+}
+
+/** The products a refused change would put below their floor (409 `price-below-floor`), or null for any other error. */
+export function floorViolationsOf(error: unknown): FloorViolation[] | null {
+  if (!(error instanceof ApiError) || error.status !== 409 || error.code !== 'price-below-floor') return null
+  const violations = (error.body as { violations?: unknown } | undefined)?.violations
+  return Array.isArray(violations) ? (violations as FloorViolation[]) : []
 }

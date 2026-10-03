@@ -35,7 +35,9 @@
     "created": "Created"
   },
   "actions": {
-    "managePrices": "Manage prices"
+    "managePrices": "Manage prices",
+    "composition": "Composition",
+    "copy": "Copy list"
   },
   "suppliersPlaceholder": "Supplier mappings (column mapping for Excel imports) land here in a future release — the `supplier_price_mappings` table does not exist yet.",
   "detail": {
@@ -115,6 +117,101 @@
       "committing": "Committing…",
       "commit": "Commit",
       "reject": "Reject"
+    }
+  },
+  "breakdown": {
+    "title": "Composition of {{name}}",
+    "description": "How each price is built: the base price plus each component.",
+    "backLabel": "Back to price lists",
+    "dateLabel": "Prices on",
+    "loading": "Loading composition…",
+    "empty": "No products have a price on this date.",
+    "editComposition": "Edit composition",
+    "noComposition": "No composition: the final price is the base price.",
+    "onBase": "on base",
+    "componentOnSubtotal": "{{label}} {{percentage}} % on subtotal",
+    "component": "{{label}} {{percentage}} %",
+    "floor": "Floor: {{name}}",
+    "noFloor": "No floor",
+    "floorSelect": "Floor list",
+    "floorHint": "This list can never go below its floor, product by product.",
+    "historyTitle": "Composition history",
+    "historyEmpty": "There are no earlier versions yet.",
+    "historyLine": "From {{date}}: {{summary}}",
+    "copied": "List created. Prices copied: {{count}}.",
+    "columns": {
+      "code": "Code",
+      "product": "Product",
+      "base": "Base",
+      "final": "Final price"
+    },
+    "errors": {
+      "unexpectedLoad": "Unexpected error loading the composition.",
+      "floorCycle": "That list already depends on this one: the floor would form a cycle.",
+      "unexpectedFloor": "Unexpected error changing the floor list."
+    }
+  },
+  "compositionForm": {
+    "title": "Edit composition of {{name}}",
+    "description": "Publishes a new version from the chosen date; earlier versions stay in the history.",
+    "loading": "Loading composition…",
+    "effectiveFrom": "Effective from",
+    "effectiveFromHint": "Tomorrow by default. The current version is not edited: a new one is published and the history is kept.",
+    "mode": "How to edit",
+    "modeComponents": "Components",
+    "modeMarkup": "Markup only",
+    "markup": "Markup %",
+    "markupHint": "Changes only the markup; the other components stay as they are.",
+    "componentsTitle": "Components",
+    "label": "Label {{index}}",
+    "code": "Code {{index}}",
+    "percentage": "Percentage {{index}}",
+    "base": "Calculation base {{index}}",
+    "order": "Order {{index}}",
+    "baseOptions": {
+      "Base": "On base",
+      "Subtotal": "On subtotal"
+    },
+    "add": "Add component",
+    "remove": "Remove component {{index}}",
+    "publish": "Publish composition",
+    "publishing": "Publishing…",
+    "cancel": "Cancel",
+    "errors": {
+      "dateTaken": "A composition with that effective date already exists. Pick another date.",
+      "incomplete": "Fill in the label, code and percentage of every component.",
+      "markupRequired": "Enter the markup.",
+      "unexpected": "Unexpected error publishing the composition.",
+      "unexpectedLoad": "Unexpected error loading the composition."
+    }
+  },
+  "copyForm": {
+    "title": "Copy {{name}}",
+    "description": "Creates a new list with this list's base prices and its composition with a different markup. The source list does not change.",
+    "name": "New list name",
+    "markup": "Markup %",
+    "markupHint": "Replaces the markup of the copied composition.",
+    "effectiveFrom": "Effective from",
+    "floor": "Floor of the new list",
+    "floorKeep": "Keep the source list's floor",
+    "floorNone": "No floor",
+    "submit": "Create copy",
+    "submitting": "Copying…",
+    "cancel": "Cancel",
+    "errors": {
+      "nameTaken": "A list with that name already exists.",
+      "invalid": "Check the name and the markup.",
+      "unexpected": "Unexpected error copying the list."
+    }
+  },
+  "violations": {
+    "title": "These products would fall below {{floor}}",
+    "hint": "Nothing was saved. Raise those prices or the markup and try again.",
+    "columns": {
+      "list": "List",
+      "product": "Product",
+      "price": "Price",
+      "floor": "Floor"
     }
   }
 }
