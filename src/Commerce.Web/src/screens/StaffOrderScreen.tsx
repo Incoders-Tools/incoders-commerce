@@ -95,6 +95,14 @@ export function StaffOrderScreen() {
               })}
             </p>
           )}
+          {outcome?.status === OrderSubmissionOutcomeStatus.Accepted &&
+            (outcome.order?.lines?.filter((line) => line.fellBack).length ?? 0) > 0 && (
+              <p data-testid="order-fallback" className="text-sm text-neutral-700">
+                {t('staffOrder.fallbackLines', {
+                  count: outcome.order?.lines?.filter((line) => line.fellBack).length ?? 0,
+                })}
+              </p>
+            )}
 
           <Button type="submit" disabled={submitting}>
             {submitting ? t('staffOrder.submitting') : t('staffOrder.submit')}

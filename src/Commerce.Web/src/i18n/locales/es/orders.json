@@ -59,6 +59,8 @@
       "denied": "Rechazado: {{reason}}"
     },
     "total": "Total: {{total}}",
+    "fallbackLines_one": "Precio de Mostrador: {{count}} línea",
+    "fallbackLines_other": "Precio de Mostrador: {{count}} líneas",
     "submitting": "Enviando…",
     "submit": "Enviar pedido"
   },

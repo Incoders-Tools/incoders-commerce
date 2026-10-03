@@ -69,6 +69,53 @@ describe('StaffOrderScreen', () => {
     expect(screen.getByTestId('order-outcome')).toHaveTextContent('Pedido aceptado.')
   })
 
+  it('notes the lines that were priced from the Mostrador list as a fallback', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          status: 0,
+          reason: 'allowed',
+          order: {
+            orderId: '1',
+            organizationId: '1',
+            status: 0,
+            lines: [
+              { lineTotal: 100, fellBack: false, pricedFromListId: 'reparto' },
+              { lineTotal: 11570, fellBack: true, pricedFromListId: 'mostrador' },
+            ],
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    )
+
+    const user = userEvent.setup()
+    render(<StaffOrderScreen />)
+    await fillAndSubmit(user)
+
+    expect(await screen.findByTestId('order-fallback')).toHaveTextContent('Precio de Mostrador: 1 línea')
+  })
+
+  it('shows no fallback note when every line was priced from the customer list', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          status: 0,
+          reason: 'allowed',
+          order: { orderId: '1', organizationId: '1', status: 0, lines: [{ lineTotal: 100, fellBack: false }] },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    )
+
+    const user = userEvent.setup()
+    render(<StaffOrderScreen />)
+    await fillAndSubmit(user)
+
+    await screen.findByTestId('order-total')
+    expect(screen.queryByTestId('order-fallback')).toBeNull()
+  })
+
   it('surfaces a visible error state when the API is unreachable', async () => {
     fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
 

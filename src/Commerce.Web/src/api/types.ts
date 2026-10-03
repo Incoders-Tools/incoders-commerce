@@ -147,7 +147,9 @@ export interface OrderSubmissionOutcome {
     // commerce-pricing-engine: the frozen, server-resolved total per line —
     // never sent by the client, only ever returned once the order is
     // accepted.
-    lines?: { lineTotal: number }[]
+    // customer-price-lists: `fellBack` marks a line the customer's list did not price and the default list
+    // (Mostrador) did; `pricedFromListId` is the list that priced it.
+    lines?: { lineTotal: number; fellBack?: boolean; pricedFromListId?: string | null }[]
   } | null
 }
 

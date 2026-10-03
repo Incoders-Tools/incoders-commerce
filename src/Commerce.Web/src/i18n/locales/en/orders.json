@@ -59,6 +59,8 @@
       "denied": "Denied: {{reason}}"
     },
     "total": "Total: {{total}}",
+    "fallbackLines_one": "Mostrador price: {{count}} line",
+    "fallbackLines_other": "Mostrador price: {{count}} lines",
     "submitting": "Submitting…",
     "submit": "Submit order"
   },
