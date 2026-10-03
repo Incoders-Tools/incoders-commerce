@@ -27,6 +27,7 @@ import {
   uploadImport,
 } from '@/api/pricing'
 import { ApiError } from '@/api/client'
+import { useMissingBranch } from '@/branch/useMissingBranch'
 import type { PresentationRecord, PriceListRecord, SupplierPriceMappingRecord } from '@/api/types'
 
 type Tab = 'prices' | 'suppliers' | 'import'
@@ -72,10 +73,14 @@ function formatCreatedAt(value: string): string {
  */
 export function PriceListsScreen() {
   const { t } = useTranslation('priceLists')
+  // Price lists (and every page reached from here) are branch-owned: without
+  // a selected branch the API answers 400 `branch-selection-required`, so the
+  // screen asks for one instead.
+  const missingBranch = useMissingBranch()
   const [tab, setTab] = useState<Tab>('prices')
   const [priceLists, setPriceLists] = useState<PriceListRecord[]>([])
   const [presentations, setPresentations] = useState<PresentationRecord[]>([])
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(!missingBranch)
   // Split exactly as T4b's screens do: only a failed LOAD may tell the
   // operator the collection could not be read. A failed action says nothing
   // about whether price lists exist.
@@ -90,6 +95,7 @@ export function PriceListsScreen() {
   const [view, setView] = useViewPreference('price-lists')
 
   const refresh = useCallback(async () => {
+    if (missingBranch) return
     setLoading(true)
     setLoadError(null)
     try {
@@ -101,7 +107,7 @@ export function PriceListsScreen() {
     } finally {
       setLoading(false)
     }
-  }, [t])
+  }, [t, missingBranch])
 
   useEffect(() => {
     void refresh()
@@ -143,6 +149,17 @@ export function PriceListsScreen() {
       hideOnMobile: true,
     },
   ]
+
+  if (missingBranch) {
+    return (
+      <section className="flex w-full flex-col gap-6">
+        <PageHeader title={t('title')} description={t('description')} />
+        <p role="status" className="rounded-lg border border-border bg-card px-4 py-10 text-center text-sm text-muted-foreground">
+          {t('branchRequired')}
+        </p>
+      </section>
+    )
+  }
 
   const pageList = priceLists.find((list) => list.id === page?.listId) ?? null
   if (page && pageList) {

@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Permission, type SignedInResponse } from '@/api/types'
@@ -282,5 +282,62 @@ describe('App route table', () => {
     renderAppAt('/app', buildUser({ permissions: Permission.ViewSales }))
 
     expect(await screen.findByRole('heading', { name: 'Catálogo' })).toBeInTheDocument()
+  })
+})
+
+/**
+ * admin-console spec, "Top Navbar Branch Switcher". `BranchProvider` once
+ * existed only in tests, so the shipped tree never sent `X-Branch-Id` and
+ * every branch-owned endpoint answered 400 `branch-selection-required`.
+ * These cases go through the real `App.tsx`, so they fail if it stops
+ * mounting the provider.
+ */
+describe('App branch selection', () => {
+  const fetchMock = vi.fn()
+  const ruta51 = { id: 'b-ruta-51', name: 'Ruta 51', code: 1 }
+  const centro = { id: 'b-centro', name: 'Centro', code: 2 }
+
+  beforeEach(() => {
+    fetchMock.mockImplementation(async () => new Response(JSON.stringify([]), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    fetchMock.mockReset()
+    signedInUser.current = null
+    window.localStorage.clear()
+  })
+
+  function branchHeaderOf(path: string): string | undefined {
+    const call = fetchMock.mock.calls.find(([url]) => String(url).startsWith(path))
+    const headers = (call?.[1] as RequestInit | undefined)?.headers as Record<string, string> | undefined
+    return headers?.['X-Branch-Id']
+  }
+
+  it('sends the auto-selected branch on a branch-owned request and shows it in the navbar', async () => {
+    renderAppAt('/app/price-lists', buildUser({ permissions: Permission.ManageUsers, selectableBranches: [ruta51] }))
+
+    expect(await screen.findByRole('heading', { name: 'Listas de precios' })).toBeInTheDocument()
+    await waitFor(() => expect(branchHeaderOf('/pricing/price-lists')).toBe(ruta51.id))
+    const header = within(screen.getByRole('banner'))
+    expect(header.getByText('Ruta 51')).toBeInTheDocument()
+  })
+
+  it('offers the branch switcher when several branches are selectable and scopes requests to the selection', async () => {
+    window.localStorage.setItem('branch:user-1:own', centro.id)
+
+    renderAppAt('/app/stock', buildUser({ permissions: Permission.ManageUsers, selectableBranches: [ruta51, centro] }))
+
+    expect(await screen.findByRole('heading', { name: 'Stock' })).toBeInTheDocument()
+    await waitFor(() => expect(branchHeaderOf('/stock')).toBe(centro.id))
+    expect(screen.getByRole('combobox', { name: 'Sucursal' })).toHaveValue(centro.id)
+  })
+
+  it('shows the select-a-branch state instead of calling a branch-owned endpoint when no branch is selectable', async () => {
+    renderAppAt('/app/stock', buildUser({ permissions: Permission.ManageUsers, selectableBranches: [] }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Elegí una sucursal en la barra superior para ver el stock.')
+    expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith('/stock'))).toBe(false)
   })
 })

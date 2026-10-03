@@ -2,6 +2,7 @@
   "title": "Price lists",
   "description": "Published prices per presentation, and the supplier import that feeds them.",
   "createDefault": "Create default price list",
+  "branchRequired": "Pick a branch in the top bar to view and edit price lists.",
   "errors": {
     "unexpectedLoad": "Unexpected error loading price lists.",
     "unexpectedCreateDefault": "Unexpected error creating the default price list.",

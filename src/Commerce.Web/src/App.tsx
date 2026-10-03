@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router'
 import { AuthProvider, hasPermission, useOptionalAuth } from '@/auth/AuthContext'
 import { Permission } from '@/api/types'
 import { OrganizationProvider, useOptionalOrganizationContext } from '@/organization/OrganizationContext'
+import { BranchProvider } from '@/branch/BranchContext'
 import { OrganizationBrandingProvider } from '@/theme/OrganizationBrandingProvider'
 import { NumberFormatProvider } from '@/organization/NumberFormatContext'
 import { OrganizationSettingsScreen } from '@/screens/OrganizationSettingsScreen'
@@ -71,8 +72,14 @@ function App() {
           on every request, including the branding/theme fetches below it.
           OrganizationBrandingProvider also reads the signed-in user to
           fetch/clear the org's branding, and ThemeProvider consumes its
-          result for the "custom" theme's colors. */}
+          result for the "custom" theme's colors. BranchProvider
+          (admin-console spec, "Top Navbar Branch Switcher") sits right
+          inside OrganizationProvider: it reads the sysadmin's selected
+          organization, and `apiFetch` must carry `X-Branch-Id` on every
+          request below it, or branch-owned endpoints answer 400
+          `branch-selection-required`. */}
       <OrganizationProvider>
+        <BranchProvider>
         <OrganizationBrandingProvider>
           <NumberFormatProvider>
           <ThemeProvider>
@@ -133,6 +140,7 @@ function App() {
           </ThemeProvider>
           </NumberFormatProvider>
         </OrganizationBrandingProvider>
+        </BranchProvider>
       </OrganizationProvider>
     </AuthProvider>
   )

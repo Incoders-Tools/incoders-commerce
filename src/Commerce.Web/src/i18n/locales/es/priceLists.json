@@ -2,6 +2,7 @@
   "title": "Listas de precios",
   "description": "Precios publicados por presentación, y la importación de proveedores que los alimenta.",
   "createDefault": "Crear lista de precios predeterminada",
+  "branchRequired": "Elegí una sucursal en la barra superior para ver y editar las listas de precios.",
   "errors": {
     "unexpectedLoad": "Error inesperado al cargar las listas de precios.",
     "unexpectedCreateDefault": "Error inesperado al crear la lista de precios predeterminada.",

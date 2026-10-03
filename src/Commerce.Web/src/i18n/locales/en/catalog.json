@@ -1,6 +1,7 @@
 {
   "title": "Catalog",
   "description": "Presentations available to sell, and their identification codes.",
+  "branchRequired": "Pick a branch in the top bar to view the catalog.",
   "columns": {
     "name": "Name",
     "identificationCode": "Identification code",

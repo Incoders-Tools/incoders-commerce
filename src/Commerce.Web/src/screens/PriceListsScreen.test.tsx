@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PriceListsScreen } from './PriceListsScreen'
 import { RequireAdmin } from '@/routes/RequireAdmin'
 import { AuthContext } from '@/auth/AuthContext'
+import { BranchContext } from '@/branch/BranchContext'
 import { Permission } from '@/api/types'
 import type { PresentationRecord, PriceListRecord } from '@/api/types'
 
@@ -536,5 +537,17 @@ describe('PriceListsScreen', () => {
     expect(fetchMock.mock.calls[3][0]).toBe(
       `/pricing/price-lists/${defaultPriceList.id}/presentations/${presentation.id}/history`,
     )
+  })
+
+  it('asks for a branch instead of loading when none is selected', async () => {
+    render(
+      <BranchContext.Provider value={{ selectedBranch: null, selectableBranches: [], selectBranch: () => {} }}>
+        <PriceListsScreen />
+      </BranchContext.Provider>,
+    )
+
+    expect(await screen.findByRole('status')).toHaveTextContent(/Elegí una sucursal/)
+    expect(screen.getByRole('heading', { name: 'Listas de precios' })).toBeInTheDocument()
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 })

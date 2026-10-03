@@ -15,6 +15,7 @@ import { listCategories } from '@/api/categories'
 import { ApiError } from '@/api/client'
 import { hasPermission, useOptionalAuth } from '@/auth/AuthContext'
 import { useOptionalBranchContext } from '@/branch/BranchContext'
+import { useMissingBranch } from '@/branch/useMissingBranch'
 import { CatalogCopyForm } from './CatalogCopyForm'
 import { Permission, QuantityBehavior, type CategoryRecord, type PresentationRecord, type ProductRecord } from '@/api/types'
 
@@ -55,8 +56,11 @@ function formatUpdatedAt(value: string): string {
  */
 export function CatalogScreen() {
   const { t } = useTranslation('catalog')
+  // Presentations are branch-owned: without a selected branch the API answers
+  // 400 `branch-selection-required`, so the screen asks for one instead.
+  const missingBranch = useMissingBranch()
   const [presentations, setPresentations] = useState<PresentationRecord[]>([])
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(!missingBranch)
   const [error, setError] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
@@ -83,6 +87,7 @@ export function CatalogScreen() {
     (hasPermission(user, Permission.ManageCatalog) || Boolean(user?.isSystemAdmin))
 
   useEffect(() => {
+    if (missingBranch) return
     let cancelled = false
     setLoading(true)
     setError(null)
@@ -113,7 +118,7 @@ export function CatalogScreen() {
     return () => {
       cancelled = true
     }
-  }, [t, statusFilter])
+  }, [t, missingBranch, statusFilter])
 
   const handleUpdated = (updated: PresentationRecord) => {
     setPresentations((current) => current.map((item) => (item.id === updated.id ? updated : item)))
@@ -158,6 +163,17 @@ export function CatalogScreen() {
   // this state-swap return sits after them (rules of hooks) — the same
   // ordering `CustomersScreen.tsx` uses for its own create/edit swap.
   const editingPresentation = presentations.find((presentation) => presentation.id === editingId) ?? null
+
+  if (missingBranch) {
+    return (
+      <section className="flex w-full flex-col gap-6">
+        <PageHeader title={t('title')} description={t('description')} />
+        <p role="status" className="rounded-lg border border-border bg-card px-4 py-10 text-center text-sm text-muted-foreground">
+          {t('branchRequired')}
+        </p>
+      </section>
+    )
+  }
 
   if (copying && canCopy && sourceBranch) {
     return (

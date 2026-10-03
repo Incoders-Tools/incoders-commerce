@@ -116,6 +116,7 @@ export async function apiFetchForm<TResponse>(path: string, formData: FormData):
     response = await fetch(path, {
       method: 'POST',
       credentials: 'include',
+      headers: tenantHeaders(),
       body: formData,
     })
   } catch {
@@ -164,6 +165,7 @@ export async function apiFetchOutcome<TOutcome>(
       credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
+        ...tenantHeaders(),
         ...init?.headers,
       },
     })

@@ -1,6 +1,7 @@
 {
   "title": "Catálogo",
   "description": "Presentaciones disponibles para vender, y sus códigos de identificación.",
+  "branchRequired": "Elegí una sucursal en la barra superior para ver el catálogo.",
   "columns": {
     "name": "Nombre",
     "identificationCode": "Código de identificación",

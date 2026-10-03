@@ -1,6 +1,7 @@
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { BranchContext } from '@/branch/BranchContext'
 import { CatalogScreen } from './CatalogScreen'
 import { QuantityBehavior } from '@/api/types'
 import type { CategoryRecord, PresentationRecord, ProductRecord } from '@/api/types'
@@ -417,5 +418,17 @@ describe('CatalogScreen', () => {
       await waitFor(() => expect(callsTo(`POST /catalog/products/${inactiveProduct.id}/reactivate`)).toHaveLength(1))
       await waitFor(() => expect(screen.queryByText('Inactivo')).not.toBeInTheDocument())
     })
+  })
+
+  it('asks for a branch instead of loading when none is selected', async () => {
+    render(
+      <BranchContext.Provider value={{ selectedBranch: null, selectableBranches: [], selectBranch: () => {} }}>
+        <CatalogScreen />
+      </BranchContext.Provider>,
+    )
+
+    expect(await screen.findByRole('status')).toHaveTextContent(/Elegí una sucursal/)
+    expect(screen.getByRole('heading', { name: 'Catálogo' })).toBeInTheDocument()
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 })
