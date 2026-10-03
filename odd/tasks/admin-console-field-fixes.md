@@ -1,0 +1,126 @@
+# Admin Console Field Fixes
+
+## Objective
+
+Fix the problems the owner found while testing the web admin console and the
+desktop management sections: branch-owned web screens fail, the customer
+address fields are redundant and hard to fill, and the desktop asks the
+signed-in admin for their password again on every management section.
+
+## Why
+
+- Price lists, catalog, receptions and stock answer
+  `{"error":"branch-selection-required"}`. Root cause: `BranchProvider`
+  (`src/Commerce.Web/src/branch/BranchContext.tsx`) was built and tested but
+  never mounted in `App.tsx`, so `apiFetch` never sends `X-Branch-Id`, the
+  branch switcher never renders and `useMissingBranch` always answers false.
+- The customer form asks for City (a Georef city rendered as
+  "city, province"), Locality and Province as free text, and Postal code by
+  hand. Locality and Province are empty for all 87 local customers; the
+  province is already implied by the city.
+- Organizations carry no country; cities carry no postal code (Georef/INDEC
+  does not publish postal codes).
+- Desktop Customers and Staff each open their own cookie sign-in with the
+  admin's password and drop it when the section closes, so an admin who
+  unlocked the terminal by PIN is asked for the password once per section.
+
+## Decisions (owner, 2026-10-03)
+
+- Customer address: Province first, then City limited to that province, then
+  Postal code. City shows only the city name (no ", province"). The Locality
+  field is removed; City replaces it. Province options are every province of
+  the organization's country; the organization's country defaults to
+  Argentina.
+- Postal code is inferred from the selected city when the city has a known
+  postal code; the user can still edit it. Cities get an optional postal code
+  maintained in the platform Cities screen. No postal code is invented.
+- Customer sections (data, contact, etc.) stay separate but get visible
+  dividers and spacing so they no longer look glued to the fields.
+- Address layout: row 1 Province, City, Postal code; row 2 Neighborhood,
+  Street, Number; row 3 Delivery notes across the full row.
+- Customer name: one name field, never both. A new customer field
+  Person / Company (independent of the commercial Retail / Wholesale kind)
+  decides it: a person stores "Nombre y apellido"; a company stores
+  "Razón social". Existing customers are backfilled as Company when their
+  tax id type is CUIT, otherwise Person (editable). The name of the
+  person at a company goes in the contact persons. Stored in `display_name`;
+  `legal_name` (empty for all local customers) is no longer written.
+- Every email field validates its format with one shared, correct pattern,
+  in real time while typing, and shows a green check when valid; the server
+  applies the same rule.
+- Geography is already normalized (`countries` -> `provinces` -> `cities`,
+  verified 2026-10-03); "city, province" is only the picker label. Only
+  Argentina is loaded for now.
+- Desktop: no password re-prompt for management. If an operator sees a
+  management menu entry, they may use it. The menu shows an entry only when
+  the operator can actually manage it (`ManageUsers` today). A time-limited
+  PIN confirmation may be added later; not now.
+  - Accepted trade-off: the server authorizes desktop management from the
+    paired device credential plus the signed-in operator. Whoever holds a
+    paired terminal and knows an admin's PIN can manage staff and customers
+    of that branch.
+
+## Tasks
+
+- [ ] T1 Web branch selection: mount `BranchProvider` inside the
+  authenticated tree (inside `OrganizationProvider`), render the branch
+  switcher in the top navbar, and keep the "select a branch" state for
+  branch-owned screens; App-level regression test that a branch-owned screen
+  request carries `X-Branch-Id` (route: delegated web writer).
+- [ ] T2 Data and API: `organizations.country_code` (FK `countries`, default
+  `AR`, backfilled), exposed in organization settings; `cities.postal_code`
+  (optional, validated format) returned by `/geo/cities` and editable in
+  `/geo/cities` create/update; `/geo/provinces` filtered to the caller
+  organization's country; customer admin API stops reading/writing
+  `locality` and `province` (columns kept, no longer written; sync contract
+  stays additive-only, replica fields kept and sent as null / derived
+  province name) (route: delegated backend writer).
+- [ ] T3 Web customer form: Province select (organization country) ->
+  City picker filtered by province showing the city name only -> Postal code
+  prefilled from the city when known and still editable; Locality and free
+  text Province removed; editing an existing customer preselects the
+  province of its city; section dividers and spacing; Cities screen edits the
+  postal code (route: delegated web writer).
+- [ ] T3b Customer name and email: single name field driven by the customer
+  type (person -> "Nombre", company -> "Razón social"), contact person for
+  companies; shared email validator (web field with live check, server rule,
+  desktop field) applied to customer, contact, staff and supplier emails
+  (route: delegated backend writer, then delegated web writer).
+- [ ] T4 Desktop customer form: same Province -> City -> Postal code flow
+  and no Locality/Province text boxes in `CustomersView` (route: delegated
+  POS writer).
+- [ ] T5 Desktop management without password: server accepts customer and
+  staff management requests authenticated by the paired device credential
+  plus the signed-in operator id, and authorizes them only when that user
+  exists in the organization, is not revoked, holds `ManageUsers` and has the
+  device's branch in scope; every such mutation is audited with the operator
+  as actor and the device as origin. POS drops the inline password panel from
+  Customers and Staff and shares one management client across sections.
+  Menu entries stay gated by `ShellNavigation.Allowed` (route: delegated
+  backend writer, then delegated POS writer).
+
+## Acceptance criteria
+
+- Signed in as `admin@vacaverde.local`, Price lists, Catalog, Receptions and
+  Stock load for branch Ruta 51 with no `branch-selection-required` error,
+  and the navbar shows the selected branch.
+- New customer: choosing Santa Fe lists only Santa Fe cities; choosing a city
+  with a known postal code fills Postal code; the city is shown as its name
+  only; there is no Locality field.
+- Editing an existing customer with a city shows its province preselected.
+- A company customer shows only "Razón social" and a person only "Nombre".
+- Typing `ana@` shows the email as invalid; `ana@mail.com` shows a green
+  check; the API refuses an invalid email.
+- An organization without an explicit country lists Argentina's provinces.
+- On the desktop, an admin unlocked by PIN opens Staff, then Customers, and
+  is never asked for a password; a cashier does not see either entry.
+- A desktop management request from a revoked operator, an operator without
+  `ManageUsers`, or an operator outside the device's branch is refused.
+
+## Constraints
+
+- TDD: Strict (RED -> GREEN -> REFACTOR), source: global config. Runners:
+  `dotnet test`; `npm test`, `npm run lint`, `npm run build`.
+- Run one test-running writer at a time (shared `commerce_test` deadlocks).
+- Migrations forward-only, idempotent, appended to `deploy/dev/db/init-rls.sql`;
+  sync contract additive-only.
