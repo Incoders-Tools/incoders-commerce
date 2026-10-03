@@ -31,13 +31,92 @@ public sealed record SaleCartResult(bool Succeeded, string? Message = null)
 /// </summary>
 public sealed class SaleCart : INotifyPropertyChanged
 {
-    private readonly PricingResolutionService _pricing;
+    private readonly Func<Guid?, BuyerPricing> _pricingFor;
     private readonly Func<DateOnly> _today;
+    private BuyerPricing _pricing;
 
+    /// <summary>A cart that prices every sale from the one given service (no price lists, no customer rule).</summary>
     public SaleCart(PricingResolutionService pricing, Func<DateOnly>? today = null)
+        : this(_ => new BuyerPricing(pricing, PriceListName: null, CustomerListUnavailable: false), today)
     {
-        _pricing = pricing;
+    }
+
+    /// <summary>
+    /// A cart that prices from the list of its BUYER: <paramref name="pricingFor"/> maps the selected customer (null =
+    /// walk-in) to the pricing of that buyer's list (<see cref="BuyerPricingFactory.For"/>).
+    /// </summary>
+    public SaleCart(Func<Guid?, BuyerPricing> pricingFor, Func<DateOnly>? today = null)
+    {
+        _pricingFor = pricingFor;
         _today = today ?? (() => DateOnly.FromDateTime(DateTime.UtcNow));
+        _pricing = pricingFor(null);
+    }
+
+    /// <summary>The customer the sale is attributed to; null for the walk-in (final consumer).</summary>
+    public Guid? CustomerId { get; private set; }
+
+    /// <summary>The name of the list pricing this sale, or null when the branch prices from its single legacy list.</summary>
+    public string? PriceListName => _pricing.PriceListName;
+
+    /// <summary>"Lista: Mostrador" (with a note when the customer's own list is not available here), or null.</summary>
+    public string? PriceListLabel => _pricing.Label;
+
+    /// <summary>
+    /// The unit price the current buyer's list gives <paramref name="presentationId"/> for one unit (no discount), for the
+    /// catalog cards; null when that list has no price for it. Never a zero.
+    /// </summary>
+    public async Task<decimal?> QuoteUnitPriceAsync(Guid presentationId)
+    {
+        var outcome = await _pricing.Service.ResolveAsync(presentationId, 1m, discountPercentage: null, _today(), CancellationToken.None);
+        return outcome is PriceResolutionOutcome.Resolved resolved ? resolved.UnitNetPrice : null;
+    }
+
+    /// <summary>
+    /// Selects the buyer of the sale (null = walk-in) and re-prices EVERY line from that buyer's list at its current
+    /// quantity. Line discount percentages, the sale discount and their authorization are kept (they were authorized as
+    /// percentages) and their amounts are recomputed over the new totals. If the new list has no price for some line the
+    /// change is refused with the names of those products and nothing changes: no line is ever left at a zero or at the
+    /// price of the other list.
+    /// </summary>
+    public async Task<SaleCartResult> SetCustomerAsync(Guid? customerId)
+    {
+        var pricing = _pricingFor(customerId);
+        var effectiveOn = _today();
+        var repriced = new List<ScannedSaleLineViewModel>(Lines.Count);
+        var unpriced = new List<string>();
+        foreach (var line in Lines.ToList())
+        {
+            var outcome = await pricing.Service.ResolveAsync(line.PresentationId, line.Quantity, discountPercentage: null, effectiveOn, CancellationToken.None);
+            if (outcome is not PriceResolutionOutcome.Resolved resolved)
+            {
+                unpriced.Add($"{line.ProductName} — {line.PresentationName}");
+                continue;
+            }
+
+            repriced.Add(line with
+            {
+                UnitPrice = resolved.UnitNetPrice,
+                LineTotal = resolved.LineTotal,
+                LineDiscountAmount = line.LineDiscountPercent is { } percent ? DiscountMath.Amount(resolved.LineTotal, percent) : null,
+            });
+        }
+
+        if (unpriced.Count > 0)
+        {
+            return SaleCartResult.Fail(
+                $"No se puede cambiar de cliente: {pricing.PriceListName ?? "la lista del cliente"} no tiene precio para {string.Join(", ", unpriced)}. " +
+                "Quite esos productos de la venta o elija otro cliente.");
+        }
+
+        _pricing = pricing;
+        CustomerId = customerId;
+        for (var i = 0; i < repriced.Count; i++)
+        {
+            Lines[i] = repriced[i];
+        }
+
+        RaiseChanged();
+        return SaleCartResult.Ok;
     }
 
     public ObservableCollection<ScannedSaleLineViewModel> Lines { get; } = new();
@@ -134,6 +213,8 @@ public sealed class SaleCart : INotifyPropertyChanged
         Lines.Clear();
         SaleDiscountPercent = null;
         Authorization = null;
+        CustomerId = null;
+        _pricing = _pricingFor(null);
         RaiseChanged();
     }
 
@@ -234,7 +315,7 @@ public sealed class SaleCart : INotifyPropertyChanged
         int existingIndex, Guid presentationId, string? code, string productName, string presentationName, decimal quantity)
     {
         var effectiveOn = _today();
-        var outcome = await _pricing.ResolveAsync(presentationId, quantity, discountPercentage: null, effectiveOn, CancellationToken.None);
+        var outcome = await _pricing.Service.ResolveAsync(presentationId, quantity, discountPercentage: null, effectiveOn, CancellationToken.None);
         if (outcome is not PriceResolutionOutcome.Resolved resolved)
         {
             return SaleCartResult.Fail(
@@ -279,7 +360,7 @@ public sealed class SaleCart : INotifyPropertyChanged
 
     private void RaiseChanged()
     {
-        foreach (var name in new[] { nameof(Total), nameof(Subtotal), nameof(DiscountTotal), nameof(HasDiscount), nameof(IsEmpty) })
+        foreach (var name in new[] { nameof(Total), nameof(Subtotal), nameof(DiscountTotal), nameof(HasDiscount), nameof(IsEmpty), nameof(PriceListLabel), nameof(CustomerId) })
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
         }

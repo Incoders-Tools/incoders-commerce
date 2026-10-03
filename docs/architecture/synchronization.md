@@ -167,6 +167,13 @@ Branch (same RunSyncAsync sweep): ONE tx REPLACE price_lists_replica, price_list
   list; customer -> its list, else the organization default customer list, else the branch default; a list absent from the
   replica is skipped) and `PricingResolutionService` runs over per-list ports (`ReplicaListPriceSource`,
   `ReplicaListRateComponentSource`) that read the replica, so a POS price equals the cloud price for the same buyer.
+- POS sale flow: the sale screen shows "Lista: Mostrador" (walk-in) or "Lista: Reparto" (a selected customer); when the
+  customer's own list is missing from the replica the selector's fallback applies and the label says so ("la lista del cliente
+  no está disponible en esta sucursal"). Selecting or clearing the customer on an OPEN sale re-prices every line from the new
+  buyer's list at its current quantity; line discount percentages, the sale discount and their authorization are kept and
+  the amounts recomputed; if the new list has no price for some line, the change is refused naming those products and the
+  picker returns to the previous buyer. The catalog cards show the current buyer's list price. The POS discount and the
+  branch-PIN authorization are untouched and remain the only way to sell below a floor.
 - Contract v1 is additive: a new endpoint and a new channel; no existing payload or channel changes.
 
 ## Envelope vs. cursor/replica: the selection rule

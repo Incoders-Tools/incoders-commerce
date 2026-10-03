@@ -1,0 +1,101 @@
+using Commerce.Application.Pricing;
+using Commerce.BranchNode;
+using Commerce.Domain.Pricing;
+
+namespace Commerce.Pos.Windows;
+
+/// <summary>
+/// customer-price-lists T4: the <see cref="IEffectivePriceSource"/> port of ONE price list, read from the branch replica.
+/// The list is bound by the instance (like the cloud's), so the base price and the composition are read for the same list
+/// by construction.
+/// </summary>
+public sealed class ReplicaListPriceSource : IEffectivePriceSource
+{
+    private readonly BranchSyncStore _store;
+    private readonly Guid _priceListId;
+
+    public ReplicaListPriceSource(BranchSyncStore store, Guid priceListId)
+    {
+        _store = store;
+        _priceListId = priceListId;
+    }
+
+    public Task<decimal?> GetUnitPriceAsync(Guid presentationId, DateOnly effectiveOn, CancellationToken ct) =>
+        Task.FromResult(_store.GetEffectivePrice(_priceListId, presentationId, effectiveOn));
+}
+
+/// <summary>
+/// The <see cref="IEffectiveRateComponentSource"/> port of ONE price list from the branch replica: the list's own set, else
+/// the organization default, else none (which composes to the base price) — the cloud's rule.
+/// </summary>
+public sealed class ReplicaListRateComponentSource : IEffectiveRateComponentSource
+{
+    private readonly BranchSyncStore _store;
+    private readonly Guid _priceListId;
+
+    public ReplicaListRateComponentSource(BranchSyncStore store, Guid priceListId)
+    {
+        _store = store;
+        _priceListId = priceListId;
+    }
+
+    public Task<RateComponentSet?> GetEffectiveSetAsync(DateOnly effectiveOn, CancellationToken ct) =>
+        Task.FromResult(_store.GetEffectiveRateSet(_priceListId, effectiveOn));
+}
+
+/// <summary>
+/// How one buyer is priced at the POS: the <see cref="PricingResolutionService"/> bound to the buyer's list, the list name
+/// (null on the legacy single-list path) and whether the customer's own list was missing from the replica.
+/// </summary>
+public sealed record BuyerPricing(PricingResolutionService Service, string? PriceListName, bool CustomerListUnavailable)
+{
+    /// <summary>"Lista: Mostrador", with a note when the customer's own list is not in this branch's replica; null on the legacy path.</summary>
+    public string? Label => PriceListName is null
+        ? null
+        : CustomerListUnavailable
+            ? $"Lista: {PriceListName} (la lista del cliente no está disponible en esta sucursal)"
+            : $"Lista: {PriceListName}";
+}
+
+/// <summary>
+/// Chooses the list for a buyer and binds the shared <see cref="PricingResolutionService"/> to it, with the same
+/// <see cref="BuyerPriceListSelector"/> the cloud uses: walk-in -> the branch default list; customer -> its list, else the
+/// organization default customer list, else the branch default; a list absent from the replica is skipped. When the branch
+/// never synced price lists (or has no default), the single legacy list of `price_replica` prices the sale, as before.
+/// </summary>
+public sealed class BuyerPricingFactory
+{
+    private readonly BranchSyncStore _store;
+    private readonly PricingResolutionService _legacy;
+
+    public BuyerPricingFactory(BranchSyncStore store, PricingResolutionService legacy)
+    {
+        _store = store;
+        _legacy = legacy;
+    }
+
+    public BuyerPricing For(Guid? customerId)
+    {
+        var lists = _store.ListPriceLists();
+        var defaultListId = lists.FirstOrDefault(l => l.IsDefault)?.Id;
+        var customerListId = customerId is { } id ? _store.GetCustomerPriceListId(id) : null;
+
+        var selected = BuyerPriceListSelector.Select(
+            isCustomer: customerId is not null,
+            customerListId,
+            _store.GetOrganizationDefaultCustomerPriceListId(),
+            defaultListId,
+            isAvailable: candidate => lists.Any(l => l.Id == candidate));
+        if (selected is not { } listId || lists.FirstOrDefault(l => l.Id == listId) is not { } list)
+        {
+            return new BuyerPricing(_legacy, PriceListName: null, CustomerListUnavailable: false);
+        }
+
+        var customerListMissing = customerListId is { } own && lists.All(l => l.Id != own);
+        return new BuyerPricing(
+            new PricingResolutionService(
+                new ReplicaListPriceSource(_store, listId), new ReplicaListRateComponentSource(_store, listId)),
+            list.Name,
+            customerListMissing);
+    }
+}

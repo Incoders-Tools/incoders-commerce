@@ -149,7 +149,8 @@
                         <TextBlock Text="Venta actual" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" />
                         <StackPanel Grid.Column="1" Orientation="Horizontal">
                             <TextBlock Text="Cliente" Style="{StaticResource MutedTextBlock}" VerticalAlignment="Center" Margin="0,0,8,0" />
-                            <ComboBox x:Name="CustomerPickerComboBox" DisplayMemberPath="Label" MinWidth="190" MaxWidth="240" />
+                            <ComboBox x:Name="CustomerPickerComboBox" DisplayMemberPath="Label" MinWidth="190" MaxWidth="240" SelectionChanged="CustomerPickerComboBox_SelectionChanged" />
+                            <TextBlock x:Name="PriceListText" Style="{StaticResource MutedTextBlock}" VerticalAlignment="Center" Margin="10,0,0,0" MaxWidth="260" TextTrimming="CharacterEllipsis" />
                         </StackPanel>
                     </Grid>
                     <controls:SaleLinesTable x:Name="SaleTable" Grid.Row="1" QuantityEdited="SaleTable_QuantityEdited" LineRemoved="SaleTable_LineRemoved" LineDiscountRequested="SaleTable_LineDiscountRequested" />

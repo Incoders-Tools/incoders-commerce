@@ -124,7 +124,9 @@ public partial class MainWindow : Window
         _pairing = identity.Pairing
             ?? throw new InvalidOperationException("MainWindow requires an already-paired identity; App.xaml.cs must pair first.");
 
-        _cart = new SaleCart(_pricingResolutionService);
+        // customer-price-lists T4: the sale is priced from the list of its buyer (walk-in -> the default list, a selected
+        // customer -> the customer's list), read from the replica with the same compiled code as the cloud.
+        _cart = new SaleCart(new BuyerPricingFactory(_store, _pricingResolutionService).For);
         // Discounts are authorized with the branch PIN cached in branch.db; the
         // branch is read through the pairing so a re-pair is followed.
         _discountAuthorizer = new BranchPinDiscountAuthorizer(_store, () => _pairing.BranchId);
@@ -617,11 +619,73 @@ public partial class MainWindow : Window
         var selectedCustomerId = (CustomerPickerComboBox.SelectedItem as SaleCustomerPickerItem)?.CustomerId;
 
         var items = SaleCustomerPicker.BuildItems(_store.ListCustomers());
-        CustomerPickerComboBox.ItemsSource = items;
-        CustomerPickerComboBox.SelectedIndex = selectedCustomerId is null
-            ? 0
-            : Math.Max(0, items.ToList().FindIndex(i => i.CustomerId == selectedCustomerId));
+        _customerPickerUpdating = true;
+        try
+        {
+            CustomerPickerComboBox.ItemsSource = items;
+            CustomerPickerComboBox.SelectedIndex = selectedCustomerId is null
+                ? 0
+                : Math.Max(0, items.ToList().FindIndex(i => i.CustomerId == selectedCustomerId));
+        }
+        finally
+        {
+            _customerPickerUpdating = false;
+        }
+
+        // The pick that survived the refresh is the buyer of the sale; a customer that vanished falls back to walk-in.
+        var survivor = (CustomerPickerComboBox.SelectedItem as SaleCustomerPickerItem)?.CustomerId;
+        if (survivor != _cart.CustomerId)
+        {
+            _ = ChangeSaleCustomerAsync(survivor);
+        }
     }
+
+    private bool _customerPickerUpdating;
+
+    private async void CustomerPickerComboBox_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (_customerPickerUpdating || CustomerPickerComboBox.SelectedItem is not SaleCustomerPickerItem chosen)
+        {
+            return;
+        }
+
+        await ChangeSaleCustomerAsync(chosen.CustomerId);
+    }
+
+    /// <summary>
+    /// Selecting a customer re-prices the whole open sale from that customer's list (see
+    /// <see cref="SaleCart.SetCustomerAsync"/>). When the new list cannot price some line the change is refused, the
+    /// picker returns to the previous buyer and the operator is told which products block it.
+    /// </summary>
+    private async Task ChangeSaleCustomerAsync(Guid? customerId)
+    {
+        if (customerId != _cart.CustomerId)
+        {
+            var result = await _cart.SetCustomerAsync(customerId);
+            ScanMessageText.Text = result.Succeeded ? string.Empty : result.Message ?? string.Empty;
+            if (!result.Succeeded)
+            {
+                var items = (IReadOnlyList<SaleCustomerPickerItem>)CustomerPickerComboBox.ItemsSource;
+                _customerPickerUpdating = true;
+                try
+                {
+                    CustomerPickerComboBox.SelectedIndex = Math.Max(0, items.ToList().FindIndex(i => i.CustomerId == _cart.CustomerId));
+                }
+                finally
+                {
+                    _customerPickerUpdating = false;
+                }
+            }
+        }
+
+        RefreshCatalogCards();
+        RefreshScannedTotal();
+    }
+
+    /// <summary>The card price is the list price of the current buyer ("Sin precio" when that list has none).</summary>
+    private CatalogPriceReplicaItem Quoted(CatalogPriceReplicaItem item) =>
+        // The replica ports complete synchronously, so waiting here never blocks the UI thread.
+        item with { UnitPrice = _cart.QuoteUnitPriceAsync(item.PresentationId).GetAwaiter().GetResult() };
 
     /// <summary>
     /// Task 7.4/7.6: keyboard-wedge scan handler (design.md "POS scan-to-sell"
@@ -685,7 +749,7 @@ public partial class MainWindow : Window
         _catalogCards.Clear();
         foreach (var item in result.Items)
         {
-            _catalogCards.Add(new ProductCardViewModel(item));
+            _catalogCards.Add(new ProductCardViewModel(Quoted(item)));
         }
 
         ApplyStockToCards();
@@ -870,6 +934,7 @@ public partial class MainWindow : Window
 
     private void RefreshScannedTotal()
     {
+        PriceListText.Text = _cart.PriceListLabel ?? string.Empty;
         TotalsPanelControl.Subtotal = _cart.Subtotal;
         TotalsPanelControl.DiscountTotal = _cart.DiscountTotal;
         TotalsPanelControl.Total = _cart.Total;
