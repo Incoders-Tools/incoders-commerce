@@ -54,6 +54,8 @@ the counter and wholesale + delivery to customers at different prices.
 - [x] T4 POS: replica carries every list's entries and rate components plus customers' list; POS prices walk-in with Mostrador and a selected customer with the customer's list (route: delegated POS writer) - done 44ab064 (replica) + fc9fda4 (POS pricing): new additive channel `price-lists` (`GET /device/pricelists/sync`, snapshot replaced in one SQLite tx with the cursor), `BuyerPricingFactory`/`SaleCart.SetCustomerAsync`, list name on the sale screen; RED compile failures (new types/members absent) then GREEN 6 cloud + 7 store + 4 client/sweep + 13 POS pricing tests, full `dotnet test` 2090 passed / 1 known failure (PublicRateLimitTests...IsUnreachable_AndAppStillStarts) / 0 skipped in Integration.
 - [x] T5 Web: customer form price-list select; price lists screen with composition breakdown, copy with new markup, composition edit, floor list and violations (route: delegated web writer) - done a734d38 (composition UI) + b857742 (customer/settings selects); RED 7 + 5 + 2 failing, GREEN 7 composition + 3 customer form + 2 customers screen + 2 settings tests; `npm test` 547 passed (74 files), `npm run lint` 0 errors (warnings pre-existing pattern), `npm run build` ok.
 
+- [ ] T6 Price fallback: when the buyer's list has no effective price for a presentation, price it from the organization default list (Mostrador) with that list's composition, then the customer discount; same rule in the cloud and the POS (shared Application code); record which list priced each line; POS customer change no longer refused for missing prices (route: delegated writer)
+
 ## Acceptance criteria
 
 - Bola de lomo: Reparto 16.530 (11.400 x 1,45); Mostrador 16.872 (11.400 x 1,48).
@@ -90,7 +92,7 @@ All six slices approved and acknowledged: A data + seed `29e0b30..5a10db3` (`rev
 ## Follow-ups (non-blocking review findings, most relevant)
 
 - [ ] L1 POS: clearing the sale resets the cart to walk-in but the customer picker keeps the old customer; a vanished customer can also desync picker and cart (`SaleCart.cs:216-217`, `MainWindow.xaml.cs:662-679`).
-- [ ] L2 A customer whose list has no price for a product cannot buy it (no fallback to another list) (`PostgresPriceListStore.cs:179-192`) - owner decision pending.
+- [ ] L2 (-> T6) A customer whose list has no price for a product cannot buy it (`PostgresPriceListStore.cs:179-192`). Owner decision 2026-10-03: fall back to the organization default list (Mostrador).
 - [ ] L3 Replica and composition use the UTC date: between 21:00 and 24:00 Argentina time tomorrow's prices/sets apply early (`Device.cs:443-444`, `PriceListCompositionEndpoints.cs:393`).
 - [ ] L4 Floor check runs outside the write transaction (TOCTOU) and only at the change's effective date; import floor check untested (`PriceListCompositionEndpoints.cs:176-181`, `Pricing.cs:270-278`, `558-568`).
 - [ ] L5 Organization settings PUT can lose a concurrent update (`Account.cs:485-486`).
