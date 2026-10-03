@@ -69,6 +69,10 @@
       "label": "Lista por defecto para clientes nuevos",
       "hint": "Los clientes nuevos empiezan con esta lista de precios; después se puede cambiar cliente por cliente.",
       "none": "Sin lista"
+    },
+    "country": {
+      "label": "País",
+      "hint": "Las provincias y ciudades de los formularios son las de este país."
     }
   }
 }

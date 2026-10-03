@@ -43,8 +43,8 @@ test.describe('order submission', () => {
     const createResponse = await page.request.post('/customers', {
       data: {
         customerKind: 'Retail',
+        partyType: 'Person',
         displayName: 'E2E Order Customer',
-        legalName: null,
         taxIdType: 'None',
         taxId: null,
         taxCondition: 'ConsumidorFinal',
@@ -53,8 +53,6 @@ test.describe('order submission', () => {
         addressStreet: null,
         addressNumber: null,
         neighborhood: null,
-        locality: null,
-        province: null,
         postalCode: null,
         deliveryNotes: null,
         discountPercentage: null,

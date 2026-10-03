@@ -3,6 +3,9 @@ export interface CityOption {
   id: string
   name: string
   provinceName: string
+  provinceId?: string
+  /** Known postal code of the city, if any: a form may prefill its own postal code with it. */
+  postalCode?: string | null
 }
 
 /** "Name — Province" (just the name when the province is unknown). */

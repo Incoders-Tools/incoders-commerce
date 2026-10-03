@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { FormPage } from '@/components/layout/FormPage'
 import { CityPicker, type CityOption } from '@/components/geo/CityPicker'
 import { CatalogSelect, Field, FormSection } from '@/components/form/FormParts'
+import { EmailField } from '@/components/form/EmailField'
 import { selectableEntries } from '@/components/form/selectableEntries'
 import { createSupplier, getSupplier, updateSupplier } from '@/api/suppliers'
 import { ApiError } from '@/api/client'
@@ -18,8 +19,10 @@ import {
   type SupplierContactInput,
   type SupplierRecord,
 } from '@/api/types'
+import { emailStatus } from '@/lib/email'
 import { isValidTaxId } from '@/lib/taxId'
 import { ContactsEditor, draftsFromContacts, type ContactDraft } from './ContactsEditor'
+import { invalidEmailKeys, keepUnchangedEmailFlags, refusedEmailKeys } from './contactEmails'
 
 /** The server's "no value" sentinel for a nullable id on PUT (an omitted id keeps the stored one). */
 const NO_ID = '00000000-0000-0000-0000-000000000000'
@@ -88,6 +91,7 @@ export function SupplierForm({ supplier, categories = [], onSaved, onCancel, onR
   const [isEnabled, setIsEnabled] = useState(supplier?.isEnabled ?? true)
   const [error, setError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
+  const [invalidContactEmailKeys, setInvalidContactEmailKeys] = useState<ReadonlySet<string>>(new Set())
   const [submitting, setSubmitting] = useState(false)
 
   const clearFieldError = (name: string) => setFieldErrors((current) => ({ ...current, [name]: '' }))
@@ -102,8 +106,11 @@ export function SupplierForm({ supplier, categories = [], onSaved, onCancel, onR
     )
     const missingFirstName = filledContacts.filter((c) => c.firstName.trim() === '')
     setInvalidContactKeys(new Set(missingFirstName.map((c) => c.key)))
+    const badContactEmails = invalidEmailKeys(filledContacts)
+    setInvalidContactEmailKeys(badContactEmails)
 
     const errors: Record<string, string> = {}
+    if (emailStatus(email) === 'invalid') errors.email = t('common:email.invalid')
     if (!isValidTaxId(taxIdType, taxId)) {
       errors.taxId = t(taxIdType === TaxIdType.Dni ? 'form.errors.dniInvalid' : 'form.errors.cuitInvalid')
     }
@@ -111,7 +118,7 @@ export function SupplierForm({ supplier, categories = [], onSaved, onCancel, onR
     if (!isValidCbu(bankCbu)) errors.bankCbu = t('form.errors.cbuInvalid')
     if (!isValidAlias(bankAlias)) errors.bankAlias = t('form.errors.aliasInvalid')
     setFieldErrors(errors)
-    if (missingFirstName.length > 0 || Object.keys(errors).length > 0) return
+    if (missingFirstName.length > 0 || badContactEmails.size > 0 || Object.keys(errors).length > 0) return
 
     setSubmitting(true)
     try {
@@ -125,7 +132,7 @@ export function SupplierForm({ supplier, categories = [], onSaved, onCancel, onR
           ? { cityId: city?.id ?? NO_ID, categoryId: categoryId || NO_ID }
           : { ...(city ? { cityId: city.id } : {}), ...(categoryId ? { categoryId } : {}) }),
         phone: phone || null,
-        email: email || null,
+        email: email.trim() || null,
         addressStreet: addressStreet || null,
         addressNumber: addressNumber || null,
         neighborhood: neighborhood || null,
@@ -160,8 +167,15 @@ export function SupplierForm({ supplier, categories = [], onSaved, onCancel, onR
       }
       onSaved()
     } catch (err) {
+      const refusedContacts =
+        err instanceof ApiError && err.status === 400 ? refusedEmailKeys(filledContacts, err.fieldErrors?.contacts) : new Set<string>()
+      const refusedEmail = err instanceof ApiError && err.status === 400 && err.fieldErrors?.email !== undefined
       if (err instanceof ApiError && err.status === 409 && err.code === 'supplier-modified') {
         setConflict(true)
+      } else if (refusedEmail || refusedContacts.size > 0) {
+        // The refused emails are flagged on their own fields.
+        if (refusedEmail) setFieldErrors((current) => ({ ...current, email: t('common:email.invalid') }))
+        setInvalidContactEmailKeys(refusedContacts)
       } else {
         setError(err instanceof ApiError ? err.message : t('errors.unexpectedSave'))
       }
@@ -201,11 +215,28 @@ export function SupplierForm({ supplier, categories = [], onSaved, onCancel, onR
 
         <FormSection title={t('form.sections.contact')}>
           <Field id="phone" label={t('form.fields.phone')} value={phone} onChange={setPhone} />
-          <Field id="email" label={t('form.fields.email')} value={email} onChange={setEmail} />
+          <EmailField
+            id="email"
+            label={t('form.fields.email')}
+            value={email}
+            onChange={(value) => {
+              setEmail(value)
+              clearFieldError('email')
+            }}
+            error={fieldErrors.email || null}
+          />
         </FormSection>
 
         <FormSection title={t('form.sections.contacts')} wide>
-          <ContactsEditor contacts={contacts} onChange={setContacts} invalidKeys={invalidContactKeys} />
+          <ContactsEditor
+            contacts={contacts}
+            onChange={(next) => {
+              setInvalidContactEmailKeys((flagged) => keepUnchangedEmailFlags(flagged, contacts, next))
+              setContacts(next)
+            }}
+            invalidKeys={invalidContactKeys}
+            invalidEmailKeys={invalidContactEmailKeys}
+          />
         </FormSection>
 
         <FormSection title={t('form.sections.address')}>

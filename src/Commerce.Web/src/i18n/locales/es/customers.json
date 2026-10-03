@@ -57,8 +57,10 @@
     },
     "fields": {
       "customerKind": "Tipo de cliente",
-      "displayName": "Nombre",
-      "legalName": "Razón social",
+      "partyType": "Persona o empresa",
+      "personName": "Nombre y apellido",
+      "companyName": "Razón social",
+      "companyNameHint": "El nombre de la persona con quien tratás va en Personas de contacto.",
       "taxIdType": "Tipo de identificación fiscal",
       "taxId": "CUIT/CUIL",
       "taxCondition": "Condición fiscal",
@@ -67,7 +69,6 @@
       "addressStreet": "Calle",
       "addressNumber": "Número",
       "neighborhood": "Barrio",
-      "locality": "Localidad",
       "province": "Provincia",
       "postalCode": "Código postal",
       "deliveryNotes": "Notas de entrega",
@@ -117,7 +118,13 @@
       "reloadFailed": "No se pudo recargar el cliente."
     },
     "noPriceList": "Sin lista (usa la predeterminada)",
-    "otherBranchList": "Lista de otra sucursal"
+    "otherBranchList": "Lista de otra sucursal",
+    "partyTypeOptions": {
+      "person": "Persona",
+      "company": "Empresa"
+    },
+    "provincePlaceholder": "Elegí una provincia",
+    "cityNeedsProvince": "Primero elegí la provincia"
   },
   "filters": {
     "city": "Ciudad",

@@ -24,6 +24,11 @@ interface CityPickerProps {
   /** Visually hide the label (a toolbar filter that is named by its placeholder). */
   hideLabel?: boolean
   className?: string
+  /** Search only this province's cities. */
+  provinceId?: string
+  /** Show "Name — Province" (default) or, when the province is already chosen elsewhere, the name alone. */
+  showProvince?: boolean
+  disabled?: boolean
 }
 
 /**
@@ -31,9 +36,22 @@ interface CityPickerProps {
  * The catalog has ~4000 entries, so it is never loaded whole: the server
  * searches while the user types. The current value is rendered from the
  * `value` the parent already holds (e.g. a customer's cityName/provinceName),
- * so showing it costs no request.
+ * so showing it costs no request. Limited to one province it lists bare
+ * names, and a name the results repeat carries its department as secondary
+ * text so the two can be told apart.
  */
-export function CityPicker({ label, value, onChange, id, placeholder, hideLabel = false, className }: CityPickerProps) {
+export function CityPicker({
+  label,
+  value,
+  onChange,
+  id,
+  placeholder,
+  hideLabel = false,
+  className,
+  provinceId,
+  showProvince = true,
+  disabled = false,
+}: CityPickerProps) {
   const { t } = useTranslation('cities')
   const generatedId = useId()
   const inputId = id ?? `city-picker-${generatedId}`
@@ -49,7 +67,7 @@ export function CityPicker({ label, value, onChange, id, placeholder, hideLabel 
   useEffect(() => {
     if (!open) return
     let current = true
-    listCities({ search: debouncedQuery, limit: RESULT_LIMIT }).then(
+    listCities({ search: debouncedQuery, provinceId, limit: RESULT_LIMIT }).then(
       (cities) => {
         if (!current) return
         setResults(cities)
@@ -63,7 +81,7 @@ export function CityPicker({ label, value, onChange, id, placeholder, hideLabel 
     return () => {
       current = false
     }
-  }, [open, debouncedQuery])
+  }, [open, debouncedQuery, provinceId])
 
   useEffect(() => {
     if (!open) return
@@ -81,9 +99,23 @@ export function CityPicker({ label, value, onChange, id, placeholder, hideLabel 
   }
 
   const choose = (city: GeoCity) => {
-    onChange({ id: city.id, name: city.name, provinceName: city.provinceName })
+    onChange({
+      id: city.id,
+      name: city.name,
+      provinceName: city.provinceName,
+      provinceId: city.provinceId,
+      postalCode: city.postalCode ?? null,
+    })
     close()
   }
+
+  const optionLabel = (city: Pick<CityOption, 'name' | 'provinceName'>) => (showProvince ? cityLabel(city) : city.name)
+  const nameCounts = new Map<string, number>()
+  for (const city of results ?? []) {
+    const key = city.name.toLocaleLowerCase()
+    nameCounts.set(key, (nameCounts.get(key) ?? 0) + 1)
+  }
+  const isRepeated = (city: GeoCity) => (nameCounts.get(city.name.toLocaleLowerCase()) ?? 0) > 1
 
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     const count = results?.length ?? 0
@@ -120,16 +152,19 @@ export function CityPicker({ label, value, onChange, id, placeholder, hideLabel 
           aria-autocomplete="list"
           aria-activedescendant={activeOptionId}
           placeholder={placeholder}
-          value={open ? query : value ? cityLabel(value) : ''}
+          disabled={disabled}
+          value={open ? query : value ? optionLabel(value) : ''}
           className={value ? 'pr-9' : undefined}
           onFocus={() => setOpen(true)}
+          // Focus stays in the input after a choice: a click must reopen the list too.
+          onClick={() => setOpen(true)}
           onChange={(event) => {
             setQuery(event.target.value)
             setOpen(true)
           }}
           onKeyDown={handleKeyDown}
         />
-        {value && (
+        {value && !disabled && (
           <button
             type="button"
             aria-label={t('picker.clear')}
@@ -155,7 +190,13 @@ export function CityPicker({ label, value, onChange, id, placeholder, hideLabel 
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => choose(city)}
               >
-                {cityLabel(city)}
+                {optionLabel(city)}
+                {isRepeated(city) && city.departmentName && (
+                  <>
+                    {' '}
+                    <span className="text-xs text-muted-foreground">{city.departmentName}</span>
+                  </>
+                )}
               </li>
             ))}
           </ul>

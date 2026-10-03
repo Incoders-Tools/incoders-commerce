@@ -49,6 +49,21 @@ describe('OrganizationSettingsScreen', () => {
     expect(fetchMock.mock.calls.map(([url]) => url)).toContain('/account/organization/settings')
   })
 
+  it('shows the organization country, read-only, and never sends it', async () => {
+    settings = { quantityDecimalSeparator: 'Comma', defaultCustomerPriceListId: null, countryCode: 'AR' }
+    const user = userEvent.setup()
+    render(<OrganizationSettingsScreen />)
+
+    const country = await screen.findByLabelText('País')
+    await waitFor(() => expect(country).toHaveValue('Argentina'))
+    expect(country).toHaveAttribute('readonly')
+    await waitFor(() => expect(screen.getByLabelText('Formato de números')).toBeEnabled())
+    await user.click(screen.getByRole('button', { name: 'Guardar' }))
+
+    await waitFor(() => expect(putBodies()).toHaveLength(1))
+    expect(putBodies()[0]).not.toHaveProperty('countryCode')
+  })
+
   it('saves the chosen format', async () => {
     const user = userEvent.setup()
     render(<OrganizationSettingsScreen />)

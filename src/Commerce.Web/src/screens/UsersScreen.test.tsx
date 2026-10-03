@@ -102,6 +102,25 @@ describe('UsersScreen', () => {
     })
   })
 
+  it('checks the new user email while typing and does not create while it is invalid', async () => {
+    listOnce([])
+
+    const user = userEvent.setup()
+    renderScreen()
+
+    await screen.findByText('Todavía no hay usuarios.')
+    const email = screen.getByLabelText('Correo electrónico del usuario')
+    await user.type(email, 'staff@example')
+    await user.type(screen.getByLabelText('Contraseña del usuario'), 'correct-horse-battery-staple')
+    await user.click(screen.getByRole('button', { name: 'Crear usuario' }))
+
+    expect(email).toHaveAttribute('aria-invalid', 'true')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    await user.type(email, '.com')
+    expect(email).toHaveAccessibleDescription('Correo electrónico válido')
+  })
+
   it('saves the selected roles for a listed user', async () => {
     listOnce([seller]).mockResolvedValueOnce(new Response(null, { status: 204 }))
     listOnce([seller])

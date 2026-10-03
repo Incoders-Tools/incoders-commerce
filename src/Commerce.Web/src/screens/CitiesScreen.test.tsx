@@ -17,6 +17,7 @@ const rosario: GeoCity = {
   provinceName: 'Santa Fe',
   countryCode: 'AR',
   departmentName: 'Rosario',
+  postalCode: '2000',
   isActive: true,
   createdAtUtc: '2024-03-15T12:00:00Z',
   updatedAtUtc: '2024-04-20T12:00:00Z',
@@ -28,6 +29,7 @@ const funes: GeoCity = {
   indecId: null,
   name: 'Funes',
   departmentName: null,
+  postalCode: null,
   isActive: false,
 }
 
@@ -71,6 +73,8 @@ describe('CitiesScreen (core geography, system administrator)', () => {
     const rows = within(screen.getByRole('table')).getAllByRole('row')
     expect(within(rows[1]).getByText('Santa Fe')).toBeInTheDocument()
     expect(within(rows[1]).getByText('82084010')).toBeInTheDocument()
+    expect(within(rows[1]).getByText('2000')).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: 'Código postal' })).toBeInTheDocument()
     expect(within(rows[1]).getByText('Activa')).toBeInTheDocument()
     expect(within(rows[1]).getByText(/20\/04\/2024/)).toBeInTheDocument()
     expect(within(rows[2]).getByText('Inactiva')).toBeInTheDocument()
@@ -127,6 +131,7 @@ describe('CitiesScreen (core geography, system administrator)', () => {
     await user.type(screen.getByLabelText('Nombre'), 'Funes')
     await user.selectOptions(await screen.findByRole('combobox', { name: 'Provincia' }), '82')
     await user.type(screen.getByLabelText('Departamento'), 'Rosario')
+    await user.type(screen.getByLabelText('Código postal'), 's2132abc')
     await user.click(screen.getByRole('button', { name: 'Guardar' }))
 
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Ciudades' })).toBeInTheDocument())
@@ -136,6 +141,7 @@ describe('CitiesScreen (core geography, system administrator)', () => {
       name: 'Funes',
       provinceId: '82',
       departmentName: 'Rosario',
+      postalCode: 'S2132ABC',
       isActive: true,
     })
   })
@@ -151,14 +157,60 @@ describe('CitiesScreen (core geography, system administrator)', () => {
     expect(screen.getByLabelText('Nombre')).toHaveValue('Rosario')
     expect(screen.getByRole('combobox', { name: 'Provincia' })).toHaveValue('82')
     expect(screen.getByText('Código INDEC: 82084010')).toBeInTheDocument()
+    expect(screen.getByLabelText('Código postal')).toHaveValue('2000')
 
     await user.clear(screen.getByLabelText('Departamento'))
+    await user.clear(screen.getByLabelText('Código postal'))
     await user.click(screen.getByRole('button', { name: 'Guardar' }))
 
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Ciudades' })).toBeInTheDocument())
     const put = fetchMock.mock.calls.find((call) => call[1]?.method === 'PUT')!
     expect(put[0]).toBe(`/geo/cities/${rosario.id}`)
-    expect(JSON.parse(put[1].body)).toEqual({ name: 'Rosario', provinceId: '82', departmentName: '', isActive: true })
+    expect(JSON.parse(put[1].body)).toEqual({
+      name: 'Rosario',
+      provinceId: '82',
+      departmentName: '',
+      postalCode: '',
+      isActive: true,
+    })
+  })
+
+  it('refuses a malformed postal code before calling the API', async () => {
+    cityPages = () => []
+    const user = userEvent.setup()
+    render(<CitiesScreen />)
+    await screen.findByText('Todavía no hay ciudades.')
+
+    await user.click(screen.getByRole('button', { name: 'Nueva ciudad' }))
+    await user.type(screen.getByLabelText('Nombre'), 'Funes')
+    await user.selectOptions(await screen.findByRole('combobox', { name: 'Provincia' }), '82')
+    await user.type(screen.getByLabelText('Código postal'), '213')
+    await user.click(screen.getByRole('button', { name: 'Guardar' }))
+
+    const postalCode = screen.getByLabelText('Código postal')
+    expect(postalCode).toHaveAttribute('aria-invalid', 'true')
+    expect(postalCode).toHaveAccessibleDescription(/4 dígitos/)
+    expect(fetchMock.mock.calls.some((call) => call[1]?.method === 'POST')).toBe(false)
+  })
+
+  it('puts a postal code the server refused on that field', async () => {
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url === '/geo/provinces') return json(provinces)
+      if (init?.method === 'POST') return json({ errors: { postalCode: ['postalCode is invalid.'] } }, 400)
+      return json([])
+    })
+    const user = userEvent.setup()
+    render(<CitiesScreen />)
+    await screen.findByText('Todavía no hay ciudades.')
+
+    await user.click(screen.getByRole('button', { name: 'Nueva ciudad' }))
+    await user.type(screen.getByLabelText('Nombre'), 'Funes')
+    await user.selectOptions(await screen.findByRole('combobox', { name: 'Provincia' }), '82')
+    await user.type(screen.getByLabelText('Código postal'), '2132')
+    await user.click(screen.getByRole('button', { name: 'Guardar' }))
+
+    await waitFor(() => expect(screen.getByLabelText('Código postal')).toHaveAttribute('aria-invalid', 'true'))
+    expect(screen.getByRole('heading', { name: 'Nueva ciudad' })).toBeInTheDocument()
   })
 
   it('deactivates a city from the list keeping everything else', async () => {

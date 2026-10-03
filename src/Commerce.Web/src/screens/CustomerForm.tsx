@@ -10,17 +10,22 @@ import { createCustomer, getCustomer, updateCustomer } from '@/api/customers'
 import { ApiError } from '@/api/client'
 import {
   CustomerKind,
+  PartyType,
   TaxCondition,
   TaxIdType,
   type CustomerContactInput,
   type CustomerRecord,
+  type GeoProvince,
   type MasterDataEntry,
   type PriceListRecord,
 } from '@/api/types'
 import { CatalogSelect, Field, FormSection } from '@/components/form/FormParts'
+import { EmailField } from '@/components/form/EmailField'
 import { selectableEntries } from '@/components/form/selectableEntries'
+import { emailStatus } from '@/lib/email'
 import { isValidTaxId } from '@/lib/taxId'
 import { ContactsEditor, draftsFromContacts, type ContactDraft } from './ContactsEditor'
+import { invalidEmailKeys, keepUnchangedEmailFlags, refusedEmailKeys } from './contactEmails'
 
 /** The server's "no value" sentinel for a nullable id on PUT (an omitted id keeps the stored one). */
 const NO_ID = '00000000-0000-0000-0000-000000000000'
@@ -31,6 +36,8 @@ interface CustomerFormProps {
   businessTypes?: MasterDataEntry[]
   /** Price lists visible to the branch (loaded by the parent screen). */
   priceLists?: PriceListRecord[]
+  /** The provinces of the organization's country (loaded by the parent screen). */
+  provinces?: GeoProvince[]
   /** The organization's default customer list: preselected for a new customer. */
   defaultPriceListId?: string | null
   onSaved: () => void
@@ -62,11 +69,17 @@ interface CustomerFormProps {
  * Comercial and Observaciones. City is a server-searched `CityPicker`; business type is a
  * select over the catalog the parent screen loads (container-presentational). On edit an omitted field would keep the
  * stored value, so clearing sends the empty-id sentinel / empty string.
+ *
+ * admin-console-field-fixes: one name field, labelled by the Person / Company choice (a company's people go in
+ * the contacts). The address goes Province -> City (only that province's, by name) -> Postal code, prefilled from
+ * the city when it has one; the province is not sent, it follows from the city. Every email uses `EmailField` and
+ * an invalid one blocks the submit.
  */
 export function CustomerForm({
   customer,
   businessTypes = [],
   priceLists = [],
+  provinces = [],
   defaultPriceListId = null,
   onSaved,
   onCancel,
@@ -76,10 +89,11 @@ export function CustomerForm({
   const isEdit = customer !== undefined
 
   const [customerKind, setCustomerKind] = useState<CustomerKind>(customer?.customerKind ?? CustomerKind.Retail)
+  const [partyType, setPartyType] = useState<PartyType>(customer?.partyType ?? PartyType.Person)
   const [displayName, setDisplayName] = useState(customer?.displayName ?? '')
-  const [legalName, setLegalName] = useState(customer?.legalName ?? '')
   const [contacts, setContacts] = useState<ContactDraft[]>(() => draftsFromContacts(customer?.contacts ?? []))
   const [invalidContactKeys, setInvalidContactKeys] = useState<ReadonlySet<string>>(new Set())
+  const [invalidContactEmailKeys, setInvalidContactEmailKeys] = useState<ReadonlySet<string>>(new Set())
   const [conflict, setConflict] = useState(false)
   const [reloadError, setReloadError] = useState<string | null>(null)
   // Cities are a ~4000-entry core catalog searched on the server by the
@@ -87,9 +101,22 @@ export function CustomerForm({
   // cityName/provinceName at edit, so showing it costs no request).
   const [city, setCity] = useState<CityOption | null>(
     customer?.cityId && customer.cityName
-      ? { id: customer.cityId, name: customer.cityName, provinceName: customer.provinceName ?? '' }
+      ? {
+          id: customer.cityId,
+          name: customer.cityName,
+          provinceName: customer.provinceName ?? '',
+          provinceId: customer.provinceId ?? undefined,
+        }
       : null,
   )
+  const [provinceId, setProvinceId] = useState(customer?.provinceId ?? '')
+  // The customer's own province stays selectable even before (or without) the catalog.
+  const provinceOptions =
+    provinceId !== '' && !provinces.some((province) => province.id === provinceId)
+      ? [...provinces, { id: provinceId, name: customer?.provinceName ?? provinceId }]
+      : provinces
+  // With no province catalog (it failed to load) the city is searched across the country instead of locked.
+  const cityLocked = provinces.length > 0 && provinceId === ''
   const [businessTypeId, setBusinessTypeId] = useState(customer?.businessTypeId ?? '')
   // Until the operator chooses, a new customer shows the organization default (which may arrive after the form
   // opens) and an existing one its own list.
@@ -104,12 +131,13 @@ export function CustomerForm({
   const [taxCondition, setTaxCondition] = useState<TaxCondition>(customer?.taxCondition ?? TaxCondition.NoAplica)
   const [phone, setPhone] = useState(customer?.phone ?? '')
   const [email, setEmail] = useState(customer?.email ?? '')
+  const [emailError, setEmailError] = useState<string | null>(null)
   const [addressStreet, setAddressStreet] = useState(customer?.addressStreet ?? '')
   const [addressNumber, setAddressNumber] = useState(customer?.addressNumber ?? '')
   const [neighborhood, setNeighborhood] = useState(customer?.neighborhood ?? '')
-  const [locality, setLocality] = useState(customer?.locality ?? '')
-  const [province, setProvince] = useState(customer?.province ?? '')
   const [postalCode, setPostalCode] = useState(customer?.postalCode ?? '')
+  /** Whether the postal code shown came from the chosen city (so it follows the city) rather than from the user. */
+  const [postalCodeFromCity, setPostalCodeFromCity] = useState(false)
   const [deliveryNotes, setDeliveryNotes] = useState(customer?.deliveryNotes ?? '')
   const [discountPercentage, setDiscountPercentage] = useState(
     customer?.discountPercentage !== null && customer?.discountPercentage !== undefined
@@ -123,6 +151,32 @@ export function CustomerForm({
   const [taxIdError, setTaxIdError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
+  const chooseCity = (next: CityOption | null) => {
+    // Picking the same city again keeps whatever postal code the user typed for it.
+    if (next?.id === city?.id) {
+      setCity(next)
+      return
+    }
+    setCity(next)
+    if (next?.postalCode) {
+      setPostalCode(next.postalCode)
+      setPostalCodeFromCity(true)
+    } else if (postalCodeFromCity) {
+      setPostalCode('')
+      setPostalCodeFromCity(false)
+    }
+  }
+
+  const chooseProvince = (next: string) => {
+    setProvinceId(next)
+    if (city && city.provinceId !== next) chooseCity(null)
+  }
+
+  const changeContacts = (next: ContactDraft[]) => {
+    setInvalidContactEmailKeys((flagged) => keepUnchangedEmailFlags(flagged, contacts, next))
+    setContacts(next)
+  }
+
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault()
     setError(null)
@@ -134,7 +188,11 @@ export function CustomerForm({
     )
     const missingFirstName = filledContacts.filter((c) => c.firstName.trim() === '')
     setInvalidContactKeys(new Set(missingFirstName.map((c) => c.key)))
-    if (missingFirstName.length > 0) return
+    const badContactEmails = invalidEmailKeys(filledContacts)
+    setInvalidContactEmailKeys(badContactEmails)
+    const badEmail = emailStatus(email) === 'invalid'
+    setEmailError(badEmail ? t('common:email.invalid') : null)
+    if (missingFirstName.length > 0 || badContactEmails.size > 0 || badEmail) return
     if (!isValidTaxId(taxIdType, taxId)) {
       setTaxIdError(t(taxIdType === TaxIdType.Dni ? 'form.errors.dniInvalid' : 'form.errors.cuitInvalid'))
       return
@@ -143,8 +201,8 @@ export function CustomerForm({
     setSubmitting(true)
     try {
       const shared = {
+        partyType,
         displayName,
-        legalName: legalName || null,
         taxIdType,
         taxId: taxIdType === TaxIdType.None ? null : taxId.trim(),
         taxCondition,
@@ -158,13 +216,11 @@ export function CustomerForm({
               ...(priceListId ? { priceListId } : {}),
             }),
         phone: phone || null,
-        email: email || null,
+        email: email.trim() || null,
         addressStreet: addressStreet || null,
         addressNumber: addressNumber || null,
         neighborhood: neighborhood || null,
-        locality: locality || null,
-        province: province || null,
-        postalCode: postalCode || null,
+        postalCode: postalCode.trim() || null,
         deliveryNotes: deliveryNotes || null,
         discountPercentage: discountPercentage === '' ? null : Number(discountPercentage),
         paymentTerms: paymentTerms || null,
@@ -200,12 +256,23 @@ export function CustomerForm({
     } catch (err) {
       if (err instanceof ApiError && err.status === 409 && err.code === 'customer-modified') {
         setConflict(true)
+      } else if (err instanceof ApiError && err.status === 400 && showRefusedEmails(err.fieldErrors, filledContacts)) {
+        // The refused emails are flagged on their own fields.
       } else {
         setError(err instanceof ApiError ? err.message : t('errors.unexpectedSave'))
       }
     } finally {
       setSubmitting(false)
     }
+  }
+
+  /** Flags the emails a 400 refused on their fields; false when the refusal is about something else. */
+  const showRefusedEmails = (fieldErrors: Record<string, string[]> | undefined, sent: ContactDraft[]) => {
+    const refusedContacts = refusedEmailKeys(sent, fieldErrors?.contacts)
+    const refusedEmail = fieldErrors?.email !== undefined
+    if (refusedEmail) setEmailError(t('common:email.invalid'))
+    setInvalidContactEmailKeys(refusedContacts)
+    return refusedEmail || refusedContacts.size > 0
   }
 
   const handleReload = async () => {
@@ -224,7 +291,7 @@ export function CustomerForm({
       onBack={onCancel}
       backLabel={t('form.backLabel')}
     >
-      <form className="flex flex-col gap-8" onSubmit={handleSubmit}>
+      <form className="flex flex-col gap-10" onSubmit={handleSubmit}>
         <FormSection title={t('form.sections.identity')}>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="customerKind">{t('form.fields.customerKind')}</Label>
@@ -239,34 +306,103 @@ export function CustomerForm({
             </Select>
           </div>
 
-          <Field id="displayName" label={t('form.fields.displayName')} value={displayName} onChange={setDisplayName} required />
-          <Field id="legalName" label={t('form.fields.legalName')} value={legalName} onChange={setLegalName} />
+          <fieldset className="flex flex-col gap-1.5">
+            <legend className="mb-1.5 text-sm font-medium leading-none text-foreground">
+              {t('form.fields.partyType')}
+            </legend>
+            <div className="flex h-9 items-center gap-6">
+              {[PartyType.Person, PartyType.Company].map((option) => (
+                <div key={option} className="flex items-center gap-2">
+                  <input
+                    id={`partyType-${option}`}
+                    type="radio"
+                    name="partyType"
+                    value={option}
+                    checked={partyType === option}
+                    onChange={() => setPartyType(option)}
+                  />
+                  <Label htmlFor={`partyType-${option}`}>
+                    {t(option === PartyType.Company ? 'form.partyTypeOptions.company' : 'form.partyTypeOptions.person')}
+                  </Label>
+                </div>
+              ))}
+            </div>
+          </fieldset>
+
+          <Field
+            id="displayName"
+            label={partyType === PartyType.Company ? t('form.fields.companyName') : t('form.fields.personName')}
+            hint={partyType === PartyType.Company ? t('form.fields.companyNameHint') : undefined}
+            value={displayName}
+            onChange={setDisplayName}
+            required
+          />
         </FormSection>
 
         <FormSection title={t('form.sections.contact')}>
           <Field id="phone" label={t('form.fields.phone')} value={phone} onChange={setPhone} />
-          <Field id="email" label={t('form.fields.email')} value={email} onChange={setEmail} />
+          <EmailField
+            id="email"
+            label={t('form.fields.email')}
+            value={email}
+            onChange={(value) => {
+              setEmail(value)
+              setEmailError(null)
+            }}
+            error={emailError}
+          />
         </FormSection>
 
         <FormSection title={t('form.sections.contacts')} wide>
-          <ContactsEditor contacts={contacts} onChange={setContacts} invalidKeys={invalidContactKeys} />
+          <ContactsEditor
+            contacts={contacts}
+            onChange={changeContacts}
+            invalidKeys={invalidContactKeys}
+            invalidEmailKeys={invalidContactEmailKeys}
+          />
         </FormSection>
 
-        <FormSection title={t('form.sections.address')}>
-          <CityPicker id="cityId" label={t('form.fields.city')} value={city} onChange={setCity} />
-          <Field id="locality" label={t('form.fields.locality')} value={locality} onChange={setLocality} />
-          <Field id="province" label={t('form.fields.province')} value={province} onChange={setProvince} />
-          <Field id="addressStreet" label={t('form.fields.addressStreet')} value={addressStreet} onChange={setAddressStreet} />
-          <Field id="addressNumber" label={t('form.fields.addressNumber')} value={addressNumber} onChange={setAddressNumber} />
-          <Field id="neighborhood" label={t('form.fields.neighborhood')} value={neighborhood} onChange={setNeighborhood} />
-          <Field id="postalCode" label={t('form.fields.postalCode')} value={postalCode} onChange={setPostalCode} />
-          <Field
-            id="deliveryNotes"
-            label={t('form.fields.deliveryNotes')}
-            value={deliveryNotes}
-            onChange={setDeliveryNotes}
-            className="md:col-span-2"
-          />
+        <FormSection title={t('form.sections.address')} wide>
+          {/* Three rows: Province, City, Postal code / Neighborhood, Street, Number / Delivery notes. */}
+          <div className="grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-3">
+            <CatalogSelect
+              id="provinceId"
+              label={t('form.fields.province')}
+              emptyLabel={t('form.provincePlaceholder')}
+              value={provinceId}
+              onChange={chooseProvince}
+              options={provinceOptions}
+            />
+            <CityPicker
+              id="cityId"
+              label={t('form.fields.city')}
+              value={city}
+              onChange={chooseCity}
+              provinceId={provinceId || undefined}
+              showProvince={provinceId === ''}
+              disabled={cityLocked}
+              placeholder={cityLocked ? t('form.cityNeedsProvince') : undefined}
+            />
+            <Field
+              id="postalCode"
+              label={t('form.fields.postalCode')}
+              value={postalCode}
+              onChange={(value) => {
+                setPostalCode(value)
+                setPostalCodeFromCity(false)
+              }}
+            />
+            <Field id="neighborhood" label={t('form.fields.neighborhood')} value={neighborhood} onChange={setNeighborhood} />
+            <Field id="addressStreet" label={t('form.fields.addressStreet')} value={addressStreet} onChange={setAddressStreet} />
+            <Field id="addressNumber" label={t('form.fields.addressNumber')} value={addressNumber} onChange={setAddressNumber} />
+            <Field
+              id="deliveryNotes"
+              label={t('form.fields.deliveryNotes')}
+              value={deliveryNotes}
+              onChange={setDeliveryNotes}
+              className="md:col-span-3"
+            />
+          </div>
         </FormSection>
 
         <FormSection title={t('form.sections.tax')}>

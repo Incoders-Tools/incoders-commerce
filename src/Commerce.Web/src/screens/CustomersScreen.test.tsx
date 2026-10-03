@@ -9,7 +9,7 @@ const listedCustomer: CustomerRecord = {
   organizationId: 'org-1',
   customerKind: 'Retail',
   displayName: 'Jane Doe',
-  legalName: null,
+  partyType: 'Person',
   contacts: [
     { id: 'ct-0', firstName: 'Ana', lastName: 'Gómez', phone: null, email: null, role: null, isPrimary: false, sortOrder: 0 },
     { id: 'ct-1', firstName: 'Juana', lastName: 'Pérez', phone: null, email: null, role: null, isPrimary: true, sortOrder: 1 },
@@ -28,8 +28,6 @@ const listedCustomer: CustomerRecord = {
   addressStreet: null,
   addressNumber: null,
   neighborhood: null,
-  locality: null,
-  province: null,
   postalCode: null,
   deliveryNotes: null,
   discountPercentage: null,
@@ -48,7 +46,7 @@ const wholesaleCustomer: CustomerRecord = {
   id: '99999999-9999-9999-9999-999999999999',
   customerKind: 'Wholesale',
   displayName: 'Acme Supplies',
-  legalName: 'Acme Supplies SRL',
+  partyType: 'Company',
   contacts: [
     { id: 'ct-2', firstName: 'Roberto', lastName: null, phone: null, email: null, role: null, isPrimary: true, sortOrder: 0 },
   ],
@@ -88,6 +86,10 @@ const geoCity = (id: string, name: string, provinceName: string) => ({
 })
 const cities = [geoCity('city-rosario', 'Rosario', 'Santa Fe'), geoCity('city-funes', 'Funes', 'Santa Fe')]
 const businessTypes = [entry('bt-bar', 'Bar'), entry('bt-resto', 'Restaurante')]
+const provinces = [
+  { id: '06', isoCode: 'AR-B', name: 'Buenos Aires', countryCode: 'AR', countryName: 'Argentina' },
+  { id: '82', isoCode: 'AR-S', name: 'Santa Fe', countryCode: 'AR', countryName: 'Argentina' },
+]
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
@@ -112,6 +114,7 @@ describe('CustomersScreen', () => {
     customers = [listedCustomer]
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
       if (url.startsWith('/geo/cities')) return json(cities)
+      if (url === '/geo/provinces') return json(provinces)
       if (url.startsWith('/customers/business-types')) return json(businessTypes)
       if (url.endsWith('/ordering-access')) return json({ credential: 'one-time-secret' })
       if (init?.method === 'POST') return json({ customerId: '22222222-2222-2222-2222-222222222222' }, 201)
@@ -147,7 +150,7 @@ describe('CustomersScreen', () => {
 
     await screen.findByText('Todavía no hay clientes.')
     await user.click(screen.getByRole('button', { name: /nuevo cliente/i }))
-    await user.type(screen.getByLabelText('Nombre'), 'Jane Doe')
+    await user.type(screen.getByLabelText('Nombre y apellido'), 'Jane Doe')
     customers = [listedCustomer]
     await user.click(screen.getByRole('button', { name: /^guardar$/i }))
 
@@ -165,6 +168,21 @@ describe('CustomersScreen', () => {
 
     expect(screen.getByText('Editar cliente')).toBeInTheDocument()
     expect(screen.getByLabelText('Tipo de cliente')).toBeDisabled()
+  })
+
+  it('hands the organization provinces to the form and preselects the province of the customer city', async () => {
+    customers = [wholesaleCustomer]
+    const user = userEvent.setup()
+    render(<CustomersScreen />)
+
+    await screen.findByText('Acme Supplies')
+    await user.click(screen.getByRole('button', { name: /^editar$/i }))
+
+    const province = screen.getByRole('combobox', { name: 'Provincia' })
+    await waitFor(() => expect(province).toHaveValue('82'))
+    expect(within(province).getByRole('option', { name: 'Buenos Aires' })).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Ciudad' })).toHaveValue('Rosario')
+    expect(screen.getByLabelText('Razón social')).toHaveValue('Acme Supplies')
   })
 
   it('still issues ordering access and shows the one-time credential', async () => {

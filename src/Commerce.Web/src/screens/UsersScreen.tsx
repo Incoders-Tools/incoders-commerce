@@ -11,6 +11,8 @@ import { DataToolbar } from '@/components/data/DataToolbar'
 import { DataView, type DataViewColumn } from '@/components/data/DataView'
 import { PageHeader } from '@/components/data/PageHeader'
 import { useViewPreference } from '@/components/data/useViewPreference'
+import { EmailField } from '@/components/form/EmailField'
+import { emailStatus } from '@/lib/email'
 
 /**
  * What an organization-scoped caller may grant. Deliberately excludes
@@ -41,6 +43,7 @@ export function UsersScreen() {
   const selectedBranchId = branchContext?.selectedBranch?.id ?? null
   const [users, setUsers] = useState<UserSummary[]>([])
   const [email, setEmail] = useState('')
+  const [emailError, setEmailError] = useState<string | null>(null)
   const [password, setPassword] = useState('')
   const [roles, setRoles] = useState<string[]>(['seller'])
   /** The administrator's own choice for the new user; `null` until they touch it. */
@@ -103,12 +106,20 @@ export function UsersScreen() {
       setActionError(t('errors.branchRequired'))
       return
     }
+    if (emailStatus(email) !== 'valid') {
+      setEmailError(t('common:email.invalid'))
+      return
+    }
     try {
-      await createUser({ email, password, roleNames: roles, branchIds })
+      await createUser({ email: email.trim(), password, roleNames: roles, branchIds })
       setEmail('')
       setPassword('')
       await refresh()
     } catch (err) {
+      if (err instanceof ApiError && err.status === 400 && err.fieldErrors?.email) {
+        setEmailError(t('common:email.invalid'))
+        return
+      }
       setActionError(friendlyError(err) ?? t('errors.unableToCreate'))
     }
   }
@@ -280,12 +291,18 @@ export function UsersScreen() {
         onSubmit={submit}
         className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4 sm:flex-row sm:flex-wrap sm:items-center"
       >
-        <Input
-          aria-label={t('createForm.emailAriaLabel')}
-          className="sm:max-w-xs"
+        <EmailField
+          id="newUserEmail"
+          label={t('createForm.emailAriaLabel')}
+          hideLabel
+          className="w-full sm:max-w-xs"
           placeholder={t('createForm.emailPlaceholder')}
           value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          onChange={(value) => {
+            setEmail(value)
+            setEmailError(null)
+          }}
+          error={emailError}
           required
         />
         <Input

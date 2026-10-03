@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
 import { PageHeader } from '@/components/data/PageHeader'
@@ -12,19 +13,33 @@ import { useNumberFormat } from '@/organization/NumberFormatContext'
 
 type Separator = OrganizationSettings['quantityDecimalSeparator']
 
+/** The server's default when an organization has no explicit country. */
+const DEFAULT_COUNTRY_CODE = 'AR'
+
+/** The country's name in the UI language ("Argentina"), or its code when the runtime cannot name it. */
+function countryName(code: string, language: string): string {
+  try {
+    return new Intl.DisplayNames([language], { type: 'region' }).of(code) ?? code
+  } catch {
+    return code
+  }
+}
+
 /**
  * Settings of the signed-in organization (a system administrator edits the one it is acting on). The first
  * setting is the number format for quantities; more fields join it here as they appear. A failed load disables
- * Save so the real stored value is never overwritten with the form default.
+ * Save so the real stored value is never overwritten with the form default. The country (the provinces and
+ * cities the forms offer) is shown read-only: Argentina is the only one loaded today.
  */
 export function OrganizationSettingsScreen() {
-  const { t } = useTranslation('organizations')
+  const { t, i18n } = useTranslation('organizations')
   const { reload } = useNumberFormat()
   const [separator, setSeparator] = useState<Separator>('Comma')
   const [loadedSeparator, setLoadedSeparator] = useState<Separator>('Comma')
   const [defaultListId, setDefaultListId] = useState('')
   const [loadedDefaultListId, setLoadedDefaultListId] = useState('')
   const [priceLists, setPriceLists] = useState<PriceListRecord[]>([])
+  const [countryCode, setCountryCode] = useState(DEFAULT_COUNTRY_CODE)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [reloadToken, setReloadToken] = useState(0)
@@ -44,6 +59,7 @@ export function OrganizationSettingsScreen() {
         setLoadedSeparator(loaded)
         setDefaultListId(settings.defaultCustomerPriceListId ?? '')
         setLoadedDefaultListId(settings.defaultCustomerPriceListId ?? '')
+        setCountryCode(settings.countryCode || DEFAULT_COUNTRY_CODE)
       })
       .catch(() => {
         if (!cancelled) setLoadError(t('settings.unableToLoad'))
@@ -99,6 +115,19 @@ export function OrganizationSettingsScreen() {
     <section className="flex w-full flex-col gap-6">
       <PageHeader title={t('settings.title')} description={t('settings.description')} />
       <form onSubmit={(event) => void submit(event)} className="flex max-w-md flex-col gap-6">
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="organizationCountry">{t('settings.country.label')}</Label>
+          <Input
+            id="organizationCountry"
+            readOnly
+            value={countryName(countryCode, i18n.language)}
+            aria-describedby="organizationCountry-hint"
+          />
+          <p id="organizationCountry-hint" className="text-xs text-muted-foreground">
+            {t('settings.country.hint')}
+          </p>
+        </div>
+
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="quantityDecimalSeparator">{t('settings.numberFormat.label')}</Label>
           <Select

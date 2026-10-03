@@ -69,6 +69,10 @@
       "label": "Default list for new customers",
       "hint": "New customers start on this price list; it can be changed customer by customer later.",
       "none": "No list"
+    },
+    "country": {
+      "label": "Country",
+      "hint": "The provinces and cities offered in forms are this country's."
     }
   }
 }

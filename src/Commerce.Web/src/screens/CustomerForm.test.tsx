@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CustomerForm } from './CustomerForm'
-import type { CustomerRecord, MasterDataEntry } from '@/api/types'
+import type { CustomerRecord, GeoProvince, MasterDataEntry } from '@/api/types'
 
 const entry = (id: string, name: string, isActive = true): MasterDataEntry => ({
   id,
@@ -15,13 +15,17 @@ const entry = (id: string, name: string, isActive = true): MasterDataEntry => ({
   updatedAtUtc: '2024-01-01T00:00:00Z',
 })
 const NO_ID = '00000000-0000-0000-0000-000000000000'
+const provinces: GeoProvince[] = [
+  { id: '06', isoCode: 'AR-B', name: 'Buenos Aires', countryCode: 'AR', countryName: 'Argentina' },
+  { id: '82', isoCode: 'AR-S', name: 'Santa Fe', countryCode: 'AR', countryName: 'Argentina' },
+]
 
 const customer: CustomerRecord = {
   id: '11111111-1111-1111-1111-111111111111',
   organizationId: 'org-1',
   customerKind: 'Wholesale',
-  displayName: 'Existing Co.',
-  legalName: 'Existing Co. SRL',
+  displayName: 'Existing Co. SRL',
+  partyType: 'Company',
   taxIdType: 'Cuit',
   taxId: '20-12345678-9',
   taxCondition: 'ResponsableInscripto',
@@ -37,8 +41,6 @@ const customer: CustomerRecord = {
   addressStreet: null,
   addressNumber: null,
   neighborhood: null,
-  locality: null,
-  province: null,
   postalCode: null,
   deliveryNotes: null,
   discountPercentage: null,
@@ -63,9 +65,18 @@ describe('CustomerForm', () => {
         return new Response(
           JSON.stringify(
             [
-              ['city-1', 'Rosario'],
-              ['city-2', 'Funes'],
-            ].map(([id, name]) => ({ id, name, provinceId: '82', provinceName: 'Santa Fe', isActive: true })),
+              ['city-1', 'Rosario', '2000'],
+              ['city-2', 'Funes', null],
+              ['city-3', 'Roldán', '2134'],
+            ].map(([id, name, postalCode]) => ({
+              id,
+              name,
+              provinceId: '82',
+              provinceName: 'Santa Fe',
+              departmentName: null,
+              postalCode,
+              isActive: true,
+            })),
           ),
           { status: 200 },
         )
@@ -92,7 +103,7 @@ describe('CustomerForm', () => {
     const user = userEvent.setup()
     render(<CustomerForm onSaved={onSaved} onCancel={vi.fn()} />)
 
-    await user.type(screen.getByLabelText('Nombre'), 'Jane Doe')
+    await user.type(screen.getByLabelText('Nombre y apellido'), 'Jane Doe')
     await user.click(screen.getByRole('button', { name: /^guardar$/i }))
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
@@ -175,14 +186,16 @@ describe('CustomerForm', () => {
     render(
       <CustomerForm
         businessTypes={[entry('bt-1', 'Bar')]}
+        provinces={provinces}
         onSaved={vi.fn()}
         onCancel={vi.fn()}
       />,
     )
 
-    await user.type(screen.getByLabelText('Nombre'), 'Jane Doe')
+    await user.type(screen.getByLabelText('Nombre y apellido'), 'Jane Doe')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Provincia' }), '82')
     await user.click(screen.getByRole('combobox', { name: 'Ciudad' }))
-    await user.click(await screen.findByRole('option', { name: 'Funes — Santa Fe' }))
+    await user.click(await screen.findByRole('option', { name: 'Funes' }))
     await user.selectOptions(screen.getByLabelText('Tipo de negocio'), 'bt-1')
     await user.type(screen.getByLabelText('Observaciones'), 'Paga los viernes')
     await user.click(screen.getByRole('button', { name: /^guardar$/i }))
@@ -198,16 +211,18 @@ describe('CustomerForm', () => {
     })
   })
 
-  it('shows the customer current city and province without fetching the catalog', () => {
+  it('preselects the province of the customer city and shows the city by name, without fetching', () => {
     render(
       <CustomerForm
         customer={{ ...customer, cityId: 'city-old', cityName: 'Zárate', provinceId: '06', provinceName: 'Buenos Aires' }}
+        provinces={provinces}
         onSaved={vi.fn()}
         onCancel={vi.fn()}
       />,
     )
 
-    expect(screen.getByRole('combobox', { name: 'Ciudad' })).toHaveValue('Zárate — Buenos Aires')
+    expect(screen.getByRole('combobox', { name: 'Provincia' })).toHaveValue('06')
+    expect(screen.getByRole('combobox', { name: 'Ciudad' })).toHaveValue('Zárate')
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
@@ -260,7 +275,7 @@ describe('CustomerForm', () => {
     const user = userEvent.setup()
     render(<CustomerForm onSaved={vi.fn()} onCancel={vi.fn()} />)
 
-    await user.type(screen.getByLabelText('Nombre'), 'Jane Doe')
+    await user.type(screen.getByLabelText('Nombre y apellido'), 'Jane Doe')
     await user.selectOptions(screen.getByLabelText('Tipo de identificación fiscal'), 'Dni')
     await user.type(screen.getByLabelText('DNI'), '123456')
     await user.click(screen.getByRole('button', { name: /^guardar$/i }))
@@ -281,7 +296,7 @@ describe('CustomerForm', () => {
     const user = userEvent.setup()
     render(<CustomerForm onSaved={vi.fn()} onCancel={vi.fn()} />)
 
-    await user.type(screen.getByLabelText('Nombre'), 'Acme')
+    await user.type(screen.getByLabelText('Nombre y apellido'), 'Acme')
     await user.selectOptions(screen.getByLabelText('Tipo de identificación fiscal'), 'Cuit')
     await user.type(screen.getByLabelText('CUIT/CUIL'), '30-1234567-9')
     await user.click(screen.getByRole('button', { name: /^guardar$/i }))
@@ -294,6 +309,222 @@ describe('CustomerForm', () => {
     await user.click(screen.getByRole('button', { name: /^guardar$/i }))
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+  })
+
+  describe('person or company', () => {
+    it('asks a person for "Nombre y apellido" only and sends the party type, never the old fields', async () => {
+      const user = userEvent.setup()
+      render(<CustomerForm onSaved={vi.fn()} onCancel={vi.fn()} />)
+
+      expect(screen.getByRole('radio', { name: 'Persona' })).toBeChecked()
+      expect(screen.queryByLabelText('Razón social')).not.toBeInTheDocument()
+      await user.type(screen.getByLabelText('Nombre y apellido'), 'Jane Doe')
+      await user.click(screen.getByRole('button', { name: /^guardar$/i }))
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body as string)
+      expect(body).toMatchObject({ partyType: 'Person', displayName: 'Jane Doe' })
+      for (const removed of ['legalName', 'locality', 'province']) expect(body).not.toHaveProperty(removed)
+    })
+
+    it('asks a company for "Razón social" only and points the person to the contact persons', async () => {
+      const user = userEvent.setup()
+      render(<CustomerForm onSaved={vi.fn()} onCancel={vi.fn()} />)
+
+      await user.click(screen.getByRole('radio', { name: 'Empresa' }))
+      expect(screen.queryByLabelText('Nombre y apellido')).not.toBeInTheDocument()
+      const name = screen.getByLabelText('Razón social')
+      expect(name).toHaveAccessibleDescription(/personas de contacto/i)
+      await user.type(name, 'Acme SRL')
+      await user.click(screen.getByRole('button', { name: /^guardar$/i }))
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toMatchObject({
+        partyType: 'Company',
+        displayName: 'Acme SRL',
+      })
+    })
+
+    it('shows an existing company with its one name and keeps the choice editable', async () => {
+      const user = userEvent.setup()
+      render(<CustomerForm customer={customer} onSaved={vi.fn()} onCancel={vi.fn()} />)
+
+      expect(screen.getByRole('radio', { name: 'Empresa' })).toBeChecked()
+      expect(screen.getByLabelText('Razón social')).toHaveValue('Existing Co. SRL')
+      await user.click(screen.getByRole('radio', { name: 'Persona' }))
+      await user.click(screen.getByRole('button', { name: /^guardar$/i }))
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toMatchObject({
+        partyType: 'Person',
+        displayName: 'Existing Co. SRL',
+      })
+    })
+  })
+
+  describe('address', () => {
+    const renderNew = () => render(<CustomerForm provinces={provinces} onSaved={vi.fn()} onCancel={vi.fn()} />)
+    const cityQueries = () =>
+      fetchMock.mock.calls
+        .map((call) => call[0] as string)
+        .filter((url) => url.startsWith('/geo/cities'))
+        .map((url) => new URL(url, 'http://x').searchParams)
+
+    it('has no Locality field nor a free-text Province', () => {
+      renderNew()
+
+      expect(screen.queryByLabelText('Localidad')).not.toBeInTheDocument()
+      const province = screen.getByLabelText('Provincia')
+      expect(province.tagName).toBe('SELECT')
+      expect(within(province).getByRole('option', { name: 'Santa Fe' })).toBeInTheDocument()
+    })
+
+    it('lays the fields out as Province, City, Postal code / Neighborhood, Street, Number / Delivery notes', () => {
+      renderNew()
+
+      const address = screen.getByRole('group', { name: 'Ubicación' })
+      const order = ['Provincia', 'Ciudad', 'Código postal', 'Barrio', 'Calle', 'Número', 'Notas de entrega'].map(
+        (label) => within(address).getByLabelText(label),
+      )
+      for (let i = 1; i < order.length; i++) {
+        expect(order[i - 1].compareDocumentPosition(order[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      }
+    })
+
+    it('keeps the city disabled until a province is chosen, then searches only that province', async () => {
+      const user = userEvent.setup()
+      renderNew()
+
+      const city = screen.getByRole('combobox', { name: 'Ciudad' })
+      expect(city).toBeDisabled()
+      await user.selectOptions(screen.getByLabelText('Provincia'), '82')
+      expect(city).toBeEnabled()
+      await user.click(city)
+
+      expect(await screen.findByRole('option', { name: 'Rosario' })).toBeInTheDocument()
+      expect(cityQueries().every((query) => query.get('provinceId') === '82')).toBe(true)
+    })
+
+    it('fills the postal code from the chosen city and keeps it editable', async () => {
+      const user = userEvent.setup()
+      renderNew()
+
+      await user.selectOptions(screen.getByLabelText('Provincia'), '82')
+      await user.click(screen.getByRole('combobox', { name: 'Ciudad' }))
+      await user.click(await screen.findByRole('option', { name: 'Rosario' }))
+
+      const postalCode = screen.getByLabelText('Código postal')
+      expect(postalCode).toHaveValue('2000')
+      await user.clear(postalCode)
+      await user.type(postalCode, 'S2000ABC')
+      expect(postalCode).toHaveValue('S2000ABC')
+    })
+
+    it('does not overwrite a postal code typed for the same city', async () => {
+      const user = userEvent.setup()
+      renderNew()
+
+      await user.selectOptions(screen.getByLabelText('Provincia'), '82')
+      const city = screen.getByRole('combobox', { name: 'Ciudad' })
+      await user.click(city)
+      await user.click(await screen.findByRole('option', { name: 'Rosario' }))
+      const postalCode = screen.getByLabelText('Código postal')
+      await user.clear(postalCode)
+      await user.type(postalCode, 'S2000ABC')
+
+      await user.click(city)
+      await user.click(await screen.findByRole('option', { name: 'Rosario' }))
+      expect(postalCode).toHaveValue('S2000ABC')
+
+      await user.click(city)
+      await user.click(await screen.findByRole('option', { name: 'Roldán' }))
+      expect(postalCode).toHaveValue('2134')
+    })
+
+    it('clears the city when the province changes', async () => {
+      const user = userEvent.setup()
+      render(
+        <CustomerForm
+          customer={{ ...customer, cityId: 'city-1', cityName: 'Rosario', provinceId: '82', provinceName: 'Santa Fe' }}
+          provinces={provinces}
+          onSaved={vi.fn()}
+          onCancel={vi.fn()}
+        />,
+      )
+
+      expect(screen.getByRole('combobox', { name: 'Ciudad' })).toHaveValue('Rosario')
+      await user.selectOptions(screen.getByLabelText('Provincia'), '06')
+      expect(screen.getByRole('combobox', { name: 'Ciudad' })).toHaveValue('')
+      await user.click(screen.getByRole('button', { name: /^guardar$/i }))
+
+      await waitFor(() => expect(fetchMock.mock.calls.some((c) => c[1]?.method === 'PUT')).toBe(true))
+      const put = fetchMock.mock.calls.find((c) => c[1]?.method === 'PUT')!
+      expect(JSON.parse(put[1].body as string).cityId).toBe(NO_ID)
+    })
+  })
+
+  describe('emails', () => {
+    const INVALID = 'Ingresá un correo electrónico válido, por ejemplo nombre@dominio.com.'
+
+    it('shows a valid email live and blocks the submit while one is invalid', async () => {
+      const user = userEvent.setup()
+      render(<CustomerForm onSaved={vi.fn()} onCancel={vi.fn()} />)
+
+      await user.type(screen.getByLabelText('Nombre y apellido'), 'Jane')
+      const email = screen.getByLabelText('Correo electrónico')
+      await user.type(email, 'ana@')
+      await user.click(screen.getByRole('button', { name: /^guardar$/i }))
+
+      expect(await screen.findByText(INVALID)).toBeInTheDocument()
+      expect(fetchMock).not.toHaveBeenCalled()
+
+      await user.type(email, 'mail.com')
+      expect(email).toHaveAccessibleDescription('Correo electrónico válido')
+      await user.click(screen.getByRole('button', { name: /^guardar$/i }))
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body as string).email).toBe('ana@mail.com')
+    })
+
+    it('blocks the submit while a contact email is invalid', async () => {
+      const user = userEvent.setup()
+      render(<CustomerForm onSaved={vi.fn()} onCancel={vi.fn()} />)
+
+      await user.type(screen.getByLabelText('Nombre y apellido'), 'Jane')
+      await user.click(screen.getByRole('button', { name: 'Agregar contacto' }))
+      const contact = screen.getByRole('group', { name: 'Contacto 1' })
+      await user.type(within(contact).getByLabelText('Nombre'), 'Juana')
+      await user.type(within(contact).getByLabelText('Correo electrónico'), 'juana@mail')
+      await user.click(screen.getByRole('button', { name: /^guardar$/i }))
+
+      expect(await within(contact).findByText(INVALID)).toBeInTheDocument()
+      expect(fetchMock).not.toHaveBeenCalled()
+    })
+
+    it('puts a server-refused email on its field, and a refused contact email on that contact', async () => {
+      const refusal = (errors: Record<string, string[]>) =>
+        new Response(JSON.stringify({ title: 'One or more validation errors occurred.', errors }), { status: 400 })
+      fetchMock.mockResolvedValueOnce(refusal({ email: ['email must be a valid email address.'] }))
+      const user = userEvent.setup()
+      render(<CustomerForm customer={{ ...customer, contacts: [] }} onSaved={vi.fn()} onCancel={vi.fn()} />)
+
+      await user.click(screen.getByRole('button', { name: /^guardar$/i }))
+      const email = screen.getByLabelText('Correo electrónico')
+      await waitFor(() => expect(email).toHaveAttribute('aria-invalid', 'true'))
+      expect(email).toHaveAccessibleDescription(INVALID)
+
+      fetchMock.mockResolvedValueOnce(refusal({ contacts: ['contacts[1].email must be a valid email address.'] }))
+      await user.click(screen.getByRole('button', { name: 'Agregar contacto' }))
+      await user.type(within(screen.getByRole('group', { name: 'Contacto 1' })).getByLabelText('Nombre'), 'Juana')
+      await user.click(screen.getByRole('button', { name: 'Agregar contacto' }))
+      const second = screen.getByRole('group', { name: 'Contacto 2' })
+      await user.type(within(second).getByLabelText('Nombre'), 'Roberto')
+      await user.type(within(second).getByLabelText('Correo electrónico'), 'roberto@mail.com')
+      await user.click(screen.getByRole('button', { name: /^guardar$/i }))
+
+      await waitFor(() =>
+        expect(within(second).getByLabelText('Correo electrónico')).toHaveAttribute('aria-invalid', 'true'),
+      )
+    })
   })
 
   describe('contacts editor', () => {
@@ -326,7 +557,7 @@ describe('CustomerForm', () => {
       const user = userEvent.setup()
       render(<CustomerForm onSaved={vi.fn()} onCancel={vi.fn()} />)
 
-      await user.type(screen.getByLabelText('Nombre'), 'Acme')
+      await user.type(screen.getByLabelText('Nombre y apellido'), 'Acme')
       await user.click(screen.getByRole('button', { name: 'Agregar contacto' }))
       await user.type(within(contactGroup(1)).getByLabelText('Nombre'), 'Juana')
       await user.type(within(contactGroup(1)).getByLabelText('Apellido'), 'Pérez')
@@ -354,7 +585,7 @@ describe('CustomerForm', () => {
       const user = userEvent.setup()
       render(<CustomerForm onSaved={vi.fn()} onCancel={vi.fn()} />)
 
-      await user.type(screen.getByLabelText('Nombre'), 'Acme')
+      await user.type(screen.getByLabelText('Nombre y apellido'), 'Acme')
       await user.click(screen.getByRole('button', { name: 'Agregar contacto' }))
       await user.type(within(contactGroup(1)).getByLabelText('Teléfono'), '341-555')
       await user.click(screen.getByRole('button', { name: /^guardar$/i }))
@@ -435,7 +666,7 @@ describe('CustomerForm', () => {
     it('does not send it on create', async () => {
       const user = userEvent.setup()
       render(<CustomerForm onSaved={vi.fn()} onCancel={vi.fn()} />)
-      await user.type(screen.getByLabelText('Nombre'), 'Jane')
+      await user.type(screen.getByLabelText('Nombre y apellido'), 'Jane')
       await user.click(screen.getByRole('button', { name: /^guardar$/i }))
 
       await waitFor(() => expect(fetchMock.mock.calls.some((c) => c[1]?.method === 'POST')).toBe(true))
@@ -509,7 +740,7 @@ describe('CustomerForm price list', () => {
     render(<CustomerForm priceLists={lists} defaultPriceListId={REPARTO.id} onSaved={vi.fn()} onCancel={vi.fn()} />)
 
     expect(screen.getByLabelText('Lista de precios')).toHaveValue(REPARTO.id)
-    await user.type(screen.getByLabelText('Nombre'), 'Jane Doe')
+    await user.type(screen.getByLabelText('Nombre y apellido'), 'Jane Doe')
     await user.click(screen.getByRole('button', { name: /^guardar$/i }))
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))

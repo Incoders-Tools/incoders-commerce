@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { EmailField } from '@/components/form/EmailField'
 import type { CustomerContact } from '@/api/types'
 
 /** A contact row being edited: the server's fields plus a client-only `key` for stable React identity. */
@@ -51,6 +52,8 @@ interface ContactsEditorProps {
   onChange: (contacts: ContactDraft[]) => void
   /** Keys of rows whose first name is missing, flagged after a failed submit. */
   invalidKeys?: ReadonlySet<string>
+  /** Keys of rows whose email a submit (or the server) refused. */
+  invalidEmailKeys?: ReadonlySet<string>
 }
 
 /**
@@ -59,7 +62,7 @@ interface ContactsEditorProps {
  * is a labelled group; it lays out as a card on phones and as one dense row
  * of fields from `lg:` up. The first contact added becomes primary.
  */
-export function ContactsEditor({ contacts, onChange, invalidKeys }: ContactsEditorProps) {
+export function ContactsEditor({ contacts, onChange, invalidKeys, invalidEmailKeys }: ContactsEditorProps) {
   const { t } = useTranslation('customers')
 
   const update = (key: string, patch: Partial<ContactDraft>) =>
@@ -125,15 +128,13 @@ export function ContactsEditor({ contacts, onChange, invalidKeys }: ContactsEdit
                 onChange={(e) => update(contact.key, { phone: e.target.value })}
               />
             </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor={fieldId('email')}>{t('form.contacts.email')}</Label>
-              <Input
-                id={fieldId('email')}
-                type="email"
-                value={contact.email}
-                onChange={(e) => update(contact.key, { email: e.target.value })}
-              />
-            </div>
+            <EmailField
+              id={fieldId('email')}
+              label={t('form.contacts.email')}
+              value={contact.email}
+              onChange={(email) => update(contact.key, { email })}
+              error={invalidEmailKeys?.has(contact.key) ? t('common:email.invalid') : null}
+            />
             <div className="flex flex-col gap-1.5">
               <Label htmlFor={fieldId('role')}>{t('form.contacts.role')}</Label>
               <Input

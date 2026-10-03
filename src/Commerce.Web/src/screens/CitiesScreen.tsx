@@ -131,6 +131,12 @@ export function CitiesScreen() {
       hideOnMobile: true,
     },
     {
+      key: 'postalCode',
+      header: t('columns.postalCode'),
+      cell: (city) => city.postalCode ?? <span className="text-muted-foreground">—</span>,
+      hideOnMobile: true,
+    },
+    {
       key: 'indecId',
       header: t('columns.indecId'),
       cell: (city) => city.indecId ?? <span className="text-muted-foreground">—</span>,

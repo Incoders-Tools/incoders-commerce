@@ -12,9 +12,16 @@ import { CustomerForm } from './CustomerForm'
 import { businessTypesApi } from '@/api/businessTypes'
 import { getOwnOrganizationSettings } from '@/api/account'
 import { issueOrderingAccess, listCustomers } from '@/api/customers'
+import { listProvinces } from '@/api/geo'
 import { listPriceLists } from '@/api/pricing'
 import { ApiError } from '@/api/client'
-import { CustomerKind, type CustomerRecord, type MasterDataEntry, type PriceListRecord } from '@/api/types'
+import {
+  CustomerKind,
+  type CustomerRecord,
+  type GeoProvince,
+  type MasterDataEntry,
+  type PriceListRecord,
+} from '@/api/types'
 import { useDebouncedValue } from '@/lib/useDebouncedValue'
 
 const SEARCH_DEBOUNCE_MS = 300
@@ -51,6 +58,7 @@ export function CustomersScreen() {
   const cityId = cityFilter?.id ?? ''
   const [businessTypeId, setBusinessTypeId] = useState('')
   const [businessTypes, setBusinessTypes] = useState<MasterDataEntry[]>([])
+  const [provinces, setProvinces] = useState<GeoProvince[]>([])
   const [priceLists, setPriceLists] = useState<PriceListRecord[]>([])
   const [defaultPriceListId, setDefaultPriceListId] = useState<string | null>(null)
   const [priceListFilter, setPriceListFilter] = useState('')
@@ -84,6 +92,15 @@ export function CustomersScreen() {
   // server by the picker, never loaded whole.
   useEffect(() => {
     businessTypesApi.list(true).then(setBusinessTypes, () => setBusinessTypes([]))
+  }, [])
+
+  // The organization country's provinces feed the form's Province select; without them the form searches cities
+  // across the country instead.
+  useEffect(() => {
+    listProvinces().then(
+      (loaded) => setProvinces(Array.isArray(loaded) ? loaded : []),
+      () => setProvinces([]),
+    )
   }, [])
 
   // Like the catalogs above, the lists only feed selects: unreadable (a role without catalog access, say) means
@@ -134,6 +151,7 @@ export function CustomersScreen() {
         customer={editingCustomer ?? undefined}
         businessTypes={businessTypes}
         priceLists={priceLists}
+        provinces={provinces}
         defaultPriceListId={defaultPriceListId}
         onSaved={handleSaved}
         onCancel={closeForm}

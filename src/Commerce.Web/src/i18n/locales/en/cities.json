@@ -5,6 +5,7 @@
     "name": "Name",
     "province": "Province",
     "department": "Department",
+    "postalCode": "Postal code",
     "indecId": "INDEC code",
     "status": "Status",
     "updatedAt": "Last modified"
@@ -45,6 +46,8 @@
     "province": "Province",
     "provincePlaceholder": "Choose a province",
     "department": "Department",
+    "postalCode": "Postal code",
+    "postalCodeHint": "Optional: 4 digits (2000) or CPA (S2000ABC).",
     "isActive": "Active",
     "indecId": "INDEC code: {{code}}",
     "updatedAt": "Updated: {{date}}",
@@ -64,6 +67,7 @@
     "unableToUpdate": "The status could not be updated.",
     "nameInUse": "A city with that name already exists in that province.",
     "forbidden": "Only the system administrator can change cities.",
-    "invalid": "Check the name and the province."
+    "invalid": "Check the name and the province.",
+    "postalCodeInvalid": "The postal code must have 4 digits (2000) or be a CPA (S2000ABC)."
   }
 }

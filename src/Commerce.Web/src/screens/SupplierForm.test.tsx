@@ -193,4 +193,37 @@ describe('SupplierForm', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('bankAlias must be 6-20 characters')
   })
+
+  it('checks the supplier email while typing and blocks the submit while it is invalid', async () => {
+    const user = userEvent.setup()
+    renderForm()
+
+    await user.type(screen.getByLabelText('Nombre'), 'Norte')
+    const email = screen.getByLabelText('Correo electrónico')
+    await user.type(email, 'ventas@norte')
+    await user.click(screen.getByRole('button', { name: 'Guardar' }))
+
+    expect(email).toHaveAttribute('aria-invalid', 'true')
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    await user.type(email, '.com.ar')
+    expect(email).toHaveAccessibleDescription('Correo electrónico válido')
+    await user.click(screen.getByRole('button', { name: 'Guardar' }))
+    await waitFor(() => expect(onSaved).toHaveBeenCalled())
+    expect(lastBody().email).toBe('ventas@norte.com.ar')
+  })
+
+  it('puts a server-refused email on the email field', async () => {
+    fetchMock.mockImplementation(async () =>
+      json({ title: 'One or more validation errors occurred.', errors: { email: ['email must be a valid email address.'] } }, 400),
+    )
+    const user = userEvent.setup()
+    renderForm()
+
+    await user.type(screen.getByLabelText('Nombre'), 'Norte')
+    await user.type(screen.getByLabelText('Correo electrónico'), 'ventas@norte.com')
+    await user.click(screen.getByRole('button', { name: 'Guardar' }))
+
+    await waitFor(() => expect(screen.getByLabelText('Correo electrónico')).toHaveAttribute('aria-invalid', 'true'))
+  })
 })

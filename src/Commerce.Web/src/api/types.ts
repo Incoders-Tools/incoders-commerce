@@ -180,6 +180,15 @@ export const TaxCondition = {
 } as const
 export type TaxCondition = (typeof TaxCondition)[keyof typeof TaxCondition]
 
+/** Who the customer is, independent of the commercial `CustomerKind`: it decides what `displayName` holds. */
+export const PartyType = {
+  /** `displayName` is the person's full name. */
+  Person: 'Person',
+  /** `displayName` is the legal name; the people to talk to are the contacts. */
+  Company: 'Company',
+} as const
+export type PartyType = (typeof PartyType)[keyof typeof PartyType]
+
 /** A person to talk to at a customer (`contacts[]` of the customer JSON). */
 export interface CustomerContact {
   id: string
@@ -208,8 +217,9 @@ export interface CustomerRecord {
   id: string
   organizationId: string
   customerKind: CustomerKind
+  partyType: PartyType
+  /** The one customer name: a person's full name or a company's legal name, per `partyType`. */
   displayName: string
-  legalName: string | null
   taxIdType: TaxIdType
   taxId: string | null
   taxCondition: TaxCondition
@@ -224,8 +234,6 @@ export interface CustomerRecord {
   addressStreet: string | null
   addressNumber: string | null
   neighborhood: string | null
-  locality: string | null
-  province: string | null
   postalCode: string | null
   deliveryNotes: string | null
   discountPercentage: number | null
@@ -244,10 +252,13 @@ export interface CustomerRecord {
 // No `organizationId`/`isEnabled`/`createdByUserId` — org comes from the
 // tenant scope, enabled is true at birth, actor comes from the cookie claim
 // (Endpoints/Customers.cs `CreateCustomerRequest`).
+// The server no longer reads `legalName`, `locality` or `province`: the name is `displayName` and the province
+// follows from the city.
 export interface CreateCustomerRequest {
   customerKind: CustomerKind
+  /** On PUT an omitted value keeps the stored one. */
+  partyType?: PartyType
   displayName: string
-  legalName: string | null
   taxIdType: TaxIdType
   taxId: string | null
   taxCondition: TaxCondition
@@ -266,8 +277,6 @@ export interface CreateCustomerRequest {
   addressStreet: string | null
   addressNumber: string | null
   neighborhood: string | null
-  locality: string | null
-  province: string | null
   postalCode: string | null
   deliveryNotes: string | null
   discountPercentage: number | null
@@ -597,12 +606,18 @@ export interface CreateOrganizationRequest { organizationName: string; branchNam
 export interface CreateOrganizationResponse { organizationId: string; branchId: string; userId: string }
 // T5b: minimal organization branding — logoUrl + primaryColor only (no upload, no other fields).
 export interface OrganizationBranding { logoUrl: string | null; primaryColor: string | null }
-export interface OrganizationSettings { quantityDecimalSeparator: 'Comma' | 'Dot'; defaultCustomerPriceListId?: string | null }
+export interface OrganizationSettings {
+  quantityDecimalSeparator: 'Comma' | 'Dot'
+  defaultCustomerPriceListId?: string | null
+  /** ISO 3166-1 alpha-2 (default "AR"): its provinces are the ones `/geo/provinces` offers. */
+  countryCode?: string
+}
 // Every field is optional on the wire: an omitted one is left unchanged.
 export interface UpdateOrganizationSettingsRequest {
   quantityDecimalSeparator?: 'Comma' | 'Dot'
   defaultCustomerPriceListId?: string
   clearDefaultCustomerPriceList?: boolean
+  countryCode?: string
 }
 export interface UpdateOrganizationBrandingRequest { logoUrl: string | null; primaryColor: string | null }
 // branch-discount-pin: whether a branch has a discount PIN and when it last changed; the PIN itself is never returned.
@@ -631,7 +646,7 @@ export interface MasterDataRequest {
   isActive: boolean
 }
 
-/** `GET /geo/provinces`: `id` is the INDEC code (e.g. "06"). */
+/** `GET /geo/provinces`: the provinces of the caller organization's country; `id` is the INDEC code (e.g. "06"). */
 export interface GeoProvince {
   id: string
   isoCode: string
@@ -649,6 +664,8 @@ export interface GeoCity {
   provinceName: string
   countryCode: string
   departmentName: string | null
+  /** A CP ("2000") or a CPA ("S2000ABC"); null when unknown (Georef publishes none). */
+  postalCode?: string | null
   isActive: boolean
   createdAtUtc: string
   updatedAtUtc: string
@@ -662,11 +679,12 @@ export interface GeoCityFilters {
   includeInactive?: boolean
 }
 
-/** Sysadmin write body; on PUT an omitted field is kept and a blank `departmentName` clears it. */
+/** Sysadmin write body; on PUT an omitted field is kept and a blank `departmentName` or `postalCode` clears it. */
 export interface GeoCityRequest {
   name: string
   provinceId?: string
   departmentName?: string
+  postalCode?: string
   isActive?: boolean
 }
 

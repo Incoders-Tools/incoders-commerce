@@ -44,5 +44,9 @@
       "Comma": "This business writes decimals with a comma (e.g. 1,5).",
       "Dot": "This business writes decimals with a dot (e.g. 1.5)."
     }
+  },
+  "email": {
+    "invalid": "Enter a valid email address, for example name@domain.com.",
+    "valid": "Valid email address"
   }
 }

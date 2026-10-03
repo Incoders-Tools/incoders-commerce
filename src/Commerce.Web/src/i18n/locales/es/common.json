@@ -44,5 +44,9 @@
       "Comma": "En este negocio los decimales se escriben con coma (ej: 1,5).",
       "Dot": "En este negocio los decimales se escriben con punto (ej: 1.5)."
     }
+  },
+  "email": {
+    "invalid": "Ingresá un correo electrónico válido, por ejemplo nombre@dominio.com.",
+    "valid": "Correo electrónico válido"
   }
 }

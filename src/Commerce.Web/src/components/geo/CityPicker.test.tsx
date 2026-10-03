@@ -70,7 +70,9 @@ describe('CityPicker', () => {
     await user.type(screen.getByRole('combobox', { name: 'Ciudad' }), 'ros')
     await user.click(await screen.findByRole('option', { name: 'Roque Pérez — Buenos Aires' }))
 
-    expect(onChange).toHaveBeenCalledWith({ id: 'c-roq', name: 'Roque Pérez', provinceName: 'Buenos Aires' })
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'c-roq', name: 'Roque Pérez', provinceName: 'Buenos Aires' }),
+    )
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
   })
 
@@ -87,7 +89,7 @@ describe('CityPicker', () => {
     await user.keyboard('{ArrowDown}{ArrowDown}')
     expect(screen.getByRole('option', { name: 'Roque Pérez — Buenos Aires' })).toHaveAttribute('aria-selected', 'true')
     await user.keyboard('{ArrowUp}{Enter}')
-    expect(onChange).toHaveBeenCalledWith({ id: 'c-ros', name: 'Rosario', provinceName: 'Santa Fe' })
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ id: 'c-ros', name: 'Rosario', provinceName: 'Santa Fe' }))
 
     await user.type(combobox, 'x')
     await screen.findByRole('listbox')
@@ -121,5 +123,68 @@ describe('CityPicker', () => {
 
     expect(screen.getByRole('combobox', { name: 'Ciudad' })).toHaveAttribute('placeholder', 'Todas las ciudades')
     expect(screen.queryByRole('button', { name: 'Quitar ciudad' })).not.toBeInTheDocument()
+  })
+
+  describe('limited to one province', () => {
+    const santaFe = (id: string, name: string, departmentName: string | null, postalCode: string | null = null) => ({
+      ...geoCity(id, name, 'Santa Fe'),
+      departmentName,
+      postalCode,
+    })
+
+    beforeEach(() => {
+      fetchMock.mockImplementation(async () =>
+        json([
+          santaFe('c-ros', 'Rosario', 'Rosario', '2000'),
+          santaFe('c-sj1', 'San José', 'Garay'),
+          santaFe('c-sj2', 'San José', 'San Martín'),
+        ]),
+      )
+    })
+
+    it('searches only that province and shows the city name alone', async () => {
+      const user = userEvent.setup()
+      render(<CityPicker label="Ciudad" value={rosario} provinceId="82" showProvince={false} onChange={vi.fn()} />)
+
+      const combobox = screen.getByRole('combobox', { name: 'Ciudad' })
+      expect(combobox).toHaveValue('Rosario')
+      await user.click(combobox)
+
+      expect(await screen.findByRole('option', { name: 'Rosario' })).toBeInTheDocument()
+      const url = new URL(fetchMock.mock.calls[0][0] as string, 'http://x')
+      expect(url.searchParams.get('provinceId')).toBe('82')
+    })
+
+    it('tells repeated names apart by their department', async () => {
+      const user = userEvent.setup()
+      render(<CityPicker label="Ciudad" value={null} provinceId="82" showProvince={false} onChange={vi.fn()} />)
+
+      await user.click(screen.getByRole('combobox', { name: 'Ciudad' }))
+
+      expect(await screen.findByRole('option', { name: 'San José Garay' })).toBeInTheDocument()
+      expect(screen.getByRole('option', { name: 'San José San Martín' })).toBeInTheDocument()
+      expect(screen.getByRole('option', { name: 'Rosario' })).toBeInTheDocument()
+    })
+
+    it('reports the postal code of the chosen city', async () => {
+      const onChange = vi.fn()
+      const user = userEvent.setup()
+      render(<CityPicker label="Ciudad" value={null} provinceId="82" showProvince={false} onChange={onChange} />)
+
+      await user.click(screen.getByRole('combobox', { name: 'Ciudad' }))
+      await user.click(await screen.findByRole('option', { name: 'Rosario' }))
+
+      expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ id: 'c-ros', provinceId: '82', postalCode: '2000' }))
+    })
+
+    it('can be disabled (no province chosen yet) and then never searches', async () => {
+      const user = userEvent.setup()
+      render(<CityPicker label="Ciudad" value={null} disabled onChange={vi.fn()} />)
+
+      const combobox = screen.getByRole('combobox', { name: 'Ciudad' })
+      expect(combobox).toBeDisabled()
+      await user.click(combobox)
+      expect(fetchMock).not.toHaveBeenCalled()
+    })
   })
 })

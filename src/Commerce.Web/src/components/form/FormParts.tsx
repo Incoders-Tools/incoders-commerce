@@ -12,7 +12,8 @@ import { cn } from '@/lib/utils'
 export function FormSection({ title, children, wide = false }: { title: string; children: ReactNode; wide?: boolean }) {
   return (
     <fieldset className="flex flex-col gap-4">
-      <legend className="mb-1 text-sm font-semibold text-foreground">{title}</legend>
+      {/* The rule under each title keeps a section visibly apart from the fields of the one above. */}
+      <legend className="mb-2 w-full border-b border-border pb-2 text-sm font-semibold text-foreground">{title}</legend>
       <div
         className={cn(
           'grid grid-cols-1 gap-x-6 gap-y-4',

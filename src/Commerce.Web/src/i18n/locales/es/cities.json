@@ -5,6 +5,7 @@
     "name": "Nombre",
     "province": "Provincia",
     "department": "Departamento",
+    "postalCode": "Código postal",
     "indecId": "Código INDEC",
     "status": "Estado",
     "updatedAt": "Última modificación"
@@ -45,6 +46,8 @@
     "province": "Provincia",
     "provincePlaceholder": "Elegí una provincia",
     "department": "Departamento",
+    "postalCode": "Código postal",
+    "postalCodeHint": "Opcional: 4 dígitos (2000) o CPA (S2000ABC).",
     "isActive": "Activa",
     "indecId": "Código INDEC: {{code}}",
     "updatedAt": "Actualizada: {{date}}",
@@ -64,6 +67,7 @@
     "unableToUpdate": "No se pudo actualizar el estado.",
     "nameInUse": "Ya existe una ciudad con ese nombre en esa provincia.",
     "forbidden": "Solo el administrador del sistema puede modificar las ciudades.",
-    "invalid": "Revisá el nombre y la provincia."
+    "invalid": "Revisá el nombre y la provincia.",
+    "postalCodeInvalid": "El código postal debe tener 4 dígitos (2000) o ser un CPA (S2000ABC)."
   }
 }
