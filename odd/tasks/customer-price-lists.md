@@ -56,6 +56,8 @@ the counter and wholesale + delivery to customers at different prices.
 
 - [x] T6 Price fallback: when the buyer's list has no effective price for a presentation, price it from the organization default list (Mostrador) with that list's composition, then the customer discount; same rule in the cloud and the POS (shared Application code); record which list priced each line; POS customer change no longer refused for missing prices (route: delegated writer) - done ac65d5c (shared rule + cloud + migration 0038) + 885f094 (POS) + b91e659 (web note); RED compile failures (PriceListPorts, PricedFromListId/FellBack, FallbackListName/PriceNote absent) and the web test failing, GREEN 4 fallback unit + 3 cloud order + 1 store round-trip + 2 migration + 3 POS + 1 cloud/POS parity + 2 web tests; `npm test` 549 passed, `npm run lint` 0 errors, `npm run build` ok; full `dotnet test` 2103 passed / 1 known failure (PublicRateLimitTests...IsUnreachable_AndAppStillStarts) / 0 skipped in Integration (+123 Upgrade, +1 Bootstrap).
 
+- [ ] T7 Fixes authorized by the owner 2026-10-03: L1 POS customer picker and cart stay in sync (clearing a sale or a vanished customer resets both to walk-in); L3 effective dates (price entries, rate sets, replica snapshot, breakdown default) use the business day in America/Argentina/Buenos_Aires, not UTC (route: delegated writer)
+
 ## Acceptance criteria
 
 - Bola de lomo: Reparto 16.530 (11.400 x 1,45); Mostrador 16.872 (11.400 x 1,48).
@@ -91,9 +93,9 @@ All six slices approved and acknowledged: A data + seed `29e0b30..5a10db3` (`rev
 
 ## Follow-ups (non-blocking review findings, most relevant)
 
-- [ ] L1 POS: clearing the sale resets the cart to walk-in but the customer picker keeps the old customer; a vanished customer can also desync picker and cart (`SaleCart.cs:216-217`, `MainWindow.xaml.cs:662-679`).
+- [ ] L1 (-> T7) POS: clearing the sale resets the cart to walk-in but the customer picker keeps the old customer; a vanished customer can also desync picker and cart (`SaleCart.cs:216-217`, `MainWindow.xaml.cs:662-679`).
 - [x] L2 (-> T6, done ac65d5c/885f094) A customer whose list has no price for a product cannot buy it (`PostgresPriceListStore.cs:179-192`). Owner decision 2026-10-03: fall back to the organization default list (Mostrador).
-- [ ] L3 Replica and composition use the UTC date: between 21:00 and 24:00 Argentina time tomorrow's prices/sets apply early (`Device.cs:443-444`, `PriceListCompositionEndpoints.cs:393`).
+- [ ] L3 (-> T7) Replica and composition use the UTC date: between 21:00 and 24:00 Argentina time tomorrow's prices/sets apply early (`Device.cs:443-444`, `PriceListCompositionEndpoints.cs:393`).
 - [ ] L4 Floor check runs outside the write transaction (TOCTOU) and only at the change's effective date; import floor check untested (`PriceListCompositionEndpoints.cs:176-181`, `Pricing.cs:270-278`, `558-568`).
 - [ ] L5 Organization settings PUT can lose a concurrent update (`Account.cs:485-486`).
 - [ ] L6 Customer price-list name join is not organization-scoped in SQL (relies on RLS) (`PostgresCustomerStore.cs:83`).
