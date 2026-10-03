@@ -102,6 +102,8 @@ All six slices approved and acknowledged: A data + seed `29e0b30..5a10db3` (`rev
 
 - T6 done (ac65d5c, 885f094, b91e659). Rule: `PricingResolutionService(PriceListPorts primary, PriceListPorts? fallback)`; the buyer's list first, then the default list (the fallback list's own composition, then the customer discount); both missing keeps `NoEffectivePrice`; no channel parameter (ADR-010). `Resolved` and `OrderLineSnapshot` carry `PricedFromListId` + `FellBack`; `order_lines.priced_from_price_list_id` (nullable, no FK) and `price_fell_back` (default false) via migration 0038, exposed in the order JSON as `pricedFromListId`/`fellBack`. Cloud: `CloudOrderSubmissionService` passes the branch default list as fallback; POS: `BuyerPricingFactory` passes the branch default list, `SaleCart` re-prices instead of refusing and the line shows "(precio de Mostrador)" (list name taken from the replica); the catalog card quote also falls back. Web: the staff order screen notes "Precio de Mostrador: N líneas". Floor rule untouched. Partials: the POS sale screen was only built, not run (the note is a XAML binding checked by a markup test); a fallback line keeps no list id in the POS line (only the name; the POS sale persistence has no provenance column); the public/guest order screen does not show the note (guests price from the default list, so they never fall back); Engram mirror `odd/customer-price-lists/tasks` not refreshed by this writer.
 
+- T6 review (`1275322..19a9dd0`, owner granted): approved, 4 lenses, acknowledged (`review-93e3bb17d0937ad3`); non-blocking: the self-fallback guard (buyer list == default list) is untested (`PriceListFallbackTests.cs:74-80`).
+
 ## Next step
 
 Feature complete pending parent review; refresh the Engram mirror.
