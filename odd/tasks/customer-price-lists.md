@@ -48,9 +48,9 @@ the counter and wholesale + delivery to customers at different prices.
 
 ## Tasks
 
-- [ ] T1 Data: `customers.price_list_id`, organization default customer list, `price_lists.floor_price_list_id`; seed update (drop Clientes, Mostrador base + 35 % set, floor = Reparto, customers -> Reparto); migration + seed tests (route: delegated backend writer)
-- [ ] T2 Pricing engine: resolve with the buyer's list (customer's list, else organization default), then composition, then customer discount; web orders and staff orders use it (route: delegated backend writer)
-- [ ] T3 API: list composition breakdown per product, copy list with new markup, publish new composition, floor validation with violations (route: delegated backend writer)
+- [x] T1 Data: `customers.price_list_id`, organization default customer list, `price_lists.floor_price_list_id`; seed update (drop Clientes, Mostrador base + 35 % set, floor = Reparto, customers -> Reparto); migration + seed tests (route: delegated backend writer) - done 5a10db3: migration 0037, seed 004, generator/003/report/README updated; RED 5+7 failing, GREEN 16+5 seed/migration tests, 228 migration/seed tests green.
+- [x] T2 Pricing engine: resolve with the buyer's list (customer's list, else organization default), then composition, then customer discount; web orders and staff orders use it (route: delegated backend writer) - done bafac94: BuyerPriceListSelector, orders priced from the buyer's list, customers priceListId/priceListName, org defaultCustomerPriceListId; RED compile failures, GREEN 6+7+3 tests, subset 625 green (1 known failure).
+- [x] T3 API: list composition breakdown per product, copy list with new markup, publish new composition, floor validation with violations (route: delegated backend writer) - done 2923500: breakdown, composition, copy, floor endpoints and the 409 price-below-floor rule; RED compile/404, GREEN 15 endpoint + 4 domain tests.
 - [ ] T4 POS: replica carries every list's entries and rate components plus customers' list; POS prices walk-in with Mostrador and a selected customer with the customer's list (route: delegated POS writer)
 - [ ] T5 Web: customer form price-list select; price lists screen with composition breakdown, copy with new markup, composition edit, floor list and violations (route: delegated web writer)
 
@@ -79,7 +79,8 @@ the counter and wholesale + delivery to customers at different prices.
 ## Progress
 
 - Feature document created 2026-10-02.
+- T1-T3 backend done (5a10db3, bafac94, 2923500). Decisions: customers/org default point at one list of the organization; a list not visible in the selling branch is skipped (falls to the branch default). Mostrador base entries and set effective 2026-10-02. Floor validated on the change's effective date only, both directions. Guest web orders use the default list (Mostrador).
 
 ## Next step
 
-T1-T3 backend writer, then T4 POS writer, then T5 web writer.
+T4 POS writer, then T5 web writer.
