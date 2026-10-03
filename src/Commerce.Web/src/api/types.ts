@@ -230,6 +230,9 @@ export interface CustomerRecord {
   paymentTerms: string | null
   notes: string | null
   isEnabled: boolean
+  /** The price list this customer is priced from; `priceListName` is null when the list is not visible in the branch. */
+  priceListId?: string | null
+  priceListName?: string | null
   createdAtUtc: string
   createdByUserId: string
   updatedAtUtc: string
@@ -250,6 +253,9 @@ export interface CreateCustomerRequest {
   // all-zero GUID for the ids.
   cityId?: string
   businessTypeId?: string
+  // Omitted on create: the organization's default customer list. On PUT omitted keeps the
+  // stored list and the all-zero GUID clears it.
+  priceListId?: string
   // Replace-set on PUT (max 50, at most one primary): omitted keeps the
   // stored contacts, an empty array clears them.
   contacts?: CustomerContactInput[]
@@ -589,8 +595,13 @@ export interface CreateOrganizationRequest { organizationName: string; branchNam
 export interface CreateOrganizationResponse { organizationId: string; branchId: string; userId: string }
 // T5b: minimal organization branding — logoUrl + primaryColor only (no upload, no other fields).
 export interface OrganizationBranding { logoUrl: string | null; primaryColor: string | null }
-export interface OrganizationSettings { quantityDecimalSeparator: 'Comma' | 'Dot' }
-export type UpdateOrganizationSettingsRequest = OrganizationSettings
+export interface OrganizationSettings { quantityDecimalSeparator: 'Comma' | 'Dot'; defaultCustomerPriceListId?: string | null }
+// Every field is optional on the wire: an omitted one is left unchanged.
+export interface UpdateOrganizationSettingsRequest {
+  quantityDecimalSeparator?: 'Comma' | 'Dot'
+  defaultCustomerPriceListId?: string
+  clearDefaultCustomerPriceList?: boolean
+}
 export interface UpdateOrganizationBrandingRequest { logoUrl: string | null; primaryColor: string | null }
 // branch-discount-pin: whether a branch has a discount PIN and when it last changed; the PIN itself is never returned.
 export interface BranchDiscountPinStatus { isSet: boolean; version: number | null; changedAtUtc: string | null }

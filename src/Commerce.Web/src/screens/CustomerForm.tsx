@@ -15,6 +15,7 @@ import {
   type CustomerContactInput,
   type CustomerRecord,
   type MasterDataEntry,
+  type PriceListRecord,
 } from '@/api/types'
 import { CatalogSelect, Field, FormSection } from '@/components/form/FormParts'
 import { selectableEntries } from '@/components/form/selectableEntries'
@@ -28,6 +29,10 @@ interface CustomerFormProps {
   customer?: CustomerRecord
   /** Catalog to pick from: all entries; inactive ones are filtered out here. */
   businessTypes?: MasterDataEntry[]
+  /** Price lists visible to the branch (loaded by the parent screen). */
+  priceLists?: PriceListRecord[]
+  /** The organization's default customer list: preselected for a new customer. */
+  defaultPriceListId?: string | null
   onSaved: () => void
   onCancel: () => void
   /** Called with the freshly read customer after a modification conflict; the parent re-renders the form with it. */
@@ -58,7 +63,15 @@ interface CustomerFormProps {
  * select over the catalog the parent screen loads (container-presentational). On edit an omitted field would keep the
  * stored value, so clearing sends the empty-id sentinel / empty string.
  */
-export function CustomerForm({ customer, businessTypes = [], onSaved, onCancel, onReload }: CustomerFormProps) {
+export function CustomerForm({
+  customer,
+  businessTypes = [],
+  priceLists = [],
+  defaultPriceListId = null,
+  onSaved,
+  onCancel,
+  onReload,
+}: CustomerFormProps) {
   const { t } = useTranslation('customers')
   const isEdit = customer !== undefined
 
@@ -78,6 +91,14 @@ export function CustomerForm({ customer, businessTypes = [], onSaved, onCancel, 
       : null,
   )
   const [businessTypeId, setBusinessTypeId] = useState(customer?.businessTypeId ?? '')
+  // Until the operator chooses, a new customer shows the organization default (which may arrive after the form
+  // opens) and an existing one its own list.
+  const [priceListChoice, setPriceListChoice] = useState<string | null>(null)
+  const priceListId = priceListChoice ?? (isEdit ? (customer.priceListId ?? '') : (defaultPriceListId ?? ''))
+  const priceListOptions =
+    priceListId !== '' && !priceLists.some((list) => list.id === priceListId)
+      ? [...priceLists, { id: priceListId, name: customer?.priceListName ?? t('form.otherBranchList') }]
+      : priceLists
   const [taxIdType, setTaxIdType] = useState<TaxIdType>(customer?.taxIdType ?? TaxIdType.None)
   const [taxId, setTaxId] = useState(customer?.taxId ?? '')
   const [taxCondition, setTaxCondition] = useState<TaxCondition>(customer?.taxCondition ?? TaxCondition.NoAplica)
@@ -130,10 +151,11 @@ export function CustomerForm({ customer, businessTypes = [], onSaved, onCancel, 
         // PUT keeps an omitted value, so clearing sends the sentinel / empty
         // string; on create an empty choice is simply left out.
         ...(isEdit
-          ? { cityId: city?.id ?? NO_ID, businessTypeId: businessTypeId || NO_ID }
+          ? { cityId: city?.id ?? NO_ID, businessTypeId: businessTypeId || NO_ID, priceListId: priceListId || NO_ID }
           : {
               ...(city ? { cityId: city.id } : {}),
               ...(businessTypeId ? { businessTypeId } : {}),
+              ...(priceListId ? { priceListId } : {}),
             }),
         phone: phone || null,
         email: email || null,
@@ -310,6 +332,14 @@ export function CustomerForm({ customer, businessTypes = [], onSaved, onCancel, 
               customer?.businessTypeName,
               t('form.inactiveSuffix'),
             )}
+          />
+          <CatalogSelect
+            id="priceListId"
+            label={t('form.fields.priceList')}
+            emptyLabel={t('form.noPriceList')}
+            value={priceListId}
+            onChange={setPriceListChoice}
+            options={priceListOptions}
           />
           <Field
             id="discountPercentage"

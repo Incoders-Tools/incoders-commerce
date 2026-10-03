@@ -27,7 +27,8 @@
     "noTaxId": "Sin documento",
     "noValue": "—",
     "kind": "Tipo",
-    "status": "Estado"
+    "status": "Estado",
+    "priceList": "Lista de precios"
   },
   "kindOptions": {
     "retail": "Minorista",
@@ -76,7 +77,8 @@
       "enabled": "Habilitado",
       "city": "Ciudad",
       "businessType": "Tipo de negocio",
-      "dni": "DNI"
+      "dni": "DNI",
+      "priceList": "Lista de precios"
     },
     "taxIdTypeOptions": {
       "none": "Ninguno",
@@ -113,12 +115,16 @@
       "message": "Otra persona modificó este cliente mientras lo editabas. Recargá para ver los cambios más recientes; tus cambios sin guardar se perderán.",
       "reload": "Recargar",
       "reloadFailed": "No se pudo recargar el cliente."
-    }
+    },
+    "noPriceList": "Sin lista (usa la predeterminada)",
+    "otherBranchList": "Lista de otra sucursal"
   },
   "filters": {
     "city": "Ciudad",
     "allCities": "Todas las ciudades",
     "businessType": "Tipo de negocio",
-    "allBusinessTypes": "Todos los tipos de negocio"
+    "allBusinessTypes": "Todos los tipos de negocio",
+    "priceList": "Lista de precios",
+    "allPriceLists": "Todas las listas"
   }
 }

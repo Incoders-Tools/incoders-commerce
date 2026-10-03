@@ -10,9 +10,11 @@ import { CityPicker } from '@/components/geo/CityPicker'
 import { cityLabel, type CityOption } from '@/components/geo/cityLabel'
 import { CustomerForm } from './CustomerForm'
 import { businessTypesApi } from '@/api/businessTypes'
+import { getOwnOrganizationSettings } from '@/api/account'
 import { issueOrderingAccess, listCustomers } from '@/api/customers'
+import { listPriceLists } from '@/api/pricing'
 import { ApiError } from '@/api/client'
-import { CustomerKind, type CustomerRecord, type MasterDataEntry } from '@/api/types'
+import { CustomerKind, type CustomerRecord, type MasterDataEntry, type PriceListRecord } from '@/api/types'
 import { useDebouncedValue } from '@/lib/useDebouncedValue'
 
 const SEARCH_DEBOUNCE_MS = 300
@@ -49,6 +51,9 @@ export function CustomersScreen() {
   const cityId = cityFilter?.id ?? ''
   const [businessTypeId, setBusinessTypeId] = useState('')
   const [businessTypes, setBusinessTypes] = useState<MasterDataEntry[]>([])
+  const [priceLists, setPriceLists] = useState<PriceListRecord[]>([])
+  const [defaultPriceListId, setDefaultPriceListId] = useState<string | null>(null)
+  const [priceListFilter, setPriceListFilter] = useState('')
   const [view, setView] = useViewPreference('customers')
   const debouncedSearch = useDebouncedValue(search.trim(), SEARCH_DEBOUNCE_MS)
   /** Only the latest request may write state: a slow older answer must not overwrite a newer one. */
@@ -81,6 +86,19 @@ export function CustomersScreen() {
     businessTypesApi.list(true).then(setBusinessTypes, () => setBusinessTypes([]))
   }, [])
 
+  // Like the catalogs above, the lists only feed selects: unreadable (a role without catalog access, say) means
+  // the selects offer no choices, not a broken screen.
+  useEffect(() => {
+    listPriceLists().then(
+      (lists) => setPriceLists(Array.isArray(lists) ? lists : []),
+      () => setPriceLists([]),
+    )
+    getOwnOrganizationSettings().then(
+      (settings) => setDefaultPriceListId(settings?.defaultCustomerPriceListId ?? null),
+      () => setDefaultPriceListId(null),
+    )
+  }, [])
+
   const closeForm = () => {
     setCreating(false)
     setEditingCustomer(null)
@@ -101,7 +119,10 @@ export function CustomersScreen() {
     }
   }
 
-  const filtering = debouncedSearch !== '' || cityId !== '' || businessTypeId !== ''
+  const filtering = debouncedSearch !== '' || cityId !== '' || businessTypeId !== '' || priceListFilter !== ''
+  // The list filter is applied here: the server already returns each customer's list.
+  const shownCustomers =
+    priceListFilter === '' ? customers : customers.filter((customer) => customer.priceListId === priceListFilter)
 
   // The create/edit form deliberately still replaces the whole screen, exactly
   // as before T4b — it is a long form, not an inline row edit.
@@ -112,6 +133,8 @@ export function CustomersScreen() {
         key={editingCustomer ? `${editingCustomer.id}:${editingCustomer.updatedAtUtc}` : 'new'}
         customer={editingCustomer ?? undefined}
         businessTypes={businessTypes}
+        priceLists={priceLists}
+        defaultPriceListId={defaultPriceListId}
         onSaved={handleSaved}
         onCancel={closeForm}
         onReload={setEditingCustomer}
@@ -138,6 +161,12 @@ export function CustomersScreen() {
       key: 'businessType',
       header: t('columns.businessType'),
       cell: (customer) => customer.businessTypeName ?? noValue,
+      hideOnMobile: true,
+    },
+    {
+      key: 'priceList',
+      header: t('columns.priceList'),
+      cell: (customer) => customer.priceListName ?? noValue,
       hideOnMobile: true,
     },
     {
@@ -224,10 +253,23 @@ export function CustomersScreen() {
             </option>
           ))}
         </Select>
+        <Select
+          aria-label={t('filters.priceList')}
+          className="w-auto"
+          value={priceListFilter}
+          onChange={(e) => setPriceListFilter(e.target.value)}
+        >
+          <option value="">{t('filters.allPriceLists')}</option>
+          {priceLists.map((priceList) => (
+            <option key={priceList.id} value={priceList.id}>
+              {priceList.name}
+            </option>
+          ))}
+        </Select>
       </DataToolbar>
 
       <DataView
-        items={customers}
+        items={shownCustomers}
         columns={columns}
         getRowKey={(customer) => customer.id}
         view={view}

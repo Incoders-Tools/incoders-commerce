@@ -64,6 +64,11 @@
     "saved": "Settings saved.",
     "unableToLoad": "Could not load the settings.",
     "unableToSave": "Could not save the settings.",
-    "retry": "Retry"
+    "retry": "Retry",
+    "defaultCustomerPriceList": {
+      "label": "Default list for new customers",
+      "hint": "New customers start on this price list; it can be changed customer by customer later.",
+      "none": "No list"
+    }
   }
 }

@@ -6,7 +6,8 @@ import { Select } from '@/components/ui/select'
 import { PageHeader } from '@/components/data/PageHeader'
 import { getOwnOrganizationSettings, updateOwnOrganizationSettings } from '@/api/account'
 import { ApiError } from '@/api/client'
-import type { OrganizationSettings } from '@/api/types'
+import { listPriceLists } from '@/api/pricing'
+import type { OrganizationSettings, PriceListRecord, UpdateOrganizationSettingsRequest } from '@/api/types'
 import { useNumberFormat } from '@/organization/NumberFormatContext'
 
 type Separator = OrganizationSettings['quantityDecimalSeparator']
@@ -20,6 +21,10 @@ export function OrganizationSettingsScreen() {
   const { t } = useTranslation('organizations')
   const { reload } = useNumberFormat()
   const [separator, setSeparator] = useState<Separator>('Comma')
+  const [loadedSeparator, setLoadedSeparator] = useState<Separator>('Comma')
+  const [defaultListId, setDefaultListId] = useState('')
+  const [loadedDefaultListId, setLoadedDefaultListId] = useState('')
+  const [priceLists, setPriceLists] = useState<PriceListRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [reloadToken, setReloadToken] = useState(0)
@@ -33,7 +38,12 @@ export function OrganizationSettingsScreen() {
     setLoadError(null)
     getOwnOrganizationSettings()
       .then((settings) => {
-        if (!cancelled) setSeparator(settings.quantityDecimalSeparator === 'Dot' ? 'Dot' : 'Comma')
+        if (cancelled) return
+        const loaded = settings.quantityDecimalSeparator === 'Dot' ? 'Dot' : 'Comma'
+        setSeparator(loaded)
+        setLoadedSeparator(loaded)
+        setDefaultListId(settings.defaultCustomerPriceListId ?? '')
+        setLoadedDefaultListId(settings.defaultCustomerPriceListId ?? '')
       })
       .catch(() => {
         if (!cancelled) setLoadError(t('settings.unableToLoad'))
@@ -46,6 +56,14 @@ export function OrganizationSettingsScreen() {
     }
   }, [reloadToken, t])
 
+  // The lists only feed the select below: if they cannot be read it just offers "Sin lista".
+  useEffect(() => {
+    listPriceLists().then(
+      (lists) => setPriceLists(Array.isArray(lists) ? lists : []),
+      () => setPriceLists([]),
+    )
+  }, [])
+
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     if (loadError) return
@@ -53,7 +71,21 @@ export function OrganizationSettingsScreen() {
     setSaved(false)
     setSubmitting(true)
     try {
-      await updateOwnOrganizationSettings({ quantityDecimalSeparator: separator })
+      // Only what changed is sent (an omitted field stays as it is); with nothing changed the separator is
+      // re-sent, as before.
+      const request: UpdateOrganizationSettingsRequest = {
+        ...(separator !== loadedSeparator ? { quantityDecimalSeparator: separator } : {}),
+        ...(defaultListId !== loadedDefaultListId
+          ? defaultListId === ''
+            ? { clearDefaultCustomerPriceList: true }
+            : { defaultCustomerPriceListId: defaultListId }
+          : {}),
+      }
+      await updateOwnOrganizationSettings(
+        Object.keys(request).length > 0 ? request : { quantityDecimalSeparator: separator },
+      )
+      setLoadedSeparator(separator)
+      setLoadedDefaultListId(defaultListId)
       setSaved(true)
       reload()
     } catch (err) {
@@ -82,6 +114,27 @@ export function OrganizationSettingsScreen() {
             <option value="Dot">{t('settings.numberFormat.point')}</option>
           </Select>
           <p className="text-xs text-muted-foreground">{t('settings.numberFormat.hint')}</p>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="defaultCustomerPriceListId">{t('settings.defaultCustomerPriceList.label')}</Label>
+          <Select
+            id="defaultCustomerPriceListId"
+            value={defaultListId}
+            disabled={loading}
+            onChange={(event) => {
+              setDefaultListId(event.target.value)
+              setSaved(false)
+            }}
+          >
+            <option value="">{t('settings.defaultCustomerPriceList.none')}</option>
+            {priceLists.map((list) => (
+              <option key={list.id} value={list.id}>
+                {list.name}
+              </option>
+            ))}
+          </Select>
+          <p className="text-xs text-muted-foreground">{t('settings.defaultCustomerPriceList.hint')}</p>
         </div>
 
         {loadError && (

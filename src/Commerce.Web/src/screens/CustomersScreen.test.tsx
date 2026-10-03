@@ -367,3 +367,66 @@ describe('CustomersScreen', () => {
     expect(screen.getByText('Editar cliente')).toBeInTheDocument()
   })
 })
+
+describe('CustomersScreen price lists', () => {
+  const fetchMock = vi.fn()
+  const list = (id: string, name: string) => ({
+    id,
+    name,
+    organizationId: 'org-1',
+    branchId: 'branch-1',
+    isDefault: false,
+    createdAtUtc: '2024-01-01T00:00:00Z',
+    createdByUserId: 'user-1',
+  })
+  const onReparto: CustomerRecord = { ...listedCustomer, priceListId: 'list-reparto', priceListName: 'Reparto' }
+  const onMostrador: CustomerRecord = {
+    ...wholesaleCustomer,
+    isEnabled: true,
+    priceListId: 'list-mostrador',
+    priceListName: 'Mostrador',
+  }
+
+  beforeEach(() => {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.startsWith('/pricing/price-lists')) return json([list('list-reparto', 'Reparto'), list('list-mostrador', 'Mostrador')])
+      if (url.startsWith('/account/organization/settings')) {
+        return json({ quantityDecimalSeparator: 'Comma', defaultCustomerPriceListId: 'list-reparto' })
+      }
+      if (url.startsWith('/geo/cities') || url.startsWith('/customers/business-types')) return json([])
+      return json([onReparto, onMostrador])
+    })
+    vi.stubGlobal('fetch', fetchMock)
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    fetchMock.mockReset()
+    window.localStorage.clear()
+  })
+
+  it('shows each customer list and filters the rows by list', async () => {
+    const user = userEvent.setup()
+    render(<CustomersScreen />)
+
+    const table = await screen.findByRole('table')
+    const rows = () => within(table).getAllByRole('row').slice(1)
+    expect(rows()).toHaveLength(2)
+    expect(within(rows()[0]).getByText('Reparto')).toBeInTheDocument()
+    expect(within(rows()[1]).getByText('Mostrador')).toBeInTheDocument()
+
+    await user.selectOptions(screen.getByLabelText('Lista de precios'), 'list-mostrador')
+
+    expect(rows()).toHaveLength(1)
+    expect(within(rows()[0]).getByText('Acme Supplies')).toBeInTheDocument()
+  })
+
+  it('opens the new customer form on the organization default list', async () => {
+    const user = userEvent.setup()
+    render(<CustomersScreen />)
+
+    await screen.findByRole('table')
+    await user.click(screen.getByRole('button', { name: /nuevo cliente/i }))
+
+    await waitFor(() => expect(screen.getByLabelText('Lista de precios')).toHaveValue('list-reparto'))
+  })
+})

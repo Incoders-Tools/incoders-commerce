@@ -27,7 +27,8 @@
     "noTaxId": "No ID document",
     "noValue": "—",
     "kind": "Kind",
-    "status": "Status"
+    "status": "Status",
+    "priceList": "Price list"
   },
   "kindOptions": {
     "retail": "Retail",
@@ -76,7 +77,8 @@
       "enabled": "Enabled",
       "city": "City",
       "businessType": "Business type",
-      "dni": "DNI"
+      "dni": "DNI",
+      "priceList": "Price list"
     },
     "taxIdTypeOptions": {
       "none": "None",
@@ -113,12 +115,16 @@
       "message": "Someone else changed this customer while you were editing. Reload to see the latest changes; your unsaved changes will be lost.",
       "reload": "Reload",
       "reloadFailed": "The customer could not be reloaded."
-    }
+    },
+    "noPriceList": "No list (uses the default)",
+    "otherBranchList": "List of another branch"
   },
   "filters": {
     "city": "City",
     "allCities": "All cities",
     "businessType": "Business type",
-    "allBusinessTypes": "All business types"
+    "allBusinessTypes": "All business types",
+    "priceList": "Price list",
+    "allPriceLists": "All lists"
   }
 }

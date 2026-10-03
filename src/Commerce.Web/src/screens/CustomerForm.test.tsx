@@ -481,3 +481,76 @@ describe('CustomerForm', () => {
     })
   })
 })
+
+describe('CustomerForm price list', () => {
+  const fetchMock = vi.fn()
+  const REPARTO = { id: 'list-reparto', name: 'Reparto' }
+  const MOSTRADOR = { id: 'list-mostrador', name: 'Mostrador' }
+  const lists = [REPARTO, MOSTRADOR].map((list) => ({
+    ...list,
+    organizationId: 'org-1',
+    branchId: 'branch-1',
+    isDefault: false,
+    createdAtUtc: '2024-01-01T00:00:00Z',
+    createdByUserId: 'user-1',
+  }))
+
+  beforeEach(() => {
+    fetchMock.mockImplementation(async () => new Response(JSON.stringify({ customerId: 'x' }), { status: 201 }))
+    vi.stubGlobal('fetch', fetchMock)
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    fetchMock.mockReset()
+  })
+
+  it('preselects the organization default list for a new customer and sends it', async () => {
+    const user = userEvent.setup()
+    render(<CustomerForm priceLists={lists} defaultPriceListId={REPARTO.id} onSaved={vi.fn()} onCancel={vi.fn()} />)
+
+    expect(screen.getByLabelText('Lista de precios')).toHaveValue(REPARTO.id)
+    await user.type(screen.getByLabelText('Nombre'), 'Jane Doe')
+    await user.click(screen.getByRole('button', { name: /^guardar$/i }))
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string).priceListId).toBe(REPARTO.id)
+  })
+
+  it('sends the list chosen on edit, and the empty-id sentinel when it is cleared', async () => {
+    fetchMock.mockImplementation(async () => new Response(JSON.stringify(customer), { status: 200 }))
+    const user = userEvent.setup()
+    render(
+      <CustomerForm
+        customer={{ ...customer, priceListId: REPARTO.id, priceListName: 'Reparto' }}
+        priceLists={lists}
+        onSaved={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    )
+
+    const select = screen.getByLabelText('Lista de precios')
+    expect(select).toHaveValue(REPARTO.id)
+    await user.selectOptions(select, MOSTRADOR.id)
+    await user.click(screen.getByRole('button', { name: /^guardar$/i }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string).priceListId).toBe(MOSTRADOR.id)
+
+    await user.selectOptions(select, '')
+    await user.click(screen.getByRole('button', { name: /^guardar$/i }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body as string).priceListId).toBe(NO_ID)
+  })
+
+  it('keeps a customer list the branch cannot see selectable by name', () => {
+    render(
+      <CustomerForm
+        customer={{ ...customer, priceListId: 'list-elsewhere', priceListName: null }}
+        priceLists={lists}
+        onSaved={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByLabelText('Lista de precios')).toHaveValue('list-elsewhere')
+  })
+})
