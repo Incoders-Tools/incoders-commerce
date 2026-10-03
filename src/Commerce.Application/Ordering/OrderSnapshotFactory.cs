@@ -52,5 +52,7 @@ public static class OrderSnapshotFactory
             resolvedPrice.UnitListPrice,
             resolvedPrice.AppliedDiscountPercentage,
             resolvedPrice.UnitNetPrice,
-            resolvedPrice.LineTotal);
+            resolvedPrice.LineTotal,
+            resolvedPrice.PricedFromListId,
+            resolvedPrice.FellBack);
 }

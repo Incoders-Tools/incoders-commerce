@@ -240,6 +240,11 @@ public sealed class CloudOrderSubmissionService
     /// ANY line denies the WHOLE order with reason <c>"no-effective-price"</c>
     /// (no partial acceptance) → catalog lookup → snapshot.
     /// </summary>
+    private PriceListPorts PortsOf(CloudTenantScope scope, Guid priceListId) => new(
+        priceListId,
+        new PostgresEffectivePriceSource(_priceListStore, scope, priceListId),
+        new PostgresRateComponentSource(_rateComponentStore, scope, priceListId));
+
     private async Task<(string? DeniedReason, List<OrderLineSnapshot>? Snapshots)> ResolveLinesAsync(
         CloudTenantScope scope, IReadOnlyList<SubmitOrderLine> lines, decimal? discountPercentage,
         bool isCustomer, Guid? customerPriceListId, CancellationToken ct)
@@ -257,14 +262,17 @@ public sealed class CloudOrderSubmissionService
             // organization's default customer list, else the default list; a guest gets the default list), never
             // by the channel the order came through.
             var buyerPriceList = await _priceListStore.ResolveBuyerPriceListAsync(scope, isCustomer, customerPriceListId, ct);
+            // customer-price-lists T6: a presentation the buyer's list does not price falls back to the branch
+            // default list (with that list's own composition); the line records which list priced it.
+            var defaultList = buyerPriceList is null ? null : await _priceListStore.FindDefaultPriceListAsync(scope, ct);
             pricingService = buyerPriceList is null
                 ? null
                 // commerce-price-composition slice 2: the SAME price
                 // list binds both ports, so the entry's base price and the
                 // components composed onto it can never come from two lists.
                 : new PricingResolutionService(
-                    new PostgresEffectivePriceSource(_priceListStore, scope, buyerPriceList.Id),
-                    new PostgresRateComponentSource(_rateComponentStore, scope, buyerPriceList.Id));
+                    PortsOf(scope, buyerPriceList.Id),
+                    defaultList is null ? null : PortsOf(scope, defaultList.Id));
         }
 
         var snapshots = new List<OrderLineSnapshot>(lines.Count);

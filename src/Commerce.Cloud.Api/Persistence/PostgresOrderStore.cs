@@ -397,8 +397,8 @@ public sealed class PostgresOrderStore : IOrderStore
                 """
                 INSERT INTO order_lines (organization_id, order_id, line_no, product_id, product_name, presentation_id,
                     presentation_name, quantity_behavior, unit_id, quantity, unit_list_price,
-                    applied_discount_percentage, unit_net_price, line_total)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                    applied_discount_percentage, unit_net_price, line_total, priced_from_price_list_id, price_fell_back)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
                 """, connection, tx);
             cmd.Parameters.AddWithValue(order.OrganizationId);
             cmd.Parameters.AddWithValue(order.OrderId);
@@ -414,6 +414,8 @@ public sealed class PostgresOrderStore : IOrderStore
             cmd.Parameters.AddWithValue(line.AppliedDiscountPercentage);
             cmd.Parameters.AddWithValue(line.UnitNetPrice);
             cmd.Parameters.AddWithValue(line.LineTotal);
+            cmd.Parameters.Add(new NpgsqlParameter { Value = (object?)line.PricedFromListId ?? DBNull.Value, NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Uuid });
+            cmd.Parameters.AddWithValue(line.FellBack);
             await cmd.ExecuteNonQueryAsync(ct);
         }
     }
@@ -432,7 +434,8 @@ public sealed class PostgresOrderStore : IOrderStore
     private const string LinesSelect =
         """
         SELECT order_id, product_id, product_name, presentation_id, presentation_name, quantity_behavior, unit_id,
-               quantity, unit_list_price, applied_discount_percentage, unit_net_price, line_total
+               quantity, unit_list_price, applied_discount_percentage, unit_net_price, line_total,
+               priced_from_price_list_id, price_fell_back
         FROM order_lines
         """;
 
@@ -477,7 +480,9 @@ public sealed class PostgresOrderStore : IOrderStore
         UnitListPrice: reader.GetDecimal(offset + 7),
         AppliedDiscountPercentage: reader.GetDecimal(offset + 8),
         UnitNetPrice: reader.GetDecimal(offset + 9),
-        LineTotal: reader.GetDecimal(offset + 10));
+        LineTotal: reader.GetDecimal(offset + 10),
+        PricedFromListId: reader.IsDBNull(offset + 11) ? null : reader.GetGuid(offset + 11),
+        FellBack: reader.GetBoolean(offset + 12));
 
     /// <summary>One <c>orders</c> row, read completely so the reader can be closed before the lines are queried.</summary>
     private sealed record OrderRow(

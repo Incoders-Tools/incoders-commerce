@@ -118,6 +118,67 @@ public sealed class CustomerPriceListOrderTests : IDisposable
             w.Scope, customerId, Guid.NewGuid(), Guid.NewGuid(), w.ActorId,
             [new SubmitOrderLine(Guid.NewGuid(), w.PresentationId, quantity)], Guid.NewGuid(), destination: null, hasAvailableStock: true, CancellationToken.None);
 
+    /// <summary>A counter-only product (Lengua): only the default list (Mostrador) prices it, 7.817,57 x 1,48 = 11.570.</summary>
+    private async Task<Guid> NewCounterOnlyPresentationAsync(World w)
+    {
+        var catalog = new PostgresCatalogStore(_dataSource!);
+        var product = await catalog.CreateProductAsync(w.Scope, new NewProduct(Guid.NewGuid(), "Lengua", CategoryFixture.Create(w.Scope), Guid.NewGuid(), w.ActorId), "org-user", w.ActorId, CancellationToken.None);
+        var presentation = await catalog.CreatePresentationAsync(w.Scope,
+            new NewPresentation(Guid.NewGuid(), product.Id, "Por kg", Commerce.Domain.Catalog.QuantityBehavior.Weighted, Guid.NewGuid(), IdentificationCode: null, w.ActorId),
+            "org-user", w.ActorId, CancellationToken.None);
+        await new PostgresPriceListStore(_dataSource!).AppendEntryAsync(w.Scope,
+            new NewPriceListEntry(Guid.NewGuid(), w.Mostrador, presentation.Id, 7_817.57m, DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-1), "Manual", null, w.ActorId),
+            "org-user", w.ActorId, CancellationToken.None);
+        return presentation.Id;
+    }
+
+    private static Task<OrderSubmissionOutcome> SubmitAsync(World w, Guid customerId, Guid presentationId) =>
+        w.Service.SubmitForCustomerSessionAsync(
+            w.Scope, customerId, Guid.NewGuid(), Guid.NewGuid(), w.ActorId,
+            [new SubmitOrderLine(Guid.NewGuid(), presentationId, 1m)], Guid.NewGuid(), destination: null, hasAvailableStock: true, CancellationToken.None);
+
+    [Fact]
+    public async Task ARepartoCustomerOrderingACounterOnlyProduct_IsPricedFromMostrador_LessTheDiscount_AndMarkedAsFallback()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+        var w = await NewWorldAsync();
+        var lengua = await NewCounterOnlyPresentationAsync(w);
+        var customer = await NewCustomerAsync(w, w.Reparto, discount: 10m);
+
+        var line = (await SubmitAsync(w, customer, lengua)).Order!.Lines[0];
+
+        Assert.Equal(11_570m, Math.Round(line.UnitListPrice, 2)); // Mostrador composition (x 1,48), not Reparto (x 1,45)
+        Assert.Equal(10_413m, line.UnitNetPrice);                  // less the customer 10 %
+        Assert.Equal(w.Mostrador, line.PricedFromListId);
+        Assert.True(line.FellBack);
+    }
+
+    [Fact]
+    public async Task ARepartoCustomersOrderOfARepartoPricedProduct_IsNotMarkedAsFallback()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+        var w = await NewWorldAsync();
+        var customer = await NewCustomerAsync(w, w.Reparto);
+
+        var line = (await SubmitAsCustomerAsync(w, customer)).Order!.Lines[0];
+
+        Assert.Equal(w.Reparto, line.PricedFromListId);
+        Assert.False(line.FellBack);
+    }
+
+    [Fact]
+    public async Task AProductNoListPrices_StillDeniesTheOrder()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+        var w = await NewWorldAsync();
+        var customer = await NewCustomerAsync(w, w.Reparto);
+
+        var outcome = await SubmitAsync(w, customer, Guid.NewGuid());
+
+        Assert.Equal(OrderSubmissionOutcomeStatus.Denied, outcome.Status);
+        Assert.Equal("no-effective-price", outcome.Reason);
+    }
+
     [Fact]
     public async Task ARepartoCustomersWebOrder_PricesAtReparto_16530()
     {

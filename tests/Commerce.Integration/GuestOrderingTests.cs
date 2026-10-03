@@ -86,6 +86,7 @@ public sealed class GuestOrderingTests : IDisposable
         Apply("0017_pricing_branch_ownership.sql");
         Apply("0025_orders.sql");
         Apply("0026_orders_guest_check.sql");
+        Apply("0038_order_line_price_provenance.sql");
 
         using var resetCmd = new NpgsqlCommand(
             """

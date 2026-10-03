@@ -29,7 +29,7 @@ public sealed class PostgresOrderStoreTests : IDisposable
             foreach (var file in new[]
                      {
                          "0001_init_rls.sql", "0002_users.sql", "0003_organizations_branches.sql",
-                         "0021_branch_codes.sql", "0010_guest_ordering.sql", "0025_orders.sql", "0026_orders_guest_check.sql",
+                         "0021_branch_codes.sql", "0010_guest_ordering.sql", "0025_orders.sql", "0026_orders_guest_check.sql", "0038_order_line_price_provenance.sql",
                      })
             {
                 PostgresTestFixture.ApplyMigration(owner, file);
@@ -89,6 +89,29 @@ public sealed class PostgresOrderStoreTests : IDisposable
             contact ?? new GuestContact("30111222", GuestContactChannel.Email, "guest@example.com", "Ana Guest", "Portón azul"),
             branchId, OrderActors.PublicGuest, lines ?? [NewLine(QuantityBehavior.FixedQuantity)], Guid.NewGuid(),
             destination: null, hasAvailableStock: false, verification, CancellationToken.None);
+
+    [Fact]
+    public async Task APriceFallbackLine_KeepsWhichListPricedIt_AcrossARestart()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var org = await SeedOrganizationAsync();
+        var branch = await SeedBranchAsync(org);
+        var scope = new CloudTenantScope(org);
+        var orderId = Guid.NewGuid();
+        var listId = Guid.NewGuid();
+        var fallback = NewLine() with { PricedFromListId = listId, FellBack = true };
+        var plain = NewLine();
+
+        await SubmitRegisteredAsync(NewStore(), scope, orderId, branch, lines: [fallback, plain]);
+
+        using var restartedSource = NpgsqlDataSource.Create(PostgresTestFixture.DirectConnectionString);
+        var found = await new PostgresOrderStore(restartedSource).FindAsync(scope, orderId, CancellationToken.None);
+        Assert.Equal(listId, found!.Lines[0].PricedFromListId);
+        Assert.True(found.Lines[0].FellBack);
+        Assert.Null(found.Lines[1].PricedFromListId);
+        Assert.False(found.Lines[1].FellBack);
+    }
 
     [Fact]
     public async Task ARegisteredOrder_IsStoredNumbered_AndSurvivesARestart()

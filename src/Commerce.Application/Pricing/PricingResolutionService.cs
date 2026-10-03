@@ -20,8 +20,8 @@ namespace Commerce.Application.Pricing;
 /// </summary>
 public sealed class PricingResolutionService
 {
-    private readonly IEffectivePriceSource _priceSource;
-    private readonly IEffectiveRateComponentSource? _rateComponentSource;
+    private readonly PriceListPorts _primary;
+    private readonly PriceListPorts? _fallback;
 
     /// <summary>
     /// <paramref name="rateComponentSource"/> is optional, and omitting it is
@@ -39,8 +39,20 @@ public sealed class PricingResolutionService
         IEffectivePriceSource priceSource,
         IEffectiveRateComponentSource? rateComponentSource = null)
     {
-        _priceSource = priceSource;
-        _rateComponentSource = rateComponentSource;
+        _primary = new PriceListPorts(Guid.Empty, priceSource, rateComponentSource);
+        _fallback = null;
+    }
+
+    /// <summary>
+    /// customer-price-lists T6: prices from <paramref name="primary"/> (the buyer's list) and, when it has no effective
+    /// price for a presentation, from <paramref name="fallback"/> (the organization/branch default list) with the
+    /// FALLBACK list's own composition. The outcome says which list priced the line. The fallback depends on the buyer's
+    /// lists only, never on the channel (ADR-010).
+    /// </summary>
+    public PricingResolutionService(PriceListPorts primary, PriceListPorts? fallback = null)
+    {
+        _primary = primary;
+        _fallback = fallback is not null && fallback.PriceListId != primary.PriceListId ? fallback : null;
     }
 
     /// <summary>
@@ -59,7 +71,18 @@ public sealed class PricingResolutionService
         Guid presentationId, decimal quantity, decimal? discountPercentage,
         DateOnly effectiveOn, CancellationToken ct)
     {
-        var unitPrice = await _priceSource.GetUnitPriceAsync(presentationId, effectiveOn, ct);
+        var ports = _primary;
+        var fellBack = false;
+        var unitPrice = await ports.PriceSource.GetUnitPriceAsync(presentationId, effectiveOn, ct);
+        if (unitPrice is null && _fallback is not null)
+        {
+            // customer-price-lists T6: the buyer's list has no price; the default list does or the outcome stays
+            // NoEffectivePrice. Its composition is the fallback list's own (never the buyer list's).
+            ports = _fallback;
+            fellBack = true;
+            unitPrice = await ports.PriceSource.GetUnitPriceAsync(presentationId, effectiveOn, ct);
+        }
+
         if (unitPrice is null)
         {
             // Task 3.5 (GREEN): zero effective rows -> the typed outcome,
@@ -77,9 +100,9 @@ public sealed class PricingResolutionService
         // organization — composes to the base itself. That identity is the
         // whole reason this slice reprices nothing that was already loaded.
         var basePrice = unitPrice.Value;
-        var effectiveComponents = _rateComponentSource is null
+        var effectiveComponents = ports.RateComponentSource is null
             ? null
-            : await _rateComponentSource.GetEffectiveSetAsync(effectiveOn, ct);
+            : await ports.RateComponentSource.GetEffectiveSetAsync(effectiveOn, ct);
         var listPrice = effectiveComponents?.Compose(basePrice) ?? basePrice;
 
         // STEP 3 — and only now the customer's discount, against the COMPOSED
@@ -100,6 +123,8 @@ public sealed class PricingResolutionService
         var unitNet = Money.Round2(listPrice * (1 - discount / 100m));
         var lineTotal = Money.Round2(unitNet * quantity);
 
-        return new PriceResolutionOutcome.Resolved(listPrice, discount, unitNet, lineTotal);
+        return new PriceResolutionOutcome.Resolved(
+            listPrice, discount, unitNet, lineTotal,
+            ports.PriceListId == Guid.Empty ? null : ports.PriceListId, fellBack);
     }
 }

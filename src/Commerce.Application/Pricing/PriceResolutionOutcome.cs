@@ -19,7 +19,9 @@ public abstract record PriceResolutionOutcome
         decimal UnitListPrice,
         decimal AppliedDiscountPercentage,
         decimal UnitNetPrice,
-        decimal LineTotal) : PriceResolutionOutcome;
+        decimal LineTotal,
+        Guid? PricedFromListId = null,
+        bool FellBack = false) : PriceResolutionOutcome;
 
     /// <summary>No <c>PriceListEntry</c> is effective for <see cref="PresentationId"/> on or before <see cref="On"/> — exactly zero matching rows.</summary>
     public sealed record NoEffectivePrice(Guid PresentationId, DateOnly On) : PriceResolutionOutcome;
