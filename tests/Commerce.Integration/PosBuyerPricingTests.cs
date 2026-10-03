@@ -148,7 +148,7 @@ public sealed class PosBuyerPricingTests : IDisposable
     }
 
     [Fact]
-    public async Task ACustomerChange_ThatLeavesALineWithoutAPrice_IsRefused_AndNothingChanges()
+    public async Task ACustomerChange_OnALineOnlyMostradorPrices_RepricesItFromMostrador_InsteadOfRefusing()
     {
         using var store = SyncedStore();
         var cart = CartOver(store);
@@ -157,11 +157,47 @@ public sealed class PosBuyerPricingTests : IDisposable
 
         var result = await cart.SetCustomerAsync(RepartoCustomer);
 
+        Assert.True(result.Succeeded);
+        Assert.Equal(RepartoCustomer, cart.CustomerId);
+        Assert.Equal("Lista: Reparto", cart.PriceListLabel);
+        Assert.Equal([16_530m, 11_570m], cart.Lines.Select(l => l.UnitPrice)); // Bola at Reparto; Lengua at Mostrador (7.817,57 x 1,48)
+        Assert.Null(cart.Lines[0].FallbackListName);
+        Assert.Equal("Mostrador", cart.Lines[1].FallbackListName);
+        Assert.Equal("(precio de Mostrador)", cart.Lines[1].PriceNote);
+        Assert.Equal(string.Empty, cart.Lines[0].PriceNote);
+    }
+
+    [Fact]
+    public async Task AddingACounterOnlyProduct_ToACustomersSale_IsPricedFromMostrador_AndNoted()
+    {
+        using var store = SyncedStore();
+        var cart = CartOver(store);
+        await cart.SetCustomerAsync(RepartoCustomer);
+
+        var added = await cart.AddAsync(Item(Lengua, "Lengua"));
+
+        Assert.True(added.Succeeded);
+        Assert.Equal(11_570m, cart.Lines.Single().UnitPrice);
+        Assert.Equal("(precio de Mostrador)", cart.Lines.Single().PriceNote);
+    }
+
+    [Fact]
+    public async Task ACustomerChange_IsStillRefused_WhenNoListPricesALine()
+    {
+        using var store = SyncedStore();
+        var cart = CartOver(store);
+        await cart.AddAsync(Item(Bola, "Bola de lomo"));
+        // A line of a product no list prices (e.g. a price that stops being effective after the sale was started).
+        var unpriced = new ScannedSaleLineViewModel(Guid.NewGuid(), null, "Hueso", "kg", 1m, 100m, 100m);
+        cart.Lines.Add(unpriced);
+
+        var result = await cart.SetCustomerAsync(RepartoCustomer);
+
         Assert.False(result.Succeeded);
-        Assert.Contains("Lengua", result.Message);
+        Assert.Contains("Hueso", result.Message);
         Assert.Null(cart.CustomerId);
         Assert.Equal("Lista: Mostrador", cart.PriceListLabel);
-        Assert.Equal([16_872m, 11_570m], cart.Lines.Select(l => l.UnitPrice)); // untouched: 7.817,57 x 1,48
+        Assert.Equal(16_872m, cart.Lines[0].UnitPrice); // untouched
     }
 
     [Fact]
@@ -241,7 +277,8 @@ public sealed class PosBuyerPricingTests : IDisposable
         Assert.Equal(16_872m, await cart.QuoteUnitPriceAsync(Bola));
         await cart.SetCustomerAsync(RepartoCustomer);
         Assert.Equal(16_530m, await cart.QuoteUnitPriceAsync(Bola));
-        Assert.Null(await cart.QuoteUnitPriceAsync(Lengua)); // no price in Reparto: never a zero
+        Assert.Equal(11_570m, await cart.QuoteUnitPriceAsync(Lengua)); // not in Reparto: the default list prices it
+        Assert.Null(await cart.QuoteUnitPriceAsync(Guid.NewGuid()));   // no list prices it: never a zero
     }
 
     [Fact]
@@ -271,5 +308,6 @@ public sealed class PosBuyerPricingTests : IDisposable
         Assert.Contains("_cart.SetCustomerAsync(", code);
         Assert.Contains("PriceListText.Text = _cart.PriceListLabel", code);
         Assert.Contains("new BuyerPricingFactory(", code);
+        Assert.Contains("{Binding PriceNote}", File.ReadAllText(Path.Combine(dir.FullName, "src", "Commerce.Pos.Windows", "Controls", "SaleLinesTable.xaml")));
     }
 }

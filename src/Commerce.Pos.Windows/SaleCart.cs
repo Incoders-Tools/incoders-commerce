@@ -76,7 +76,8 @@ public sealed class SaleCart : INotifyPropertyChanged
     /// quantity. Line discount percentages, the sale discount and their authorization are kept (they were authorized as
     /// percentages) and their amounts are recomputed over the new totals. If the new list has no price for some line the
     /// change is refused with the names of those products and nothing changes: no line is ever left at a zero or at the
-    /// price of the other list.
+    /// price of the other list. customer-price-lists T6: "no price in the new list" means no price in it AND in the
+    /// default list; a line only the default list (Mostrador) prices is re-priced from it and noted as such.
     /// </summary>
     public async Task<SaleCartResult> SetCustomerAsync(Guid? customerId)
     {
@@ -95,6 +96,7 @@ public sealed class SaleCart : INotifyPropertyChanged
 
             repriced.Add(line with
             {
+                FallbackListName = pricing.FallbackNoteFor(resolved),
                 UnitPrice = resolved.UnitNetPrice,
                 LineTotal = resolved.LineTotal,
                 LineDiscountAmount = line.LineDiscountPercent is { } percent ? DiscountMath.Amount(resolved.LineTotal, percent) : null,
@@ -330,7 +332,8 @@ public sealed class SaleCart : INotifyPropertyChanged
         var percent = existingIndex >= 0 ? Lines[existingIndex].LineDiscountPercent : null;
         var line = new ScannedSaleLineViewModel(
             presentationId, code, productName, presentationName, quantity, resolved.UnitNetPrice, resolved.LineTotal,
-            percent, percent is { } p ? DiscountMath.Amount(resolved.LineTotal, p) : null);
+            percent, percent is { } p ? DiscountMath.Amount(resolved.LineTotal, p) : null,
+            _pricing.FallbackNoteFor(resolved));
 
         if (existingIndex >= 0)
         {

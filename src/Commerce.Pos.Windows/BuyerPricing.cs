@@ -45,10 +45,15 @@ public sealed class ReplicaListRateComponentSource : IEffectiveRateComponentSour
 
 /// <summary>
 /// How one buyer is priced at the POS: the <see cref="PricingResolutionService"/> bound to the buyer's list, the list name
-/// (null on the legacy single-list path) and whether the customer's own list was missing from the replica.
+/// (null on the legacy single-list path), whether the customer's own list was missing from the replica and the name of the
+/// default list that prices what the buyer's list does not (null when the buyer is already priced from it).
 /// </summary>
-public sealed record BuyerPricing(PricingResolutionService Service, string? PriceListName, bool CustomerListUnavailable)
+public sealed record BuyerPricing(
+    PricingResolutionService Service, string? PriceListName, bool CustomerListUnavailable, string? FallbackListName = null)
 {
+    /// <summary>The note a line carries when it was priced by the fallback list: its name, or null for a line priced by the buyer's own list.</summary>
+    public string? FallbackNoteFor(PriceResolutionOutcome.Resolved resolved) => resolved.FellBack ? FallbackListName : null;
+
     /// <summary>"Lista: Mostrador", with a note when the customer's own list is not in this branch's replica; null on the legacy path.</summary>
     public string? Label => PriceListName is null
         ? null
@@ -74,6 +79,9 @@ public sealed class BuyerPricingFactory
         _legacy = legacy;
     }
 
+    private PriceListPorts PortsOf(Guid listId) =>
+        new(listId, new ReplicaListPriceSource(_store, listId), new ReplicaListRateComponentSource(_store, listId));
+
     public BuyerPricing For(Guid? customerId)
     {
         var lists = _store.ListPriceLists();
@@ -91,11 +99,13 @@ public sealed class BuyerPricingFactory
             return new BuyerPricing(_legacy, PriceListName: null, CustomerListUnavailable: false);
         }
 
+        // customer-price-lists T6: what the buyer's list does not price, the branch default list does (its own composition).
+        var fallback = defaultListId is { } defaultId && defaultId != listId ? PortsOf(defaultId) : null;
         var customerListMissing = customerListId is { } own && lists.All(l => l.Id != own);
         return new BuyerPricing(
-            new PricingResolutionService(
-                new ReplicaListPriceSource(_store, listId), new ReplicaListRateComponentSource(_store, listId)),
+            new PricingResolutionService(PortsOf(listId), fallback),
             list.Name,
-            customerListMissing);
+            customerListMissing,
+            fallback is null ? null : lists.First(l => l.Id == fallback.PriceListId).Name);
     }
 }

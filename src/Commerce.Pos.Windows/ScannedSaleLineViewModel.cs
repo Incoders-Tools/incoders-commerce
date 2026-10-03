@@ -20,7 +20,8 @@ public sealed record ScannedSaleLineViewModel(
     decimal UnitPrice,
     decimal LineTotal,
     decimal? LineDiscountPercent = null,
-    decimal? LineDiscountAmount = null)
+    decimal? LineDiscountAmount = null,
+    string? FallbackListName = null)
 {
     public bool HasDiscount => LineDiscountPercent is not null;
 
@@ -31,6 +32,9 @@ public sealed record ScannedSaleLineViewModel(
     public string DiscountText => LineDiscountPercent is { } percent
         ? $"-{percent.ToString("0.##", CultureInfo.CurrentCulture)}% ({(-(LineDiscountAmount ?? 0m)).ToString("C", CultureInfo.CurrentCulture)})"
         : string.Empty;
+
+    /// <summary>customer-price-lists T6: a discreet "(precio de Mostrador)" when the buyer's list had no price and the default list priced this line; empty otherwise.</summary>
+    public string PriceNote => FallbackListName is null ? string.Empty : $"(precio de {FallbackListName})";
 
     public string DisplayName => $"{ProductName} — {PresentationName}";
 

@@ -339,6 +339,105 @@ public sealed class PricingChannelParityTests : IDisposable
     }
 
     /// <summary>
+    /// customer-price-lists T6, parity of the FALLBACK: the cloud (Postgres sources) and the POS (branch replica through
+    /// <see cref="BuyerPricingFactory"/>) price a Reparto customer's counter-only product (Lengua) identically from the
+    /// default list with its own composition, mark it as fallback and name the same list; a product both lists price
+    /// is not a fallback on either channel.
+    /// </summary>
+    [Fact]
+    public async Task ResolveAsync_FallbackToTheDefaultList_IsIdenticalInTheCloudAndThePos()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var organizationId = Guid.NewGuid();
+        SeedOrganization(organizationId);
+        var branchId = SeedBranch(organizationId);
+        var scope = new CloudTenantScope(organizationId, BranchId: branchId);
+        var actorId = Guid.NewGuid();
+        var catalogStore = new PostgresCatalogStore(_dataSource!);
+        async Task<Guid> NewPresentation(string name)
+        {
+            var product = await catalogStore.CreateProductAsync(
+                scope, new NewProduct(Guid.NewGuid(), name, CategoryFixture.Create(scope), Guid.NewGuid(), actorId), "org-user", actorId, CancellationToken.None);
+            return (await catalogStore.CreatePresentationAsync(
+                scope, new NewPresentation(Guid.NewGuid(), product.Id, "Kg", QuantityBehavior.Weighted, Guid.NewGuid(), null, actorId),
+                "org-user", actorId, CancellationToken.None)).Id;
+        }
+
+        var bola = await NewPresentation("Bola de lomo");
+        var lengua = await NewPresentation("Lengua");
+        var priceStore = new PostgresPriceListStore(_dataSource!);
+        var componentStore = new PostgresRateComponentStore(_dataSource!);
+        var from = new DateOnly(2026, 1, 1);
+        RateComponent[] mostradorSet = [new("IVA", "IVA", 10.5m, RateCalculationBase.Base, 1), new("REMARCACION", "Remarcación", 35m, RateCalculationBase.Base, 2)];
+        RateComponent[] repartoSet = [new("IVA", "IVA", 10.5m, RateCalculationBase.Base, 1), new("FLETE", "Flete", 7m, RateCalculationBase.Base, 2), new("REMARCACION", "Remarcación", 25m, RateCalculationBase.Base, 3)];
+
+        async Task<Guid> NewList(string name, bool isDefault, RateComponent[] set, params (Guid Presentation, decimal Base)[] entries)
+        {
+            var list = await priceStore.CreatePriceListAsync(scope, new NewPriceList(Guid.NewGuid(), name, isDefault, actorId), "org-user", actorId, CancellationToken.None);
+            foreach (var (presentation, basePrice) in entries)
+            {
+                await priceStore.AppendEntryAsync(scope, new NewPriceListEntry(Guid.NewGuid(), list.Id, presentation, basePrice, from, "Manual", null, actorId), "org-user", actorId, CancellationToken.None);
+            }
+            await componentStore.PublishSetAsync(scope, new NewRateComponentSet(Guid.NewGuid(), list.Id, from, set, actorId), "org-user", actorId, CancellationToken.None);
+            return list.Id;
+        }
+
+        var mostrador = await NewList("Mostrador", true, mostradorSet, (bola, 11_400m), (lengua, 7_817.57m));
+        var reparto = await NewList("Reparto", false, repartoSet, (bola, 11_400m));
+        var customer = Guid.NewGuid();
+
+        // POS replica of the same two lists.
+        var dbPath = Path.Combine(Path.GetTempPath(), $"parity-fallback-{Guid.NewGuid():N}.db");
+        try
+        {
+            using var store = new Commerce.BranchNode.BranchSyncStore($"Data Source={dbPath}");
+            Commerce.BranchNode.RateComponentReplica C(RateComponent c) => new(c.Code, c.Label, c.Percentage, c.CalculationBase.ToString(), c.Order);
+            store.ApplyPriceListsSync(new Commerce.BranchNode.PriceListsReplicaSnapshot(
+                organizationId,
+                [new Commerce.BranchNode.PriceListReplica(mostrador, "Mostrador", true, reparto), new Commerce.BranchNode.PriceListReplica(reparto, "Reparto", false, null)],
+                [
+                    new Commerce.BranchNode.PriceListEntryReplica(mostrador, bola, 11_400m, from),
+                    new Commerce.BranchNode.PriceListEntryReplica(mostrador, lengua, 7_817.57m, from),
+                    new Commerce.BranchNode.PriceListEntryReplica(reparto, bola, 11_400m, from),
+                ],
+                [
+                    new Commerce.BranchNode.RateSetReplica(Guid.NewGuid(), mostrador, from, [.. mostradorSet.Select(C)]),
+                    new Commerce.BranchNode.RateSetReplica(Guid.NewGuid(), reparto, from, [.. repartoSet.Select(C)]),
+                ],
+                [new Commerce.BranchNode.CustomerPriceListReplica(customer, reparto)],
+                null), DateTimeOffset.UtcNow);
+            var pos = new Commerce.Pos.Windows.BuyerPricingFactory(store, new PricingResolutionService(new Commerce.Pos.Windows.LocalEffectivePriceSource(store))).For(customer).Service;
+
+            var cloudList = (await priceStore.ResolveBuyerPriceListAsync(scope, isCustomer: true, reparto, CancellationToken.None))!;
+            var cloudDefault = (await priceStore.FindDefaultPriceListAsync(scope, CancellationToken.None))!;
+            PriceListPorts Ports(Guid id) => new(id, new PostgresEffectivePriceSource(priceStore, scope, id), new PostgresRateComponentSource(componentStore, scope, id));
+            var cloud = new PricingResolutionService(Ports(cloudList.Id), Ports(cloudDefault.Id));
+            var on = new DateOnly(2026, 3, 1);
+
+            foreach (var presentation in new[] { bola, lengua })
+            {
+                var fromCloud = Assert.IsType<PriceResolutionOutcome.Resolved>(await cloud.ResolveAsync(presentation, 2m, 10m, on, CancellationToken.None));
+                var fromPos = Assert.IsType<PriceResolutionOutcome.Resolved>(await pos.ResolveAsync(presentation, 2m, 10m, on, CancellationToken.None));
+                Assert.Equal(fromCloud, fromPos);
+            }
+
+            var lenguaResolved = Assert.IsType<PriceResolutionOutcome.Resolved>(await cloud.ResolveAsync(lengua, 1m, 0m, on, CancellationToken.None));
+            Assert.True(lenguaResolved.FellBack);
+            Assert.Equal(mostrador, lenguaResolved.PricedFromListId);
+            Assert.False(Assert.IsType<PriceResolutionOutcome.Resolved>(await cloud.ResolveAsync(bola, 1m, 0m, on, CancellationToken.None)).FellBack);
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            foreach (var path in new[] { dbPath, dbPath + "-wal", dbPath + "-shm" })
+            {
+                if (File.Exists(path)) { try { File.Delete(path); } catch (IOException) { } }
+            }
+        }
+    }
+
+    /// <summary>
     /// Test-only stand-in for a replica-backed component source, written
     /// independently of <see cref="PostgresRateComponentSource"/> so the parity
     /// assertion compares two implementations rather than one called twice.
