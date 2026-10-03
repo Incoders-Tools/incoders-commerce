@@ -1,6 +1,7 @@
 using Commerce.Cloud.Api.Persistence;
 using Commerce.Cloud.Api.Tenancy;
 using Commerce.Domain.Identity;
+using Commerce.Domain.Pricing;
 using Microsoft.AspNetCore.Identity;
 
 namespace Commerce.Cloud.Api.Endpoints;
@@ -417,6 +418,56 @@ public static class DeviceEndpoints
             return Results.Ok(new CatalogSyncResponse(items, removedIds, serverTimeUtc));
         });
 
+        // customer-price-lists T4, channel `price-lists`: ONE snapshot of everything the branch needs to price a sale from
+        // any list. Device bearer; org AND branch come from the STORED device credential. A snapshot, not a delta: the
+        // branch replaces its price list tables with it in one transaction, so a list or a price removed in the cloud
+        // disappears from the replica without a tombstone, and a redelivery is idempotent.
+        var priceListsGroup = group.MapGroup("/pricelists")
+            .RequireAuthorization("DeviceBearer")
+            .AddEndpointFilter<TenantScopeEndpointFilter>();
+
+        priceListsGroup.MapGet("/sync", async (
+            HttpContext httpContext,
+            PostgresPriceListStore priceListStore,
+            PostgresRateComponentStore rateStore,
+            PostgresCustomerStore customerStore,
+            CancellationToken ct) =>
+        {
+            var scope = TenantScopeEndpointFilter.GetScope(httpContext);
+            if (!DeviceIdentity.TryResolve(httpContext.User, out var deviceIdentity) || deviceIdentity is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            // Captured BEFORE the reads, like every other replica channel.
+            var serverTimeUtc = DateTimeOffset.UtcNow;
+            var today = DateOnly.FromDateTime(serverTimeUtc.UtcDateTime);
+
+            var lists = await priceListStore.ListPriceListsAsync(scope, ct);
+            var entries = new List<PriceEntryReplicaRow>();
+            var rateSets = new List<RateSetReplicaRow>();
+            foreach (var list in lists)
+            {
+                foreach (var item in await priceListStore.ListItemsAsOfAsync(scope, list.Id, today, ct))
+                {
+                    entries.Add(new PriceEntryReplicaRow(list.Id, item.PresentationId, item.UnitPrice, item.EntryEffectiveFrom));
+                }
+
+                rateSets.AddRange(ReplicableSets(await rateStore.ListHistoryAsync(scope, list.Id, ct), today));
+            }
+
+            // The organization's inheritable default set: used by any list that declares none of its own.
+            rateSets.AddRange(ReplicableSets(await rateStore.ListHistoryAsync(scope, null, ct), today));
+
+            return Results.Ok(new PriceListsSyncResponse(
+                [.. lists.Select(l => new PriceListReplicaRow(l.Id, l.Name, l.IsDefault, l.FloorPriceListId))],
+                entries,
+                rateSets,
+                await customerStore.ListPriceListAssignmentsAsync(scope, ct),
+                await priceListStore.FindOrganizationDefaultCustomerPriceListIdAsync(scope, ct),
+                serverTimeUtc));
+        });
+
         // Cloud->local stock replica (purchases-receptions-and-stock T5, channel `stock`): device bearer; org AND branch come
         // from the STORED device credential (the tenant filter reads the branch claim), never from the request. Items are
         // absolute on-hand snapshots of the presentations that moved since `since`.
@@ -467,7 +518,43 @@ public static class DeviceEndpoints
 
         return group;
     }
+
+    /// <summary>
+    /// The sets of one owner the branch needs: the one effective today (the latest published on or before it) and every
+    /// set already published for a LATER date, so the branch keeps pricing correctly across a date change while offline.
+    /// Older history stays in the cloud.
+    /// </summary>
+    private static IEnumerable<RateSetReplicaRow> ReplicableSets(IReadOnlyList<RateComponentSet> history, DateOnly today)
+    {
+        var effective = history.Where(s => s.EffectiveFrom <= today).OrderByDescending(s => s.EffectiveFrom).Take(1);
+        return effective.Concat(history.Where(s => s.EffectiveFrom > today)).Select(s => new RateSetReplicaRow(
+            s.Id, s.PriceListId, s.EffectiveFrom,
+            [.. s.Components.Select(c => new RateComponentReplicaRow(c.Code, c.Label, c.Percentage, c.CalculationBase.ToString(), c.Order))]));
+    }
 }
+
+/// <summary>
+/// `GET /device/pricelists/sync` response (customer-price-lists T4, channel `price-lists`): a SNAPSHOT of what the branch
+/// needs to price a sale from any list. `Entries` are the BASE prices effective today of every list visible to the
+/// branch, `RateSets` the rate component sets (list-specific, or `PriceListId` null for the organization default),
+/// `CustomerPriceLists` the customers that have a list of their own. Additive: no existing payload or channel changes.
+/// </summary>
+public sealed record PriceListsSyncResponse(
+    IReadOnlyList<PriceListReplicaRow> Lists,
+    IReadOnlyList<PriceEntryReplicaRow> Entries,
+    IReadOnlyList<RateSetReplicaRow> RateSets,
+    IReadOnlyList<CustomerPriceListAssignment> CustomerPriceLists,
+    Guid? OrganizationDefaultCustomerPriceListId,
+    DateTimeOffset ServerTimeUtc);
+
+public sealed record PriceListReplicaRow(Guid Id, string Name, bool IsDefault, Guid? FloorPriceListId);
+
+public sealed record PriceEntryReplicaRow(Guid PriceListId, Guid PresentationId, decimal UnitPrice, DateOnly EffectiveFrom);
+
+public sealed record RateSetReplicaRow(
+    Guid Id, Guid? PriceListId, DateOnly EffectiveFrom, IReadOnlyList<RateComponentReplicaRow> Components);
+
+public sealed record RateComponentReplicaRow(string Code, string Label, decimal Percentage, string CalculationBase, int Order);
 
 /// <summary>
 /// Rate-limit policy of `POST /device/pair` (see the registration in `Program.cs`).

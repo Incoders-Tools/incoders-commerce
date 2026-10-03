@@ -177,3 +177,6 @@ public sealed record CustomerReplicaRow(
     string? Phone,
     string? Locality,
     DateTimeOffset UpdatedAtUtc);
+
+/// <summary>One customer and the price list it is priced from (`price-lists` replica snapshot).</summary>
+public sealed record CustomerPriceListAssignment(Guid CustomerId, Guid PriceListId);

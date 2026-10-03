@@ -132,6 +132,43 @@ Branch (same RunSyncAsync sweep): ONE tx upsert items into stock_replica + advan
   label "kg" in the scan message is omitted for a line whose card is not on screen.
 - Contract v1 is additive: a new endpoint and a new channel; no existing payload or channel changes.
 
+### Price lists replica channel (cloud -> branch)
+
+Every sale is priced from the list that applies to its buyer (customer-price-lists), and a price is the list's BASE price
+composed with the rate components of that list. The `catalog-prices` channel above carries ONE list's base price and no
+components, so a second channel `price-lists` carries what the POS needs to price from any list. It is a SNAPSHOT, not a
+delta, but it keeps the cursor/replica mechanics (one transaction, cursor in `sync_cursors`, failure is non-fatal):
+
+```text
+GET /device/pricelists/sync                  (device bearer; org AND branch from the stored credential)
+  -> { lists:              [{ id, name, isDefault, floorPriceListId }],
+       entries:            [{ priceListId, presentationId, unitPrice, effectiveFrom }],      // BASE prices effective today
+       rateSets:           [{ id, priceListId|null, effectiveFrom, components: [{ code, label, percentage, calculationBase, order }] }],
+       customerPriceLists: [{ customerId, priceListId }],
+       organizationDefaultCustomerPriceListId, serverTimeUtc }
+Branch (same RunSyncAsync sweep): ONE tx REPLACE price_lists_replica, price_list_entries_replica, rate_sets_replica,
+  rate_components_replica, customer_price_lists_replica, price_list_settings + advance sync_cursors('price-lists')
+```
+
+- `lists` are the lists VISIBLE to the device's branch (price lists are branch scoped by RLS); another branch's lists never
+  travel. `rateSets` carry, per owner (each list, plus the organization default with `priceListId` null), the set effective
+  today and every set already published for a later date, so a branch offline across a date change prices correctly.
+  Older history stays in the cloud.
+- Replace, not upsert: a list, price, set or customer assignment removed in the cloud simply is not in the next snapshot, so
+  it disappears from the replica without tombstones, and a redelivery is idempotent. An interrupted apply leaves the replica
+  and the cursor byte-identical (`SimulateInterruptedPriceListsSync` proves it).
+- Customer lists travel in this snapshot (always complete), not in the customers channel: the customers cursor would never
+  re-send a customer whose list a migration assigned without touching `updated_at_utc`. The customers channel is unchanged.
+- Trade-off: the full snapshot is re-sent on every sweep (about one row per product per list). It is small for a butcher shop
+  catalog and removes the need for removal bookkeeping; if it grows, add a version token and answer 304.
+- Offline: a failed pull (unreachable, non-2xx, empty body) leaves everything as it was and the stale replica still prices.
+  A branch that never synced this channel has no lists and the POS prices from the single `price_replica` list, as before.
+- POS resolution runs the SAME compiled code as the cloud: `BuyerPriceListSelector` picks the list (walk-in -> branch default
+  list; customer -> its list, else the organization default customer list, else the branch default; a list absent from the
+  replica is skipped) and `PricingResolutionService` runs over per-list ports (`ReplicaListPriceSource`,
+  `ReplicaListRateComponentSource`) that read the replica, so a POS price equals the cloud price for the same buyer.
+- Contract v1 is additive: a new endpoint and a new channel; no existing payload or channel changes.
+
 ## Envelope vs. cursor/replica: the selection rule
 
 A new domain's synchronization approach is classified **before**
@@ -149,6 +186,7 @@ implementation:
 | Customers | Cloud → branch | Cursor/replica — branch needs the cloud's current customer view |
 | Catalog + price | Cloud → branch | Cursor/replica — branch needs the cloud's current catalogue/price view |
 | Stock | Cloud → branch | Cursor/replica — branch needs the cloud's current on-hand snapshot (stock is cloud-authoritative) |
+| Price lists | Cloud → branch | Cursor/replica (snapshot) — branch needs every list's base prices, rate components and each customer's list to price a sale offline |
 
 See ADR-012 for the full rule text and its rationale.
 

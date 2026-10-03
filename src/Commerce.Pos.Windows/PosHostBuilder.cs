@@ -122,6 +122,10 @@ public static class PosHostBuilder
         {
             client.BaseAddress = new Uri(cloudApiBaseUrl);
         });
+        builder.Services.AddHttpClient<PriceListsReplicaClient>(client =>
+        {
+            client.BaseAddress = new Uri(cloudApiBaseUrl);
+        });
         builder.Services.AddHttpClient<StockReplicaClient>(client =>
         {
             client.BaseAddress = new Uri(cloudApiBaseUrl);

@@ -254,6 +254,7 @@ public sealed partial class BranchSyncStore : IDisposable
         EnsureCatalogCategoryColumnsExist();
         EnsureDiscountStorageExists();
         EnsureStockReplicaExists();
+        EnsurePriceListsReplicaExists();
         EnsureTenderStorageExists();
         EnsureCashSessionStorageExists();
     }

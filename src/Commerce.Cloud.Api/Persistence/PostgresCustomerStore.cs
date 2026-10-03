@@ -529,6 +529,34 @@ public sealed class PostgresCustomerStore
         await tx.CommitAsync(ct);
         return results;
     }
+
+    /// <summary>
+    /// customer-price-lists T4: the price list of every ENABLED customer that has one of its own (`customers.price_list_id`).
+    /// Always the complete set, not a delta: it travels in the `price-lists` snapshot, so it never depends on the customers
+    /// cursor and a customer whose list was assigned by a migration is still known to the branch.
+    /// </summary>
+    public async Task<IReadOnlyList<CustomerPriceListAssignment>> ListPriceListAssignmentsAsync(
+        CloudTenantScope scope, CancellationToken ct)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+
+        await SetTenantScopeAsync(connection, tx, scope, ct);
+
+        var results = new List<CustomerPriceListAssignment>();
+        await using (var cmd = new NpgsqlCommand(
+            "SELECT id, price_list_id FROM customers WHERE is_enabled AND price_list_id IS NOT NULL ORDER BY id", connection, tx))
+        await using (var reader = await cmd.ExecuteReaderAsync(ct))
+        {
+            while (await reader.ReadAsync(ct))
+            {
+                results.Add(new CustomerPriceListAssignment(reader.GetGuid(0), reader.GetGuid(1)));
+            }
+        }
+
+        await tx.CommitAsync(ct);
+        return results;
+    }
 }
 
 /// <summary>

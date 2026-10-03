@@ -37,6 +37,7 @@ public sealed class SyncRunner
     private readonly OperatorProvisioningClient _operatorProvisioningClient;
     private readonly DiscountPinReplicaClient? _discountPinReplicaClient;
     private readonly StockReplicaClient? _stockReplicaClient;
+    private readonly PriceListsReplicaClient? _priceListsReplicaClient;
     private readonly LocalOperatorStore _localOperatorStore;
     private readonly Func<DevicePairing> _pairingAccessor;
     private int _running;
@@ -51,8 +52,10 @@ public sealed class SyncRunner
         LocalOperatorStore localOperatorStore,
         Func<DevicePairing> pairingAccessor,
         DiscountPinReplicaClient? discountPinReplicaClient = null,
-        StockReplicaClient? stockReplicaClient = null)
+        StockReplicaClient? stockReplicaClient = null,
+        PriceListsReplicaClient? priceListsReplicaClient = null)
     {
+        _priceListsReplicaClient = priceListsReplicaClient;
         _discountPinReplicaClient = discountPinReplicaClient;
         _stockReplicaClient = stockReplicaClient;
         _store = store;
@@ -91,6 +94,7 @@ public sealed class SyncRunner
             await PullCatalogPricesAsync(pairing);
             await PullDiscountPinAsync(pairing);
             await PullStockAsync(pairing);
+            await PullPriceListsAsync(pairing);
 
             var pending = _store.GetPendingOutbox(pairing.BranchId);
             if (pending.Count == 0)
@@ -189,6 +193,31 @@ public sealed class SyncRunner
     /// Refreshes the stock replica (cursor channel `stock`). A failed pull leaves the replica and cursor byte-identical:
     /// the last known stock stays usable offline, labelled with the time of its last successful refresh.
     /// </summary>
+    /// <summary>
+    /// customer-price-lists T4: replaces the price list replica with the cloud snapshot (every list's prices and rate
+    /// components, the lists, each customer's list). A failed pull leaves the replica and cursor as they were, so a
+    /// stale replica keeps pricing offline.
+    /// </summary>
+    private async Task PullPriceListsAsync(DevicePairing pairing)
+    {
+        if (_priceListsReplicaClient is null)
+        {
+            return;
+        }
+
+        var outcome = await _priceListsReplicaClient.PullAsync(pairing.DeviceToken);
+        if (!outcome.Success || outcome.Snapshot is not { } snapshot)
+        {
+            return;
+        }
+
+        _store.ApplyPriceListsSync(
+            new PriceListsReplicaSnapshot(
+                pairing.OrganizationId, snapshot.Lists, snapshot.Entries, snapshot.RateSets, snapshot.CustomerPriceLists,
+                snapshot.OrganizationDefaultCustomerPriceListId),
+            snapshot.ServerTimeUtc);
+    }
+
     private async Task PullStockAsync(DevicePairing pairing)
     {
         if (_stockReplicaClient is null)

@@ -83,6 +83,7 @@ public partial class MainWindow : Window
         CatalogPriceReplicaClient catalogPriceReplicaClient,
         DiscountPinReplicaClient discountPinReplicaClient,
         StockReplicaClient stockReplicaClient,
+        PriceListsReplicaClient priceListsReplicaClient,
         PricingResolutionService pricingResolutionService,
         Func<CustomerAdminClient> customerAdminClientFactory,
         Func<UserAdminClient> userAdminClientFactory,
@@ -142,7 +143,8 @@ public partial class MainWindow : Window
         // button) — reentrancy-guarded by construction, never duplicated.
         _syncRunner = new SyncRunner(
             _store, _branchNodeService, _syncClient, _customerReplicaClient, _catalogPriceReplicaClient,
-            _operatorProvisioningClient, _localOperatorStore, () => _pairing, discountPinReplicaClient, stockReplicaClient);
+            _operatorProvisioningClient, _localOperatorStore, () => _pairing, discountPinReplicaClient, stockReplicaClient,
+            priceListsReplicaClient);
         _syncScheduler = new SyncScheduler(RunSyncAsync);
 
         // The lock screen is the first thing the window shows: nobody is signed in yet.
