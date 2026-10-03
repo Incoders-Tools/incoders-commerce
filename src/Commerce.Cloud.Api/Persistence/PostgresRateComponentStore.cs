@@ -74,13 +74,32 @@ public sealed class PostgresRateComponentStore
     public async Task<RateComponentSet> PublishSetAsync(
         CloudTenantScope scope, NewRateComponentSet set, string actorKind, Guid actorId, CancellationToken ct)
     {
-        var branchId = scope.BranchId
+        _ = scope.BranchId
             ?? throw new InvalidOperationException("PublishSetAsync requires a selected branch.");
 
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
 
         await SetTenantScopeAsync(connection, tx, scope, ct);
+
+        await PublishSetCoreAsync(connection, tx, scope, set, actorKind, actorId, ct);
+
+        await tx.CommitAsync(ct);
+
+        return Rebuild(set.Id, scope.OrganizationId, set.PriceListId, set.EffectiveFrom, set.Components);
+    }
+
+    /// <summary>
+    /// The inserts and the audit row of <see cref="PublishSetAsync"/>, inside a transaction the caller owns (tenant
+    /// scope already applied, commit/rollback by the caller) so a larger operation — copying a price list — can publish
+    /// the set in the SAME transaction as the rest of its writes.
+    /// </summary>
+    internal static async Task PublishSetCoreAsync(
+        NpgsqlConnection connection, NpgsqlTransaction tx, CloudTenantScope scope, NewRateComponentSet set,
+        string actorKind, Guid actorId, CancellationToken ct)
+    {
+        var branchId = scope.BranchId
+            ?? throw new InvalidOperationException("PublishSetAsync requires a selected branch.");
 
         await using (var cmd = new NpgsqlCommand(
             """
@@ -127,10 +146,6 @@ public sealed class PostgresRateComponentStore
                 OldValueJson: null,
                 NewValueJson: $$"""{"effectiveFrom":"{{set.EffectiveFrom:yyyy-MM-dd}}","componentCount":{{set.Components.Count}}}"""),
             ct);
-
-        await tx.CommitAsync(ct);
-
-        return Rebuild(set.Id, scope.OrganizationId, set.PriceListId, set.EffectiveFrom, set.Components);
     }
 
     /// <summary>

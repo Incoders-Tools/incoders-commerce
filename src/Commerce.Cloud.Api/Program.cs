@@ -172,6 +172,7 @@ builder.Services.AddSingleton<IOrderStore>(sp => new PostgresOrderStore(sp.GetRe
 // component store. Registered here rather than defaulted to null inside the
 // service — a missing registration must fail at startup, not reprice silently.
 builder.Services.AddSingleton<PostgresRateComponentStore>();
+builder.Services.AddSingleton<Commerce.Cloud.Api.Pricing.PriceFloorValidator>();
 builder.Services.AddSingleton<CloudOrderSubmissionService>();
 
 // --- Auth: Identity cookie (browser, same-origin SPA) + device bearer

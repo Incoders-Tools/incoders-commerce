@@ -211,6 +211,193 @@ public sealed class PostgresPriceListStore
         return id;
     }
 
+    /// <summary>
+    /// Every active product of a list with the BASE price effective on <paramref name="on"/> (the latest entry at or
+    /// before it per presentation), by product name. The prices to compose for the breakdown and the floor rule.
+    /// </summary>
+    public async Task<IReadOnlyList<PriceListItemRecord>> ListItemsAsOfAsync(
+        CloudTenantScope scope, Guid priceListId, DateOnly on, CancellationToken ct)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+
+        await SetTenantScopeAsync(connection, tx, scope, ct);
+
+        var results = new List<PriceListItemRecord>();
+        await using (var cmd = new NpgsqlCommand(
+            """
+            SELECT DISTINCT ON (e.presentation_id)
+                   e.presentation_id, p.id, p.name, pr.name, pr.identification_code, e.unit_price, e.effective_from
+            FROM price_list_entries e
+            JOIN presentations pr ON pr.id = e.presentation_id
+            JOIN products p ON p.id = pr.product_id
+            WHERE e.price_list_id = $1 AND e.effective_from <= $2 AND p.is_active
+            ORDER BY e.presentation_id, e.effective_from DESC
+            """, connection, tx))
+        {
+            cmd.Parameters.AddWithValue(priceListId);
+            cmd.Parameters.AddWithValue(on.ToDateTime(TimeOnly.MinValue));
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+            {
+                results.Add(new PriceListItemRecord(
+                    reader.GetGuid(0), reader.GetGuid(1), reader.GetString(2), reader.GetString(3),
+                    reader.IsDBNull(4) ? null : reader.GetString(4), reader.GetDecimal(5),
+                    DateOnly.FromDateTime(reader.GetDateTime(6))));
+            }
+        }
+
+        await tx.CommitAsync(ct);
+        return [.. results.OrderBy(i => i.ProductName, StringComparer.CurrentCultureIgnoreCase).ThenBy(i => i.PresentationName, StringComparer.CurrentCultureIgnoreCase)];
+    }
+
+    /// <summary>
+    /// The product and presentation names of the given presentations (active or not): how the floor rule names a product
+    /// whose price is being published for the first time on a list.
+    /// </summary>
+    public async Task<IReadOnlyDictionary<Guid, (Guid ProductId, string ProductName, string PresentationName)>> GetPresentationLabelsAsync(
+        CloudTenantScope scope, IReadOnlyCollection<Guid> presentationIds, CancellationToken ct)
+    {
+        var labels = new Dictionary<Guid, (Guid ProductId, string ProductName, string PresentationName)>();
+        if (presentationIds.Count == 0)
+        {
+            return labels;
+        }
+
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+
+        await SetTenantScopeAsync(connection, tx, scope, ct);
+
+        await using (var cmd = new NpgsqlCommand(
+            """
+            SELECT pr.id, p.id, p.name, pr.name
+            FROM presentations pr JOIN products p ON p.id = pr.product_id
+            WHERE pr.id = ANY($1)
+            """, connection, tx))
+        {
+            cmd.Parameters.AddWithValue(presentationIds.ToArray());
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+            {
+                labels[reader.GetGuid(0)] = (reader.GetGuid(1), reader.GetString(2), reader.GetString(3));
+            }
+        }
+
+        await tx.CommitAsync(ct);
+        return labels;
+    }
+
+    /// <summary>
+    /// Sets (or clears, with `null`) the floor list of a price list and writes the audit row in the SAME transaction.
+    /// Returns the updated list, or `null` when it is not visible in the caller's branch. The caller validates (not itself,
+    /// no cycle, no violation) first; the database refuses a floor of another branch and a list that is its own floor.
+    /// </summary>
+    public async Task<PriceListRecord?> SetFloorAsync(
+        CloudTenantScope scope, Guid priceListId, Guid? floorPriceListId, string actorKind, Guid actorId, CancellationToken ct)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+
+        await SetTenantScopeAsync(connection, tx, scope, ct);
+
+        Guid? previous;
+        await using (var read = new NpgsqlCommand("SELECT floor_price_list_id FROM price_lists WHERE id = $1 FOR UPDATE", connection, tx))
+        {
+            read.Parameters.AddWithValue(priceListId);
+            await using var reader = await read.ExecuteReaderAsync(ct);
+            if (!await reader.ReadAsync(ct))
+            {
+                return null;
+            }
+
+            previous = reader.IsDBNull(0) ? null : reader.GetGuid(0);
+        }
+
+        PriceListRecord record;
+        await using (var cmd = new NpgsqlCommand(
+            $"UPDATE price_lists SET floor_price_list_id = $1 WHERE id = $2 RETURNING {PriceListColumns}", connection, tx))
+        {
+            cmd.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Uuid, (object?)floorPriceListId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue(priceListId);
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            await reader.ReadAsync(ct);
+            record = ReadPriceList(reader);
+        }
+
+        static string Json(Guid? id) => id is null ? "null" : $"\"{id}\"";
+        await AuditLogWriter.InsertAsync(
+            connection, tx,
+            new UserManagementAuditEntry(
+                actorKind, actorId, scope.OrganizationId, "price_list", priceListId, "price-list.floor-changed",
+                OldValueJson: "{\"floorPriceListId\":" + Json(previous) + "}",
+                NewValueJson: "{\"floorPriceListId\":" + Json(floorPriceListId) + "}"),
+            ct);
+
+        await tx.CommitAsync(ct);
+        return record;
+    }
+
+    /// <summary>
+    /// Copies a price list into a NEW independent one, atomically: the list (never the default), its base entries
+    /// published on the copy's effective date, its own rate component set and the audit row. Nothing is shared with the
+    /// source afterwards: no entry, no set, no reference other than the optional floor.
+    /// </summary>
+    public async Task<PriceListRecord> CopyPriceListAsync(
+        CloudTenantScope scope, NewPriceListCopy copy, string actorKind, Guid actorId, CancellationToken ct)
+    {
+        var branchId = scope.BranchId
+            ?? throw new InvalidOperationException("CopyPriceListAsync requires a selected branch.");
+
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+
+        await SetTenantScopeAsync(connection, tx, scope, ct);
+
+        PriceListRecord record;
+        await using (var cmd = new NpgsqlCommand(
+            $"""
+            INSERT INTO price_lists (id, organization_id, branch_id, name, is_default, created_by_user_id, floor_price_list_id)
+            VALUES ($1, $2, $3, $4, false, $5, $6)
+            RETURNING {PriceListColumns}
+            """, connection, tx))
+        {
+            cmd.Parameters.AddWithValue(copy.Id);
+            cmd.Parameters.AddWithValue(scope.OrganizationId);
+            cmd.Parameters.AddWithValue(branchId);
+            cmd.Parameters.AddWithValue(copy.Name);
+            cmd.Parameters.AddWithValue(copy.CreatedByUserId);
+            cmd.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Uuid, (object?)copy.FloorPriceListId ?? DBNull.Value);
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            await reader.ReadAsync(ct);
+            record = ReadPriceList(reader);
+        }
+
+        foreach (var (presentationId, unitPrice) in copy.Entries)
+        {
+            await AppendEntryCoreAsync(
+                connection, tx, scope,
+                new NewPriceListEntry(Guid.NewGuid(), copy.Id, presentationId, unitPrice, copy.EffectiveFrom, "Manual", ImportBatchId: null, copy.CreatedByUserId),
+                actorKind, actorId, ct);
+        }
+
+        if (copy.Set is not null)
+        {
+            await PostgresRateComponentStore.PublishSetCoreAsync(connection, tx, scope, copy.Set, actorKind, actorId, ct);
+        }
+
+        await AuditLogWriter.InsertAsync(
+            connection, tx,
+            new UserManagementAuditEntry(
+                actorKind, actorId, scope.OrganizationId, "price_list", copy.Id, "price-list.copied",
+                OldValueJson: null,
+                NewValueJson: "{\"sourcePriceListId\":\"" + copy.SourcePriceListId + "\",\"effectiveFrom\":\"" + copy.EffectiveFrom.ToString("yyyy-MM-dd") + "\",\"entries\":" + copy.Entries.Count + "}"),
+            ct);
+
+        await tx.CommitAsync(ct);
+        return record;
+    }
+
     // --- Price list entries (append-only)----------------------------------
 
     private const string EntryColumns =

@@ -19,6 +19,34 @@ public sealed record PriceListRecord(
     Guid? FloorPriceListId = null);
 
 /// <summary>
+/// One product of a price list on a date (customer-price-lists T3): the BASE price effective that day and the names the
+/// admin screens show. Only active products (a deactivated product leaves every list).
+/// </summary>
+public sealed record PriceListItemRecord(
+    Guid PresentationId,
+    Guid ProductId,
+    string ProductName,
+    string PresentationName,
+    string? IdentificationCode,
+    decimal UnitPrice,
+    DateOnly EntryEffectiveFrom);
+
+/// <summary>
+/// Input to <see cref="PostgresPriceListStore.CopyPriceListAsync"/>: a NEW, independent list made from another one. The
+/// entries are the base prices to publish on <see cref="EffectiveFrom"/>; <see cref="Set"/> (when any) is the new list's
+/// own rate component set, published on the same date.
+/// </summary>
+public sealed record NewPriceListCopy(
+    Guid Id,
+    string Name,
+    Guid SourcePriceListId,
+    Guid? FloorPriceListId,
+    DateOnly EffectiveFrom,
+    IReadOnlyList<(Guid PresentationId, decimal UnitPrice)> Entries,
+    NewRateComponentSet? Set,
+    Guid CreatedByUserId);
+
+/// <summary>
 /// Input to <see cref="PostgresPriceListStore.AppendEntryAsync"/> — a NEW
 /// price publication, never an edit of an existing one (design.md
 /// "Effective-dating shape": append-only, no `EffectiveTo`).

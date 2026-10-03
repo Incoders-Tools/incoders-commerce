@@ -128,9 +128,16 @@ public sealed class RateComponentSet
     /// position is the contract, not an implementation detail (spec
     /// "Resolution Composes Rate Components Before The Customer Discount").
     /// </summary>
-    public decimal Compose(decimal basePrice)
+    public decimal Compose(decimal basePrice) => Breakdown(basePrice).FinalPrice;
+
+    /// <summary>
+    /// The same arithmetic as <see cref="Compose"/> (which is defined as its final price, so the two cannot drift),
+    /// keeping every step: each component with the amount its percentage was computed on and the amount it adds.
+    /// </summary>
+    public RateBreakdown Breakdown(decimal basePrice)
     {
         var subtotal = basePrice;
+        var lines = new List<RateBreakdownLine>(Components.Count);
 
         foreach (var component in Components)
         {
@@ -142,9 +149,12 @@ public sealed class RateComponentSet
                     $"Component '{component.Code}' has no declared calculation base."),
             };
 
-            subtotal += operand * component.Percentage / 100m;
+            var amount = operand * component.Percentage / 100m;
+            subtotal += amount;
+            lines.Add(new RateBreakdownLine(
+                component.Code, component.Label, component.Percentage, component.CalculationBase, component.Order, operand, amount));
         }
 
-        return subtotal;
+        return new RateBreakdown(basePrice, lines, subtotal);
     }
 }

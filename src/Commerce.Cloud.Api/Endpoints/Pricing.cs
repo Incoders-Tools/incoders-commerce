@@ -235,6 +235,7 @@ public static class PricingEndpoints
             HttpContext httpContext,
             PostgresUserAccountStore userStore,
             PostgresPriceListStore priceListStore,
+            Commerce.Cloud.Api.Pricing.PriceFloorValidator floorValidator,
             CancellationToken ct) =>
         {
             var branchFailure = BranchSelectionRequirement.Enforce(httpContext);
@@ -264,6 +265,16 @@ public static class PricingEndpoints
             if (priceList is null)
             {
                 return Results.NotFound();
+            }
+
+            // customer-price-lists: a price that would put the product below its floor list (or, on a floor list, put a
+            // list that depends on it below ITS floor) is refused with the violations; nothing is written.
+            var violations = await floorValidator.CheckChangeAsync(
+                scope, priceListId, request.EffectiveFrom,
+                new Dictionary<Guid, decimal> { [request.PresentationId] = request.UnitPrice }, null, ct);
+            if (violations.Count > 0)
+            {
+                return PriceListCompositionEndpoints.BelowFloor(violations);
             }
 
             PriceListEntryRecord created;
@@ -516,6 +527,7 @@ public static class PricingEndpoints
             HttpContext httpContext,
             PostgresUserAccountStore userStore,
             PostgresPriceListStore priceListStore,
+            Commerce.Cloud.Api.Pricing.PriceFloorValidator floorValidator,
             CancellationToken ct) =>
         {
             var branchFailure = BranchSelectionRequirement.Enforce(httpContext);
@@ -543,10 +555,22 @@ public static class PricingEndpoints
                 return Results.Conflict(new { error = "no-default-price-list" });
             }
 
+            // The matched rows are about to become entries of the default list today: the floor rule applies to them too.
+            var importDate = DateOnly.FromDateTime(DateTime.UtcNow);
+            var proposed = (await priceListStore.ListImportRowsAsync(scope, batchId, ct))
+                .Where(r => r.MatchStatus == nameof(ImportMatchStatus.Matched) && r.PresentationId is not null && r.ProposedPrice is not null)
+                .GroupBy(r => r.PresentationId!.Value)
+                .ToDictionary(g => g.Key, g => g.Last().ProposedPrice!.Value);
+            var violations = await floorValidator.CheckChangeAsync(scope, defaultPriceList.Id, importDate, proposed, null, ct);
+            if (violations.Count > 0)
+            {
+                return PriceListCompositionEndpoints.BelowFloor(violations);
+            }
+
             try
             {
                 var committed = await priceListStore.CommitImportBatchAsync(
-                    scope, batchId, defaultPriceList.Id, DateOnly.FromDateTime(DateTime.UtcNow), "org-user", caller.Id, ct);
+                    scope, batchId, defaultPriceList.Id, importDate, "org-user", caller.Id, ct);
                 return Results.Ok(committed);
             }
             catch (ImportBatchNotStagedException)
@@ -597,6 +621,9 @@ public static class PricingEndpoints
             }
         });
 
+        // customer-price-lists T3: breakdown, copy, composition and floor of a price list.
+        PriceListCompositionEndpoints.Map(group);
+
         return group;
     }
 
@@ -613,7 +640,7 @@ public static class PricingEndpoints
     /// <see langword="null"/> on ANY failure so every call site maps
     /// uniformly to <see cref="Results.Forbid()"/>.
     /// </summary>
-    private static async Task<(CloudTenantScope Scope, UserAccount Caller)?> AuthorizeCallerAsync(
+    internal static async Task<(CloudTenantScope Scope, UserAccount Caller)?> AuthorizeCallerAsync(
         HttpContext httpContext, PostgresUserAccountStore userStore, CancellationToken ct)
     {
         var scope = TenantScopeEndpointFilter.GetScope(httpContext);
