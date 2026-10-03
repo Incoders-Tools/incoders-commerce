@@ -83,6 +83,21 @@ the counter and wholesale + delivery to customers at different prices.
 - T4 done (44ab064, fc9fda4). Decisions: the `price-lists` channel is a full snapshot (REPLACE, so removals need no tombstones and redelivery is idempotent) and carries the customers' list assignments, instead of extending the customers cursor channel (a migration-assigned list would never be re-sent); no cloud migration needed, SQLite tables are `CREATE TABLE IF NOT EXISTS`; entries are the base price effective on the server date, rate sets are the one effective today plus later-dated ones; a branch that never synced price lists keeps pricing from `price_replica` (no list label). Customer change on an open sale re-prices every line at its quantity from the new list, keeps discount percentages, sale discount and authorization (amounts recomputed), and is refused (nothing changes, picker reverts, products named) when the new list has no price for a line. Catalog cards show the current buyer's list price. Partials: the snapshot is re-sent on every sweep (add a version token + 304 if the catalog grows); no WPF/E2E run of the sale screen (markup and cart logic are covered by tests, the window itself was only built); Engram mirror `odd/customer-price-lists/tasks` not refreshed by this writer.
 - T5 done (a734d38, b857742). Decisions: no new routes or nav entries (the breakdown, composition and copy pages are full-screen states of the existing `/app/price-lists` screen, like "Gestionar precios"), so `App.test.tsx`, `AppLayout.test.tsx` and `e2e/` needed no change; `ApiError` now keeps the parsed body so a 409 `price-below-floor` can list its violations; the breakdown reads `/breakdown?on=` (always sent, default today) and the history from `/composition`; the composition form publishes from tomorrow by default, either the full component set or "solo remarcación"; the customer form takes lists and the org default from `CustomersScreen` (container-presentational) and sends the empty-id sentinel to clear on edit; the settings PUT sends only the fields that changed. Partials: copy form only takes a new remarcación % (the API also accepts a full component set, no UI for it); customers list filters by list client-side; no E2E or browser run of the new pages (jsdom tests only); Engram mirror `odd/customer-price-lists/tasks` not refreshed by this writer.
 
+## Reviews (owner granted each slice, 2026-10-02/03)
+
+All six slices approved and acknowledged: A data + seed `29e0b30..5a10db3` (`review-6106b88fb13f1ea7`), B engine `5a10db3..bafac94` (`review-50aca56698a037a4`), C composition API `bafac94..5b4202d` (`review-dd9fd618a4934077`), D replica `5b4202d..44ab064` (`review-8e8ce25ea8574b21`), E POS pricing `44ab064..821acad` (`review-35d0dd5a1d59c68b`), F web `821acad..583a70b` (`review-d884f1f4b79749f3`).
+
+## Follow-ups (non-blocking review findings, most relevant)
+
+- [ ] L1 POS: clearing the sale resets the cart to walk-in but the customer picker keeps the old customer; a vanished customer can also desync picker and cart (`SaleCart.cs:216-217`, `MainWindow.xaml.cs:662-679`).
+- [ ] L2 A customer whose list has no price for a product cannot buy it (no fallback to another list) (`PostgresPriceListStore.cs:179-192`) - owner decision pending.
+- [ ] L3 Replica and composition use the UTC date: between 21:00 and 24:00 Argentina time tomorrow's prices/sets apply early (`Device.cs:443-444`, `PriceListCompositionEndpoints.cs:393`).
+- [ ] L4 Floor check runs outside the write transaction (TOCTOU) and only at the change's effective date; import floor check untested (`PriceListCompositionEndpoints.cs:176-181`, `Pricing.cs:270-278`, `558-568`).
+- [ ] L5 Organization settings PUT can lose a concurrent update (`Account.cs:485-486`).
+- [ ] L6 Customer price-list name join is not organization-scoped in SQL (relies on RLS) (`PostgresCustomerStore.cs:83`).
+- [ ] L7 Seed 004 deletes "Clientes" by name; Mostrador conversion can be partial if re-run after manual edits (`004_vaca_verde_customer_price_lists.sql:121-180`).
+- [ ] L8 Web composition form can submit an empty set if loading the current one fails (server rejects it) (`CompositionForm.tsx:91-94`); POS UI flow tested only by markup grep.
+
 ## Next step
 
 Feature complete pending parent review; refresh the Engram mirror.
