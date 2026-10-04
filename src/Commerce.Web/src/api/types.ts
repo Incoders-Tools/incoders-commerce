@@ -41,6 +41,9 @@ export const Permission = {
   ManageCatalog: 1 << 1,
   ManageUsers: 1 << 2,
   ManageBranchSettings: 1 << 3,
+  // Bit 4 is the server's OperatePos (POS devices), not read by the web.
+  // staff-order-taking: sellers and business admins take orders for a customer.
+  TakeOrders: 1 << 5,
 } as const
 export type Permission = (typeof Permission)[keyof typeof Permission]
 
@@ -1059,4 +1062,80 @@ export interface FloorViolation {
   presentationName: string
   price: number
   floorPrice: number
+}
+
+// staff-order-taking: `/orders/staff/*` (Endpoints/StaffOrdering.cs). Every route needs `TakeOrders` and a selected branch.
+export interface StaffCustomerOption {
+  id: string
+  displayName: string
+  taxId: string | null
+  phone: string | null
+  cityName: string | null
+  priceListId: string | null
+  priceListName: string | null
+  discountPercentage: number | null
+  /** Disabled customers are listed too, so the screen can say why they cannot be chosen. */
+  isEnabled: boolean
+}
+
+export interface StaffPresentationOption {
+  presentationId: string
+  productId: string
+  productName: string
+  presentationName: string
+  identificationCode: string | null
+  quantityBehavior: StockQuantityBehavior
+}
+
+export interface StaffOrderLineRequest {
+  productId: string
+  presentationId: string
+  quantity: number
+}
+
+export interface StaffQuoteRequest {
+  customerId: string
+  lines: StaffOrderLineRequest[]
+}
+
+/** A quoted line: `priced`, or `no-effective-price` with only the request echo. */
+export interface StaffOrderQuoteLine extends StaffOrderLineRequest {
+  status: 'priced' | 'no-effective-price'
+  productName: string | null
+  presentationName: string | null
+  quantityBehavior: StockQuantityBehavior | null
+  unitListPrice: number | null
+  appliedDiscountPercentage: number | null
+  unitNetPrice: number | null
+  lineTotal: number | null
+  priceListId: string | null
+  priceListName: string | null
+  /** True when the customer's list had no price and the organization default list priced the line. */
+  fellBack: boolean
+}
+
+export interface StaffOrderQuote {
+  status: 'quoted' | 'denied'
+  reason: string
+  customerId: string
+  priceListId: string | null
+  priceListName: string | null
+  discountPercentage: number | null
+  lines: StaffOrderQuoteLine[]
+  total: number
+}
+
+export interface StaffSubmitOrderRequest extends StaffQuoteRequest {
+  /** Client-generated once per draft: the idempotency key. */
+  orderId: string
+  note?: string | null
+}
+
+export interface StaffOrderSubmission {
+  status: 'accepted' | 'denied'
+  /** `accepted` (new), `existing-order` (replay) or the denial reason. */
+  reason: string
+  wasNewlyAccepted: boolean
+  orderNumber: string | null
+  order: unknown
 }

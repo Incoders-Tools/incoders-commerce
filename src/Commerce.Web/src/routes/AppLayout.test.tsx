@@ -58,12 +58,27 @@ describe('AppLayout', () => {
     document.documentElement.classList.remove('dark')
   })
 
-  it('shows only Catalog and Orders to a plain authenticated user', () => {
+  it('shows Orders only to a user who may take orders', () => {
+    renderLayout(buildUser({ permissions: Permission.ViewSales | Permission.TakeOrders }))
+
+    const nav = within(screen.getByRole('navigation'))
+    expect(nav.getByRole('link', { name: 'Pedidos' })).toHaveAttribute('href', '/app/orders')
+    expect(nav.getByRole('link', { name: /catálogo/i })).toBeInTheDocument()
+    expect(nav.queryByRole('link', { name: /clientes/i })).not.toBeInTheDocument()
+  })
+
+  it('hides Orders from an admin without TakeOrders', () => {
+    renderLayout(buildUser({ permissions: Permission.ManageUsers }))
+
+    expect(within(screen.getByRole('navigation')).queryByRole('link', { name: 'Pedidos' })).not.toBeInTheDocument()
+  })
+
+  it('shows only Catalog to a plain authenticated user', () => {
     renderLayout(buildUser())
 
     const nav = within(screen.getByRole('navigation'))
     expect(nav.getByRole('link', { name: /catálogo/i })).toBeInTheDocument()
-    expect(nav.getByRole('link', { name: /pedidos/i })).toBeInTheDocument()
+    expect(nav.queryByRole('link', { name: /pedidos/i })).not.toBeInTheDocument()
     expect(nav.queryByRole('link', { name: /clientes/i })).not.toBeInTheDocument()
     expect(nav.queryByRole('link', { name: /proveedor/i })).not.toBeInTheDocument()
     expect(nav.queryByRole('link', { name: /recepciones/i })).not.toBeInTheDocument()
@@ -77,7 +92,7 @@ describe('AppLayout', () => {
   })
 
   it('renders an identifying icon next to every visible nav link, without changing its accessible name', () => {
-    renderLayout(buildUser({ permissions: Permission.ManageUsers, isSystemAdmin: true }))
+    renderLayout(buildUser({ permissions: Permission.ManageUsers | Permission.TakeOrders, isSystemAdmin: true }))
 
     const nav = within(screen.getByRole('navigation'))
     for (const name of ['Tablero', 'Catálogo', 'Pedidos', 'Clientes', 'Usuarios', 'Sucursales', 'Listas de precios', 'Organizaciones']) {

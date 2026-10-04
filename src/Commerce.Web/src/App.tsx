@@ -11,6 +11,8 @@ import { AppLayout } from '@/routes/AppLayout'
 import { RequireAuth } from '@/routes/RequireAuth'
 import { RequireAdmin } from '@/routes/RequireAdmin'
 import { RequireSystemAdmin } from '@/routes/RequireSystemAdmin'
+import { RequireTakeOrders } from '@/routes/RequireTakeOrders'
+import { canTakeOrders } from '@/auth/canTakeOrders'
 import { LoginRoute } from '@/routes/LoginRoute'
 import { ForgotPasswordRoute } from '@/routes/ForgotPasswordRoute'
 import { ResetPasswordRoute } from '@/routes/ResetPasswordRoute'
@@ -42,8 +44,9 @@ import { DashboardScreen } from '@/screens/DashboardScreen'
  * spec, "Sysadmin Acts On A Selected Organization"), so every tenant screen
  * would be a hidden, 403-answering page for them: they land on Organizations.
  * A business admin (or a sysadmin acting on an organization) lands on the
- * dashboard, the same population `RequireAdmin` lets in; everyone else keeps
- * the catalog.
+ * dashboard, the same population `RequireAdmin` lets in. A seller (may take
+ * orders, no administration) lands on the take order screen, their main area;
+ * everyone else keeps the catalog.
  */
 function AppIndexRedirect() {
   const user = useOptionalAuth()?.user ?? null
@@ -51,7 +54,14 @@ function AppIndexRedirect() {
   const platformOnly = Boolean(user?.isSystemAdmin) && user?.permissions === 0 && selectedOrganization == null
   const isAdmin =
     hasPermission(user, Permission.ManageUsers) || (Boolean(user?.isSystemAdmin) && selectedOrganization != null)
-  return <Navigate to={platformOnly ? 'organizations' : isAdmin ? 'dashboard' : 'catalog'} replace />
+  const target = platformOnly
+    ? 'organizations'
+    : isAdmin
+      ? 'dashboard'
+      : canTakeOrders(user, selectedOrganization != null)
+        ? 'orders'
+        : 'catalog'
+  return <Navigate to={target} replace />
 }
 
 /**
@@ -98,9 +108,11 @@ function App() {
                 <Route path="/app" element={<AppLayout />}>
                   <Route index element={<AppIndexRedirect />} />
                   <Route path="catalog" element={<CatalogScreen />} />
-                  {/* tasks.md 6.8 regression guard: unchanged staff-operated
-                      submission path, extracted to its own component. */}
-                  <Route path="orders" element={<StaffOrderScreen />} />
+                  {/* staff-order-taking: the "Take order" screen. Not a redirect
+                      guard: without TakeOrders it shows a "no access" state. */}
+                  <Route element={<RequireTakeOrders />}>
+                    <Route path="orders" element={<StaffOrderScreen />} />
+                  </Route>
                   <Route path="password" element={<RenewPasswordScreen />} />
                   <Route element={<RequireAdmin />}>
                     <Route path="dashboard" element={<DashboardScreen />} />

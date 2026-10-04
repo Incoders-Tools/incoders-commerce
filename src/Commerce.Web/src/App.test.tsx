@@ -283,6 +283,31 @@ describe('App route table', () => {
 
     expect(await screen.findByRole('heading', { name: 'Catálogo' })).toBeInTheDocument()
   })
+
+  // staff-order-taking: taking orders is a seller's main area.
+  it('lands a seller on the take order screen and links it from the sidebar', async () => {
+    renderAppAt(
+      '/app',
+      buildUser({ permissions: Permission.ViewSales | Permission.TakeOrders, selectableBranches: [{ id: 'b-1', name: 'Centro', code: 1 }] }),
+    )
+
+    expect(await screen.findByRole('heading', { name: 'Tomar pedido' })).toBeInTheDocument()
+    const nav = within(screen.getByRole('navigation', { name: 'Principal' }))
+    expect(nav.getByRole('link', { name: 'Pedidos' })).toHaveAttribute('href', '/app/orders')
+  })
+
+  it('keeps landing a business admin who may also take orders on the dashboard', async () => {
+    renderAppAt('/app', buildUser({ permissions: 63 }))
+
+    expect(await screen.findByRole('heading', { name: 'Tablero' })).toBeInTheDocument()
+  })
+
+  it('shows a no-access state at /app/orders to a user without TakeOrders', async () => {
+    renderAppAt('/app/orders', buildUser({ permissions: Permission.ViewSales }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Tu usuario no tiene permiso para tomar pedidos.')
+    expect(screen.queryByLabelText('Buscar cliente')).not.toBeInTheDocument()
+  })
 })
 
 /**

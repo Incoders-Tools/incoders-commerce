@@ -23,6 +23,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { hasPermission, useAuth } from '@/auth/AuthContext'
+import { canTakeOrders } from '@/auth/canTakeOrders'
 import { Permission } from '@/api/types'
 import { AccountMenu } from '@/components/layout/AccountMenu'
 import { BranchSwitcher } from '@/components/layout/BranchSwitcher'
@@ -69,11 +70,14 @@ export function AppLayout() {
     Boolean(user?.isSystemAdmin) && organizationContext?.selectedOrganization != null
   const showTenantNav = hasPermission(user, Permission.ManageUsers) || actingAsSysadminOnSelectedOrganization
   // A sysadmin with no real org-scoped Permission (the common case) sees
-  // Catalog/Orders only once they have selected an organization; a sysadmin
+  // Catalog only once they have selected an organization; a sysadmin
   // who was ALSO separately granted real permissions (uncommon, but not
   // precluded by the model) is treated like any other permission holder.
   const sysadminWithNoRealPermissions = Boolean(user?.isSystemAdmin) && user?.permissions === 0
-  const showCatalogAndOrdersNav = !sysadminWithNoRealPermissions || actingAsSysadminOnSelectedOrganization
+  const showCatalogNav = !sysadminWithNoRealPermissions || actingAsSysadminOnSelectedOrganization
+  // staff-order-taking: Orders only for TakeOrders (UI-only, like its
+  // siblings; RequireTakeOrders and the server's check are the boundary).
+  const showOrdersNav = canTakeOrders(user, actingAsSysadminOnSelectedOrganization)
 
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
@@ -117,10 +121,14 @@ export function AppLayout() {
             {showTenantNav && (
               <NavItem to="/app/dashboard" icon={LayoutDashboard} onNavigate={closeMobileNav}>{t('items.dashboard')}</NavItem>
             )}
-            {showCatalogAndOrdersNav && (
+            {(showCatalogNav || showOrdersNav) && (
               <NavSection title={t('sections.operations')}>
-                <NavItem to="/app/catalog" icon={Package} onNavigate={closeMobileNav}>{t('items.catalog')}</NavItem>
-                <NavItem to="/app/orders" icon={ClipboardList} onNavigate={closeMobileNav}>{t('items.orders')}</NavItem>
+                {showCatalogNav && (
+                  <NavItem to="/app/catalog" icon={Package} onNavigate={closeMobileNav}>{t('items.catalog')}</NavItem>
+                )}
+                {showOrdersNav && (
+                  <NavItem to="/app/orders" icon={ClipboardList} onNavigate={closeMobileNav}>{t('items.orders')}</NavItem>
+                )}
               </NavSection>
             )}
             {/* commerce-customer-identity "Web admin gating": hidden, not just

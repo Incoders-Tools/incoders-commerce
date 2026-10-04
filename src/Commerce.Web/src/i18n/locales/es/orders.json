@@ -43,26 +43,84 @@
     "submit": "Enviar pedido"
   },
   "staffOrder": {
-    "title": "Enviar pedido (personal)",
-    "customerIdLabel": "ID de cliente",
-    "accessCredentialLabel": "Credencial de acceso",
-    "destinationBranchIdLabel": "ID de sucursal de destino",
-    "actorIdLabel": "ID de actor",
-    "productIdLabel": "ID de producto",
-    "presentationIdLabel": "ID de presentación",
-    "quantityLabel": "Cantidad",
+    "title": "Tomar pedido",
+    "description": "Elegí el cliente, agregá los productos y confirmá el pedido con los precios de su lista.",
+    "noAccess": "Tu usuario no tiene permiso para tomar pedidos.",
+    "branchRequired": "Elegí una sucursal en la barra superior para tomar pedidos.",
+    "customer": {
+      "title": "Cliente",
+      "searchLabel": "Buscar cliente",
+      "searchPlaceholder": "Nombre, CUIT o teléfono",
+      "hint": "Escribí para buscar entre los clientes de la organización.",
+      "searching": "Buscando…",
+      "noResults": "Ningún cliente coincide con la búsqueda.",
+      "searchError": "No se pudieron buscar los clientes.",
+      "disabled": "Cliente deshabilitado",
+      "noCity": "Sin ciudad",
+      "priceList": "Lista {{name}}",
+      "defaultPriceList": "Lista por defecto",
+      "discount": "{{discount}} % de descuento",
+      "change": "Cambiar"
+    },
+    "products": {
+      "title": "Productos",
+      "searchLabel": "Buscar producto",
+      "searchPlaceholder": "Nombre o código",
+      "searching": "Buscando…",
+      "noResults": "Ningún producto coincide con la búsqueda.",
+      "searchError": "No se pudieron buscar los productos.",
+      "add": "Agregar {{name}}",
+      "addShort": "Agregar",
+      "empty": "Todavía no agregaste productos.",
+      "linesLabel": "Productos del pedido"
+    },
+    "lines": {
+      "quantityLabel": "Cantidad de {{name}}",
+      "remove": "Quitar {{name}}",
+      "unitPrice": "{{price}} c/u",
+      "priceList": "Lista {{name}}",
+      "fellBack": "Sin precio en la lista del cliente: se usó {{name}}",
+      "unpriced": "Sin precio para este cliente",
+      "pricing": "Calculando…",
+      "invalidInteger": "Ingresá una cantidad entera mayor a cero.",
+      "invalidDecimal": "Ingresá una cantidad mayor a cero."
+    },
+    "note": {
+      "label": "Nota (opcional)",
+      "placeholder": "Indicaciones para la entrega o la preparación",
+      "counter": "{{length}}/{{max}}"
+    },
+    "summary": {
+      "title": "Resumen",
+      "total": "Total",
+      "lineCount_one": "{{count}} producto",
+      "lineCount_other": "{{count}} productos",
+      "chooseCustomer": "Elegí un cliente para ver los precios.",
+      "addProducts": "Agregá al menos un producto.",
+      "fixQuantities": "Corregí las cantidades marcadas.",
+      "pricing": "Calculando precios…",
+      "unpricedBlock": "Quitá los productos sin precio para poder confirmar el pedido.",
+      "submit": "Confirmar pedido",
+      "submitting": "Enviando…"
+    },
     "errors": {
+      "notFound": "El cliente o algún producto ya no existe.",
+      "customerDisabled": "El cliente está deshabilitado: no se le pueden tomar pedidos.",
+      "noEffectivePrice": "Algún producto no tiene precio para este cliente.",
+      "denied": "No se pudo registrar el pedido ({{reason}}).",
+      "validation": "Revisá los datos del pedido.",
+      "forbidden": "Tu usuario no tiene permiso para tomar pedidos.",
+      "unexpectedQuote": "No se pudieron calcular los precios.",
       "unexpectedSubmit": "Error inesperado al enviar el pedido."
     },
-    "outcome": {
-      "accepted": "Pedido aceptado.",
-      "denied": "Rechazado: {{reason}}"
-    },
-    "total": "Total: {{total}}",
-    "fallbackLines_one": "Precio de Mostrador: {{count}} línea",
-    "fallbackLines_other": "Precio de Mostrador: {{count}} líneas",
-    "submitting": "Enviando…",
-    "submit": "Enviar pedido"
+    "confirmation": {
+      "title": "Pedido <number>{{number}}</number> registrado",
+      "titleWithoutNumber": "Pedido registrado",
+      "replay": "Este pedido ya estaba registrado: no se duplicó.",
+      "customer": "Cliente: {{name}}",
+      "total": "Total: {{total}}",
+      "newOrder": "Nuevo pedido"
+    }
   },
   "lineEditor": {
     "presentationLabel": "Presentación",
