@@ -8,15 +8,28 @@ namespace Commerce.Pos.Windows;
 /// precision a reception accepts (<see cref="Commerce.Domain.Purchasing.ReceptionRules.MaxQuantityDecimals"/>).
 /// Anything else counts whole units.
 ///
-/// Decimal separator: the terminal does not receive the organization's quantity separator (it is not in the pairing nor
-/// in any replica), so the operator may type a decimal comma OR a decimal point (Spanish keyboards type the comma) and a
-/// quantity is shown with the separator of the terminal culture. A thousands separator is never accepted.
+/// Decimal separator (T5): a quantity is shown with the organization's separator as last synced (<see cref="QuantityFormat"/>;
+/// the terminal culture's while it never synced), never with a thousands separator. The operator may still type a
+/// decimal comma OR a decimal point (Spanish keyboards type the comma); a thousands separator is never accepted.
+///
+/// Preventive confirmation (T6): a measure above <see cref="ConfirmAboveKilos"/> is confirmed by the operator before it
+/// is used (<see cref="NeedsConfirmation"/>); there is no hard cap.
 /// </summary>
 public static class SaleQuantity
 {
     public const string Weighted = "Weighted";
     public const string Bulk = "Bulk";
     public const int MeasuredDecimals = Commerce.Domain.Purchasing.ReceptionRules.MaxQuantityDecimals;
+
+    /// <summary>Above this measure (kilos, or litres for bulk) the operator confirms it. Owner decision; ready to become a setting.</summary>
+    public const decimal ConfirmAboveKilos = 50m;
+
+    /// <summary>True when <paramref name="kilos"/> is above <see cref="ConfirmAboveKilos"/> (50 is accepted as is, 50,001 asks).</summary>
+    public static bool NeedsConfirmation(decimal kilos) => kilos > ConfirmAboveKilos;
+
+    /// <summary>"¿Confirmás 550,000 kg de Lengua?": the measure as the sale shows it, with the organization's separator.</summary>
+    public static string ConfirmationQuestion(decimal quantity, string? quantityBehavior, string productName, QuantityFormat format) =>
+        $"¿Confirmás {Text(quantity, quantityBehavior, format)} de {productName}?";
 
     /// <summary>The line is in kilos (or litres) with decimals and is entered by its measure, never stepped by one.</summary>
     public static bool IsMeasured(string? quantityBehavior) => quantityBehavior is Weighted or Bulk;
@@ -72,17 +85,25 @@ public static class SaleQuantity
     }
 
     /// <summary>The quantity as the sale shows it: "0,550 kg" for weighted, three decimals for bulk, whole units otherwise.</summary>
-    public static string Text(decimal quantity, string? quantityBehavior, CultureInfo culture)
+    public static string Text(decimal quantity, string? quantityBehavior, QuantityFormat format) =>
+        Text(quantity, quantityBehavior, format.Numbers);
+
+    /// <summary>The bare number, as it is prefilled in an edit box (parses back with <see cref="TryParse"/>).</summary>
+    public static string EditText(decimal quantity, string? quantityBehavior, QuantityFormat format) =>
+        EditText(quantity, quantityBehavior, format.Numbers);
+
+    /// <summary>As <see cref="Text(decimal, string?, QuantityFormat)"/> with an explicit number format.</summary>
+    public static string Text(decimal quantity, string? quantityBehavior, IFormatProvider numbers)
     {
-        var number = EditText(quantity, quantityBehavior, culture);
+        var number = EditText(quantity, quantityBehavior, numbers);
         return quantityBehavior == Weighted ? $"{number} kg" : number;
     }
 
-    /// <summary>The bare number, as it is prefilled in an edit box (parses back with <see cref="TryParse"/>).</summary>
-    public static string EditText(decimal quantity, string? quantityBehavior, CultureInfo culture) =>
+    /// <summary>As <see cref="EditText(decimal, string?, QuantityFormat)"/> with an explicit number format.</summary>
+    public static string EditText(decimal quantity, string? quantityBehavior, IFormatProvider numbers) =>
         IsMeasured(quantityBehavior)
-            ? quantity.ToString("0.000", culture)
-            : quantity.ToString("0.##", culture);
+            ? quantity.ToString("0.000", numbers)
+            : quantity.ToString("0.##", numbers);
 
     /// <summary>The unit price: per kilo for weighted presentations.</summary>
     public static string UnitPriceText(decimal unitPrice, string? quantityBehavior, CultureInfo culture)

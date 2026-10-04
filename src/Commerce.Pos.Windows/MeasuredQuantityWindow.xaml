@@ -20,10 +20,22 @@
                     <TextBlock x:Name="MessageText" TextWrapping="Wrap" Foreground="{DynamicResource DangerBrush}" />
                 </Border>
 
-                <UniformGrid Rows="1">
+                <UniformGrid x:Name="ActionsPanel" Rows="1">
                     <Button x:Name="CancelButton" Content="Cancelar (Esc)" Style="{StaticResource GhostButton}" Margin="{StaticResource ActionSpacing}" IsCancel="True" />
                     <Button x:Name="ConfirmButton" Content="Aceptar (Enter)" IsDefault="True" Click="ConfirmButton_Click" />
                 </UniformGrid>
+
+                <!-- T6: a measure above SaleQuantity.ConfirmAboveKilos is confirmed here; "No" (also Esc) returns to the input. -->
+                <StackPanel x:Name="ConfirmationPanel" Visibility="Collapsed">
+                    <Border Background="{DynamicResource WarningSurfaceBrush}" BorderBrush="{DynamicResource WarningBorderBrush}"
+                            BorderThickness="1" CornerRadius="10" Padding="10" Margin="0,0,0,10">
+                        <TextBlock x:Name="ConfirmationText" TextWrapping="Wrap" FontWeight="SemiBold" Foreground="{DynamicResource WarningTextBrush}" />
+                    </Border>
+                    <UniformGrid Rows="1">
+                        <Button x:Name="NoButton" Content="No, corregir (Esc)" Style="{StaticResource GhostButton}" Margin="{StaticResource ActionSpacing}" Click="NoButton_Click" />
+                        <Button x:Name="YesButton" Content="Sí, confirmar" Click="YesButton_Click" />
+                    </UniformGrid>
+                </StackPanel>
             </StackPanel>
         </Border>
     </Grid>

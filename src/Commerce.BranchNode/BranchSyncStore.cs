@@ -257,6 +257,7 @@ public sealed partial class BranchSyncStore : IDisposable
         EnsurePriceListsReplicaExists();
         EnsureTenderStorageExists();
         EnsureCashSessionStorageExists();
+        EnsureOrganizationSettingsReplicaExists();
     }
 
     /// <summary>

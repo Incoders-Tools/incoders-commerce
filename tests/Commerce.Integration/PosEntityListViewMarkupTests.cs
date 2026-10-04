@@ -97,6 +97,22 @@ public sealed class PosEntityListViewMarkupTests
     }
 
     [Fact]
+    public void PressingARowAction_DoesNotSelectTheRowNorOpenTheEditor()
+    {
+        // The grid selects the row under the pointer even when a button in it handles the press; the control marks the
+        // press as a row action, ignores the resulting selection and puts back the model's.
+        Assert.Contains("PreviewMouseLeftButtonDown", ViewCode);
+        Assert.Contains("_selectionGate.RowActionPressed()", ViewCode);
+        Assert.Contains("_selectionGate.PressReleased()", ViewCode);
+        var selectionChanged = ViewCode[ViewCode.IndexOf("private void Grid_SelectionChanged(", StringComparison.Ordinal)..];
+        selectionChanged = selectionChanged[..selectionChanged.IndexOf("private void NewButton_Click(", StringComparison.Ordinal)];
+        Assert.Contains("_selectionGate.SelectionOpensEditor", selectionChanged);
+        Assert.True(
+            selectionChanged.IndexOf("_selectionGate.SelectionOpensEditor", StringComparison.Ordinal)
+            < selectionChanged.IndexOf("_model.Select(", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Editor_IsASlotBesideTheList_WithTitleCloseAndEmptyHint_InTheHostsNameScope()
     {
         Assert.Contains("EditorContentProperty", ViewCode);
@@ -148,8 +164,9 @@ public sealed class PosEntityListViewMarkupTests
     [Fact]
     public void CustomersView_TogglesThroughTheUpdateEndpoint_AndKeepsAnOpenFormInStep()
     {
-        Assert.Contains("CustomerList.ToggleEnabledRequest(", CustomersCode);
-        Assert.Contains("UpdateCustomerAsync(", CustomersCode);
+        // The toggle re-reads the customer before the PUT (CustomerList.ToggleEnabledAsync); the cached row is never sent.
+        Assert.Contains("CustomerList.ToggleEnabledAsync(_adminClient, customer, ", CustomersCode);
+        Assert.DoesNotContain("CustomerList.ToggleEnabledRequest(", CustomersCode);
         Assert.Contains("IsEnabledCheckBox.IsChecked", CustomersCode);
     }
 

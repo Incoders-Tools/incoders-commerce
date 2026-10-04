@@ -54,6 +54,7 @@ public partial class MainWindow : Window
     private readonly Guid _installationId;
     private readonly TerminalIdentityRefresher _terminalIdentityRefresher;
     private readonly SaleCart _cart;
+    private QuantityFormat _quantityFormat = QuantityFormat.Terminal;
     private readonly SaleBuyerSelection _buyer;
     private string? _shownBuyerMessage;
     private readonly ObservableCollection<ProductCardViewModel> _catalogCards = new();
@@ -85,6 +86,7 @@ public partial class MainWindow : Window
         DiscountPinReplicaClient discountPinReplicaClient,
         StockReplicaClient stockReplicaClient,
         PriceListsReplicaClient priceListsReplicaClient,
+        OrganizationSettingsReplicaClient organizationSettingsReplicaClient,
         PricingResolutionService pricingResolutionService,
         ManagementConnection management,
         ApplicationBranding branding,
@@ -128,6 +130,9 @@ public partial class MainWindow : Window
         // customer-price-lists T4: the sale is priced from the list of its buyer (walk-in -> the default list, a selected
         // customer -> the customer's list), read from the replica with the same compiled code as the cloud.
         _cart = new SaleCart(new BuyerPricingFactory(_store, _pricingResolutionService).For);
+        // operator-ux-adjustments T5: quantities show with the organization's separator as last synced (offline-safe).
+        _quantityFormat = QuantityFormat.FromOrganization(_store.GetQuantityDecimalSeparator());
+        _cart.QuantityFormat = _quantityFormat;
         // customer-price-lists L1: the cart owns the buyer; the picker only reflects it (clear, refusal, vanished customer).
         _buyer = new SaleBuyerSelection(_cart);
         _buyer.Changed += ApplyBuyerToPicker;
@@ -150,7 +155,7 @@ public partial class MainWindow : Window
         _syncRunner = new SyncRunner(
             _store, _branchNodeService, _syncClient, _customerReplicaClient, _catalogPriceReplicaClient,
             _operatorProvisioningClient, _localOperatorStore, () => _pairing, discountPinReplicaClient, stockReplicaClient,
-            priceListsReplicaClient);
+            priceListsReplicaClient, organizationSettingsReplicaClient);
         _syncScheduler = new SyncScheduler(RunSyncAsync);
 
         // The lock screen is the first thing the window shows: nobody is signed in yet.
@@ -747,7 +752,7 @@ public partial class MainWindow : Window
         _catalogCards.Clear();
         foreach (var item in result.Items)
         {
-            _catalogCards.Add(new ProductCardViewModel(Quoted(item)));
+            _catalogCards.Add(new ProductCardViewModel(Quoted(item), _quantityFormat));
         }
 
         ApplyStockToCards();
@@ -827,7 +832,7 @@ public partial class MainWindow : Window
             return await _cart.AddAsync(item);
         }
 
-        var quantity = RequestMeasuredQuantity($"{item.ProductName} — {item.PresentationName}", item.QuantityBehavior, current: null);
+        var quantity = RequestMeasuredQuantity(item.ProductName, $"{item.ProductName} — {item.PresentationName}", item.QuantityBehavior, current: null);
         return quantity is { } measured ? await _cart.AddAsync(item, measured) : SaleCartResult.Ok;
     }
 
@@ -839,22 +844,23 @@ public partial class MainWindow : Window
             return SaleCartResult.Ok;
         }
 
-        var quantity = RequestMeasuredQuantity(line.DisplayName, line.QuantityBehavior, line.Quantity);
+        var quantity = RequestMeasuredQuantity(line.ProductName, line.DisplayName, line.QuantityBehavior, line.Quantity);
         return quantity is { } measured ? await _cart.SetQuantityAsync(presentationId, measured) : SaleCartResult.Ok;
     }
 
     /// <summary>
     /// The ONE entry point for the measure of a weighted (or bulk) product, to add it (<paramref name="current"/> null,
     /// the prompt opens empty) or to edit its line. Today the operator types it; a scale integration will supply it here.
-    /// Returns null when the operator cancelled.
+    /// Above <see cref="SaleQuantity.ConfirmAboveKilos"/> the prompt asks the operator to confirm the measure (T6) before
+    /// returning it. Returns null when the operator cancelled.
     /// </summary>
-    private decimal? RequestMeasuredQuantity(string subject, string quantityBehavior, decimal? current)
+    private decimal? RequestMeasuredQuantity(string productName, string subject, string quantityBehavior, decimal? current)
     {
         var weighted = quantityBehavior == SaleQuantity.Weighted;
         var heading = current is null
             ? weighted ? "¿Cuántos kilos?" : "¿Qué cantidad?"
             : weighted ? "Editar kilos" : "Editar cantidad";
-        var window = new MeasuredQuantityWindow(heading, subject, quantityBehavior, current) { Owner = this };
+        var window = new MeasuredQuantityWindow(heading, productName, subject, quantityBehavior, current, _quantityFormat) { Owner = this };
         var quantity = window.ShowDialog() == true ? window.Quantity : (decimal?)null;
         FocusSearchBox();
         return quantity;
@@ -1003,6 +1009,24 @@ public partial class MainWindow : Window
         AmountTextBox.SelectAll();
     }
 
+    /// <summary>
+    /// operator-ux-adjustments T5: follows a quantity separator changed in the web and synced meanwhile. The open sale's
+    /// lines are restamped and the cards rebuilt only when it actually changed.
+    /// </summary>
+    private void ApplyQuantityFormat()
+    {
+        var format = QuantityFormat.FromOrganization(_store.GetQuantityDecimalSeparator());
+        if (ReferenceEquals(format, _quantityFormat))
+        {
+            return;
+        }
+
+        _quantityFormat = format;
+        _cart.QuantityFormat = format;
+        RefreshCatalogCards();
+        RefreshScannedTotal();
+    }
+
     private void RefreshScannedTotal()
     {
         PriceListText.Text = _cart.PriceListLabel ?? string.Empty;
@@ -1123,6 +1147,7 @@ public partial class MainWindow : Window
         await Dispatcher.InvokeAsync(ReconcileOperatorsAfterSync);
         // Any trigger: the replica may have changed, the cards and the open sale follow without being rebuilt.
         await Dispatcher.InvokeAsync(ApplyStockToCards);
+        await Dispatcher.InvokeAsync(ApplyQuantityFormat);
 
         if (trigger != SyncTrigger.Button)
         {

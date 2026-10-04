@@ -134,14 +134,17 @@ public partial class CustomersView : UserControl, ISectionView
 
     /// <summary>
     /// Habilitar / Deshabilitar (after the inline confirmation) through the same <c>PUT /customers/{id}</c> the form
-    /// uses; an open form on that customer follows the new state so a later Guardar does not undo it.
+    /// uses, built from the customer read again right before it (<see cref="CustomerList.ToggleEnabledAsync"/>), so only
+    /// the enabled state changes; an open form on that customer follows the new state so a later Guardar does not undo
+    /// it. A refused toggle reloads the list too, so the operator sees what is stored now.
     /// </summary>
     private Task ToggleEnabledAsync(CustomerAdminRecordDto customer) => _busy.RunAsync(PosMessages.Saving, async () =>
     {
         ShowStatus(string.Empty, isError: false);
-        var outcome = await _adminClient.UpdateCustomerAsync(customer.Id, CustomerList.ToggleEnabledRequest(customer), _busy.Token);
+        var outcome = await CustomerList.ToggleEnabledAsync(_adminClient, customer, _busy.Token);
         if (outcome.Kind != CustomerAdminMutationKind.Succeeded)
         {
+            await LoadCustomersAsync();
             ShowStatus(outcome.ErrorMessage ?? PosMessages.SaveFailed, isError: true);
             return;
         }

@@ -11,7 +11,7 @@ namespace Commerce.Pos.Windows;
 /// is the UNDISCOUNTED amount; a discounted line also carries its percentage and
 /// rounded amount (both null otherwise) and nets <see cref="NetTotal"/>.
 /// <see cref="QuantityBehavior"/> is the presentation's ("Weighted" lines are in kilos with decimals, see
-/// <see cref="SaleQuantity"/>).
+/// <see cref="SaleQuantity"/>), shown with <see cref="QuantityFormat"/> (the organization's separator; null = the terminal culture).
 /// </summary>
 public sealed record ScannedSaleLineViewModel(
     Guid PresentationId,
@@ -24,7 +24,8 @@ public sealed record ScannedSaleLineViewModel(
     decimal? LineDiscountPercent = null,
     decimal? LineDiscountAmount = null,
     string? FallbackListName = null,
-    string QuantityBehavior = "")
+    string QuantityBehavior = "",
+    QuantityFormat? QuantityFormat = null)
 {
     public bool HasDiscount => LineDiscountPercent is not null;
 
@@ -43,10 +44,10 @@ public sealed record ScannedSaleLineViewModel(
 
     public bool IsMeasured => SaleQuantity.IsMeasured(QuantityBehavior);
 
-    public string QuantityText => SaleQuantity.Text(Quantity, QuantityBehavior, CultureInfo.CurrentCulture);
+    public string QuantityText => SaleQuantity.Text(Quantity, QuantityBehavior, QuantityFormat ?? QuantityFormat.Terminal);
 
     /// <summary>The quantity without its unit, as the edit box is prefilled.</summary>
-    public string QuantityEditText => SaleQuantity.EditText(Quantity, QuantityBehavior, CultureInfo.CurrentCulture);
+    public string QuantityEditText => SaleQuantity.EditText(Quantity, QuantityBehavior, QuantityFormat ?? QuantityFormat.Terminal);
 
     public string UnitPriceText => SaleQuantity.UnitPriceText(UnitPrice, QuantityBehavior, CultureInfo.CurrentCulture);
 

@@ -115,6 +115,20 @@ public sealed class CustomerAdminClient
         }
     }
 
+    /// <summary>
+    /// One customer as stored now (<c>GET /customers/{id}</c>), for a change that must not be built from a list row read
+    /// earlier; the outcome says why when it could not be read.
+    /// </summary>
+    public async Task<CustomerAdminReadOutcome> GetCustomerAsync(Guid id, CancellationToken ct = default)
+    {
+        var path = $"/customers/{id}";
+        var (outcome, customer) = await SendAsync(HttpMethod.Get, path, () => _httpClient.GetAsync(path, ct), ct,
+            response => PosHttp.TryReadJsonAsync<CustomerAdminRecordDto>(response, PosHttp.Endpoint(HttpMethod.Get, path), ct));
+        return customer is not null || outcome.Kind != CustomerAdminMutationKind.Succeeded
+            ? new CustomerAdminReadOutcome(customer, outcome)
+            : new CustomerAdminReadOutcome(null, CustomerAdminMutationOutcome.Failed(PosMessages.UnexpectedResponse));
+    }
+
     public Task<CustomerAdminMutationOutcome> CreateCustomerAsync(
         CreateCustomerAdminRequestDto request, CancellationToken ct = default) =>
         SendAsync(HttpMethod.Post, "/customers", () => _httpClient.PostAsJsonAsync("/customers", request, ct), ct);
@@ -124,7 +138,13 @@ public sealed class CustomerAdminClient
         SendAsync(HttpMethod.Put, $"/customers/{id}", () => _httpClient.PutAsJsonAsync($"/customers/{id}", request, ct), ct);
 
     private static async Task<CustomerAdminMutationOutcome> SendAsync(
-        HttpMethod method, string path, Func<Task<HttpResponseMessage>> send, CancellationToken ct)
+        HttpMethod method, string path, Func<Task<HttpResponseMessage>> send, CancellationToken ct) =>
+        (await SendAsync<object>(method, path, send, ct, read: null)).Outcome;
+
+    private static async Task<(CustomerAdminMutationOutcome Outcome, T? Body)> SendAsync<T>(
+        HttpMethod method, string path, Func<Task<HttpResponseMessage>> send, CancellationToken ct,
+        Func<HttpResponseMessage, Task<T?>>? read)
+        where T : class
     {
         var endpoint = PosHttp.Endpoint(method, path);
         try
@@ -132,11 +152,11 @@ public sealed class CustomerAdminClient
             using var response = await send();
             if (response.IsSuccessStatusCode)
             {
-                return CustomerAdminMutationOutcome.Succeeded();
+                return (CustomerAdminMutationOutcome.Succeeded(), read is null ? null : await read(response));
             }
 
             var body = await PosHttp.LogFailureWithBodyAsync(endpoint, response, ct);
-            return response.StatusCode switch
+            return (response.StatusCode switch
             {
                 HttpStatusCode.Unauthorized => CustomerAdminMutationOutcome.Failed(PosMessages.TerminalNotRecognized),
                 HttpStatusCode.Forbidden when PosHttp.ParseErrorCode(body) == ManagementConnection.OperatorNotAuthorizedError =>
@@ -144,13 +164,15 @@ public sealed class CustomerAdminClient
                 HttpStatusCode.Forbidden => CustomerAdminMutationOutcome.Forbidden(),
                 HttpStatusCode.NotFound => CustomerAdminMutationOutcome.NotFound(),
                 HttpStatusCode.BadRequest => CustomerAdminMutationOutcome.Failed(PosMessages.InvalidData),
+                // The server's optimistic check (ExpectedUpdatedAtUtc): someone saved the customer after it was read.
+                HttpStatusCode.Conflict => CustomerAdminMutationOutcome.Failed(PosMessages.CustomerModified),
                 _ => CustomerAdminMutationOutcome.Failed(PosHttp.MessageFor(response)),
-            };
+            }, null);
         }
         catch (Exception ex) when (PosHttp.IsTransportFailure(ex, ct))
         {
             PosHttp.LogTransportFailure(endpoint, ex);
-            return CustomerAdminMutationOutcome.Failed(PosMessages.ServerUnreachable);
+            return (CustomerAdminMutationOutcome.Failed(PosMessages.ServerUnreachable), null);
         }
     }
 }
@@ -182,7 +204,8 @@ public sealed record CreateCustomerAdminRequestDto(
 
 /// <summary>
 /// Mirrors `Commerce.Cloud.Api.Endpoints.UpdateCustomerRequest`. `CityId`: null keeps the stored city,
-/// <see cref="Guid.Empty"/> clears it (see <see cref="CustomerFormRules.CityChange"/>).
+/// <see cref="Guid.Empty"/> clears it (see <see cref="CustomerFormRules.CityChange"/>). `ExpectedUpdatedAtUtc`, when
+/// sent, makes the server refuse the update (409 `customer-modified`) if the customer was saved after that time.
 /// </summary>
 public sealed record UpdateCustomerAdminRequestDto(
     string DisplayName,
@@ -190,13 +213,16 @@ public sealed record UpdateCustomerAdminRequestDto(
     string? Phone, string? Email,
     string? AddressStreet, string? AddressNumber, string? Neighborhood, string? PostalCode,
     string? DeliveryNotes, decimal? DiscountPercentage, string? PaymentTerms, string? Notes,
-    bool IsEnabled, Guid? CityId, string PartyType);
+    bool IsEnabled, Guid? CityId, string PartyType, DateTimeOffset? ExpectedUpdatedAtUtc = null);
 
 /// <summary>One row of `GET /geo/provinces`.</summary>
 public sealed record ProvinceOptionDto(string Id, string Name);
 
 /// <summary>One row of `GET /geo/cities`: only the city name is shown; its postal code, when known, prefills the form.</summary>
 public sealed record CityOptionDto(Guid Id, string Name, string ProvinceId, string? PostalCode = null);
+
+/// <summary>The result of <see cref="CustomerAdminClient.GetCustomerAsync"/>: the customer, or why it could not be read.</summary>
+public sealed record CustomerAdminReadOutcome(CustomerAdminRecordDto? Customer, CustomerAdminMutationOutcome Outcome);
 
 public sealed record CustomerAdminMutationOutcome(CustomerAdminMutationKind Kind, string? ErrorMessage)
 {

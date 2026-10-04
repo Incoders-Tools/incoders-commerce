@@ -38,6 +38,7 @@ public sealed class SyncRunner
     private readonly DiscountPinReplicaClient? _discountPinReplicaClient;
     private readonly StockReplicaClient? _stockReplicaClient;
     private readonly PriceListsReplicaClient? _priceListsReplicaClient;
+    private readonly OrganizationSettingsReplicaClient? _organizationSettingsReplicaClient;
     private readonly LocalOperatorStore _localOperatorStore;
     private readonly Func<DevicePairing> _pairingAccessor;
     private int _running;
@@ -53,9 +54,11 @@ public sealed class SyncRunner
         Func<DevicePairing> pairingAccessor,
         DiscountPinReplicaClient? discountPinReplicaClient = null,
         StockReplicaClient? stockReplicaClient = null,
-        PriceListsReplicaClient? priceListsReplicaClient = null)
+        PriceListsReplicaClient? priceListsReplicaClient = null,
+        OrganizationSettingsReplicaClient? organizationSettingsReplicaClient = null)
     {
         _priceListsReplicaClient = priceListsReplicaClient;
+        _organizationSettingsReplicaClient = organizationSettingsReplicaClient;
         _discountPinReplicaClient = discountPinReplicaClient;
         _stockReplicaClient = stockReplicaClient;
         _store = store;
@@ -95,6 +98,7 @@ public sealed class SyncRunner
             await PullDiscountPinAsync(pairing);
             await PullStockAsync(pairing);
             await PullPriceListsAsync(pairing);
+            await PullOrganizationSettingsAsync(pairing);
 
             var pending = _store.GetPendingOutbox(pairing.BranchId);
             if (pending.Count == 0)
@@ -235,6 +239,24 @@ public sealed class SyncRunner
         _store.ApplyStockSync(
             outcome.Items.Select(row => new StockReplicaItem(row.PresentationId, row.OnHand)).ToList(),
             outcome.ServerTimeUtc.Value);
+    }
+
+    /// <summary>
+    /// operator-ux-adjustments T5: refreshes the organization's quantity decimal separator. A failed pull (or an unknown
+    /// value) leaves the last known one stored, so quantities keep their format offline.
+    /// </summary>
+    private async Task PullOrganizationSettingsAsync(DevicePairing pairing)
+    {
+        if (_organizationSettingsReplicaClient is null)
+        {
+            return;
+        }
+
+        var outcome = await _organizationSettingsReplicaClient.PullAsync(pairing.DeviceToken);
+        if (outcome is { Success: true, QuantityDecimalSeparator: { } separator })
+        {
+            _store.ApplyOrganizationSettings(separator);
+        }
     }
 
     /// <summary>

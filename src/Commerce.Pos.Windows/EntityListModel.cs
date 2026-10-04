@@ -27,6 +27,26 @@ public sealed record EntityRowState(object Item, IReadOnlyList<string> Cells, IR
 public sealed record EntityConfirmation(string Question, string ConfirmLabel);
 
 /// <summary>
+/// Tells the control whether a change of the list's selection is the operator choosing a row (the editor opens on it)
+/// or a side effect of pressing one of the row's action buttons: the grid selects the row under the pointer even when a
+/// button in it takes the press, and that must not open the editor (R3-row-action-click-selects-row). Editar still
+/// opens it, through its own action.
+/// </summary>
+public sealed class EntityRowSelectionGate
+{
+    private bool _rowActionPressed;
+
+    /// <summary>False while the pointer press that is going on started on a row action.</summary>
+    public bool SelectionOpensEditor => !_rowActionPressed;
+
+    /// <summary>A press started on a row action button.</summary>
+    public void RowActionPressed() => _rowActionPressed = true;
+
+    /// <summary>The press ended, or a new one started anywhere else.</summary>
+    public void PressReleased() => _rowActionPressed = false;
+}
+
+/// <summary>
 /// The non-generic face of <see cref="EntityListModel{T}"/> the WPF control (<c>Controls/EntityListView</c>) binds to.
 /// The control renders it again on <see cref="Changed"/> and forwards the operator's clicks; it holds no rules.
 /// </summary>

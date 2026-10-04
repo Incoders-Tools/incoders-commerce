@@ -73,6 +73,7 @@ public partial class App : System.Windows.Application
             _host.Services.GetRequiredService<DiscountPinReplicaClient>(),
             _host.Services.GetRequiredService<StockReplicaClient>(),
             _host.Services.GetRequiredService<PriceListsReplicaClient>(),
+            _host.Services.GetRequiredService<OrganizationSettingsReplicaClient>(),
             _host.Services.GetRequiredService<Commerce.Application.Pricing.PricingResolutionService>(),
             _host.Services.GetRequiredService<ManagementConnection>(),
             branding,

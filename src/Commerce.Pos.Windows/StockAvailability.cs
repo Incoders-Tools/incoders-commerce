@@ -16,18 +16,22 @@ public static class StockAvailability
     public static string AsOfText(DateTimeOffset asOfUtc) =>
         asOfUtc.ToLocalTime().ToString("dd/MM HH:mm", CultureInfo.InvariantCulture);
 
-    /// <summary>The quantity with its unit: kilos for weighted presentations, bare units otherwise.</summary>
-    public static string QuantityText(decimal quantity, string quantityBehavior)
+    /// <summary>
+    /// The quantity with its unit: kilos for weighted presentations, bare units otherwise; with the organization's
+    /// decimal separator (<paramref name="format"/>, null = the terminal culture).
+    /// </summary>
+    public static string QuantityText(decimal quantity, string quantityBehavior, QuantityFormat? format = null)
     {
-        var number = quantity.ToString("0.###", CultureInfo.CurrentCulture);
+        var number = quantity.ToString("0.###", (format ?? QuantityFormat.Terminal).Numbers);
         return quantityBehavior == "Weighted" ? $"{number} kg" : number;
     }
 
     /// <summary>Null when the requested quantity fits the known stock, or when the stock is unknown.</summary>
-    public static string? Warning(StockSnapshot? snapshot, decimal requested, string quantityBehavior, string productName) =>
+    public static string? Warning(
+        StockSnapshot? snapshot, decimal requested, string quantityBehavior, string productName, QuantityFormat? format = null) =>
         snapshot is null || requested <= snapshot.OnHand
             ? null
-            : $"Stock conocido de {productName}: {QuantityText(snapshot.OnHand, quantityBehavior)} (al {AsOfText(snapshot.AsOfUtc)}). " +
+            : $"Stock conocido de {productName}: {QuantityText(snapshot.OnHand, quantityBehavior, format)} (al {AsOfText(snapshot.AsOfUtc)}). " +
               "La cantidad de la venta lo supera; la venta no se bloquea.";
 
     /// <summary>
@@ -39,7 +43,7 @@ public static class StockAvailability
         IEnumerable<ScannedSaleLineViewModel> lines, Func<Guid, StockSnapshot?> stockOf, Func<Guid, string>? behaviorOf = null)
     {
         var warnings = lines
-            .Select(line => Warning(stockOf(line.PresentationId), line.Quantity, BehaviorOf(line, behaviorOf), line.ProductName))
+            .Select(line => Warning(stockOf(line.PresentationId), line.Quantity, BehaviorOf(line, behaviorOf), line.ProductName, line.QuantityFormat))
             .Where(text => text is not null)
             .ToList();
         return warnings.Count == 0 ? null : string.Join(Environment.NewLine, warnings);

@@ -86,6 +86,40 @@ public sealed class PosSaleScreenMarkupTests
     }
 
     [Fact]
+    public void AboveTheThreshold_TheKilosPrompt_AsksToConfirmInline_AndNoReturnsToTheInput()
+    {
+        var code = Read("MainWindow.xaml.cs");
+        var entry = code[code.IndexOf("private decimal? RequestMeasuredQuantity(", StringComparison.Ordinal)..];
+        entry = entry[..entry.IndexOf("private void FocusSearchBox()", StringComparison.Ordinal)];
+        // The one entry point opens the one prompt with the product and the organization's quantity format.
+        Assert.Contains("new MeasuredQuantityWindow(heading, productName, subject, quantityBehavior, current, _quantityFormat)", entry);
+        Assert.DoesNotContain("MessageBox", code);
+
+        var prompt = Read("MeasuredQuantityWindow.xaml.cs");
+        var window = Read("MeasuredQuantityWindow.xaml");
+        Assert.Contains("SaleQuantity.NeedsConfirmation(quantity)", prompt);
+        Assert.Contains("SaleQuantity.ConfirmationQuestion(", prompt);
+        Assert.Contains("x:Name=\"ConfirmationPanel\"", window);
+        Assert.Contains("x:Name=\"YesButton\"", window);
+        Assert.Contains("x:Name=\"NoButton\"", window);
+        // "No" (and Esc while asking) goes back to the input with the typed value selected; "No" has the focus.
+        Assert.Matches(@"private void ReturnToInput\(\)\s*\{[^}]*KilosTextBox\.SelectAll\(\);", prompt);
+        Assert.Contains("NoButton.Focus();", prompt);
+        Assert.Empty(Regex.Matches(window, @"\{StaticResource\s+\w*Brush\w*\}"));
+    }
+
+    [Fact]
+    public void TheOrganizationSeparator_IsReadFromTheStore_AtStartAndAfterEverySync()
+    {
+        var code = Read("MainWindow.xaml.cs");
+
+        Assert.Contains("QuantityFormat.FromOrganization(_store.GetQuantityDecimalSeparator())", code);
+        Assert.Contains("new ProductCardViewModel(Quoted(item), _quantityFormat)", code);
+        Assert.Contains("_cart.QuantityFormat = ", code);
+        Assert.Contains("await Dispatcher.InvokeAsync(ApplyQuantityFormat);", code);
+    }
+
+    [Fact]
     public void TheSaleActions_UseTheThemeSpacingTokens()
     {
         var theme = Read("Themes", "DesktopTheme.xaml");

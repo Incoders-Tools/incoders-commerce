@@ -40,6 +40,7 @@ public sealed class SaleCart : INotifyPropertyChanged
     private readonly Func<Guid?, BuyerPricing> _pricingFor;
     private readonly Func<DateOnly> _today;
     private BuyerPricing _pricing;
+    private QuantityFormat _quantityFormat = QuantityFormat.Terminal;
 
     /// <summary>A cart that prices every sale from the one given service (no price lists, no customer rule).</summary>
     public SaleCart(PricingResolutionService pricing, Func<DateOnly>? today = null)
@@ -56,6 +57,26 @@ public sealed class SaleCart : INotifyPropertyChanged
         _pricingFor = pricingFor;
         _today = today ?? (() => BusinessClock.System.Today);
         _pricing = pricingFor(null);
+    }
+
+    /// <summary>
+    /// How the lines show their quantities (operator-ux-adjustments T5: the organization's decimal separator as last
+    /// synced). Setting it restamps every line, so an open sale follows a change synced meanwhile; prices are untouched.
+    /// </summary>
+    public QuantityFormat QuantityFormat
+    {
+        get => _quantityFormat;
+        set
+        {
+            _quantityFormat = value;
+            for (var i = 0; i < Lines.Count; i++)
+            {
+                if (!ReferenceEquals(Lines[i].QuantityFormat, value))
+                {
+                    Lines[i] = Lines[i] with { QuantityFormat = value };
+                }
+            }
+        }
     }
 
     /// <summary>The customer the sale is attributed to; null for the walk-in (final consumer).</summary>
@@ -371,7 +392,7 @@ public sealed class SaleCart : INotifyPropertyChanged
         var line = new ScannedSaleLineViewModel(
             presentationId, code, productName, presentationName, quantity, resolved.UnitNetPrice, resolved.LineTotal,
             percent, percent is { } p ? DiscountMath.Amount(resolved.LineTotal, p) : null,
-            _pricing.FallbackNoteFor(resolved), quantityBehavior);
+            _pricing.FallbackNoteFor(resolved), quantityBehavior, _quantityFormat);
 
         if (existingIndex >= 0)
         {

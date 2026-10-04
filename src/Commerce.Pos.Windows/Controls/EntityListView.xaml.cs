@@ -4,6 +4,9 @@ using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Data;
+using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Media.Media3D;
 using System.Windows.Threading;
 
 namespace Commerce.Pos.Windows.Controls;
@@ -44,6 +47,7 @@ public sealed class EntityListView : Control
 
     private readonly List<DataGridColumn> _columns = new();
     private readonly List<ComboBox> _filterBoxes = new();
+    private readonly EntityRowSelectionGate _selectionGate = new();
     private IEntityListModel? _model;
     private IReadOnlyList<EntityRowState> _rows = [];
     private bool _rendering;
@@ -71,6 +75,10 @@ public sealed class EntityListView : Control
     {
         // Row action buttons live in a data template: one handler on the control serves all of them.
         AddHandler(ButtonBase.ClickEvent, new RoutedEventHandler(OnRowActionClick));
+        // The grid selects the row under a press even when an action button in it takes the press: remember where the
+        // press started so that selection does not open the editor.
+        AddHandler(PreviewMouseLeftButtonDownEvent, new MouseButtonEventHandler(OnPreviewPress), handledEventsToo: true);
+        AddHandler(PreviewMouseLeftButtonUpEvent, new MouseButtonEventHandler((_, _) => _selectionGate.PressReleased()), handledEventsToo: true);
     }
 
     public object? EditorContent
@@ -462,10 +470,47 @@ public sealed class EntityListView : Control
             return;
         }
 
+        if (!_selectionGate.SelectionOpensEditor)
+        {
+            // A press on a row action selected the row: put back the model's selection, the editor stays as it was.
+            QueueRender();
+            return;
+        }
+
         if (!_rendering && _model is not null && _grid?.SelectedItem is EntityRowState row)
         {
             _model.Select(row.Item);
         }
+    }
+
+    private void OnPreviewPress(object sender, MouseButtonEventArgs e)
+    {
+        if (IsInRowAction(e.OriginalSource as DependencyObject))
+        {
+            _selectionGate.RowActionPressed();
+        }
+        else
+        {
+            _selectionGate.PressReleased();
+        }
+    }
+
+    /// <summary>True when <paramref name="element"/> is (inside) a row action button of this list.</summary>
+    private bool IsInRowAction(DependencyObject? element)
+    {
+        while (element is not null && !ReferenceEquals(element, this))
+        {
+            if (element is Button { DataContext: EntityActionState })
+            {
+                return true;
+            }
+
+            element = element is Visual or Visual3D
+                ? VisualTreeHelper.GetParent(element)
+                : LogicalTreeHelper.GetParent(element);
+        }
+
+        return false;
     }
 
     private void NewButton_Click(object sender, RoutedEventArgs e) => _model?.BeginNew();

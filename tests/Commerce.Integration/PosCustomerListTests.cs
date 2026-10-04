@@ -157,4 +157,86 @@ public sealed class PosCustomerListTests
         Assert.True(CustomerList.ToggleEnabledRequest(Frigorifico).IsEnabled);
         Assert.Equal("Company", CustomerList.ToggleEnabledRequest(Frigorifico).PartyType);
     }
+
+    // ---- R3-toggle-stale-snapshot-overwrite: the toggle never sends the cached row -------------------------------
+
+    private sealed class CustomersServer(Func<HttpRequestMessage, string?, HttpResponseMessage> respond) : HttpMessageHandler
+    {
+        public List<(HttpMethod Method, string Path, string? Body)> Requests { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var body = request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken);
+            Requests.Add((request.Method, request.RequestUri!.AbsolutePath, body));
+            return respond(request, body);
+        }
+    }
+
+    private static readonly System.Text.Json.JsonSerializerOptions Web = new(System.Text.Json.JsonSerializerDefaults.Web);
+
+    private static HttpResponseMessage Json(object body, System.Net.HttpStatusCode status = System.Net.HttpStatusCode.OK) =>
+        new(status) { Content = new StringContent(System.Text.Json.JsonSerializer.Serialize(body, Web), System.Text.Encoding.UTF8, "application/json") };
+
+    private static CustomerAdminClient AdminClient(CustomersServer server) =>
+        new(new HttpClient(server) { BaseAddress = new Uri("https://cloud.invalid") });
+
+    /// <summary>Ana as another user left her meanwhile: a new phone and notes, saved later than the cached row.</summary>
+    private static readonly CustomerAdminRecordDto AnaChangedElsewhere = Ana with
+    {
+        Phone = "2901 999999", Notes = "Cambiado en la web", UpdatedAtUtc = new DateTimeOffset(2026, 10, 4, 15, 0, 0, TimeSpan.Zero),
+    };
+
+    [Fact]
+    public async Task Toggle_RereadsTheCustomer_AndSendsTheFreshFields_WithOnlyIsEnabledChanged_AndTheReadVersion()
+    {
+        var server = new CustomersServer((request, _) => request.Method == HttpMethod.Get
+            ? Json(AnaChangedElsewhere)
+            : Json(AnaChangedElsewhere with { IsEnabled = false }));
+
+        var outcome = await CustomerList.ToggleEnabledAsync(AdminClient(server), Ana);
+
+        Assert.Equal(CustomerAdminMutationKind.Succeeded, outcome.Kind);
+        Assert.Equal([(HttpMethod.Get, $"/customers/{Ana.Id}"), (HttpMethod.Put, $"/customers/{Ana.Id}")],
+            server.Requests.Select(r => (r.Method, r.Path)));
+        var sent = System.Text.Json.JsonSerializer.Deserialize<UpdateCustomerAdminRequestDto>(server.Requests[1].Body!, Web)!;
+        Assert.Equal(
+            CustomerList.ToggleEnabledRequest(AnaChangedElsewhere) with { ExpectedUpdatedAtUtc = AnaChangedElsewhere.UpdatedAtUtc },
+            sent);
+        Assert.Equal(("2901 999999", "Cambiado en la web", false), (sent.Phone, sent.Notes, sent.IsEnabled));
+    }
+
+    [Fact]
+    public async Task Toggle_WhenSomeoneAlreadyLeftItInTheAskedState_WritesNothing()
+    {
+        var server = new CustomersServer((_, _) => Json(AnaChangedElsewhere with { IsEnabled = false }));
+
+        var outcome = await CustomerList.ToggleEnabledAsync(AdminClient(server), Ana);
+
+        Assert.Equal(CustomerAdminMutationKind.Succeeded, outcome.Kind);
+        Assert.Equal([HttpMethod.Get], server.Requests.Select(r => r.Method));
+    }
+
+    [Fact]
+    public async Task Toggle_ACustomerThatNoLongerExists_IsNotFound_AndNothingIsSent()
+    {
+        var server = new CustomersServer((_, _) => new HttpResponseMessage(System.Net.HttpStatusCode.NotFound));
+
+        var outcome = await CustomerList.ToggleEnabledAsync(AdminClient(server), Ana);
+
+        Assert.Equal(CustomerAdminMutationKind.NotFound, outcome.Kind);
+        Assert.Equal([HttpMethod.Get], server.Requests.Select(r => r.Method));
+    }
+
+    [Fact]
+    public async Task Toggle_AChangeBetweenTheReadAndTheWrite_IsRefusedByTheServer_WithAClearMessage()
+    {
+        var server = new CustomersServer((request, _) => request.Method == HttpMethod.Get
+            ? Json(AnaChangedElsewhere)
+            : Json(new { error = "customer-modified" }, System.Net.HttpStatusCode.Conflict));
+
+        var outcome = await CustomerList.ToggleEnabledAsync(AdminClient(server), Ana);
+
+        Assert.Equal(CustomerAdminMutationKind.Failed, outcome.Kind);
+        Assert.Equal(PosMessages.CustomerModified, outcome.ErrorMessage);
+    }
 }

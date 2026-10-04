@@ -373,4 +373,35 @@ public sealed class PosEntityListModelTests
         Assert.Equal(0, events);
         Assert.Equal("2 de 2", model.CountText);
     }
+    // ---- R3-row-action-click-selects-row: a row action never opens the editor (Editar does, by design) ------------
+
+    [Fact]
+    public async Task RowAction_OtherThanEditar_LeavesTheEditorAsItWas()
+    {
+        var ran = 0;
+        var model = Model(toggle: _ => { ran++; return Task.CompletedTask; });
+
+        await model.InvokeAsync(Bruno, "toggle");
+        Assert.Equal((EntityEditorMode.None, (Row?)null), (model.EditorMode, model.Editing));
+
+        model.BeginEdit(Carla);
+        await model.InvokeAsync(Ana, "toggle");
+        await model.ConfirmAsync();
+
+        Assert.Equal(2, ran);
+        Assert.Equal((EntityEditorMode.Edit, (Row?)Carla), (model.EditorMode, model.Editing));
+    }
+
+    [Fact]
+    public void SelectionGate_ASelectionCausedByPressingARowAction_DoesNotOpenTheEditor()
+    {
+        var gate = new EntityRowSelectionGate();
+        Assert.True(gate.SelectionOpensEditor);
+
+        gate.RowActionPressed();
+        Assert.False(gate.SelectionOpensEditor);
+
+        gate.PressReleased();
+        Assert.True(gate.SelectionOpensEditor);
+    }
 }

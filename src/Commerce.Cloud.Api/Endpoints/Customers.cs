@@ -19,9 +19,10 @@ namespace Commerce.Cloud.Api.Endpoints;
 /// creation is unrepresentable and a cross-org target is invisible under RLS
 /// (404, identical to a nonexistent id).
 ///
-/// List, create and update also admit a paired terminal with a verified operator
+/// List, read one, create and update also admit a paired terminal with a verified operator
 /// (<see cref="DeviceOperatorAccess.AllowDeviceOperator"/>, admin-console-field-fixes T5); the operator is
-/// then the caller every check below sees.
+/// then the caller every check below sees. Reading one lets the terminal's enable/disable row action re-read the
+/// customer right before writing it, so it never sends a stale copy of the list row.
 /// </summary>
 public static class CustomerEndpoints
 {
@@ -66,7 +67,7 @@ public static class CustomerEndpoints
 
             var customer = await customerStore.FindAsync(auth.Value.Scope, id, ct);
             return customer is null ? Results.NotFound() : Results.Ok(customer);
-        });
+        }).AllowDeviceOperator();
 
         group.MapPost("", async (
             CreateCustomerRequest request,

@@ -3,7 +3,8 @@ namespace Commerce.Pos.Windows;
 /// <summary>
 /// The Clientes list on the reusable entity list (operator-ux-adjustments T4): the columns, the search over name, tax
 /// id, phone and city, the Estado and Tipo filters, and the Editar / Habilitar-Deshabilitar row actions. UI-free; the
-/// screen supplies the toggle (it needs the connection and its busy controller).
+/// screen supplies the toggle (it needs the connection and its busy controller) and runs it through
+/// <see cref="ToggleEnabledAsync"/>.
 /// </summary>
 public static class CustomerList
 {
@@ -54,9 +55,35 @@ public static class CustomerList
     };
 
     /// <summary>
+    /// Habilitar / Deshabilitar changes ONLY the enabled state (R3-toggle-stale-snapshot-overwrite): the list row may be
+    /// older than what another user saved meanwhile, so the customer is read again right before the write and the
+    /// update is built from that fresh record, carrying its <c>UpdatedAtUtc</c> so the server refuses it (409) if
+    /// someone saves in between. The asked state comes from the row the operator acted on; when the fresh record
+    /// already has it, nothing is written.
+    /// </summary>
+    public static async Task<CustomerAdminMutationOutcome> ToggleEnabledAsync(
+        CustomerAdminClient client, CustomerAdminRecordDto row, CancellationToken ct = default)
+    {
+        var enable = !row.IsEnabled;
+        var read = await client.GetCustomerAsync(row.Id, ct);
+        if (read.Customer is not { } fresh)
+        {
+            return read.Outcome;
+        }
+
+        if (fresh.IsEnabled == enable)
+        {
+            return CustomerAdminMutationOutcome.Succeeded();
+        }
+
+        return await client.UpdateCustomerAsync(
+            fresh.Id, ToggleEnabledRequest(fresh) with { ExpectedUpdatedAtUtc = fresh.UpdatedAtUtc }, ct);
+    }
+
+    /// <summary>
     /// The update Habilitar / Deshabilitar sends through the existing <c>PUT /customers/{id}</c>: the stored fields as
     /// they are, <c>IsEnabled</c> flipped, and a null city (which keeps the stored one, see
-    /// <see cref="CustomerFormRules.CityChange"/>).
+    /// <see cref="CustomerFormRules.CityChange"/>). Build it from a freshly read record (<see cref="ToggleEnabledAsync"/>).
     /// </summary>
     public static UpdateCustomerAdminRequestDto ToggleEnabledRequest(CustomerAdminRecordDto customer) => new(
         customer.DisplayName, customer.TaxIdType, customer.TaxId, customer.TaxCondition, customer.Phone, customer.Email,

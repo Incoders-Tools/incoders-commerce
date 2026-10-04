@@ -13,7 +13,14 @@ public sealed class ProductCardViewModel : INotifyPropertyChanged
 {
     private ScannedSaleLineViewModel? _line;
 
-    public ProductCardViewModel(CatalogPriceReplicaItem item) => Item = item;
+    private readonly QuantityFormat _quantityFormat;
+
+    /// <summary>A card for <paramref name="item"/>; quantities show with <paramref name="quantityFormat"/> (null = the terminal culture).</summary>
+    public ProductCardViewModel(CatalogPriceReplicaItem item, QuantityFormat? quantityFormat = null)
+    {
+        Item = item;
+        _quantityFormat = quantityFormat ?? QuantityFormat.Terminal;
+    }
 
     public CatalogPriceReplicaItem Item { get; }
 
@@ -33,7 +40,7 @@ public sealed class ProductCardViewModel : INotifyPropertyChanged
 
     public bool IsInSale => _line is not null;
 
-    public string QuantityText => SaleQuantity.Text(Quantity, Item.QuantityBehavior, CultureInfo.CurrentCulture);
+    public string QuantityText => SaleQuantity.Text(Quantity, Item.QuantityBehavior, _quantityFormat);
 
     public string UnitPriceText => _line?.UnitPriceText
         ?? (Item.UnitPrice is { } price ? SaleQuantity.UnitPriceText(price, Item.QuantityBehavior, CultureInfo.CurrentCulture) : "Sin precio");
@@ -49,7 +56,7 @@ public sealed class ProductCardViewModel : INotifyPropertyChanged
     public bool HasStock => _stock is not null;
 
     public string StockText => _stock is { } stock
-        ? $"Stock: {StockAvailability.QuantityText(stock.OnHand, Item.QuantityBehavior)}"
+        ? $"Stock: {StockAvailability.QuantityText(stock.OnHand, Item.QuantityBehavior, _quantityFormat)}"
         : string.Empty;
 
     public string StockAsOfText => _stock is { } stock ? $"al {StockAvailability.AsOfText(stock.AsOfUtc)}" : string.Empty;
@@ -58,7 +65,7 @@ public sealed class ProductCardViewModel : INotifyPropertyChanged
     public bool HasStockWarning => StockWarningText is not null;
 
     public string? StockWarningText => IsInSale
-        ? StockAvailability.Warning(_stock, Quantity, Item.QuantityBehavior, Item.ProductName)
+        ? StockAvailability.Warning(_stock, Quantity, Item.QuantityBehavior, Item.ProductName, _quantityFormat)
         : null;
 
     /// <summary>Applies (or clears, with null) the last known stock of this presentation.</summary>

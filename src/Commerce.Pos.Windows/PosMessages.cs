@@ -120,6 +120,8 @@ public static class PosMessages
 
     public const string CustomerNotFound = "No se encontró el cliente.";
 
+    public const string CustomerModified = "Otra persona modificó el cliente mientras tanto. Revisá la lista actualizada y volvé a intentarlo.";
+
     public const string SaveFailed = "No se pudieron guardar los cambios.";
 
     public const string Saved = "Cambios guardados.";

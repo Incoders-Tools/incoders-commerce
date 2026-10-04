@@ -138,6 +138,10 @@ public static class PosHostBuilder
         {
             client.BaseAddress = new Uri(cloudApiBaseUrl);
         });
+        builder.Services.AddHttpClient<OrganizationSettingsReplicaClient>(client =>
+        {
+            client.BaseAddress = new Uri(cloudApiBaseUrl);
+        });
         builder.Services.AddSingleton<TerminalIdentityRefresher>();
 
         // ONE management connection shared by Clientes and Personal (admin-console-field-fixes T5): the paired

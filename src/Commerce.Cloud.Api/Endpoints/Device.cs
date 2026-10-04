@@ -516,6 +516,31 @@ public static class DeviceEndpoints
             return Results.Ok(await pinStore.GetVerifierAsync(scope, deviceIdentity.BranchId, ct));
         });
 
+        // operator-ux-adjustments T5: the settings of THIS terminal's organization a terminal needs offline (today the
+        // quantity decimal separator the web settings edit). The organization comes from the STORED device credential
+        // via the minted claims, never from the request. Read on every sync, so a change in the web reaches the
+        // terminal on its next sweep. Additive: no existing device route or payload changes.
+        var organizationGroup = group.MapGroup("/organization")
+            .RequireAuthorization("DeviceBearer")
+            .AddEndpointFilter<TenantScopeEndpointFilter>();
+
+        organizationGroup.MapGet("/settings", async (
+            HttpContext httpContext,
+            PostgresOrganizationStore organizationStore,
+            CancellationToken ct) =>
+        {
+            var scope = TenantScopeEndpointFilter.GetScope(httpContext);
+            if (!DeviceIdentity.TryResolve(httpContext.User, out var deviceIdentity) || deviceIdentity is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var settings = await organizationStore.GetSettingsAsync(scope.OrganizationId, ct);
+            return settings is null
+                ? Results.NotFound()
+                : Results.Ok(new DeviceOrganizationSettingsResponse(settings.QuantityDecimalSeparator));
+        });
+
         return group;
     }
 
@@ -546,6 +571,12 @@ public sealed record PriceListsSyncResponse(
     IReadOnlyList<CustomerPriceListAssignment> CustomerPriceLists,
     Guid? OrganizationDefaultCustomerPriceListId,
     DateTimeOffset ServerTimeUtc);
+
+/// <summary>
+/// `GET /device/organization/settings` response (operator-ux-adjustments T5): the organization's quantity decimal
+/// separator, `Comma` or `Dot` (<see cref="OrganizationSettings.Comma"/>, <see cref="OrganizationSettings.Dot"/>).
+/// </summary>
+public sealed record DeviceOrganizationSettingsResponse(string QuantityDecimalSeparator);
 
 public sealed record PriceListReplicaRow(Guid Id, string Name, bool IsDefault, Guid? FloorPriceListId);
 

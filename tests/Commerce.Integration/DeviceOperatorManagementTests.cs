@@ -163,6 +163,9 @@ public sealed class DeviceOperatorManagementTests : IClassFixture<WebApplication
         Assert.Equal(HttpStatusCode.OK, updated.StatusCode);
         Assert.Equal(tenant.AdminId, (Guid)OwnerScalar(
             "SELECT actor_id FROM audit_log WHERE entity_id = $1 ORDER BY id DESC LIMIT 1", customerId)!);
+        // One customer, fresh (the enable/disable row action re-reads it before writing).
+        var fresh = await device.GetFromJsonAsync<JsonElement>($"/customers/{customerId}");
+        Assert.Equal("Cliente editado", fresh.GetProperty("displayName").GetString());
 
         // Reference data of the customer form.
         var provinces = await device.GetFromJsonAsync<JsonElement>("/geo/provinces");
@@ -287,6 +290,7 @@ public sealed class DeviceOperatorManagementTests : IClassFixture<WebApplication
         var responses = new[]
         {
             await device.GetAsync("/customers"),
+            await device.GetAsync($"/customers/{Guid.NewGuid()}"),
             await device.PostAsJsonAsync("/customers", NewCustomerBody("No")),
             await device.PutAsJsonAsync($"/customers/{Guid.NewGuid()}", new { displayName = "No", taxIdType = "None", taxCondition = "ConsumidorFinal", isEnabled = true }),
             await device.GetAsync("/geo/provinces"),
