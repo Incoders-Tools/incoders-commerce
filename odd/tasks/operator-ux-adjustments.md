@@ -98,6 +98,18 @@ form that wastes the screen and has no search.
   editor. GREEN 830 POS/sync tests; full `dotnet test` 2411 passed / 2
   failed (the known one + an intermittent one, see follow-ups).
 
+- [ ] T7 Close the T5/T6 review follow-ups before the owner's test run
+  (owner, 2026-10-04): (a) the 50 kg confirmation evaluates the resulting
+  line kilos (existing + entered when the product merges into its line, the
+  edited value when editing), and the question shows that total; (b) only a
+  409 `customer-modified` maps to "customer modified", other conflicts show
+  the server's message or a generic one; (c) the desktop customer form's Save
+  sends `ExpectedUpdatedAtUtc` of the loaded record (the web already does)
+  and handles the 409 by telling the operator and reloading that customer;
+  (d) a failed enable/disable does not reload the list when the server is
+  unreachable, it shows the offline message instead. (route: delegated POS
+  writer.)
+
 ## Follow-ups
 
 - `CatalogCategoryReplicaTests.OpeningABranchDbCreatedBeforeCategories_...`
