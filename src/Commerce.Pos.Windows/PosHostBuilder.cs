@@ -140,18 +140,18 @@ public static class PosHostBuilder
         });
         builder.Services.AddSingleton<TerminalIdentityRefresher>();
 
-        // TRANSIENT, not a shared typed HttpClient (design.md "Desktop
-        // authorization for customer create/edit"): the admin cookie lives in
-        // a window-scoped CookieContainer, so every resolve must hand out a
-        // fresh instance, never the same cookie jar reused across windows.
-        builder.Services.AddTransient(_ => new CustomerAdminClient(cloudApiBaseUrl));
-        // A resolvable factory so MainWindow can mint one fresh CustomerAdminClient
-        // per CustomersWindow open, without holding an IServiceProvider itself.
-        builder.Services.AddSingleton<Func<CustomerAdminClient>>(
-            sp => () => sp.GetRequiredService<CustomerAdminClient>());
-        builder.Services.AddTransient(_ => new UserAdminClient(cloudApiBaseUrl));
-        builder.Services.AddSingleton<Func<UserAdminClient>>(
-            sp => () => sp.GetRequiredService<UserAdminClient>());
+        // ONE management connection shared by Clientes and Personal (admin-console-field-fixes T5): the paired
+        // device credential and the signed-in operator are read on every request (the persisted pairing follows a
+        // re-pair, the current operator follows a switch or a lock), so no password and no cookie are involved.
+        builder.Services.AddSingleton(sp =>
+        {
+            var installationStore = sp.GetRequiredService<LocalInstallationStore>();
+            var currentOperator = sp.GetRequiredService<CurrentOperator>();
+            return ManagementConnection.Create(
+                cloudApiBaseUrl,
+                () => installationStore.LoadOrCreate().Pairing?.DeviceToken,
+                () => currentOperator.Value?.UserId);
+        });
 
         // MainWindow is NOT registered here: it requires an already-paired
         // LocalInstallationRecord, which App.xaml.cs resolves via

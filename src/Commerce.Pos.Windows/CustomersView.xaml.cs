@@ -7,41 +7,58 @@ namespace Commerce.Pos.Windows;
 
 /// <summary>
 /// Clientes section of the main window (design.md "Desktop customer
-/// management"): an inline admin confirmation, then the customer list and
-/// create/edit form against the SAME <c>/customers</c> endpoints
-/// <c>Commerce.Web</c> uses. The server re-checks <c>ManageUsers</c> on every
-/// call; the shell only hides the entry (UX). Connectivity is required
-/// end-to-end: a network failure is shown inline, never a local write.
+/// management"): the customer list and create/edit form against the SAME
+/// <c>/customers</c> endpoints <c>Commerce.Web</c> uses, over the shared
+/// <see cref="ManagementConnection"/> (device credential + the signed-in
+/// operator, no password prompt). The server re-checks the operator and
+/// <c>ManageUsers</c> on every call; the shell only hides the entry (UX).
+/// Connectivity is required end-to-end: a network failure is shown inline,
+/// never a local write.
 ///
-/// The view owns a FRESH <see cref="CustomerAdminClient"/> whose cookie lives
-/// only while the section is open (<see cref="Dispose"/>); the typed password is
-/// never stored. Status and errors render above the scroll area so they stay
-/// visible however far the form is scrolled.
+/// The form (admin-console-field-fixes T4) has one name field whose label
+/// follows Persona / Empresa, the address as Province -> City (that province's
+/// cities, by name) -> Postal code (prefilled from the city when known, still
+/// editable), and an email box checked live with the shared email rule; saving
+/// is blocked while it is invalid. Status and errors render above the scroll
+/// area so they stay visible however far the form is scrolled.
 /// </summary>
 public partial class CustomersView : UserControl, ISectionView
 {
     private readonly CustomerAdminClient _adminClient;
     private readonly BusyController _busy;
+    private readonly Dictionary<string, IReadOnlyList<CityOptionDto>> _citiesByProvince = new();
     private List<CustomerAdminRecordDto> _customers = new();
     private Guid? _selectedCustomerId;
 
-    /// <param name="operatorEmail">The signed-in operator, used as the admin to confirm; null asks for the email too.</param>
-    public CustomersView(CustomerAdminClient adminClient, string? operatorEmail)
+    // The postal code the current city filled in, so a later city replaces it but never a hand-typed one.
+    private string? _cityPostalCode;
+
+    // Set while the form fills the address from a stored customer: no city reload and no postal code prefill.
+    private bool _fillingAddress;
+
+    public CustomersView(CustomerAdminClient adminClient)
     {
         InitializeComponent();
         _adminClient = adminClient;
         _busy = new BusyController(ApplyBusy, nameof(CustomersView), message => ShowStatus(message, isError: true));
 
         CustomerKindComboBox.ItemsSource = CustomerFormChoices.Kinds;
+        PartyTypeComboBox.ItemsSource = CustomerFormChoices.PartyTypes;
         TaxIdTypeComboBox.ItemsSource = CustomerFormChoices.TaxIdTypes;
         TaxConditionComboBox.ItemsSource = CustomerFormChoices.TaxConditions;
 
-        SignInPanel.Initialize(
-            PosMessages.ConfirmPasswordTitle,
-            PosMessages.ConfirmPasswordForCustomers,
-            operatorEmail);
-        SignInPanel.SignInRequested += async (_, _) => await SignInAsync();
-        Loaded += (_, _) => SignInPanel.FocusPassword();
+        ResetForm();
+        Loaded += async (_, _) => await _busy.RunAsync(PosMessages.Loading, async () =>
+        {
+            var provinces = await _adminClient.ListProvincesAsync(_busy.Token);
+            if (provinces is null)
+            {
+                ShowStatus(PosMessages.ProvincesLoadFailed, isError: true);
+            }
+
+            ProvinceComboBox.ItemsSource = provinces;
+            await LoadCustomersAsync();
+        });
     }
 
     public bool IsBusy => _busy.IsBusy;
@@ -54,11 +71,8 @@ public partial class CustomersView : UserControl, ISectionView
 
     public void CancelPending() => _busy.Cancel();
 
-    public void Dispose()
-    {
-        _busy.Cancel();
-        _adminClient.Dispose();
-    }
+    /// <summary>The client is the shared management connection's: only the request in flight is cancelled.</summary>
+    public void Dispose() => _busy.Cancel();
 
     private void ApplyBusy(bool busy, string? text)
     {
@@ -73,36 +87,6 @@ public partial class CustomersView : UserControl, ISectionView
         StatusText.Text = message;
         StatusText.SetResourceReference(TextBlock.ForegroundProperty, isError ? "DangerBrush" : "SuccessBrush");
         StatusText.Visibility = string.IsNullOrEmpty(message) ? Visibility.Collapsed : Visibility.Visible;
-    }
-
-    private async Task SignInAsync()
-    {
-        var email = SignInPanel.Email;
-        var password = SignInPanel.Password;
-        await _busy.RunAsync(PosMessages.SigningIn, async () =>
-        {
-            ShowStatus(string.Empty, isError: false);
-            AdminSignInOutcome outcome;
-            try
-            {
-                outcome = await _adminClient.SignInAsync(email, password, _busy.Token);
-            }
-            finally
-            {
-                SignInPanel.ClearPassword();
-            }
-
-            if (outcome.Kind != AdminSignInOutcomeKind.SignedIn)
-            {
-                ShowStatus(outcome.ErrorMessage ?? PosMessages.SignInFailed, isError: true);
-                return;
-            }
-
-            SignInScroll.Visibility = Visibility.Collapsed;
-            ManagementPanel.Visibility = Visibility.Visible;
-            ResetForm();
-            await LoadCustomersAsync();
-        });
     }
 
     private async Task LoadCustomersAsync()
@@ -126,7 +110,7 @@ public partial class CustomersView : UserControl, ISectionView
         ShowStatus(string.Empty, isError: false);
     }
 
-    private void CustomersListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private async void CustomersListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (CustomersListBox.SelectedItem is not CustomerAdminRecordDto selected)
         {
@@ -137,8 +121,8 @@ public partial class CustomersView : UserControl, ISectionView
         ShowStatus(string.Empty, isError: false);
 
         CustomerKindComboBox.SelectedValue = selected.CustomerKind;
+        PartyTypeComboBox.SelectedValue = selected.PartyType;
         DisplayNameTextBox.Text = selected.DisplayName;
-        LegalNameTextBox.Text = selected.LegalName ?? string.Empty;
         TaxIdTypeComboBox.SelectedValue = selected.TaxIdType;
         TaxIdTextBox.Text = selected.TaxId ?? string.Empty;
         TaxConditionComboBox.SelectedValue = selected.TaxCondition;
@@ -147,8 +131,6 @@ public partial class CustomersView : UserControl, ISectionView
         AddressStreetTextBox.Text = selected.AddressStreet ?? string.Empty;
         AddressNumberTextBox.Text = selected.AddressNumber ?? string.Empty;
         NeighborhoodTextBox.Text = selected.Neighborhood ?? string.Empty;
-        LocalityTextBox.Text = selected.Locality ?? string.Empty;
-        ProvinceTextBox.Text = selected.Province ?? string.Empty;
         PostalCodeTextBox.Text = selected.PostalCode ?? string.Empty;
         DeliveryNotesTextBox.Text = selected.DeliveryNotes ?? string.Empty;
         DiscountPercentageTextBox.Text = selected.DiscountPercentage?.ToString(CultureInfo.InvariantCulture) ?? string.Empty;
@@ -161,7 +143,102 @@ public partial class CustomersView : UserControl, ISectionView
         // drives price-list selection, so flipping it retroactively changes
         // commercial meaning. The same rule applies on the desktop.
         CustomerKindComboBox.IsEnabled = false;
+
+        // The stored city preselects its province; the stored postal code is kept as it is.
+        await _busy.RunAsync(PosMessages.Loading, () => FillAddressAsync(selected.ProvinceId, selected.CityId));
     }
+
+    // ---- address: Province -> City -> Postal code ------------------------------------
+
+    private async Task FillAddressAsync(string? provinceId, Guid? cityId)
+    {
+        _fillingAddress = true;
+        try
+        {
+            ProvinceComboBox.SelectedValue = provinceId;
+            var cities = provinceId is null ? null : await CitiesOfAsync(provinceId);
+            CityComboBox.ItemsSource = cities;
+            CityComboBox.SelectedValue = cityId;
+            _cityPostalCode = (CityComboBox.SelectedItem as CityOptionDto)?.PostalCode;
+        }
+        finally
+        {
+            _fillingAddress = false;
+        }
+    }
+
+    /// <summary>The cities of a province, read once per visit; null (and an inline error) when they could not be read.</summary>
+    private async Task<IReadOnlyList<CityOptionDto>?> CitiesOfAsync(string provinceId)
+    {
+        if (_citiesByProvince.TryGetValue(provinceId, out var cached))
+        {
+            return cached;
+        }
+
+        var cities = await _adminClient.ListCitiesAsync(provinceId, _busy.Token);
+        if (cities is null)
+        {
+            ShowStatus(PosMessages.CitiesLoadFailed, isError: true);
+            return null;
+        }
+
+        _citiesByProvince[provinceId] = cities;
+        return cities;
+    }
+
+    private async void ProvinceComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_fillingAddress)
+        {
+            return;
+        }
+
+        CityComboBox.ItemsSource = null;
+        if (ProvinceComboBox.SelectedValue is not string provinceId)
+        {
+            return;
+        }
+
+        await _busy.RunAsync(PosMessages.Loading, async () =>
+        {
+            var cities = await CitiesOfAsync(provinceId);
+            // The operator may have picked another province while this one loaded.
+            if (Equals(ProvinceComboBox.SelectedValue, provinceId))
+            {
+                CityComboBox.ItemsSource = cities;
+            }
+        });
+    }
+
+    private void CityComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_fillingAddress || CityComboBox.SelectedItem is not CityOptionDto city)
+        {
+            return;
+        }
+
+        PostalCodeTextBox.Text = CustomerFormRules.PostalCodeAfterCityChange(PostalCodeTextBox.Text, _cityPostalCode, city.PostalCode);
+        _cityPostalCode = city.PostalCode;
+    }
+
+    // ---- name and email -------------------------------------------------------------------
+
+    private void PartyTypeComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
+        NameLabel.Text = CustomerFormRules.NameLabel(PartyTypeComboBox.SelectedValue as string);
+
+    private void EmailTextBox_TextChanged(object sender, TextChangedEventArgs e) => RenderEmailState();
+
+    /// <summary>Green check when valid, an inline error when invalid (saving is blocked), nothing when empty.</summary>
+    private EmailFieldState RenderEmailState()
+    {
+        var state = CustomerFormRules.Email(EmailTextBox.Text);
+        EmailValidIcon.Visibility = state == EmailFieldState.Valid ? Visibility.Visible : Visibility.Collapsed;
+        EmailErrorText.Visibility = state == EmailFieldState.Invalid ? Visibility.Visible : Visibility.Collapsed;
+        SaveButton.IsEnabled = state != EmailFieldState.Invalid;
+        return state;
+    }
+
+    // ---- save -----------------------------------------------------------------------------
 
     private async void SaveButton_Click(object sender, RoutedEventArgs e)
     {
@@ -170,6 +247,12 @@ public partial class CustomersView : UserControl, ISectionView
         if (string.IsNullOrWhiteSpace(DisplayNameTextBox.Text))
         {
             ShowStatus(PosMessages.DisplayNameRequired, isError: true);
+            return;
+        }
+
+        if (RenderEmailState() == EmailFieldState.Invalid)
+        {
+            ShowStatus(PosMessages.InvalidEmail, isError: true);
             return;
         }
 
@@ -188,6 +271,8 @@ public partial class CustomersView : UserControl, ISectionView
         var taxIdType = TaxIdTypeComboBox.SelectedValue as string ?? "None";
         var taxCondition = TaxConditionComboBox.SelectedValue as string ?? "NoAplica";
         var customerKind = CustomerKindComboBox.SelectedValue as string ?? "Retail";
+        var partyType = PartyTypeComboBox.SelectedValue as string ?? "Person";
+        var cityId = CityComboBox.SelectedValue as Guid?;
         var selectedCustomerId = _selectedCustomerId;
         var isEnabled = IsEnabledCheckBox.IsChecked ?? true;
         var form = ReadForm();
@@ -198,16 +283,17 @@ public partial class CustomersView : UserControl, ISectionView
             if (selectedCustomerId is { } id)
             {
                 outcome = await _adminClient.UpdateCustomerAsync(id, new UpdateCustomerAdminRequestDto(
-                    form.DisplayName, form.LegalName, taxIdType, form.TaxId, taxCondition, form.Phone, form.Email,
-                    form.AddressStreet, form.AddressNumber, form.Neighborhood, form.Locality, form.Province, form.PostalCode,
-                    form.DeliveryNotes, discountPercentage, form.PaymentTerms, form.Notes, isEnabled), _busy.Token);
+                    form.DisplayName, taxIdType, form.TaxId, taxCondition, form.Phone, form.Email,
+                    form.AddressStreet, form.AddressNumber, form.Neighborhood, form.PostalCode,
+                    form.DeliveryNotes, discountPercentage, form.PaymentTerms, form.Notes, isEnabled,
+                    cityId ?? Guid.Empty, partyType), _busy.Token);
             }
             else
             {
                 outcome = await _adminClient.CreateCustomerAsync(new CreateCustomerAdminRequestDto(
-                    customerKind, form.DisplayName, form.LegalName, taxIdType, form.TaxId, taxCondition, form.Phone, form.Email,
-                    form.AddressStreet, form.AddressNumber, form.Neighborhood, form.Locality, form.Province, form.PostalCode,
-                    form.DeliveryNotes, discountPercentage, form.PaymentTerms, form.Notes), _busy.Token);
+                    customerKind, form.DisplayName, taxIdType, form.TaxId, taxCondition, form.Phone, form.Email,
+                    form.AddressStreet, form.AddressNumber, form.Neighborhood, form.PostalCode,
+                    form.DeliveryNotes, discountPercentage, form.PaymentTerms, form.Notes, cityId, partyType), _busy.Token);
             }
 
             if (outcome.Kind == CustomerAdminMutationKind.Succeeded)
@@ -224,15 +310,14 @@ public partial class CustomersView : UserControl, ISectionView
 
     /// <summary>The text fields as read when the operator pressed Guardar (blank becomes null).</summary>
     private FormFields ReadForm() => new(
-        DisplayNameTextBox.Text, NullIfBlank(LegalNameTextBox.Text), NullIfBlank(TaxIdTextBox.Text), NullIfBlank(PhoneTextBox.Text),
-        NullIfBlank(EmailTextBox.Text), NullIfBlank(AddressStreetTextBox.Text), NullIfBlank(AddressNumberTextBox.Text),
-        NullIfBlank(NeighborhoodTextBox.Text), NullIfBlank(LocalityTextBox.Text), NullIfBlank(ProvinceTextBox.Text),
-        NullIfBlank(PostalCodeTextBox.Text), NullIfBlank(DeliveryNotesTextBox.Text), NullIfBlank(PaymentTermsTextBox.Text),
-        NullIfBlank(NotesTextBox.Text));
+        DisplayNameTextBox.Text.Trim(), NullIfBlank(TaxIdTextBox.Text), NullIfBlank(PhoneTextBox.Text),
+        NullIfBlank(EmailTextBox.Text)?.Trim(), NullIfBlank(AddressStreetTextBox.Text), NullIfBlank(AddressNumberTextBox.Text),
+        NullIfBlank(NeighborhoodTextBox.Text), NullIfBlank(PostalCodeTextBox.Text), NullIfBlank(DeliveryNotesTextBox.Text),
+        NullIfBlank(PaymentTermsTextBox.Text), NullIfBlank(NotesTextBox.Text));
 
     private sealed record FormFields(
-        string DisplayName, string? LegalName, string? TaxId, string? Phone, string? Email, string? AddressStreet,
-        string? AddressNumber, string? Neighborhood, string? Locality, string? Province, string? PostalCode,
+        string DisplayName, string? TaxId, string? Phone, string? Email, string? AddressStreet,
+        string? AddressNumber, string? Neighborhood, string? PostalCode,
         string? DeliveryNotes, string? PaymentTerms, string? Notes);
 
     private void ResetForm()
@@ -241,23 +326,28 @@ public partial class CustomersView : UserControl, ISectionView
         IsEnabledCheckBox.Visibility = Visibility.Collapsed;
         CustomerKindComboBox.IsEnabled = true;
         CustomerKindComboBox.SelectedValue = "Retail";
+        PartyTypeComboBox.SelectedValue = "Person";
         TaxIdTypeComboBox.SelectedValue = "None";
         TaxConditionComboBox.SelectedValue = "NoAplica";
         DisplayNameTextBox.Text = string.Empty;
-        LegalNameTextBox.Text = string.Empty;
         TaxIdTextBox.Text = string.Empty;
         PhoneTextBox.Text = string.Empty;
         EmailTextBox.Text = string.Empty;
         AddressStreetTextBox.Text = string.Empty;
         AddressNumberTextBox.Text = string.Empty;
         NeighborhoodTextBox.Text = string.Empty;
-        LocalityTextBox.Text = string.Empty;
-        ProvinceTextBox.Text = string.Empty;
         PostalCodeTextBox.Text = string.Empty;
         DeliveryNotesTextBox.Text = string.Empty;
         DiscountPercentageTextBox.Text = string.Empty;
         PaymentTermsTextBox.Text = string.Empty;
         NotesTextBox.Text = string.Empty;
+
+        _fillingAddress = true;
+        ProvinceComboBox.SelectedItem = null;
+        CityComboBox.ItemsSource = null;
+        _fillingAddress = false;
+        _cityPostalCode = null;
+        RenderEmailState();
     }
 
     private static string? NullIfBlank(string value) => string.IsNullOrWhiteSpace(value) ? null : value;

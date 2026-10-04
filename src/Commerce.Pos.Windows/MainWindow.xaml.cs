@@ -43,8 +43,7 @@ public partial class MainWindow : Window
     private readonly CatalogPriceReplicaClient _catalogPriceReplicaClient;
     private readonly IDiscountAuthorizer _discountAuthorizer;
     private readonly PricingResolutionService _pricingResolutionService;
-    private readonly Func<CustomerAdminClient> _customerAdminClientFactory;
-    private readonly Func<UserAdminClient> _userAdminClientFactory;
+    private readonly ManagementConnection _management;
     private readonly ApplicationBranding _branding;
     private readonly UpdateChecker _updateChecker;
     private readonly UpdateInstallWorkflowFactory _updateWizardFactory;
@@ -87,8 +86,7 @@ public partial class MainWindow : Window
         StockReplicaClient stockReplicaClient,
         PriceListsReplicaClient priceListsReplicaClient,
         PricingResolutionService pricingResolutionService,
-        Func<CustomerAdminClient> customerAdminClientFactory,
-        Func<UserAdminClient> userAdminClientFactory,
+        ManagementConnection management,
         ApplicationBranding branding,
         UpdateChecker updateChecker,
         UpdateInstallWorkflowFactory updateWizardFactory,
@@ -111,8 +109,9 @@ public partial class MainWindow : Window
         _customerReplicaClient = customerReplicaClient;
         _catalogPriceReplicaClient = catalogPriceReplicaClient;
         _pricingResolutionService = pricingResolutionService;
-        _customerAdminClientFactory = customerAdminClientFactory;
-        _userAdminClientFactory = userAdminClientFactory;
+        _management = management;
+        // The server refused the current operator for a management call: back to the sale.
+        _management.OperatorRefused += () => Dispatcher.BeginInvoke(OnManagementOperatorRefused);
         _branding = branding;
         _updateChecker = updateChecker;
         _updateWizardFactory = updateWizardFactory;
@@ -1152,12 +1151,10 @@ public partial class MainWindow : Window
     private void SaleNavButton_Click(object sender, RoutedEventArgs e) => ShowSection(ShellSection.Sale);
 
     /// <summary>
-    /// Shows Clientes inside the shell with a FRESH <see cref="CustomerAdminClient"/>
-    /// (design.md "Desktop authorization for customer create/edit"): its cookie
-    /// lives only while the section is open and is discarded when the operator
-    /// leaves it, never persisted, never reused across visits. Button visibility
-    /// is UX-only (see <see cref="RefreshIdentityText"/>); the server re-checks
-    /// <c>ManageUsers</c> on every call the section makes.
+    /// Shows Clientes inside the shell over the shared <see cref="ManagementConnection"/>
+    /// (admin-console-field-fixes T5): the device credential plus the current operator, no
+    /// password prompt. Button visibility is UX-only (see <see cref="RefreshIdentityText"/>);
+    /// the server re-checks the operator and <c>ManageUsers</c> on every call the section makes.
     /// </summary>
     private void ManageCustomersButton_Click(object sender, RoutedEventArgs e) => ShowSection(ShellSection.Customers);
 
@@ -1202,13 +1199,13 @@ public partial class MainWindow : Window
         var section = _shell.Current;
         if (section == ShellSection.Customers)
         {
-            var view = new CustomersView(_customerAdminClientFactory(), _currentOperator.Value?.Email);
+            var view = new CustomersView(_management.Customers);
             _sections.Show(view);
             SectionHost.Content = view;
         }
         else if (section == ShellSection.Staff && _currentOperator.Value is { } admin)
         {
-            var view = new StaffView(_userAdminClientFactory(), _localOperatorStore, _pairing.BranchId, admin.UserId, admin.Email);
+            var view = new StaffView(_management.Staff, _localOperatorStore, _pairing.BranchId, admin.UserId);
             view.OperatorsChanged += StaffView_OperatorsChanged;
             _sections.Show(view);
             SectionHost.Content = view;
@@ -1231,9 +1228,29 @@ public partial class MainWindow : Window
     /// section with a request in flight is never disposed under it: it is detached and hidden, and
     /// torn down when its request ends, or when the teardown timed out (<see cref="ShellNavigation.TeardownExpired"/>).
     /// </summary>
-    private void ReconcileShell()
+    private void ReconcileShell() =>
+        ApplyShellOutcome(_shell.Reconcile(_currentOperator.Value?.Permissions, _sections.Active?.IsBusy == true));
+
+    /// <summary>
+    /// The server refused the current operator (revoked, no longer an administrator, or without this branch):
+    /// the open section closes the same way as one the operator lost, and the sale says why.
+    /// </summary>
+    private void OnManagementOperatorRefused()
     {
-        switch (_shell.Reconcile(_currentOperator.Value?.Permissions, _sections.Active?.IsBusy == true))
+        var outcome = _shell.Leave(_sections.Active?.IsBusy == true);
+        if (outcome == ReconcileOutcome.Unchanged)
+        {
+            return;
+        }
+
+        ApplyShellOutcome(outcome);
+        ShowResultText(PosMessages.ManagementAccessRefused);
+    }
+
+    /// <summary>Mirrors a section drop of <see cref="_shell"/>; a busy section is detached, never disposed under its request.</summary>
+    private void ApplyShellOutcome(ReconcileOutcome outcome)
+    {
+        switch (outcome)
         {
             case ReconcileOutcome.Switched:
                 ApplySection();

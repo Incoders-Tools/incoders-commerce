@@ -200,6 +200,11 @@ builder.Services
     })
     .AddScheme<DeviceBearerAuthenticationOptions, DeviceBearerAuthenticationHandler>(
         CloudAuthenticationSchemes.DeviceBearer, _ => { })
+    // admin-console-field-fixes T5: a bearer request is the device, anything else the browser cookie. Named ONLY
+    // by the StaffOrDeviceOperator policy, which only the endpoints that opt in carry; the default scheme stays
+    // the cookie, so every other staff endpoint still refuses a device credential.
+    .AddPolicyScheme(CloudAuthenticationSchemes.StaffOrDevice, CloudAuthenticationSchemes.StaffOrDevice, options =>
+        options.ForwardDefaultSelector = DeviceOperatorAccess.SelectScheme)
     // Fourth, genuinely separate cookie scheme (commerce-guest-ordering
     // design.md "Customer session"): the separate staff-cookie pattern applied
     // a second time — its own Cookie.Name and Cookie.Path = "/customer", so
@@ -230,6 +235,9 @@ builder.Services.AddAuthorizationBuilder()
         .RequireAuthenticatedUser())
     .AddPolicy("Customer", policy => policy
         .AddAuthenticationSchemes(CloudAuthenticationSchemes.CustomerCookie)
+        .RequireAuthenticatedUser())
+    .AddPolicy(DeviceOperatorAccess.PolicyName, policy => policy
+        .AddAuthenticationSchemes(CloudAuthenticationSchemes.StaffOrDevice)
         .RequireAuthenticatedUser());
 
 // --- Rate limiting (commerce-guest-ordering design.md "Rate limiting"):

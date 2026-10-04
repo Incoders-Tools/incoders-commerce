@@ -27,9 +27,6 @@ public static class PosMessages
     public const string TerminalNotRecognized =
         "El servidor no reconoce esta terminal. Abrí Configuración y volvé a configurarla para seguir sincronizando.";
 
-    public const string SessionExpired =
-        "La sesión de administrador venció. Salí de esta sección y volvé a entrar para confirmar tu contraseña.";
-
     /// <summary>A section change was refused because the previous section is still finishing a request.</summary>
     public const string PreviousOperationRunning =
         "Esperá a que termine la operación anterior para abrir otra sección.";
@@ -123,8 +120,6 @@ public static class PosMessages
 
     public const string CustomerNotFound = "No se encontró el cliente.";
 
-    public const string SignInFailed = "No se pudo iniciar sesión.";
-
     public const string SaveFailed = "No se pudieron guardar los cambios.";
 
     public const string Saved = "Cambios guardados.";
@@ -135,7 +130,7 @@ public static class PosMessages
 
     public const string SelectStaffUserFirst = "Seleccioná un usuario primero.";
 
-    public const string SigningIn = "Ingresando…";
+    public const string Loading = "Cargando…";
 
     public const string Saving = "Guardando…";
 
@@ -153,13 +148,19 @@ public static class PosMessages
 
     // ---- Shell sections (Clientes, Personal) --------------------------------
 
-    public const string ConfirmPasswordTitle = "Confirmá tu contraseña";
+    /// <summary>The server refused the signed-in operator for a management call (not revoked/admin/branch: it never says which).</summary>
+    public const string OperatorNotAuthorized =
+        "El servidor no autorizó a tu usuario para administrar desde esta terminal.";
 
-    public const string ConfirmPasswordForCustomers =
-        "Para gestionar clientes, confirmá tu contraseña de administrador. Hace falta conexión a internet.";
+    /// <summary>Shown on the sale after the shell left Clientes or Personal because the server refused the operator.</summary>
+    public const string ManagementAccessRefused =
+        "Tu usuario no puede administrar clientes ni personal en esta terminal (puede estar dado de baja, sin permiso de administrador o sin esta sucursal asignada). Volviste a la venta.";
 
-    public const string ConfirmPasswordForStaff =
-        "Para gestionar el personal, confirmá tu contraseña de administrador. Hace falta conexión a internet.";
+    public const string ProvincesLoadFailed = "No se pudo cargar la lista de provincias. Intentá de nuevo.";
+
+    public const string CitiesLoadFailed = "No se pudo cargar la lista de ciudades de la provincia. Intentá de nuevo.";
+
+    public const string InvalidEmail = "El correo no es válido. Revisalo (por ejemplo, ana@correo.com).";
 
     public const string CannotDeactivateSelf = "No podés darte de baja a vos mismo.";
 

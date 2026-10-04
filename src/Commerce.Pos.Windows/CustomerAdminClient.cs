@@ -5,54 +5,26 @@ using System.Net.Http.Json;
 namespace Commerce.Pos.Windows;
 
 /// <summary>
-/// Cookie-bearing client for the customer-management window
-/// (commerce-customer-identity design.md "Desktop authorization for customer
-/// create/edit"): performs a real <c>POST /account/sign-in</c> from
-/// <see cref="CustomersWindow"/> and calls the SAME <c>/customers</c>
-/// endpoints <c>Commerce.Web</c> uses — zero new auth surface, zero
-/// POS-specific customer endpoint. Owns a WINDOW-SCOPED
-/// <see cref="HttpClient"/> + <see cref="CookieContainer"/>: never persisted
-/// to <c>operators.json</c>/<c>installation.json</c>, discarded when the
-/// window (and this instance) closes. The server re-checks
-/// <c>ManageUsers</c> on EVERY call — this client adds no authorization logic
-/// of its own.
+/// The Clientes calls (commerce-customer-identity design.md "Desktop authorization for customer create/edit"): the
+/// SAME <c>/customers</c> endpoints <c>Commerce.Web</c> uses, plus the <c>/geo</c> reference data of the form. Runs
+/// over the shared <see cref="ManagementConnection"/> (device credential + current operator, no cookie, no
+/// password); the server re-checks the operator and <c>ManageUsers</c> on EVERY call, this client adds no
+/// authorization logic of its own.
 /// </summary>
-public sealed class CustomerAdminClient : IDisposable
+public sealed class CustomerAdminClient
 {
+    /// <summary>The server's page cap of <c>GET /geo/cities</c>.</summary>
+    internal const int CityPageSize = 200;
+
+    /// <summary>Safety stop for the city paging (a province has at most a few thousand localities).</summary>
+    private const int MaxCityPages = 50;
+
     private readonly HttpClient _httpClient;
 
-    public CustomerAdminClient(string baseUrl)
-    {
-        var handler = new HttpClientHandler
-        {
-            CookieContainer = new CookieContainer(),
-            UseCookies = true,
-        };
-        _httpClient = new HttpClient(handler) { BaseAddress = new Uri(baseUrl) };
-    }
-
-    /// <summary>Injects a caller-owned client for focused request-contract tests.</summary>
+    /// <summary>Over the shared management client (or a caller-owned one in request-contract tests).</summary>
     public CustomerAdminClient(HttpClient httpClient)
     {
         _httpClient = httpClient;
-    }
-
-    public async Task<AdminSignInOutcome> SignInAsync(string email, string password, CancellationToken ct = default)
-    {
-        const string path = "/account/sign-in";
-        var endpoint = PosHttp.Endpoint(HttpMethod.Post, path);
-        try
-        {
-            using var response = await _httpClient.PostAsJsonAsync(path, new AdminSignInRequestDto(email, password), ct);
-            // UX-only: a signed-in caller lacking ManageUsers simply sees every
-            // subsequent call 403; the server re-checks regardless of this bit.
-            return await AdminSignInOutcome.FromResponseAsync(response, endpoint, ct);
-        }
-        catch (Exception ex) when (PosHttp.IsTransportFailure(ex, ct))
-        {
-            PosHttp.LogTransportFailure(endpoint, ex);
-            return AdminSignInOutcome.Failed(PosMessages.ServerUnreachable);
-        }
     }
 
     public async Task<IReadOnlyList<CustomerAdminRecordDto>?> ListCustomersAsync(CancellationToken ct = default)
@@ -69,6 +41,72 @@ public sealed class CustomerAdminClient : IDisposable
             }
 
             return await PosHttp.TryReadJsonAsync<List<CustomerAdminRecordDto>>(response, endpoint, ct);
+        }
+        catch (Exception ex) when (PosHttp.IsTransportFailure(ex, ct))
+        {
+            PosHttp.LogTransportFailure(endpoint, ex);
+            return null;
+        }
+    }
+
+    /// <summary>The provinces of the organization's country (<c>GET /geo/provinces</c>); null when they could not be read.</summary>
+    public async Task<IReadOnlyList<ProvinceOptionDto>?> ListProvincesAsync(CancellationToken ct = default)
+    {
+        const string path = "/geo/provinces";
+        var endpoint = PosHttp.Endpoint(HttpMethod.Get, path);
+        try
+        {
+            using var response = await _httpClient.GetAsync(path, ct);
+            if (!response.IsSuccessStatusCode)
+            {
+                await PosHttp.LogFailureWithBodyAsync(endpoint, response, ct);
+                return null;
+            }
+
+            return await PosHttp.TryReadJsonAsync<List<ProvinceOptionDto>>(response, endpoint, ct);
+        }
+        catch (Exception ex) when (PosHttp.IsTransportFailure(ex, ct))
+        {
+            PosHttp.LogTransportFailure(endpoint, ex);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Every active city of <paramref name="provinceId"/> (<c>GET /geo/cities?provinceId=</c>, read page by page up
+    /// to the server's cap); null when a page could not be read.
+    /// </summary>
+    public async Task<IReadOnlyList<CityOptionDto>?> ListCitiesAsync(string provinceId, CancellationToken ct = default)
+    {
+        const string path = "/geo/cities";
+        var endpoint = PosHttp.Endpoint(HttpMethod.Get, path);
+        var cities = new List<CityOptionDto>();
+        try
+        {
+            for (var page = 0; page < MaxCityPages; page++)
+            {
+                var query = $"/geo/cities?provinceId={Uri.EscapeDataString(provinceId)}&limit={CityPageSize}&offset={page * CityPageSize}";
+                using var response = await _httpClient.GetAsync(query, ct);
+                if (!response.IsSuccessStatusCode)
+                {
+                    await PosHttp.LogFailureWithBodyAsync(endpoint, response, ct);
+                    return null;
+                }
+
+                var batch = await PosHttp.TryReadJsonAsync<List<CityOptionDto>>(response, endpoint, ct);
+                if (batch is null)
+                {
+                    return null;
+                }
+
+                cities.AddRange(batch);
+                if (batch.Count < CityPageSize)
+                {
+                    break;
+                }
+            }
+
+            return cities;
         }
         catch (Exception ex) when (PosHttp.IsTransportFailure(ex, ct))
         {
@@ -97,10 +135,12 @@ public sealed class CustomerAdminClient : IDisposable
                 return CustomerAdminMutationOutcome.Succeeded();
             }
 
-            await PosHttp.LogFailureWithBodyAsync(endpoint, response, ct);
+            var body = await PosHttp.LogFailureWithBodyAsync(endpoint, response, ct);
             return response.StatusCode switch
             {
-                HttpStatusCode.Unauthorized => CustomerAdminMutationOutcome.Failed(PosMessages.SessionExpired),
+                HttpStatusCode.Unauthorized => CustomerAdminMutationOutcome.Failed(PosMessages.TerminalNotRecognized),
+                HttpStatusCode.Forbidden when PosHttp.ParseErrorCode(body) == ManagementConnection.OperatorNotAuthorizedError =>
+                    CustomerAdminMutationOutcome.Forbidden(PosMessages.OperatorNotAuthorized),
                 HttpStatusCode.Forbidden => CustomerAdminMutationOutcome.Forbidden(),
                 HttpStatusCode.NotFound => CustomerAdminMutationOutcome.NotFound(),
                 HttpStatusCode.BadRequest => CustomerAdminMutationOutcome.Failed(PosMessages.InvalidData),
@@ -113,90 +153,54 @@ public sealed class CustomerAdminClient : IDisposable
             return CustomerAdminMutationOutcome.Failed(PosMessages.ServerUnreachable);
         }
     }
-
-    public void Dispose() => _httpClient.Dispose();
 }
 
-public sealed record AdminSignInRequestDto(string Email, string Password);
-
-public sealed record AdminSignedInResponseDto(Guid OrganizationId, Guid UserId, string DisplayName, int Permissions);
-
-public sealed record AdminSignInOutcome(AdminSignInOutcomeKind Kind, int Permissions, string? ErrorMessage)
-{
-    public static AdminSignInOutcome SignedIn(int permissions) => new(AdminSignInOutcomeKind.SignedIn, permissions, null);
-
-    public static AdminSignInOutcome InvalidCredentials() =>
-        new(AdminSignInOutcomeKind.InvalidCredentials, 0, PosMessages.InvalidCredentials);
-
-    public static AdminSignInOutcome Failed(string message) => new(AdminSignInOutcomeKind.Failed, 0, message);
-
-    /// <summary>Shared by both cookie-session admin clients: status first, JSON only when it is there.</summary>
-    internal static async Task<AdminSignInOutcome> FromResponseAsync(HttpResponseMessage response, string endpoint, CancellationToken ct)
-    {
-        if (response.StatusCode is HttpStatusCode.Unauthorized)
-        {
-            PosHttp.LogFailure(endpoint, response, "email or password rejected");
-            return InvalidCredentials();
-        }
-
-        if (!response.IsSuccessStatusCode)
-        {
-            await PosHttp.LogFailureWithBodyAsync(endpoint, response, ct);
-            return Failed(PosHttp.MessageFor(response));
-        }
-
-        var body = await PosHttp.TryReadJsonAsync<AdminSignedInResponseDto>(response, endpoint, ct);
-        if (body is null)
-        {
-            PosHttp.LogFailure(endpoint, response, "no usable response body");
-            return Failed(PosMessages.UnexpectedResponse);
-        }
-
-        return SignedIn(body.Permissions);
-    }
-}
-
-public enum AdminSignInOutcomeKind
-{
-    SignedIn,
-    InvalidCredentials,
-    Failed,
-}
-
-/// <summary>Mirrors `Commerce.Cloud.Api.Persistence.CustomerRecord`'s wire shape.</summary>
+/// <summary>Mirrors `Commerce.Cloud.Api.Persistence.CustomerRecord`'s wire shape (the fields the desktop form uses).</summary>
 public sealed record CustomerAdminRecordDto(
-    Guid Id, Guid OrganizationId, string CustomerKind, string DisplayName, string? LegalName,
+    Guid Id, Guid OrganizationId, string CustomerKind, string DisplayName,
     string TaxIdType, string? TaxId, string TaxCondition, string? Phone, string? Email,
-    string? AddressStreet, string? AddressNumber, string? Neighborhood, string? Locality,
-    string? Province, string? PostalCode, string? DeliveryNotes, decimal? DiscountPercentage,
-    string? PaymentTerms, string? Notes, bool IsEnabled, DateTimeOffset CreatedAtUtc,
-    Guid CreatedByUserId, DateTimeOffset UpdatedAtUtc);
+    string? AddressStreet, string? AddressNumber, string? Neighborhood, string? PostalCode, string? DeliveryNotes,
+    decimal? DiscountPercentage, string? PaymentTerms, string? Notes, bool IsEnabled, DateTimeOffset CreatedAtUtc,
+    Guid CreatedByUserId, DateTimeOffset UpdatedAtUtc,
+    Guid? CityId = null, string? CityName = null, string? ProvinceId = null, string? ProvinceName = null,
+    string PartyType = "Person");
 
-/// <summary>Mirrors `Commerce.Cloud.Api.Endpoints.CreateCustomerRequest`.</summary>
+/// <summary>
+/// Mirrors `Commerce.Cloud.Api.Endpoints.CreateCustomerRequest`: one name (`DisplayName`, a person's full name or a
+/// company's legal name per `PartyType`) and the city instead of locality / province text.
+/// </summary>
 public sealed record CreateCustomerAdminRequestDto(
-    string CustomerKind, string DisplayName, string? LegalName,
+    string CustomerKind, string DisplayName,
     string TaxIdType, string? TaxId, string TaxCondition,
     string? Phone, string? Email,
-    string? AddressStreet, string? AddressNumber, string? Neighborhood,
-    string? Locality, string? Province, string? PostalCode,
-    string? DeliveryNotes, decimal? DiscountPercentage, string? PaymentTerms, string? Notes);
-
-/// <summary>Mirrors `Commerce.Cloud.Api.Endpoints.UpdateCustomerRequest`.</summary>
-public sealed record UpdateCustomerAdminRequestDto(
-    string DisplayName, string? LegalName,
-    string TaxIdType, string? TaxId, string TaxCondition,
-    string? Phone, string? Email,
-    string? AddressStreet, string? AddressNumber, string? Neighborhood,
-    string? Locality, string? Province, string? PostalCode,
+    string? AddressStreet, string? AddressNumber, string? Neighborhood, string? PostalCode,
     string? DeliveryNotes, decimal? DiscountPercentage, string? PaymentTerms, string? Notes,
-    bool IsEnabled);
+    Guid? CityId, string PartyType);
+
+/// <summary>
+/// Mirrors `Commerce.Cloud.Api.Endpoints.UpdateCustomerRequest`. `CityId` is always sent: <see cref="Guid.Empty"/>
+/// clears the city.
+/// </summary>
+public sealed record UpdateCustomerAdminRequestDto(
+    string DisplayName,
+    string TaxIdType, string? TaxId, string TaxCondition,
+    string? Phone, string? Email,
+    string? AddressStreet, string? AddressNumber, string? Neighborhood, string? PostalCode,
+    string? DeliveryNotes, decimal? DiscountPercentage, string? PaymentTerms, string? Notes,
+    bool IsEnabled, Guid CityId, string PartyType);
+
+/// <summary>One row of `GET /geo/provinces`.</summary>
+public sealed record ProvinceOptionDto(string Id, string Name);
+
+/// <summary>One row of `GET /geo/cities`: only the city name is shown; its postal code, when known, prefills the form.</summary>
+public sealed record CityOptionDto(Guid Id, string Name, string ProvinceId, string? PostalCode = null);
 
 public sealed record CustomerAdminMutationOutcome(CustomerAdminMutationKind Kind, string? ErrorMessage)
 {
     public static CustomerAdminMutationOutcome Succeeded() => new(CustomerAdminMutationKind.Succeeded, null);
 
-    public static CustomerAdminMutationOutcome Forbidden() =>
-        new(CustomerAdminMutationKind.Forbidden, PosMessages.NoPermissionToManageCustomers);
+    public static CustomerAdminMutationOutcome Forbidden(string? message = null) =>
+        new(CustomerAdminMutationKind.Forbidden, message ?? PosMessages.NoPermissionToManageCustomers);
 
     public static CustomerAdminMutationOutcome NotFound() =>
         new(CustomerAdminMutationKind.NotFound, PosMessages.CustomerNotFound);

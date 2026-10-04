@@ -40,7 +40,7 @@ public static class GeographyEndpoints
             var everyCountry = !scope.IsActingOnSelectedOrganization
                 && await AuthorizeSystemAdminAsync(httpContext, userStore, ct) is not null;
             return Results.Ok(await store.ListProvincesAsync(everyCountry ? null : scope.OrganizationId, ct));
-        });
+        }).AllowDeviceOperator();
 
         group.MapGet("/cities", async (
             string? search,
@@ -56,7 +56,7 @@ public static class GeographyEndpoints
             var skip = offset is > 0 ? offset.Value : 0;
             var province = string.IsNullOrWhiteSpace(provinceId) ? null : provinceId.Trim();
             return Results.Ok(await store.SearchCitiesAsync(new CitySearch(folded, province, includeInactive ?? false, take, skip), ct));
-        });
+        }).AllowDeviceOperator();
 
         group.MapGet("/cities/{id:guid}", async (Guid id, PostgresGeoStore store, CancellationToken ct) =>
         {

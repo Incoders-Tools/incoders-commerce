@@ -11,16 +11,15 @@ public sealed class PosStaffManagementTests : IDisposable
     private readonly string _dataDirectory = Path.Combine(Path.GetTempPath(), "commerce-pos-staff", Guid.NewGuid().ToString());
 
     [Fact]
-    public async Task UserAdminClient_HasWindowScopedLifetime_AndCallsStaffListEndpoint()
+    public async Task UserAdminClient_IsTheSharedConnections_AndCallsStaffListEndpoint()
     {
         using var host = PosHostBuilder.Build(_dataDirectory);
-        var factory = host.Services.GetRequiredService<Func<UserAdminClient>>();
-        using var first = factory();
-        using var second = factory();
+        var connection = host.Services.GetRequiredService<ManagementConnection>();
         var handler = new RecordingHandler();
-        using var requestClient = new UserAdminClient(new HttpClient(handler) { BaseAddress = new Uri("https://example.test/") });
+        using var httpClient = new HttpClient(handler) { BaseAddress = new Uri("https://example.test/") };
+        var requestClient = new UserAdminClient(httpClient);
 
-        Assert.NotSame(first, second);
+        Assert.Same(connection.Staff, host.Services.GetRequiredService<ManagementConnection>().Staff);
         var users = await requestClient.ListUsersAsync();
         Assert.NotNull(users);
         Assert.Equal("/account/users", handler.RequestUri!.AbsolutePath);

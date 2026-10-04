@@ -555,6 +555,9 @@ public static class AccountEndpoints
         // RequireAuthorization + TenantScopeEndpointFilter, actor loaded from
         // the store, target loaded scoped to the CALLER's org so RLS makes a
         // cross-org target indistinguishable from "no such user".
+        // The routes the desktop Personal section uses (list, create, roles,
+        // status, reset password) also admit a paired terminal with a verified
+        // operator (AllowDeviceOperator, admin-console-field-fixes T5).
         var adminGroup = app.MapGroup("/account/users")
             .RequireAuthorization()
             .AddEndpointFilter<TenantScopeEndpointFilter>();
@@ -578,7 +581,7 @@ public static class AccountEndpoints
             }
 
             return Results.Ok(await userStore.ListStaffAsync(scope, ct));
-        });
+        }).AllowDeviceOperator();
         adminGroup.MapPost("/{userId:guid}/reset-password", async (
             Guid userId,
             AdminResetPasswordRequest request,
@@ -632,7 +635,7 @@ public static class AccountEndpoints
             sessionVersionCache.Set(userId, newVersion);
 
             return Results.NoContent();
-        });
+        }).AllowDeviceOperator();
 
         // --- Staff user creation and role assignment (commerce-role-taxonomy
         // design.md "Data Flow"): reuses adminGroup's exact authorization
@@ -757,7 +760,7 @@ public static class AccountEndpoints
             }
 
             return Results.Created($"/account/users/{userId}", new CreateUserResponse(userId));
-        });
+        }).AllowDeviceOperator();
 
         adminGroup.MapPut("/{userId:guid}/roles", async (
             Guid userId,
@@ -820,7 +823,7 @@ public static class AccountEndpoints
             await userStore.ReplaceRolesAsync(scope, userId, roleDtos, "org-user", callerId, ct);
 
             return Results.NoContent();
-        });
+        }).AllowDeviceOperator();
 
         // Replaces a staff user's branch scope. Same authorization shape as
         // the roles endpoint, and the same branch validation as creation
@@ -950,7 +953,7 @@ public static class AccountEndpoints
 
             sessionVersionCache.Set(userId, version.Value);
             return Results.NoContent();
-        });
+        }).AllowDeviceOperator();
 
         group.MapPost("/sign-out", async (HttpContext httpContext) =>
         {

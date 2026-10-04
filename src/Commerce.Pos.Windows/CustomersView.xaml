@@ -1,7 +1,6 @@
 <UserControl x:Class="Commerce.Pos.Windows.CustomersView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:controls="clr-namespace:Commerce.Pos.Windows.Controls"
              Foreground="{DynamicResource TextBrush}">
     <UserControl.Resources>
         <Style x:Key="FieldLabel" TargetType="TextBlock" BasedOn="{StaticResource MutedTextBlock}">
@@ -18,6 +17,19 @@
             <Setter Property="HorizontalAlignment" Value="Left" />
             <Setter Property="DisplayMemberPath" Value="Label" />
             <Setter Property="SelectedValuePath" Value="Value" />
+        </Style>
+        <!-- Address rows: the boxes stretch to their column instead of the fixed form width. -->
+        <Style x:Key="RowBox" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+            <Setter Property="Margin" Value="0,0,0,10" />
+        </Style>
+        <Style x:Key="RowCombo" TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
+            <Setter Property="Margin" Value="0,0,0,10" />
+            <Setter Property="DisplayMemberPath" Value="Name" />
+            <Setter Property="SelectedValuePath" Value="Id" />
+        </Style>
+        <Style x:Key="FormSectionTitle" TargetType="TextBlock" BasedOn="{StaticResource SectionTitleTextBlock}">
+            <Setter Property="FontSize" Value="16" />
+            <Setter Property="Margin" Value="0,0,0,10" />
         </Style>
     </UserControl.Resources>
     <Grid Margin="16,12,16,8">
@@ -44,85 +56,134 @@
         </StackPanel>
 
         <Grid x:Name="FormPanel" Grid.Row="3">
-            <ScrollViewer x:Name="SignInScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                <controls:AdminSignInPanel x:Name="SignInPanel" />
-            </ScrollViewer>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="260" />
+                <ColumnDefinition Width="16" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
 
-            <Grid x:Name="ManagementPanel" Visibility="Collapsed">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="260" />
-                    <ColumnDefinition Width="16" />
-                    <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
+            <DockPanel Grid.Column="0">
+                <Button x:Name="NewCustomerButton" Content="Nuevo cliente" DockPanel.Dock="Top" Margin="0,0,0,8" HorizontalAlignment="Stretch"
+                        Click="NewCustomerButton_Click" />
+                <ListBox x:Name="CustomersListBox" DisplayMemberPath="DisplayName" SelectionChanged="CustomersListBox_SelectionChanged" />
+            </DockPanel>
 
-                <DockPanel Grid.Column="0">
-                    <Button x:Name="NewCustomerButton" Content="Nuevo cliente" DockPanel.Dock="Top" Margin="0,0,0,8" HorizontalAlignment="Stretch"
-                            Click="NewCustomerButton_Click" />
-                    <ListBox x:Name="CustomersListBox" DisplayMemberPath="DisplayName" SelectionChanged="CustomersListBox_SelectionChanged" />
-                </DockPanel>
+            <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Margin="0,0,12,0" MaxWidth="760" HorizontalAlignment="Left">
+                    <TextBlock Text="Datos del cliente" Style="{StaticResource FormSectionTitle}" />
 
-                <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                    <StackPanel Margin="0,0,12,0">
-                        <TextBlock Text="Tipo de cliente" Style="{StaticResource FieldLabel}" />
-                        <ComboBox x:Name="CustomerKindComboBox" Style="{StaticResource FieldCombo}" />
+                    <TextBlock Text="Tipo de cliente" Style="{StaticResource FieldLabel}" />
+                    <ComboBox x:Name="CustomerKindComboBox" Style="{StaticResource FieldCombo}" AutomationProperties.Name="Tipo de cliente" />
 
-                        <TextBlock Text="Nombre para mostrar" Style="{StaticResource FieldLabel}" />
-                        <TextBox x:Name="DisplayNameTextBox" Style="{StaticResource FieldBox}" />
+                    <!-- Persona / Empresa decides what the one name field holds (independent of Minorista / Mayorista). -->
+                    <TextBlock Text="Persona o empresa" Style="{StaticResource FieldLabel}" />
+                    <ComboBox x:Name="PartyTypeComboBox" Style="{StaticResource FieldCombo}" AutomationProperties.Name="Persona o empresa"
+                              SelectionChanged="PartyTypeComboBox_SelectionChanged" />
 
-                        <TextBlock Text="Razón social" Style="{StaticResource FieldLabel}" />
-                        <TextBox x:Name="LegalNameTextBox" Style="{StaticResource FieldBox}" />
+                    <TextBlock x:Name="NameLabel" Text="Nombre y apellido" Style="{StaticResource FieldLabel}" />
+                    <TextBox x:Name="DisplayNameTextBox" Style="{StaticResource FieldBox}"
+                             AutomationProperties.LabeledBy="{Binding ElementName=NameLabel}" />
 
-                        <TextBlock Text="Tipo de documento fiscal" Style="{StaticResource FieldLabel}" />
-                        <ComboBox x:Name="TaxIdTypeComboBox" Style="{StaticResource FieldCombo}" />
+                    <TextBlock Text="Tipo de documento fiscal" Style="{StaticResource FieldLabel}" />
+                    <ComboBox x:Name="TaxIdTypeComboBox" Style="{StaticResource FieldCombo}" AutomationProperties.Name="Tipo de documento fiscal" />
 
-                        <TextBlock Text="Número de documento fiscal" Style="{StaticResource FieldLabel}" />
-                        <TextBox x:Name="TaxIdTextBox" Style="{StaticResource FieldBox}" />
+                    <TextBlock Text="Número de documento fiscal" Style="{StaticResource FieldLabel}" />
+                    <TextBox x:Name="TaxIdTextBox" Style="{StaticResource FieldBox}" AutomationProperties.Name="Número de documento fiscal" />
 
-                        <TextBlock Text="Condición frente al IVA" Style="{StaticResource FieldLabel}" />
-                        <ComboBox x:Name="TaxConditionComboBox" Style="{StaticResource FieldCombo}" />
+                    <TextBlock Text="Condición frente al IVA" Style="{StaticResource FieldLabel}" />
+                    <ComboBox x:Name="TaxConditionComboBox" Style="{StaticResource FieldCombo}" AutomationProperties.Name="Condición frente al IVA" />
 
-                        <TextBlock Text="Teléfono" Style="{StaticResource FieldLabel}" />
-                        <TextBox x:Name="PhoneTextBox" Style="{StaticResource FieldBox}" />
+                    <Separator />
+                    <TextBlock Text="Contacto" Style="{StaticResource FormSectionTitle}" />
 
-                        <TextBlock Text="Correo" Style="{StaticResource FieldLabel}" />
-                        <TextBox x:Name="EmailTextBox" Style="{StaticResource FieldBox}" />
+                    <TextBlock Text="Teléfono" Style="{StaticResource FieldLabel}" />
+                    <TextBox x:Name="PhoneTextBox" Style="{StaticResource FieldBox}" AutomationProperties.Name="Teléfono" />
 
-                        <TextBlock Text="Calle" Style="{StaticResource FieldLabel}" />
-                        <TextBox x:Name="AddressStreetTextBox" Style="{StaticResource FieldBox}" />
-
-                        <TextBlock Text="Número" Style="{StaticResource FieldLabel}" />
-                        <TextBox x:Name="AddressNumberTextBox" Style="{StaticResource FieldBox}" />
-
-                        <TextBlock Text="Barrio" Style="{StaticResource FieldLabel}" />
-                        <TextBox x:Name="NeighborhoodTextBox" Style="{StaticResource FieldBox}" />
-
-                        <TextBlock Text="Localidad" Style="{StaticResource FieldLabel}" />
-                        <TextBox x:Name="LocalityTextBox" Style="{StaticResource FieldBox}" />
-
-                        <TextBlock Text="Provincia" Style="{StaticResource FieldLabel}" />
-                        <TextBox x:Name="ProvinceTextBox" Style="{StaticResource FieldBox}" />
-
-                        <TextBlock Text="Código postal" Style="{StaticResource FieldLabel}" />
-                        <TextBox x:Name="PostalCodeTextBox" Style="{StaticResource FieldBox}" />
-
-                        <TextBlock Text="Notas de entrega" Style="{StaticResource FieldLabel}" />
-                        <TextBox x:Name="DeliveryNotesTextBox" Style="{StaticResource FieldBox}" />
-
-                        <TextBlock Text="Porcentaje de descuento" Style="{StaticResource FieldLabel}" />
-                        <TextBox x:Name="DiscountPercentageTextBox" Style="{StaticResource FieldBox}" />
-
-                        <TextBlock Text="Condiciones de pago" Style="{StaticResource FieldLabel}" />
-                        <TextBox x:Name="PaymentTermsTextBox" Style="{StaticResource FieldBox}" />
-
-                        <TextBlock Text="Notas" Style="{StaticResource FieldLabel}" />
-                        <TextBox x:Name="NotesTextBox" Style="{StaticResource FieldBox}" />
-
-                        <CheckBox x:Name="IsEnabledCheckBox" Content="Habilitado" Margin="0,0,0,10" Visibility="Collapsed" />
-
-                        <Button x:Name="SaveButton" Content="Guardar" HorizontalAlignment="Left" Margin="0,0,0,12" Click="SaveButton_Click" />
+                    <TextBlock Text="Correo" Style="{StaticResource FieldLabel}" />
+                    <StackPanel Orientation="Horizontal">
+                        <TextBox x:Name="EmailTextBox" Style="{StaticResource FieldBox}" AutomationProperties.Name="Correo"
+                                 TextChanged="EmailTextBox_TextChanged" />
+                        <!-- Live check with the shared email rule (the server's): a green check when valid. -->
+                        <TextBlock x:Name="EmailValidIcon" Text="&#xE73E;" Style="{StaticResource IconTextBlock}"
+                                   Foreground="{DynamicResource SuccessBrush}" VerticalAlignment="Top" Margin="8,6,0,0"
+                                   Visibility="Collapsed" AutomationProperties.Name="Correo válido" />
                     </StackPanel>
-                </ScrollViewer>
-            </Grid>
+                    <TextBlock x:Name="EmailErrorText" Text="El correo no es válido (por ejemplo, ana@correo.com)."
+                               Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap" Margin="0,-6,0,10"
+                               Visibility="Collapsed" />
+
+                    <Separator />
+                    <TextBlock Text="Domicilio" Style="{StaticResource FormSectionTitle}" />
+
+                    <!-- Row 1: Province, then that province's cities (by name), then the postal code (prefilled from the city when known). -->
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="140" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Text="Provincia" Style="{StaticResource FieldLabel}" />
+                            <ComboBox x:Name="ProvinceComboBox" Style="{StaticResource RowCombo}" AutomationProperties.Name="Provincia"
+                                      SelectionChanged="ProvinceComboBox_SelectionChanged" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Text="Ciudad" Style="{StaticResource FieldLabel}" />
+                            <ComboBox x:Name="CityComboBox" Style="{StaticResource RowCombo}" AutomationProperties.Name="Ciudad"
+                                      SelectionChanged="CityComboBox_SelectionChanged" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="4">
+                            <TextBlock Text="Código postal" Style="{StaticResource FieldLabel}" />
+                            <TextBox x:Name="PostalCodeTextBox" Style="{StaticResource RowBox}" AutomationProperties.Name="Código postal" />
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- Row 2: Neighborhood, Street, Number. -->
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="140" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Text="Barrio" Style="{StaticResource FieldLabel}" />
+                            <TextBox x:Name="NeighborhoodTextBox" Style="{StaticResource RowBox}" AutomationProperties.Name="Barrio" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Text="Calle" Style="{StaticResource FieldLabel}" />
+                            <TextBox x:Name="AddressStreetTextBox" Style="{StaticResource RowBox}" AutomationProperties.Name="Calle" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="4">
+                            <TextBlock Text="Número" Style="{StaticResource FieldLabel}" />
+                            <TextBox x:Name="AddressNumberTextBox" Style="{StaticResource RowBox}" AutomationProperties.Name="Número" />
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- Row 3: delivery notes across the full row. -->
+                    <TextBlock Text="Notas de entrega" Style="{StaticResource FieldLabel}" />
+                    <TextBox x:Name="DeliveryNotesTextBox" Style="{StaticResource RowBox}" AutomationProperties.Name="Notas de entrega" />
+
+                    <Separator />
+                    <TextBlock Text="Condiciones comerciales" Style="{StaticResource FormSectionTitle}" />
+
+                    <TextBlock Text="Porcentaje de descuento" Style="{StaticResource FieldLabel}" />
+                    <TextBox x:Name="DiscountPercentageTextBox" Style="{StaticResource FieldBox}" AutomationProperties.Name="Porcentaje de descuento" />
+
+                    <TextBlock Text="Condiciones de pago" Style="{StaticResource FieldLabel}" />
+                    <TextBox x:Name="PaymentTermsTextBox" Style="{StaticResource FieldBox}" AutomationProperties.Name="Condiciones de pago" />
+
+                    <TextBlock Text="Notas" Style="{StaticResource FieldLabel}" />
+                    <TextBox x:Name="NotesTextBox" Style="{StaticResource FieldBox}" AutomationProperties.Name="Notas" />
+
+                    <CheckBox x:Name="IsEnabledCheckBox" Content="Habilitado" Margin="0,0,0,10" Visibility="Collapsed" />
+
+                    <Button x:Name="SaveButton" Content="Guardar" HorizontalAlignment="Left" Margin="0,6,0,12" Click="SaveButton_Click" />
+                </StackPanel>
+            </ScrollViewer>
         </Grid>
     </Grid>
 </UserControl>

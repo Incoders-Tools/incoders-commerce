@@ -8,14 +8,11 @@ public sealed class PosAdminClientCompositionTests : IDisposable
     private readonly string _dataDirectory = Path.Combine(Path.GetTempPath(), "commerce-pos-admin", Guid.NewGuid().ToString());
 
     [Fact]
-    public void Build_ProvidesFreshWindowScopedUserAdminClients_AndBranding()
+    public void Build_ProvidesOneSharedManagementConnection_AndBranding()
     {
         using var host = PosHostBuilder.Build(_dataDirectory);
-        var factory = host.Services.GetRequiredService<Func<UserAdminClient>>();
-        using var first = factory();
-        using var second = factory();
 
-        Assert.NotSame(first, second);
+        Assert.Same(host.Services.GetRequiredService<ManagementConnection>(), host.Services.GetRequiredService<ManagementConnection>());
         Assert.Equal("Vaca Verde", host.Services.GetRequiredService<ApplicationBranding>().ApplicationName);
     }
 

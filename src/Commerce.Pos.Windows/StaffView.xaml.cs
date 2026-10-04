@@ -5,13 +5,12 @@ using System.Windows.Input;
 namespace Commerce.Pos.Windows;
 
 /// <summary>
-/// Personal section of the main window: administrator staff management. The
-/// admin confirms their password inline (server authorization through
-/// <see cref="UserAdminClient"/>, a cookie sign-in that lives only while the
-/// section is open; the password is cleared as soon as it was sent and never
-/// stored), then creates staff (email, initial password, role, this terminal's
-/// branch), sees the staff list with its status, deactivates or reactivates
-/// people after an inline confirmation, and resets a password.
+/// Personal section of the main window: administrator staff management over the
+/// shared <see cref="ManagementConnection"/> (device credential + the signed-in
+/// operator, no password prompt; the server authorizes the operator on every
+/// call). The admin creates staff (email, initial password, role, this
+/// terminal's branch), sees the staff list with its status, deactivates or
+/// reactivates people after an inline confirmation, and resets a password.
 ///
 /// "Operadores de esta terminal" lists who can sign in with a PIN here and lets
 /// the admin remove one (local only: the user's cloud account is untouched).
@@ -32,9 +31,7 @@ public partial class StaffView : UserControl, ISectionView
     private Guid? _resetUserId;
 
     /// <param name="callerUserId">The signed-in operator's user id: their own row never offers deactivation.</param>
-    /// <param name="operatorEmail">The signed-in operator, used as the admin to confirm; null asks for the email too.</param>
-    public StaffView(
-        UserAdminClient client, LocalOperatorStore operatorStore, Guid branchId, Guid callerUserId, string? operatorEmail)
+    public StaffView(UserAdminClient client, LocalOperatorStore operatorStore, Guid branchId, Guid callerUserId)
     {
         InitializeComponent();
         _client = client;
@@ -45,10 +42,8 @@ public partial class StaffView : UserControl, ISectionView
 
         RoleComboBox.ItemsSource = StaffRoleOptions.All;
         RoleComboBox.SelectedValue = StaffRoleOptions.Default.Name;
-        SignInPanel.Initialize(PosMessages.ConfirmPasswordTitle, PosMessages.ConfirmPasswordForStaff, operatorEmail);
-        SignInPanel.SignInRequested += async (_, _) => await SignInAsync();
         RenderOperators();
-        Loaded += (_, _) => SignInPanel.FocusPassword();
+        Loaded += async (_, _) => await _busy.RunAsync(PosMessages.Loading, LoadUsersAsync);
     }
 
     /// <summary>Raised after an operator was removed from this terminal: the host reconciles the active operator.</summary>
@@ -64,11 +59,8 @@ public partial class StaffView : UserControl, ISectionView
 
     public void CancelPending() => _busy.Cancel();
 
-    public void Dispose()
-    {
-        _busy.Cancel();
-        _client.Dispose();
-    }
+    /// <summary>The client is the shared management connection's: only the request in flight is cancelled.</summary>
+    public void Dispose() => _busy.Cancel();
 
     private void ApplyBusy(bool busy, string? text)
     {
@@ -83,37 +75,6 @@ public partial class StaffView : UserControl, ISectionView
         StatusText.Text = message;
         StatusText.SetResourceReference(TextBlock.ForegroundProperty, isError ? "DangerBrush" : "SuccessBrush");
         StatusText.Visibility = string.IsNullOrEmpty(message) ? Visibility.Collapsed : Visibility.Visible;
-    }
-
-    // ---- admin confirmation ----------------------------------------------------
-
-    private async Task SignInAsync()
-    {
-        var email = SignInPanel.Email;
-        var password = SignInPanel.Password;
-        await _busy.RunAsync(PosMessages.SigningIn, async () =>
-        {
-            ShowStatus(string.Empty, isError: false);
-            AdminSignInOutcome outcome;
-            try
-            {
-                outcome = await _client.SignInAsync(email, password, _busy.Token);
-            }
-            finally
-            {
-                SignInPanel.ClearPassword();
-            }
-
-            if (outcome.Kind != AdminSignInOutcomeKind.SignedIn)
-            {
-                ShowStatus(outcome.ErrorMessage ?? PosMessages.SignInFailed, isError: true);
-                return;
-            }
-
-            SignInPanel.Visibility = Visibility.Collapsed;
-            ServerPanel.Visibility = Visibility.Visible;
-            await LoadUsersAsync();
-        });
     }
 
     private async Task LoadUsersAsync()

@@ -18,6 +18,10 @@ namespace Commerce.Cloud.Api.Endpoints;
 /// request field — it always comes from the tenant scope, so cross-org
 /// creation is unrepresentable and a cross-org target is invisible under RLS
 /// (404, identical to a nonexistent id).
+///
+/// List, create and update also admit a paired terminal with a verified operator
+/// (<see cref="DeviceOperatorAccess.AllowDeviceOperator"/>, admin-console-field-fixes T5); the operator is
+/// then the caller every check below sees.
 /// </summary>
 public static class CustomerEndpoints
 {
@@ -45,7 +49,7 @@ public static class CustomerEndpoints
             var customers = await customerStore.ListAsync(
                 auth.Value.Scope, new CustomerListFilter(search, cityId, businessTypeId), ct);
             return Results.Ok(customers);
-        });
+        }).AllowDeviceOperator();
 
         group.MapGet("/{id:guid}", async (
             Guid id,
@@ -167,7 +171,7 @@ public static class CustomerEndpoints
             }
 
             return Results.Created($"/customers/{created.Id}", new CreateCustomerResponse(created.Id));
-        });
+        }).AllowDeviceOperator();
 
         group.MapPut("/{id:guid}", async (
             Guid id,
@@ -273,7 +277,7 @@ public static class CustomerEndpoints
             }
 
             return updated is null ? Results.NotFound() : Results.Ok(updated);
-        });
+        }).AllowDeviceOperator();
 
         group.MapPost("/{id:guid}/ordering-access", async (
             Guid id,

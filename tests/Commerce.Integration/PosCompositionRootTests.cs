@@ -224,16 +224,15 @@ public sealed class PosCompositionRootTests : IDisposable
     }
 
     [Fact]
-    public void Build_Resolves_CustomerAdminClient_AsTransient_NotSingleton()
+    public void Build_Resolves_CustomerAdminClient_FromTheOneSharedManagementConnection()
     {
         using var host = PosHostBuilder.Build(_dataDirectory);
 
-        var first = host.Services.GetRequiredService<CustomerAdminClient>();
-        var second = host.Services.GetRequiredService<CustomerAdminClient>();
-
-        Assert.NotNull(first);
-        Assert.NotNull(second);
-        Assert.NotSame(first, second);
+        // admin-console-field-fixes T5: no per-visit cookie client any more; Clientes uses the shared connection.
+        Assert.Null(host.Services.GetService<CustomerAdminClient>());
+        Assert.Same(
+            host.Services.GetRequiredService<ManagementConnection>().Customers,
+            host.Services.GetRequiredService<ManagementConnection>().Customers);
     }
 
     /// <summary>

@@ -72,7 +72,8 @@ public sealed class PosStaffViewTests
     [InlineData(HttpStatusCode.Forbidden, "branch-not-in-scope", PosMessages.StaffBranchNotInScope)]
     [InlineData(HttpStatusCode.Forbidden, null, PosMessages.NoPermissionToManageStaff)]
     [InlineData(HttpStatusCode.NotFound, null, PosMessages.StaffUserNotFound)]
-    [InlineData(HttpStatusCode.Unauthorized, null, PosMessages.SessionExpired)]
+    [InlineData(HttpStatusCode.Forbidden, "operator-not-authorized", PosMessages.OperatorNotAuthorized)]
+    [InlineData(HttpStatusCode.Unauthorized, null, PosMessages.TerminalNotRecognized)]
     [InlineData(HttpStatusCode.BadRequest, "something-new", PosMessages.InvalidData)]
     public async Task SetStatus_MapsTheServerAnswerToSpanish(HttpStatusCode status, string? code, string expected)
     {
@@ -197,18 +198,6 @@ public sealed class PosStaffViewTests
         Assert.True(rows.Single(r => r.Email == "a@x.test").IsConfirming);
     }
 
-    [Theory]
-    [InlineData("StaffView.xaml.cs")]
-    [InlineData("CustomersView.xaml.cs")]
-    public void AdminSignIn_ClearsThePasswordBox_EvenWhenTheCallThrows(string file)
-    {
-        var code = Src(file);
-        var method = System.Text.RegularExpressions.Regex.Match(code, @"async Task SignInAsync\(\)[\s\S]*?\n    }");
-
-        Assert.True(method.Success);
-        Assert.Matches(@"finally\s*\{\s*SignInPanel\.ClearPassword\(\);", method.Value);
-    }
-
     [Fact]
     public void StaffView_OffersPasswordResetIndependentlyOfTheStatusAction()
     {
@@ -274,7 +263,7 @@ public sealed class PosStaffViewTests
 
         Assert.Contains("<UserControl", xaml);
         Assert.Contains("<ScrollViewer", xaml);
-        foreach (var name in new[] { "StatusText", "BusyPanel", "BusyProgressBar", "BusyText", "FormPanel", "SignInPanel" })
+        foreach (var name in new[] { "StatusText", "BusyPanel", "BusyProgressBar", "BusyText", "FormPanel" })
         {
             Assert.Contains($"x:Name=\"{name}\"", xaml);
         }
@@ -298,7 +287,7 @@ public sealed class PosStaffViewTests
         Assert.Contains("x:Name=\"OperatorsItemsControl\"", xaml);
         Assert.Contains("Operadores de esta terminal", xaml);
         Assert.Contains("Quitar de esta terminal", xaml);
-        Assert.Contains("Confirmá tu contraseña", Src("PosMessages.cs"));
+        Assert.DoesNotContain("Confirmá tu contraseña", Src("PosMessages.cs"));
         Assert.Contains("SetStatusAsync", code);
         Assert.Contains("_operatorStore.Remove", code);
         Assert.Contains("OperatorsChanged", code);

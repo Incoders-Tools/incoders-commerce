@@ -265,15 +265,6 @@ public sealed class PosClientResilienceTests
     // ---- UserAdminClient / CustomerAdminClient -------------------------------
 
     [Fact]
-    public async Task UserAdmin_SignIn_MapsEveryResponseShapeWithoutThrowing()
-    {
-        Assert.Equal(PosMessages.InvalidCredentials, (await new UserAdminClient(Respond(HttpStatusCode.Unauthorized)).SignInAsync("a", "b")).ErrorMessage);
-        Assert.Equal(PosMessages.ServerError, (await new UserAdminClient(Respond(HttpStatusCode.InternalServerError, Html, "text/html")).SignInAsync("a", "b")).ErrorMessage);
-        Assert.Equal(PosMessages.UnexpectedResponse, (await new UserAdminClient(Respond(HttpStatusCode.OK, Html, "text/html")).SignInAsync("a", "b")).ErrorMessage);
-        Assert.Equal(PosMessages.ServerUnreachable, (await new UserAdminClient(Client(new ThrowingHandler(new TaskCanceledException()))).SignInAsync("a", "b")).ErrorMessage);
-    }
-
-    [Fact]
     public async Task UserAdmin_ListUsers_NonJsonOk_IsNull_NotAnException()
     {
         Assert.Null(await new UserAdminClient(Respond(HttpStatusCode.OK, Html, "text/html")).ListUsersAsync());
@@ -288,22 +279,28 @@ public sealed class PosClientResilienceTests
         var forbidden = await new UserAdminClient(Respond(HttpStatusCode.Forbidden)).CreateUserAsync(request);
         var notFound = await new UserAdminClient(Respond(HttpStatusCode.NotFound)).CreateUserAsync(request);
         var serverError = await new UserAdminClient(Respond(HttpStatusCode.InternalServerError, Html, "text/html")).CreateUserAsync(request);
-        var expired = await new UserAdminClient(Respond(HttpStatusCode.Unauthorized)).CreateUserAsync(request);
+        var unrecognized = await new UserAdminClient(Respond(HttpStatusCode.Unauthorized)).CreateUserAsync(request);
+        var unreachable = await new UserAdminClient(Client(new ThrowingHandler(new TaskCanceledException()))).CreateUserAsync(request);
 
         Assert.Equal(PosMessages.NoPermissionToManageStaff, forbidden.ErrorMessage);
         Assert.Equal(PosMessages.StaffUserNotFound, notFound.ErrorMessage);
         Assert.Equal(PosMessages.ServerError, serverError.ErrorMessage);
         Assert.DoesNotContain("Bad gateway", serverError.ErrorMessage);
-        Assert.Equal(PosMessages.SessionExpired, expired.ErrorMessage);
+        // 401 now means the server did not accept the paired device credential (there is no admin session).
+        Assert.Equal(PosMessages.TerminalNotRecognized, unrecognized.ErrorMessage);
+        Assert.Equal(PosMessages.ServerUnreachable, unreachable.ErrorMessage);
     }
 
     [Fact]
-    public async Task CustomerAdmin_SignIn_MapsEveryResponseShapeWithoutThrowing()
+    public async Task CustomerAdmin_ReadsAndWrites_MapEveryResponseShapeWithoutThrowing()
     {
-        Assert.Equal(PosMessages.InvalidCredentials, (await new CustomerAdminClient(Respond(HttpStatusCode.Unauthorized)).SignInAsync("a", "b")).ErrorMessage);
-        Assert.Equal(PosMessages.ServerError, (await new CustomerAdminClient(Respond(HttpStatusCode.InternalServerError, Html, "text/html")).SignInAsync("a", "b")).ErrorMessage);
-        Assert.Equal(PosMessages.UnexpectedResponse, (await new CustomerAdminClient(Respond(HttpStatusCode.OK, Html, "text/html")).SignInAsync("a", "b")).ErrorMessage);
-        Assert.Equal(PosMessages.ServerUnreachable, (await new CustomerAdminClient(Client(new ThrowingHandler(new HttpRequestException()))).SignInAsync("a", "b")).ErrorMessage);
+        var request = new CreateCustomerAdminRequestDto(
+            "Retail", "Ana", "None", null, "ConsumidorFinal", null, null, null, null, null, null, null, null, null, null, null, "Person");
+
+        Assert.Equal(PosMessages.TerminalNotRecognized, (await new CustomerAdminClient(Respond(HttpStatusCode.Unauthorized)).CreateCustomerAsync(request)).ErrorMessage);
+        Assert.Equal(PosMessages.ServerUnreachable, (await new CustomerAdminClient(Client(new ThrowingHandler(new HttpRequestException()))).CreateCustomerAsync(request)).ErrorMessage);
+        Assert.Null(await new CustomerAdminClient(Client(new ThrowingHandler(new HttpRequestException()))).ListCustomersAsync());
+        Assert.Null(await new CustomerAdminClient(Respond(HttpStatusCode.OK, Html, "text/html")).ListProvincesAsync());
         Assert.Null(await new CustomerAdminClient(Respond(HttpStatusCode.OK, Html, "text/html")).ListCustomersAsync());
     }
 

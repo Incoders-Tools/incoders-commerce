@@ -4,35 +4,19 @@ using System.Net.Http.Json;
 
 namespace Commerce.Pos.Windows;
 
-public sealed class UserAdminClient : IDisposable
+/// <summary>
+/// The Personal calls (<c>/account/users</c>, the same endpoints <c>Commerce.Web</c> uses) over the shared
+/// <see cref="ManagementConnection"/>: device credential + current operator, no cookie, no password. The server
+/// authorizes the operator and applies its grant caps on every call.
+/// </summary>
+public sealed class UserAdminClient
 {
     private readonly HttpClient _httpClient;
-    public UserAdminClient(string baseUrl)
-    {
-        var handler = new HttpClientHandler { CookieContainer = new CookieContainer(), UseCookies = true };
-        _httpClient = new HttpClient(handler) { BaseAddress = new Uri(baseUrl) };
-    }
 
-    /// <summary>Injects a caller-owned client for focused request-contract tests.</summary>
+    /// <summary>Over the shared management client (or a caller-owned one in request-contract tests).</summary>
     public UserAdminClient(HttpClient httpClient)
     {
         _httpClient = httpClient;
-    }
-
-    public async Task<AdminSignInOutcome> SignInAsync(string email, string password, CancellationToken ct = default)
-    {
-        const string path = "/account/sign-in";
-        var endpoint = PosHttp.Endpoint(HttpMethod.Post, path);
-        try
-        {
-            using var response = await _httpClient.PostAsJsonAsync(path, new AdminSignInRequestDto(email, password), ct);
-            return await AdminSignInOutcome.FromResponseAsync(response, endpoint, ct);
-        }
-        catch (Exception ex) when (PosHttp.IsTransportFailure(ex, ct))
-        {
-            PosHttp.LogTransportFailure(endpoint, ex);
-            return AdminSignInOutcome.Failed(PosMessages.ServerUnreachable);
-        }
     }
 
     public async Task<IReadOnlyList<UserAdminRecordDto>?> ListUsersAsync(CancellationToken ct = default)
@@ -86,10 +70,11 @@ public sealed class UserAdminClient : IDisposable
             switch (response.StatusCode)
             {
                 case HttpStatusCode.Unauthorized:
-                    return UserAdminMutationOutcome.Failed(PosMessages.SessionExpired);
+                    return UserAdminMutationOutcome.Failed(PosMessages.TerminalNotRecognized);
                 case HttpStatusCode.Forbidden:
                     return PosHttp.ParseErrorCode(body) switch
                     {
+                        ManagementConnection.OperatorNotAuthorizedError => UserAdminMutationOutcome.Forbidden(PosMessages.OperatorNotAuthorized),
                         "permissions-exceed-caller" => UserAdminMutationOutcome.Forbidden(PosMessages.PermissionsExceedCaller),
                         "branch-not-in-scope" => UserAdminMutationOutcome.Forbidden(PosMessages.StaffBranchNotInScope),
                         _ => UserAdminMutationOutcome.Forbidden(),
@@ -116,8 +101,6 @@ public sealed class UserAdminClient : IDisposable
             return UserAdminMutationOutcome.Failed(PosMessages.ServerUnreachable);
         }
     }
-
-    public void Dispose() => _httpClient.Dispose();
 }
 
 public sealed record UserAdminRecordDto(

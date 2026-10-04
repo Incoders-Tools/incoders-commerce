@@ -1,7 +1,6 @@
 <UserControl x:Class="Commerce.Pos.Windows.StaffView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:controls="clr-namespace:Commerce.Pos.Windows.Controls"
              Foreground="{DynamicResource TextBrush}">
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
@@ -36,10 +35,7 @@
             <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                 <StackPanel Margin="0,0,12,12" MaxWidth="900" HorizontalAlignment="Left">
 
-                    <!-- Admin confirmation: server authorization for the staff calls, asked inline instead of a modal. -->
-                    <controls:AdminSignInPanel x:Name="SignInPanel" Margin="0,0,0,16" />
-
-                    <StackPanel x:Name="ServerPanel" Visibility="Collapsed">
+                    <StackPanel x:Name="ServerPanel">
                         <Border Style="{StaticResource CardBorder}" Margin="0,0,0,16">
                             <StackPanel>
                                 <TextBlock Text="Nuevo usuario" FontSize="18" FontWeight="SemiBold" />
@@ -108,7 +104,7 @@
                                    Visibility="Collapsed" Margin="0,0,0,16" />
                     </StackPanel>
 
-                    <!-- Local to this terminal: no server call, so it is available before the confirmation too. -->
+                    <!-- Local to this terminal: no server call, so it works offline too. -->
                     <Border Style="{StaticResource CardBorder}">
                         <StackPanel>
                             <TextBlock Text="Operadores de esta terminal" FontSize="18" FontWeight="SemiBold" />

@@ -44,12 +44,21 @@ public sealed class PosShellMarkupTests
     public void MainWindow_NeverDisposesABusySection_WhenTheOperatorChanges()
     {
         var code = Src("MainWindow.xaml.cs");
-        var reconcile = Regex.Match(code, @"void ReconcileShell\(\)[\s\S]*?\n    }");
+        // Both ways out of a section (the operator lost it, or the server refused the operator) pass the busy flag
+        // and share one outcome handler that detaches a busy section instead of disposing it.
+        var reconcile = Regex.Match(code, @"void ReconcileShell\(\) =>[^;]*;");
+        var refused = Regex.Match(code, @"void OnManagementOperatorRefused\(\)[\s\S]*?\n    }");
+        var apply = Regex.Match(code, @"void ApplyShellOutcome\(ReconcileOutcome outcome\)[\s\S]*?\n    }");
 
         Assert.True(reconcile.Success);
+        Assert.True(refused.Success);
+        Assert.True(apply.Success);
         Assert.Contains("_sections.Active?.IsBusy == true", reconcile.Value);
-        Assert.Contains("ReconcileOutcome.Deferred", reconcile.Value);
-        Assert.Contains("_sections.DetachActive()", reconcile.Value);
+        Assert.Contains("ApplyShellOutcome(", reconcile.Value);
+        Assert.Contains("_sections.Active?.IsBusy == true", refused.Value);
+        Assert.Contains("ApplyShellOutcome(", refused.Value);
+        Assert.Contains("ReconcileOutcome.Deferred", apply.Value);
+        Assert.Contains("_sections.DetachActive()", apply.Value);
 
         // The window never shows a section the model has left: the idle handler only tears down.
         var idle = Regex.Match(code, @"void OnDetachedSectionReleased\(bool clearHost\)[\s\S]*?\n    }");
@@ -96,7 +105,7 @@ public sealed class PosShellMarkupTests
     public void CustomersView_HasSpanishLabels(string english)
     {
         Assert.DoesNotContain(english, Src("CustomersView.xaml"));
-        Assert.Contains("Nombre para mostrar", Src("CustomersView.xaml"));
+        Assert.Contains("Content=\"Guardar\"", Src("CustomersView.xaml"));
     }
 
     [Fact]

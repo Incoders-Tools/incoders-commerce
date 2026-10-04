@@ -11,6 +11,13 @@ public static class CloudAuthenticationSchemes
 {
     public const string DeviceBearer = "DeviceBearer";
 
+    /// <summary>
+    /// Policy scheme for the management endpoints a paired terminal may call with a verified operator
+    /// (admin-console-field-fixes T5): forwards to <see cref="DeviceBearer"/> for a bearer request and to the
+    /// browser cookie otherwise. Never the default scheme.
+    /// </summary>
+    public const string StaffOrDevice = "StaffOrDevice";
+
 
     /// <summary>
     /// Customer-scoped session cookie scheme (commerce-guest-ordering

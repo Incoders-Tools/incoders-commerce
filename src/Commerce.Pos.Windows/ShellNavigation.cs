@@ -75,13 +75,19 @@ public sealed class ShellNavigation
     /// so the model and the screen never disagree; only the disposal of the old section waits for
     /// the host to call <see cref="CompleteTeardown"/> once it is idle.
     /// </summary>
-    public ReconcileOutcome Reconcile(int? permissions, bool sectionBusy)
-    {
-        if (Allowed(permissions).Contains(Current))
-        {
-            return ReconcileOutcome.Unchanged;
-        }
+    public ReconcileOutcome Reconcile(int? permissions, bool sectionBusy) =>
+        Allowed(permissions).Contains(Current) ? ReconcileOutcome.Unchanged : BackToSale(sectionBusy);
 
+    /// <summary>
+    /// The server refused the operator for a management call (admin-console-field-fixes T5): the open section closes
+    /// exactly like one the operator lost in <see cref="Reconcile(int?, bool)"/>, even though the cached permissions
+    /// still allow it. Unchanged when the sale is already shown.
+    /// </summary>
+    public ReconcileOutcome Leave(bool sectionBusy) =>
+        Current == ShellSection.Sale ? ReconcileOutcome.Unchanged : BackToSale(sectionBusy);
+
+    private ReconcileOutcome BackToSale(bool sectionBusy)
+    {
         Current = ShellSection.Sale;
         if (sectionBusy)
         {
