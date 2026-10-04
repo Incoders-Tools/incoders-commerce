@@ -26,7 +26,7 @@ data) and `0028` (core geography) and `0029` (customer contacts) and `0035` (org
 | `customer_contacts` | 39 | The CLIENTE column as the customer's **primary contact** (deterministic id). The name is kept whole in `first_name` and never split: one column cannot tell "Lucas Badano" (first + last) from "Juan Ignacio" (a compound first name), so last names are completed in the app. |
 | `organizations` | 1 updated | `quantity_decimal_separator` = `Dot` (Vaca Verde writes kilos "1.5"; migration `0035`), only while it is still the `Comma` default and no `organization.settings_updated` audit row exists, so a later choice made in the app is never overwritten. |
 | `business_types` | 11 | Deterministic ids. |
-| `customers` | 87 | Wholesale, enabled, deduplicated; tax id split out of observations (`Cuit`/`Dni`/`None`); other observations in `notes`. |
+| `customers` | 87 | Wholesale, enabled, deduplicated; tax id split out of observations (`Cuit`/`Dni`/`None`); other observations in `notes`. `party_type` is `Company` for a CUIT, otherwise `Person` (needs migration `0040`; a fresh environment applies the migrations before the seed, so the seed stores it itself). |
 
 ## Sources
 

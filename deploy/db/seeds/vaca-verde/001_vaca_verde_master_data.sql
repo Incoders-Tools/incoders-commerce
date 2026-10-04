@@ -125,9 +125,10 @@ ON CONFLICT DO NOTHING;
 
 -- Customers (Wholesale, enabled). The id derives from `key` (name + city slug).
 INSERT INTO customers (id, organization_id, customer_kind, display_name, address_street, phone,
-                       city_id, business_type_id, tax_id_type, tax_id, notes, is_enabled, created_by_user_id)
+                       city_id, business_type_id, tax_id_type, tax_id, party_type, notes, is_enabled, created_by_user_id)
 SELECT md5('vaca-verde:customer:' || v.key)::uuid, c.organization_id, 'Wholesale', v.display_name,
-       v.address_street, v.phone, ci.id, bt.id, v.tax_id_type, v.tax_id, v.notes, true, c.user_id
+       v.address_street, v.phone, ci.id, bt.id, v.tax_id_type, v.tax_id,
+       CASE WHEN v.tax_id_type = 'Cuit' THEN 'Company' ELSE 'Person' END, v.notes, true, c.user_id
 FROM (VALUES
     ('adan-rito-pontaquarto', 'Adan Rito Pontaquarto', NULL, NULL, NULL, NULL, 'Cuit', '20338138874', NULL),
     ('al-toque--capitan_sarmiento', 'Al Toque', NULL, '2478476538', '06140010', 'rotiseria', 'None', NULL, 'También: Parrilla'),

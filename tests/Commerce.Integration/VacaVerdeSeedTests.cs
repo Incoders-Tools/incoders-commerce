@@ -166,6 +166,29 @@ public sealed class VacaVerdeSeedTests
         finally { RemoveVacaVerde(owner); }
     }
 
+    // A fresh environment applies every migration first and the seed afterwards, so migration 0040's backfill never
+    // sees these customers: the seed itself must store the party type (CUIT -> Company, otherwise Person).
+    [Fact]
+    public void Seed_StoresThePartyType_CompanyForACuit_PersonOtherwise()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        using var owner = OpenOwner();
+        ApplyAllMigrations(owner);
+        var orgId = ProvisionVacaVerde(owner);
+        try
+        {
+            ApplySeed(owner);
+
+            Assert.True(Scalar<long>(owner, "SELECT count(*) FROM customers WHERE organization_id = $1 AND tax_id_type = 'Cuit'", orgId) > 0);
+            Assert.Equal(0L, Scalar<long>(owner,
+                "SELECT count(*) FROM customers WHERE organization_id = $1 AND tax_id_type = 'Cuit' AND party_type <> 'Company'", orgId));
+            Assert.Equal(0L, Scalar<long>(owner,
+                "SELECT count(*) FROM customers WHERE organization_id = $1 AND tax_id_type <> 'Cuit' AND party_type <> 'Person'", orgId));
+        }
+        finally { RemoveVacaVerde(owner); }
+    }
+
     [Fact]
     public void Seed_LinksCustomersToTheirCityAndBusinessType_AndKeepsTaxIdsAndNotes()
     {

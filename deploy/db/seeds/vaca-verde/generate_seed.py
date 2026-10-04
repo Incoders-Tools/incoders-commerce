@@ -202,9 +202,10 @@ ON CONFLICT DO NOTHING;
                      q(CITY_INDEC[cu["cityKey"]] if cu["cityKey"] else None), q(cu["businessTypeKey"]),
                      q(cu["taxIdType"]), q(cu["taxId"]), q(cu["notes"])])
     out.append(f"""INSERT INTO customers (id, organization_id, customer_kind, display_name, address_street, phone,
-                       city_id, business_type_id, tax_id_type, tax_id, notes, is_enabled, created_by_user_id)
+                       city_id, business_type_id, tax_id_type, tax_id, party_type, notes, is_enabled, created_by_user_id)
 SELECT md5('vaca-verde:customer:' || v.key)::uuid, c.organization_id, 'Wholesale', v.display_name,
-       v.address_street, v.phone, ci.id, bt.id, v.tax_id_type, v.tax_id, v.notes, true, c.user_id
+       v.address_street, v.phone, ci.id, bt.id, v.tax_id_type, v.tax_id,
+       CASE WHEN v.tax_id_type = 'Cuit' THEN 'Company' ELSE 'Person' END, v.notes, true, c.user_id
 FROM (VALUES
 {values(rows)}
 ) AS v (key, display_name, address_street, phone, city_indec_id, business_type_key, tax_id_type, tax_id, notes)
