@@ -98,7 +98,7 @@ form that wastes the screen and has no search.
   editor. GREEN 830 POS/sync tests; full `dotnet test` 2411 passed / 2
   failed (the known one + an intermittent one, see follow-ups).
 
-- [ ] T7 Close the T5/T6 review follow-ups before the owner's test run
+- [x] T7 Close the T5/T6 review follow-ups before the owner's test run
   (owner, 2026-10-04): (a) the 50 kg confirmation evaluates the resulting
   line kilos (existing + entered when the product merges into its line, the
   edited value when editing), and the question shows that total; (b) only a
@@ -108,7 +108,13 @@ form that wastes the screen and has no search.
   and handles the 409 by telling the operator and reloading that customer;
   (d) a failed enable/disable does not reload the list when the server is
   unreachable, it shows the offline message instead. (route: delegated POS
-  writer.)
+  writer.) - done: `SaleQuantity.ResultingQuantity` + merged-total question
+  ("60,000 kg de Lengua (30,000 + 30,000)"); 409 mapped by body
+  (`Modified` only for customer-modified, new `Unreachable` kind);
+  `CustomerFormSave` sends the loaded version and reloads on conflict;
+  unreachable toggles do not reload. RED 4 value failures (after fixing 4
+  wrong-reason ones), GREEN 194 focused, full `dotnet test` 2436 passed / 1
+  known failure.
 
 ## Follow-ups
 
@@ -116,16 +122,15 @@ form that wastes the screen and has no search.
   failed once in a full run (6 ms) and passed alone and in three grouped
   runs of the SQLite replica suites; suspected race around the global
   `SqliteConnection.ClearAllPools()` used by ~40 test classes. Watch it.
-- The desktop customer form's own Save sends no `ExpectedUpdatedAtUtc`
-  (pre-existing stale-overwrite risk).
+- Toggle then Save: if someone else saved the customer between the list
+  load and the toggle's re-read, the open form adopts the newer version and
+  its next Save could overwrite that change (small window).
 - Bulk quantities show no unit ("60,000 de X"); the replica has no unit
   name.
 - Manual checks pending: row-action click, kilos confirmation Enter/Esc,
   customers grid at 1366x768 in both themes.
-- RDD advisories on T5/T6: the 50 kg confirmation checks the entered kilos,
-  not the merged line (30 + 30 kg reaches 60 kg without asking); every 409 on
-  a customer update maps to "customer modified"; a failed toggle reloads the
-  list even when the server is unreachable.
+- When the reload after a 409 also fails, the form keeps its data and the
+  list is not reloaded.
 - [x] T4 Desktop reusable entity list component (search, filters, column
   sorting, "Nuevo", row actions, side or wide edit panel) and the customers
   section rebuilt on it, wide layout without vertical scrolling at
