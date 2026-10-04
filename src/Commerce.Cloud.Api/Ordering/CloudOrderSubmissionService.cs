@@ -190,8 +190,9 @@ public sealed class CloudOrderSubmissionService
     /// (customer exists and is visible under RLS, customer enabled, then price resolution with the buyer's list and
     /// discount) run in the same order and with the same reasons. A resubmitted <paramref name="orderId"/> returns the
     /// stored order before any check runs, so a retry after a lost response gets the same outcome even if the
-    /// customer or the prices changed in between. The taker in <paramref name="entry"/> is the caller, never a
-    /// request field.
+    /// customer or the prices changed in between; the stored order is returned only when it belongs to this
+    /// organization and this customer, otherwise the submission is denied <c>order-id-conflict</c> and the stored
+    /// order is not revealed. The taker in <paramref name="entry"/> is the caller, never a request field.
     /// </summary>
     public async Task<OrderSubmissionOutcome> SubmitForStaffAsync(
         CloudTenantScope scope,
@@ -208,8 +209,10 @@ public sealed class CloudOrderSubmissionService
         var existing = await _orderStore.FindAsync(scope, orderId, ct);
         if (existing is not null)
         {
-            return new OrderSubmissionOutcome(
-                OrderSubmissionOutcomeStatus.Accepted, OrderSubmissionReasons.ExistingOrder, existing, WasNewlyAccepted: false);
+            return IsReplayOf(existing, scope, customerId)
+                ? new OrderSubmissionOutcome(
+                    OrderSubmissionOutcomeStatus.Accepted, OrderSubmissionReasons.ExistingOrder, existing, WasNewlyAccepted: false)
+                : OrderIdConflict();
         }
 
         var customer = await _customerStore.FindAsync(scope, customerId, ct);
@@ -229,9 +232,20 @@ public sealed class CloudOrderSubmissionService
             return new OrderSubmissionOutcome(OrderSubmissionOutcomeStatus.Denied, deniedReason, Order: null, WasNewlyAccepted: false);
         }
 
-        return await _orderStore.SubmitStaffAsync(
+        var outcome = await _orderStore.SubmitStaffAsync(
             scope, orderId, customerId, destinationBranchId, entry, snapshots!, correlationId, destination, hasAvailableStock, ct);
+
+        // A concurrent submission may have stored the id first; the store then answers with that order.
+        return outcome is { WasNewlyAccepted: false, Order: { } stored } && !IsReplayOf(stored, scope, customerId)
+            ? OrderIdConflict()
+            : outcome;
     }
+
+    private static bool IsReplayOf(Order existing, CloudTenantScope scope, Guid customerId) =>
+        existing.OrganizationId == scope.OrganizationId && existing.CustomerId == customerId;
+
+    private static OrderSubmissionOutcome OrderIdConflict() =>
+        new(OrderSubmissionOutcomeStatus.Denied, OrderSubmissionReasons.OrderIdConflict, Order: null, WasNewlyAccepted: false);
 
     /// <summary>
     /// The price preview of <see cref="SubmitForStaffAsync"/>: the same customer checks and the same per-line

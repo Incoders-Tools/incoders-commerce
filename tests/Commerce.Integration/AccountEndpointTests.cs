@@ -996,9 +996,11 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
         var organizationId = Guid.NewGuid();
         var adminId = Guid.NewGuid();
         var targetId = Guid.NewGuid();
+        // The caller also holds the target's ManageCatalog: a target above the caller is refused
+        // (admin-console-field-fixes T6, StaffTargetRulesTests).
         await SeedUserAsync(
             organizationId, adminId, "admin-reset-admin@example.com", "admin-password",
-            permissions: Commerce.Domain.Identity.Permission.ManageUsers);
+            permissions: Commerce.Domain.Identity.Permission.ManageUsers | Commerce.Domain.Identity.Permission.ManageCatalog);
         await SeedUserAsync(organizationId, targetId, "admin-reset-target@example.com", "old-target-password");
 
         var clientOptions = new WebApplicationFactoryClientOptions

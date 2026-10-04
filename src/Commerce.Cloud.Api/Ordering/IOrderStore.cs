@@ -21,6 +21,12 @@ public static class OrderSubmissionReasons
     public const string NotFound = "not-found";
     public const string DestinationBranchNotFound = "destination-branch-not-found";
     public const string VerificationInvalid = "verification-invalid";
+
+    /// <summary>
+    /// A staff submission reused an order id already stored for another customer (admin-console-field-fixes T6).
+    /// Refused without revealing the stored order.
+    /// </summary>
+    public const string OrderIdConflict = "order-id-conflict";
 }
 
 /// <summary>

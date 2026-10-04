@@ -76,6 +76,55 @@ public static class AccountEndpoints
         return null;
     }
 
+    /// <summary>
+    /// The rule for acting on an existing user (revoke/restore, replace roles, reset password): the target may not
+    /// hold more than the caller may manage. Returns null when the caller may act, otherwise 403
+    /// <c>permissions-exceed-caller</c> (a system administrator target for a non-sysadmin caller, or any permission
+    /// the caller lacks) or 403 <c>branch-not-in-scope</c> (a target branch outside the caller's scope; a system
+    /// administrator acting on a selected organization reaches every branch of it). The same bodies for the browser
+    /// cookie and the device operator.
+    /// </summary>
+    private static IResult? AuthorizeTarget(CloudTenantScope scope, UserAccount caller, UserAccount target)
+    {
+        var callerPermissions = ActingPermissions.For(caller, scope);
+        if ((target.IsSystemAdmin && !caller.IsSystemAdmin)
+            || (target.EffectivePermissions & ~callerPermissions) != Permission.None)
+        {
+            return Results.Json(new { error = "permissions-exceed-caller" }, statusCode: StatusCodes.Status403Forbidden);
+        }
+
+        var actingSysadmin = caller.IsSystemAdmin && scope.IsActingOnSelectedOrganization;
+        if (!actingSysadmin && target.BranchScope.Any(branchId => !caller.BranchScope.Contains(branchId)))
+        {
+            return Results.Json(new { error = "branch-not-in-scope" }, statusCode: StatusCodes.Status403Forbidden);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The branch scope a new staff user gets from a paired terminal (admin-console-field-fixes T6): exactly the
+    /// terminal's branch. An empty or omitted list defaults to it; naming any other branch is refused with a
+    /// validation problem, even when the operator holds that branch. A customer-linked account keeps an empty scope.
+    /// </summary>
+    private static bool TryResolveDeviceBranches(
+        DeviceIdentity device, Guid[] requested, bool customerLinked, out Guid[] branchIds, out IResult? problem)
+    {
+        problem = null;
+        if (requested.Any(branchId => branchId != device.BranchId))
+        {
+            branchIds = [];
+            problem = Results.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["branchIds"] = ["a terminal can only assign its own branch."],
+            });
+            return false;
+        }
+
+        branchIds = requested.Length == 0 && !customerLinked ? [device.BranchId] : requested;
+        return true;
+    }
+
     /// <summary>T5a branding validation: sensible upper bound on a caller-submitted URL, well above any real logo URL.</summary>
     private const int LogoUrlMaxLength = 2048;
 
@@ -629,9 +678,22 @@ public static class AccountEndpoints
                 return Results.NotFound();
             }
 
+            // admin-console-field-fixes T6: the same target rule as revoke/restore, so a branch manager cannot take
+            // over an account above them or outside their branches.
+            var targetDenial = AuthorizeTarget(scope, caller, target);
+            if (targetDenial is not null)
+            {
+                return targetDenial;
+            }
+
             var newPasswordHash = hasher.HashPassword(
                 new UserAccount(userId, scope.OrganizationId, [], []), request.NewPassword);
-            var newVersion = await recoveryStore.SetPasswordAsync(scope, userId, newPasswordHash, ct);
+            // Who reset whose password; never any password material.
+            var newVersion = await recoveryStore.SetPasswordAsync(
+                scope, userId, newPasswordHash,
+                new UserManagementAuditEntry(
+                    AuditActorKinds.OrgUser, callerId, scope.OrganizationId, "user", userId, "user.password.reset", null, null),
+                ct);
             sessionVersionCache.Set(userId, newVersion);
 
             return Results.NoContent();
@@ -719,6 +781,12 @@ public static class AccountEndpoints
             // scope is refused for every client. Customer-linked accounts
             // keep the empty scope they have always had.
             var branchIds = (request.BranchIds ?? []).Distinct().ToArray();
+            if (DeviceIdentity.TryResolve(httpContext.User, out var device)
+                && !TryResolveDeviceBranches(device!, branchIds, request.CustomerId is not null, out branchIds, out var deviceProblem))
+            {
+                return deviceProblem!;
+            }
+
             var branchDenial = await ValidateBranchAssignmentAsync(
                 scope, caller, branchIds, required: request.CustomerId is null, userStore, ct);
             if (branchDenial is not null)
@@ -807,6 +875,14 @@ public static class AccountEndpoints
                 {
                     ["userId"] = ["a customer-linked account cannot be granted staff roles."],
                 });
+            }
+
+            // admin-console-field-fixes T6: the grant cap limits only the new roles; the target itself must also
+            // be within the caller's reach (same rule as revoke/restore).
+            var targetDenial = AuthorizeTarget(scope, caller, target);
+            if (targetDenial is not null)
+            {
+                return targetDenial;
             }
 
             if (!RoleGrantPolicy.TryAuthorize(ActingPermissions.EffectiveCaller(caller, scope), request.RoleNames ?? [], out var roles, out var denial))
@@ -911,8 +987,7 @@ public static class AccountEndpoints
                 return Results.Forbid();
             }
 
-            var callerPermissions = ActingPermissions.For(caller, scope);
-            if (!callerPermissions.HasFlag(Permission.ManageUsers))
+            if (!ActingPermissions.For(caller, scope).HasFlag(Permission.ManageUsers))
             {
                 return Results.Forbid();
             }
@@ -933,16 +1008,10 @@ public static class AccountEndpoints
                 return Results.BadRequest(new { error = "not-a-staff-user" });
             }
 
-            if ((target.IsSystemAdmin && !caller.IsSystemAdmin)
-                || (target.EffectivePermissions & ~callerPermissions) != Permission.None)
+            var targetDenial = AuthorizeTarget(scope, caller, target);
+            if (targetDenial is not null)
             {
-                return Results.Json(new { error = "permissions-exceed-caller" }, statusCode: StatusCodes.Status403Forbidden);
-            }
-
-            var actingSysadmin = caller.IsSystemAdmin && scope.IsActingOnSelectedOrganization;
-            if (!actingSysadmin && target.BranchScope.Any(branchId => !caller.BranchScope.Contains(branchId)))
-            {
-                return Results.Json(new { error = "branch-not-in-scope" }, statusCode: StatusCodes.Status403Forbidden);
+                return targetDenial;
             }
 
             var version = await userStore.SetRevokedAsync(scope, userId, revoked, "org-user", callerId, ct);

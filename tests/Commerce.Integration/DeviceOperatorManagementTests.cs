@@ -212,11 +212,11 @@ public sealed class DeviceOperatorManagementTests : IClassFixture<WebApplication
         var promote = await device.PutAsJsonAsync($"/account/users/{cashierId}/roles", new AssignRolesRequest([RoleCatalog.BusinessAdmin]));
         Assert.Equal(HttpStatusCode.Forbidden, promote.StatusCode);
 
-        // A branch outside the operator's scope is refused like on the web.
+        // A terminal only assigns its own branch (T6): any other branch is a validation problem.
         var otherBranch = await CreateBranchAsync(admin);
         var outside = await device.PostAsJsonAsync("/account/users",
             new CreateUserRequest(Unique("dop-cap-out"), Password, [RoleCatalog.Cashier], [otherBranch]));
-        Assert.Equal(HttpStatusCode.Forbidden, outside.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, outside.StatusCode);
     }
 
     // ------------------------------------------------------------------

@@ -349,6 +349,36 @@ public sealed class StaffOrderTakingTests : IClassFixture<WebApplicationFactory<
     }
 
     [Fact]
+    public async Task ReusingAnOrderIdForAnotherCustomer_IsAConflict_ThatRevealsNothingOfTheStoredOrder()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+        var w = await NewWorldAsync();
+        var (_, seller) = await NewStaffAsync(w, RoleCatalog.Seller);
+        var customer = await NewCustomerAsync(w.Scope, w.AdminId, w.Reparto);
+        var otherCustomer = await NewCustomerAsync(w.Scope, w.AdminId, w.Reparto, name: "Carnicería La Otra");
+        var orderId = Guid.NewGuid();
+
+        var first = await seller.PostAsJsonAsync("/orders/staff", new { orderId, customerId = customer, lines = new[] { Line(w.BolaDeLomo, 1m) } });
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+
+        var reused = await seller.PostAsJsonAsync("/orders/staff", new { orderId, customerId = otherCustomer, lines = new[] { Line(w.Lengua, 2m) } });
+
+        Assert.Equal(HttpStatusCode.Conflict, reused.StatusCode);
+        var body = await JsonAsync(reused);
+        Assert.Equal("denied", body.GetProperty("status").GetString());
+        Assert.Equal("order-id-conflict", body.GetProperty("reason").GetString());
+        Assert.Equal(JsonValueKind.Null, body.GetProperty("order").ValueKind);
+        Assert.Equal(JsonValueKind.Null, body.GetProperty("orderNumber").ValueKind);
+        Assert.Equal(customer, Scalar<Guid>("SELECT customer_id FROM orders WHERE order_id = $1", orderId));
+        Assert.Equal(1L, Scalar<long>("SELECT count(*) FROM orders WHERE order_id = $1", orderId));
+
+        // The original customer's replay still returns the stored order.
+        var replay = await seller.PostAsJsonAsync("/orders/staff", new { orderId, customerId = customer, lines = new[] { Line(w.BolaDeLomo, 1m) } });
+        Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
+        Assert.Equal("existing-order", (await JsonAsync(replay)).GetProperty("reason").GetString());
+    }
+
+    [Fact]
     public async Task ACashier_IsRefusedEveryStaffOrderRoute()
     {
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
