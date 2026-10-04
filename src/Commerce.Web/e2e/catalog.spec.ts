@@ -103,6 +103,8 @@ test.describe('catalog screen', () => {
     // unrelated bug this test has no need to exercise.
     await page.getByRole('link', { name: 'Pedidos' }).click()
     await page.getByRole('link', { name: 'Catálogo' }).click()
+    // The product name is the main text; the presentation name stays as secondary text.
+    await expect(page.getByText('E2E Product')).toBeVisible()
     await expect(page.getByText('E2E Presentation')).toBeVisible()
     await expect(page.getByText('Sin código')).toBeVisible()
 

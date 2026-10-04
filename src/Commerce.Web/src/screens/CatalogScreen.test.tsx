@@ -215,13 +215,90 @@ describe('CatalogScreen', () => {
     expect(screen.getByText('330ml can')).toBeInTheDocument()
     expect(screen.queryByText('1.5L bottle')).not.toBeInTheDocument()
     // Filtering is purely client-side over what was already loaded.
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).startsWith('/catalog/presentations'))).toHaveLength(1)
 
     await user.clear(screen.getByLabelText(/buscar presentaciones/i))
     await user.type(screen.getByLabelText(/buscar presentaciones/i), '7790000000001')
 
     expect(screen.getByText('330ml can')).toBeInTheDocument()
     expect(screen.queryByText('1.5L bottle')).not.toBeInTheDocument()
+  })
+
+  // operator-ux-adjustments T1: the owner saw "Por kg" instead of "Lengua".
+  describe('product name', () => {
+    const lenguaProduct: ProductRecord = { ...product, id: '77777777-7777-7777-7777-777777777777', name: 'Lengua' }
+    const porKg: PresentationRecord = {
+      ...unlabelled,
+      id: '88888888-8888-8888-8888-888888888888',
+      productId: lenguaProduct.id,
+      name: 'Por kg',
+      quantityBehavior: QuantityBehavior.Weighted,
+      identificationCode: '2000123',
+    }
+
+    it('shows the product name as the main text and the presentation as muted secondary text', async () => {
+      routeFetch({
+        'GET /catalog/presentations': () => json([porKg, unlabelled]),
+        'GET /catalog/products': () => json([lenguaProduct, product]),
+      })
+
+      render(<CatalogScreen />)
+
+      const productName = await screen.findByText('Lengua')
+      const row = productName.closest('tr')!
+      expect(within(row).getByText('Por kg')).toHaveClass('text-muted-foreground')
+      expect(screen.getByText('Soda')).toBeInTheDocument()
+    })
+
+    it('searches by product name, presentation name and code', async () => {
+      routeFetch({
+        'GET /catalog/presentations': () => json([porKg, unlabelled]),
+        'GET /catalog/products': () => json([lenguaProduct, product]),
+      })
+
+      const user = userEvent.setup()
+      render(<CatalogScreen />)
+      await screen.findByText('Lengua')
+      const search = screen.getByLabelText(/buscar presentaciones/i)
+
+      await user.type(search, 'lengua')
+      expect(screen.getByText('Lengua')).toBeInTheDocument()
+      expect(screen.queryByText('Soda')).not.toBeInTheDocument()
+
+      await user.clear(search)
+      await user.type(search, 'por kg')
+      expect(screen.getByText('Lengua')).toBeInTheDocument()
+      expect(screen.queryByText('Soda')).not.toBeInTheDocument()
+
+      await user.clear(search)
+      await user.type(search, '2000123')
+      expect(screen.getByText('Lengua')).toBeInTheDocument()
+      expect(screen.queryByText('Soda')).not.toBeInTheDocument()
+    })
+
+    it('falls back to the presentation name when the products cannot be loaded', async () => {
+      routeFetch({ 'GET /catalog/presentations': () => json([porKg]) })
+
+      render(<CatalogScreen />)
+
+      expect(await screen.findByText('Por kg')).toBeInTheDocument()
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    })
+
+    it('names the product in the deactivation confirmation', async () => {
+      routeFetch({
+        'GET /catalog/presentations': () => json([porKg]),
+        'GET /catalog/products': () => json([lenguaProduct]),
+      })
+
+      const user = userEvent.setup()
+      render(<CatalogScreen />)
+      await screen.findByText('Lengua')
+
+      await user.click(screen.getByRole('button', { name: /^desactivar$/i }))
+
+      expect(screen.getByRole('heading', { name: /lengua/i })).toBeInTheDocument()
+    })
   })
 
   it('shows a helpful empty state when the filter matches nothing', async () => {
@@ -237,9 +314,7 @@ describe('CatalogScreen', () => {
   })
 
   it('switches to the card view and restores that preference on remount', async () => {
-    fetchMock
-      .mockResolvedValueOnce(new Response(JSON.stringify([unlabelled]), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify([unlabelled]), { status: 200 }))
+    routeFetch({ 'GET /catalog/presentations': () => json([unlabelled]) })
 
     const user = userEvent.setup()
     const first = render(<CatalogScreen />)
@@ -396,7 +471,7 @@ describe('CatalogScreen', () => {
       await user.click(screen.getByRole('button', { name: /^cancelar$/i }))
 
       expect(screen.getByText('1.5L bottle')).toBeInTheDocument()
-      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(0)
     })
 
     it('reactivating an inactive product posts and clears its badge', async () => {

@@ -295,13 +295,77 @@ describe('AppLayout', () => {
     expect(screen.queryByText('Sucursal')).not.toBeInTheDocument()
   })
 
-  it('groups sidebar navigation under section headings', () => {
-    renderLayout(buildUser({ permissions: Permission.ManageUsers, isSystemAdmin: true }))
+  // operator-ux-adjustments T2: daily work first, rarely used lookup tables
+  // and system administration at the end, platform last.
+  function sidebarOutline() {
+    const nav = screen.getByRole('navigation')
+    return Array.from(nav.querySelectorAll('a, [data-nav-section-title]')).map((node) =>
+      node.tagName === 'A' ? node.textContent : `# ${node.textContent}`,
+    )
+  }
 
-    const nav = within(screen.getByRole('navigation'))
-    expect(nav.getByText('Operación')).toBeInTheDocument()
-    expect(nav.getByText('Administración')).toBeInTheDocument()
-    expect(nav.getByText('Plataforma')).toBeInTheDocument()
+  it('groups the sidebar into the agreed sections, in order', () => {
+    renderLayout(buildUser({ permissions: Permission.ManageUsers | Permission.TakeOrders, isSystemAdmin: true }))
+
+    expect(sidebarOutline()).toEqual([
+      'Tablero',
+      '# Operación',
+      'Catálogo',
+      'Pedidos',
+      '# Gestión',
+      'Clientes',
+      'Proveedores',
+      'Listas de precios',
+      '# Compras',
+      'Recepciones',
+      'Stock',
+      '# Tablas auxiliares',
+      'Categorías',
+      'Rubros de proveedor',
+      'Tipos de negocio',
+      '# Sistema',
+      'Usuarios',
+      'Sucursales',
+      'Configuración',
+      '# Plataforma',
+      'Organizaciones',
+      'Ciudades',
+    ])
+    expect(within(screen.getByRole('navigation')).queryByText('Administración')).not.toBeInTheDocument()
+  })
+
+  it('keeps the visibility gates when regrouping: an admin without TakeOrders or sysadmin rights', () => {
+    renderLayout(buildUser({ permissions: Permission.ManageUsers }))
+
+    expect(sidebarOutline()).toEqual([
+      'Tablero',
+      '# Operación',
+      'Catálogo',
+      '# Gestión',
+      'Clientes',
+      'Proveedores',
+      'Listas de precios',
+      '# Compras',
+      'Recepciones',
+      'Stock',
+      '# Tablas auxiliares',
+      'Categorías',
+      'Rubros de proveedor',
+      'Tipos de negocio',
+      '# Sistema',
+      'Usuarios',
+      'Sucursales',
+      'Configuración',
+    ])
+  })
+
+  it('keeps the visibility gates when regrouping: a plain user and a sysadmin without an organization', () => {
+    const { unmount } = renderLayout(buildUser())
+    expect(sidebarOutline()).toEqual(['# Operación', 'Catálogo'])
+    unmount()
+
+    renderLayout(buildUser({ isSystemAdmin: true }))
+    expect(sidebarOutline()).toEqual(['# Plataforma', 'Organizaciones', 'Ciudades'])
   })
 
   // "On branch switch, screens must refetch" (tasks.md B7 U3): the routed

@@ -71,6 +71,8 @@ export function CatalogScreen() {
   // "all" load everything plus the products, which say which ones are inactive.
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('active')
   const [inactiveProductIds, setInactiveProductIds] = useState<ReadonlySet<string>>(new Set())
+  // operator-ux-adjustments T1: the list names the product ("Lengua"), not just its presentation ("Por kg").
+  const [productNames, setProductNames] = useState<ReadonlyMap<string, string>>(new Map())
   const [deactivating, setDeactivating] = useState<PresentationRecord | null>(null)
   const [statusBusy, setStatusBusy] = useState(false)
 
@@ -91,18 +93,22 @@ export function CatalogScreen() {
     let cancelled = false
     setLoading(true)
     setError(null)
-    const load: Promise<[PresentationRecord[], ReadonlySet<string>]> =
+    // In the default view the products only supply names, so failing to read them falls back to the presentation
+    // name; "inactive"/"all" need them to know which products are inactive, so there they stay required.
+    const load: Promise<[PresentationRecord[], ProductRecord[]]> =
       statusFilter === 'active'
-        ? listPresentations().then((items) => [items, new Set<string>()])
-        : Promise.all([listPresentations(true), listProducts(true)]).then(([items, products]) => [
-            items,
-            new Set(products.filter((product) => !product.isActive).map((product) => product.id)),
-          ])
+        ? Promise.all([listPresentations(), listProducts().catch(() => [] as ProductRecord[])])
+        : Promise.all([listPresentations(true), listProducts(true)])
     load
-      .then(([items, inactiveIds]) => {
+      .then(([items, products]) => {
         if (!cancelled) {
           setPresentations(items)
-          setInactiveProductIds(inactiveIds)
+          setProductNames(new Map(products.map((product) => [product.id, product.name])))
+          setInactiveProductIds(
+            statusFilter === 'active'
+              ? new Set<string>()
+              : new Set(products.filter((product) => !product.isActive).map((product) => product.id)),
+          )
         }
       })
       .catch((err) => {
@@ -154,10 +160,13 @@ export function CatalogScreen() {
     if (trimmedSearch === '') return byStatus
     return byStatus.filter(
       (presentation) =>
+        (productNames.get(presentation.productId) ?? '').toLowerCase().includes(trimmedSearch) ||
         presentation.name.toLowerCase().includes(trimmedSearch) ||
         (presentation.identificationCode ?? '').toLowerCase().includes(trimmedSearch),
     )
-  }, [presentations, inactiveProductIds, statusFilter, trimmedSearch])
+  }, [presentations, productNames, inactiveProductIds, statusFilter, trimmedSearch])
+
+  const displayName = (presentation: PresentationRecord) => productNames.get(presentation.productId) ?? presentation.name
 
   // Every hook above must run on every render, including while editing, so
   // this state-swap return sits after them (rules of hooks) — the same
@@ -197,7 +206,10 @@ export function CatalogScreen() {
       header: t('columns.name'),
       cell: (presentation) => (
         <span className="inline-flex flex-wrap items-center gap-2">
-          {presentation.name}
+          <span>{displayName(presentation)}</span>
+          {displayName(presentation) !== presentation.name && (
+            <span className="text-xs text-muted-foreground">{presentation.name}</span>
+          )}
           {inactiveProductIds.has(presentation.productId) && (
             <span className="inline-flex rounded-full border border-border bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
               {t('status.inactiveBadge')}
@@ -309,7 +321,7 @@ export function CatalogScreen() {
 
       {deactivating && (
         <ConfirmDialog
-          title={t('status.dialog.title', { name: deactivating.name })}
+          title={t('status.dialog.title', { name: displayName(deactivating) })}
           message={t('status.dialog.message')}
           confirmLabel={t('status.dialog.confirm')}
           busyLabel={t('status.dialog.confirming')}

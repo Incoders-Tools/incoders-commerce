@@ -21,8 +21,10 @@
   },
   "sections": {
     "operations": "Operations",
+    "management": "Management",
     "purchasing": "Purchasing",
-    "administration": "Administration",
+    "lookupTables": "Lookup tables",
+    "system": "System",
     "platform": "Platform"
   },
   "account": {

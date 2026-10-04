@@ -133,30 +133,35 @@ export function AppLayout() {
             )}
             {/* commerce-customer-identity "Web admin gating": hidden, not just
                 unreachable — a UX affordance, not the security boundary. The
-                server's ManageUsers check on every /customers call is that. */}
+                server's ManageUsers check on every call is that, and
+                `App.tsx`'s `RequireAdmin` guards the routes. operator-ux-adjustments
+                T2: daily work first, rarely used lookup tables and system
+                administration at the end; every section keeps this same gate. */}
             {showTenantNav && (
-              <NavSection title={t('sections.administration')}>
+              <NavSection title={t('sections.management')}>
                 <NavItem to="/app/customers" icon={Users2} onNavigate={closeMobileNav}>{t('items.customers')}</NavItem>
-                <NavItem to="/app/business-types" icon={Briefcase} onNavigate={closeMobileNav}>{t('items.businessTypes')}</NavItem>
                 <NavItem to="/app/suppliers" icon={Truck} onNavigate={closeMobileNav}>{t('items.suppliers')}</NavItem>
-                <NavItem to="/app/supplier-categories" icon={Boxes} onNavigate={closeMobileNav}>{t('items.supplierCategories')}</NavItem>
-                <NavItem to="/app/users" icon={UserCog} onNavigate={closeMobileNav}>{t('items.users')}</NavItem>
-                <NavItem to="/app/branches" icon={Store} onNavigate={closeMobileNav}>{t('items.branches')}</NavItem>
-                <NavItem to="/app/settings" icon={Settings} onNavigate={closeMobileNav}>{t('items.settings')}</NavItem>
-                {/* Same UI-only gate as its siblings: `App.tsx`'s
-                    `RequireAdmin` is the routing boundary, and Pricing.cs's
-                    own permission check is the real one. */}
                 <NavItem to="/app/price-lists" icon={Tags} onNavigate={closeMobileNav}>{t('items.priceLists')}</NavItem>
-                <NavItem to="/app/categories" icon={LayoutGrid} onNavigate={closeMobileNav}>{t('items.categories')}</NavItem>
               </NavSection>
             )}
-            {/* Same UI-only gate as the administration items: the receptions
-                endpoints answer 403 without ManageUsers, and RequireAdmin
-                guards the routes. */}
             {showTenantNav && (
               <NavSection title={t('sections.purchasing')}>
                 <NavItem to="/app/receptions" icon={PackageCheck} onNavigate={closeMobileNav}>{t('items.receptions')}</NavItem>
                 <NavItem to="/app/stock" icon={Warehouse} onNavigate={closeMobileNav}>{t('items.stock')}</NavItem>
+              </NavSection>
+            )}
+            {showTenantNav && (
+              <NavSection title={t('sections.lookupTables')}>
+                <NavItem to="/app/categories" icon={LayoutGrid} onNavigate={closeMobileNav}>{t('items.categories')}</NavItem>
+                <NavItem to="/app/supplier-categories" icon={Boxes} onNavigate={closeMobileNav}>{t('items.supplierCategories')}</NavItem>
+                <NavItem to="/app/business-types" icon={Briefcase} onNavigate={closeMobileNav}>{t('items.businessTypes')}</NavItem>
+              </NavSection>
+            )}
+            {showTenantNav && (
+              <NavSection title={t('sections.system')}>
+                <NavItem to="/app/users" icon={UserCog} onNavigate={closeMobileNav}>{t('items.users')}</NavItem>
+                <NavItem to="/app/branches" icon={Store} onNavigate={closeMobileNav}>{t('items.branches')}</NavItem>
+                <NavItem to="/app/settings" icon={Settings} onNavigate={closeMobileNav}>{t('items.settings')}</NavItem>
               </NavSection>
             )}
             {user?.isSystemAdmin && (
@@ -187,7 +192,7 @@ export function AppLayout() {
 function NavSection({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="flex flex-col gap-1 pt-4 first:pt-0">
-      <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</p>
+      <p data-nav-section-title className="px-3 pb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</p>
       {children}
     </div>
   )
