@@ -69,7 +69,7 @@ form that wastes the screen and has no search.
   763 POS/sale tests, full `dotnet test` (Debug) 2321 passed / 1 known
   failure.
 
-- [ ] T5 Owner decision 2026-10-04: the organization's quantity decimal
+- [x] T5 Owner decision 2026-10-04: the organization's quantity decimal
   separator (`organizations.quantity_decimal_separator`, Comma | Dot) drives
   quantity display and entry on BOTH the web and the desktop. The POS
   receives it through the device sync (additive contract), stores it
@@ -77,14 +77,43 @@ form that wastes the screen and has no search.
   (`SaleQuantity`, cart lines, product cards, kilos dialog); a change in the
   web settings reaches the terminal on its next sync. Adding the same
   weighted product again keeps summing its kilos into the same line
-  (confirmed). (route: delegated backend + POS writer, after T4.)
+  (confirmed). (route: delegated backend + POS writer, after T4.) - done:
+  additive `GET /device/organization/settings` (device bearer, org from the
+  credential) -> `{"quantityDecimalSeparator"}`; stored in `branch.db`
+  `organization_settings_replica` (last known value; never synced = terminal
+  culture); `QuantityFormat` drives `SaleQuantity`, cart lines, cards and
+  the kilos dialog; parsing still accepts ',' and '.'.
 
-- [ ] T6 Owner decision 2026-10-04 (RDD advisory on d097a20: kilos had no
+- [x] T6 Owner decision 2026-10-04 (RDD advisory on d097a20: kilos had no
   upper bound): entering more than 50 kg on a line (adding or editing) asks
   for a preventive confirmation ("¿Confirmás 550,000 kg de Lengua?"); Yes
   keeps it, No returns to the kilos input. No hard cap. The threshold is a
   named constant in `SaleQuantity`, ready to become a setting. (route: with
-  T5, delegated POS writer.)
+  T5, delegated POS writer.) - done: `SaleQuantity.ConfirmAboveKilos = 50m`,
+  `NeedsConfirmation` (50 no, 50.001 yes), inline themed confirmation inside
+  the kilos dialog (No has focus). Also fixed the T4 review advisories: the
+  enable/disable toggle re-reads the customer and sends
+  `ExpectedUpdatedAtUtc` (server 409 customer-modified; `GET /customers/{id}`
+  now accepts the device operator); a row-action click no longer opens the
+  editor. GREEN 830 POS/sync tests; full `dotnet test` 2411 passed / 2
+  failed (the known one + an intermittent one, see follow-ups).
+
+## Follow-ups
+
+- `CatalogCategoryReplicaTests.OpeningABranchDbCreatedBeforeCategories_...`
+  failed once in a full run (6 ms) and passed alone and in three grouped
+  runs of the SQLite replica suites; suspected race around the global
+  `SqliteConnection.ClearAllPools()` used by ~40 test classes. Watch it.
+- The desktop customer form's own Save sends no `ExpectedUpdatedAtUtc`
+  (pre-existing stale-overwrite risk).
+- Bulk quantities show no unit ("60,000 de X"); the replica has no unit
+  name.
+- Manual checks pending: row-action click, kilos confirmation Enter/Esc,
+  customers grid at 1366x768 in both themes.
+- RDD advisories on T5/T6: the 50 kg confirmation checks the entered kilos,
+  not the merged line (30 + 30 kg reaches 60 kg without asking); every 409 on
+  a customer update maps to "customer modified"; a failed toggle reloads the
+  list even when the server is unreachable.
 - [x] T4 Desktop reusable entity list component (search, filters, column
   sorting, "Nuevo", row actions, side or wide edit panel) and the customers
   section rebuilt on it, wide layout without vertical scrolling at
