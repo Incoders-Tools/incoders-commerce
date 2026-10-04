@@ -89,6 +89,7 @@ public sealed class GuestOrderingTests : IDisposable
         Apply("0038_order_line_price_provenance.sql");
         Apply("0039_organization_country_and_city_postal_code.sql");
         Apply("0040_customer_party_type.sql");
+        Apply("0042_staff_order_entry.sql");
 
         using var resetCmd = new NpgsqlCommand(
             """

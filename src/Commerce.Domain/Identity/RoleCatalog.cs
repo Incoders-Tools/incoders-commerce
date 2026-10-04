@@ -33,13 +33,14 @@ public static class RoleCatalog
         | Identity.Permission.ManageCatalog
         | Identity.Permission.ManageUsers
         | Identity.Permission.ManageBranchSettings
-        | Identity.Permission.OperatePos;
+        | Identity.Permission.OperatePos
+        | Identity.Permission.TakeOrders;
 
     private static readonly FrozenDictionary<string, Permission> Permissions =
         new Dictionary<string, Permission>(StringComparer.OrdinalIgnoreCase)
         {
             [BusinessAdmin] = BusinessAdminPermissions,
-            [Seller] = Identity.Permission.ViewSales,
+            [Seller] = Identity.Permission.ViewSales | Identity.Permission.TakeOrders,
             [Cashier] = Identity.Permission.OperatePos,
             [Provider] = Identity.Permission.None,
             [PlatformAdmin] = Identity.Permission.None,

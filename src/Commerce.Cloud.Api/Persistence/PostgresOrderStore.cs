@@ -1,5 +1,7 @@
 using System.Globalization;
+using System.Text.Json;
 using Commerce.BranchNode;
+using Commerce.Cloud.Api.Auditing;
 using Commerce.Cloud.Api.Ordering;
 using Commerce.Cloud.Api.Tenancy;
 using Commerce.Domain.Catalog;
@@ -37,7 +39,7 @@ public sealed class PostgresOrderStore : IOrderStore
         """
         order_id, origin, customer_id, guest_document_id, guest_channel, guest_contact_address,
         guest_display_name, guest_delivery_notes, destination_branch_id, status, pending_reason,
-        branch_code, sequence, submitted_at_utc
+        branch_code, sequence, submitted_at_utc, taken_by_user_id, note
         """;
 
     private readonly NpgsqlDataSource _dataSource;
@@ -78,7 +80,29 @@ public sealed class PostgresOrderStore : IOrderStore
         {
             var outcome = await TrySubmitAsync(
                 scope, orderId, origin, customerId, guestContact, destinationBranchId, actorId, lines, correlationId,
-                destination, hasAvailableStock, verification, ct);
+                destination, hasAvailableStock, verification, staffEntry: null, ct);
+            if (outcome is not null) return outcome;
+            if (attempt >= 2) throw new InvalidOperationException($"Order {orderId} could not be stored after repeated key conflicts.");
+        }
+    }
+
+    public async Task<OrderSubmissionOutcome> SubmitStaffAsync(
+        CloudTenantScope scope,
+        Guid orderId,
+        Guid customerId,
+        Guid destinationBranchId,
+        StaffOrderEntry entry,
+        IReadOnlyList<OrderLineSnapshot> lines,
+        Guid correlationId,
+        BranchSyncStore? destination,
+        bool hasAvailableStock,
+        CancellationToken ct)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            var outcome = await TrySubmitAsync(
+                scope, orderId, OrderOrigin.RegisteredCustomer, customerId, guestContact: null, destinationBranchId,
+                entry.TakenByUserId, lines, correlationId, destination, hasAvailableStock, verification: null, entry, ct);
             if (outcome is not null) return outcome;
             if (attempt >= 2) throw new InvalidOperationException($"Order {orderId} could not be stored after repeated key conflicts.");
         }
@@ -87,7 +111,8 @@ public sealed class PostgresOrderStore : IOrderStore
     private async Task<OrderSubmissionOutcome?> TrySubmitAsync(
         CloudTenantScope scope, Guid orderId, OrderOrigin origin, Guid? customerId, GuestContact? guestContact,
         Guid destinationBranchId, Guid actorId, IReadOnlyList<OrderLineSnapshot> lines, Guid correlationId,
-        BranchSyncStore? destination, bool hasAvailableStock, GuestVerificationConsumption? verification, CancellationToken ct)
+        BranchSyncStore? destination, bool hasAvailableStock, GuestVerificationConsumption? verification,
+        StaffOrderEntry? staffEntry, CancellationToken ct)
     {
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
@@ -127,7 +152,7 @@ public sealed class PostgresOrderStore : IOrderStore
         var submittedAt = Truncate(_clock());
         var order = new Order(
             orderId, scope.OrganizationId, origin, customerId, guestContact, destinationBranchId, lines, submittedAt,
-            new OrderNumber(branchCode.Value, sequence));
+            new OrderNumber(branchCode.Value, sequence), staffEntry?.TakenByUserId, staffEntry?.Note);
         // Stored pending/offline until a delivery is actually attempted after the commit.
         order.MarkPending(OrderPendingReason.DestinationOffline);
 
@@ -137,6 +162,11 @@ public sealed class PostgresOrderStore : IOrderStore
         }
 
         await InsertLinesAsync(connection, tx, order, ct);
+
+        if (staffEntry is not null)
+        {
+            await AuditLogWriter.InsertAsync(connection, tx, StaffSubmissionAudit(order, staffEntry), ct);
+        }
 
         await tx.CommitAsync(ct);
 
@@ -284,6 +314,26 @@ public sealed class PostgresOrderStore : IOrderStore
             OrderSubmissionOutcomeStatus.Accepted, OrderSubmissionReasons.ExistingOrder, existing, WasNewlyAccepted: false);
     }
 
+    /// <summary>The <c>order.staff-submitted</c> row: the taker acts as an org user (a system administrator acting on the
+    /// organization included), the entity is the order.</summary>
+    private static UserManagementAuditEntry StaffSubmissionAudit(Order order, StaffOrderEntry entry) => new(
+        ActorKind: AuditActorKinds.OrgUser,
+        ActorId: entry.TakenByUserId,
+        OrganizationId: order.OrganizationId,
+        EntityType: "order",
+        EntityId: order.OrderId,
+        Action: "order.staff-submitted",
+        OldValueJson: null,
+        NewValueJson: JsonSerializer.Serialize(new
+        {
+            orderNumber = order.OrderNumber?.Format(),
+            customerId = order.CustomerId,
+            destinationBranchId = order.DestinationBranchId,
+            lineCount = order.Lines.Count,
+            total = order.Lines.Sum(l => l.LineTotal),
+            note = order.Note,
+        }));
+
     private static OrderSubmissionOutcome Denied(string reason) =>
         new(OrderSubmissionOutcomeStatus.Denied, reason, Order: null, WasNewlyAccepted: false);
 
@@ -363,8 +413,8 @@ public sealed class PostgresOrderStore : IOrderStore
             """
             INSERT INTO orders (organization_id, order_id, destination_branch_id, origin, customer_id,
                 guest_document_id, guest_channel, guest_contact_address, guest_display_name, guest_delivery_notes,
-                status, pending_reason, branch_code, sequence, submitted_at_utc)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+                status, pending_reason, branch_code, sequence, submitted_at_utc, taken_by_user_id, note)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
             ON CONFLICT (organization_id, order_id) DO NOTHING
             """, connection, tx);
         cmd.Parameters.AddWithValue(order.OrganizationId);
@@ -382,6 +432,8 @@ public sealed class PostgresOrderStore : IOrderStore
         cmd.Parameters.AddWithValue((short)number.Branch.Value);
         cmd.Parameters.AddWithValue(number.Sequence);
         cmd.Parameters.AddWithValue(order.SubmittedAtUtc);
+        cmd.Parameters.Add(new NpgsqlParameter { Value = (object?)order.TakenByUserId ?? DBNull.Value, NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Uuid });
+        cmd.Parameters.Add(Text(order.Note));
         return await cmd.ExecuteNonQueryAsync(ct) == 1;
     }
 
@@ -488,7 +540,8 @@ public sealed class PostgresOrderStore : IOrderStore
     private sealed record OrderRow(
         Guid OrderId, string Origin, Guid? CustomerId, string? GuestDocumentId, string? GuestChannel,
         string? GuestContactAddress, string? GuestDisplayName, string? GuestDeliveryNotes, Guid DestinationBranchId,
-        string Status, string PendingReason, short BranchCode, int Sequence, DateTimeOffset SubmittedAtUtc);
+        string Status, string PendingReason, short BranchCode, int Sequence, DateTimeOffset SubmittedAtUtc,
+        Guid? TakenByUserId, string? Note);
 
     /// <summary>Column order of <see cref="OrderColumns"/>.</summary>
     private static OrderRow ReadRow(NpgsqlDataReader reader)
@@ -498,7 +551,7 @@ public sealed class PostgresOrderStore : IOrderStore
             reader.GetGuid(0), reader.GetString(1), reader.IsDBNull(2) ? null : reader.GetGuid(2),
             Text(reader, 3), Text(reader, 4), Text(reader, 5), Text(reader, 6), Text(reader, 7),
             reader.GetGuid(8), reader.GetString(9), reader.GetString(10), reader.GetInt16(11), reader.GetInt32(12),
-            reader.GetFieldValue<DateTimeOffset>(13));
+            reader.GetFieldValue<DateTimeOffset>(13), reader.IsDBNull(14) ? null : reader.GetGuid(14), Text(reader, 15));
     }
 
     /// <summary>The constructor re-checks the origin invariant on the way back in.</summary>
@@ -513,7 +566,7 @@ public sealed class PostgresOrderStore : IOrderStore
 
         var order = new Order(
             row.OrderId, organizationId, origin, row.CustomerId, guest, row.DestinationBranchId, lines, row.SubmittedAtUtc,
-            new OrderNumber(new BranchCode(row.BranchCode), row.Sequence));
+            new OrderNumber(new BranchCode(row.BranchCode), row.Sequence), row.TakenByUserId, row.Note);
 
         if (Enum.Parse<OrderDeliveryStatus>(row.Status) == OrderDeliveryStatus.DestinationConfirmed)
         {

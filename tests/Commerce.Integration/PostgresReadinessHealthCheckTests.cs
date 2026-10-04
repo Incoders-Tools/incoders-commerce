@@ -112,7 +112,7 @@ public sealed class PostgresReadinessHealthCheckTests : IClassFixture<WebApplica
                      "0002_users.sql", "0003_organizations_branches.sql",
                      "0004_device_credentials.sql", "0005_password_recovery.sql",
                      "0006_role_taxonomy.sql", "0021_branch_codes.sql", "0022_terminal_registers.sql",
-                     "0024_terminal_registers_assign_result.sql", "0025_orders.sql", "0026_orders_guest_check.sql", "0038_order_line_price_provenance.sql",
+                     "0024_terminal_registers_assign_result.sql", "0025_orders.sql", "0026_orders_guest_check.sql", "0038_order_line_price_provenance.sql", "0042_staff_order_entry.sql",
                  })
         {
             var sql = File.ReadAllText(Path.Combine(RepoRoot(), "deploy", "db", "migrations", file));

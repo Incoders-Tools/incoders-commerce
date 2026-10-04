@@ -607,7 +607,7 @@ public sealed class RoleTaxonomyTests : IClassFixture<WebApplicationFactory<Prog
         var id = Guid.NewGuid();
         SeedSecondUser(
             organizationId, id, email, HashPassword(id, organizationId, "scoped-password"), "scoped-manager",
-            Permission.ManageUsers | Permission.ViewSales, [branchId]);
+            Permission.ManageUsers | Permission.ViewSales | Permission.TakeOrders, [branchId]);
         var client = _factory.CreateClient(CookieClientOptions());
         var signIn = await client.PostAsJsonAsync("/account/sign-in", new SignInRequest(email, "scoped-password"));
         Assert.Equal(HttpStatusCode.OK, signIn.StatusCode);

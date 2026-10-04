@@ -24,7 +24,7 @@ public static class ActingPermissions
     /// </summary>
     public const Permission FullStaffPermissions =
         Permission.ViewSales | Permission.ManageCatalog | Permission.ManageUsers | Permission.ManageBranchSettings
-        | Permission.OperatePos;
+        | Permission.OperatePos | Permission.TakeOrders;
 
     /// <summary>
     /// The permission set to authorize a request against: the caller's own

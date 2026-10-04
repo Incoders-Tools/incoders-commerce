@@ -14,7 +14,7 @@ public sealed class RoleGrantPolicyTests
     [Fact]
     public void TryAuthorize_SubsetGrant_IsAllowed()
     {
-        var caller = Caller(new Role(RoleCatalog.BusinessAdmin, Permission.ViewSales | Permission.ManageUsers));
+        var caller = Caller(new Role(RoleCatalog.BusinessAdmin, Permission.ViewSales | Permission.TakeOrders | Permission.ManageUsers));
 
         var authorized = RoleGrantPolicy.TryAuthorize(caller, [RoleCatalog.Seller], out var roles, out var denial);
 

@@ -12,8 +12,9 @@ public sealed class RoleCatalogTests
     [Theory]
     [InlineData(
         RoleCatalog.BusinessAdmin,
-        Permission.ViewSales | Permission.ManageCatalog | Permission.ManageUsers | Permission.ManageBranchSettings | Permission.OperatePos)]
-    [InlineData(RoleCatalog.Seller, Permission.ViewSales)]
+        Permission.ViewSales | Permission.ManageCatalog | Permission.ManageUsers | Permission.ManageBranchSettings | Permission.OperatePos
+        | Permission.TakeOrders)]
+    [InlineData(RoleCatalog.Seller, Permission.ViewSales | Permission.TakeOrders)]
     [InlineData(RoleCatalog.Cashier, Permission.OperatePos)]
     [InlineData(RoleCatalog.Provider, Permission.None)]
     [InlineData(RoleCatalog.PlatformAdmin, Permission.None)]
@@ -33,6 +34,17 @@ public sealed class RoleCatalogTests
         Assert.False(RoleCatalog.TryResolve(RoleCatalog.Seller, out var seller) && seller!.Permissions.HasFlag(Permission.OperatePos));
         Assert.True(RoleCatalog.TryResolve(RoleCatalog.Cashier, out var cashier) && cashier!.Permissions.HasFlag(Permission.OperatePos));
         Assert.True(RoleCatalog.TryResolve(RoleCatalog.BusinessAdmin, out var admin) && admin!.Permissions.HasFlag(Permission.OperatePos));
+    }
+
+    [Fact]
+    public void TakeOrders_IsTheThirtyTwoBit_AndOnlySellerAndBusinessAdminHoldIt()
+    {
+        Assert.Equal(32, (int)Permission.TakeOrders);
+        Assert.True(RoleCatalog.TryResolve(RoleCatalog.Seller, out var seller) && seller!.Permissions.HasFlag(Permission.TakeOrders));
+        Assert.True(RoleCatalog.TryResolve(RoleCatalog.BusinessAdmin, out var admin) && admin!.Permissions.HasFlag(Permission.TakeOrders));
+        Assert.True(RoleCatalog.BusinessAdminPermissions.HasFlag(Permission.TakeOrders));
+        Assert.False(RoleCatalog.TryResolve(RoleCatalog.Cashier, out var cashier) && cashier!.Permissions.HasFlag(Permission.TakeOrders));
+        Assert.True(Commerce.Cloud.Api.Tenancy.ActingPermissions.FullStaffPermissions.HasFlag(Permission.TakeOrders));
     }
 
     [Fact]

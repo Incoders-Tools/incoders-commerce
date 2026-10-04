@@ -139,6 +139,27 @@ public sealed class InMemoryOrderStore : IOrderStore
             scope, orderId, origin, customerId, guestContact, destinationBranchId, actorId, lines, correlationId,
             destination, hasAvailableStock));
 
+    Task<OrderSubmissionOutcome> IOrderStore.SubmitStaffAsync(
+        CloudTenantScope scope, Guid orderId, Guid customerId, Guid destinationBranchId, StaffOrderEntry entry,
+        IReadOnlyList<OrderLineSnapshot> lines, Guid correlationId, BranchSyncStore? destination, bool hasAvailableStock,
+        CancellationToken ct)
+    {
+        lock (_gate)
+        {
+            if (_orders.TryGetValue(orderId, out var existing))
+            {
+                return Task.FromResult(new OrderSubmissionOutcome(OrderSubmissionOutcomeStatus.Accepted, OrderSubmissionReasons.ExistingOrder, existing, WasNewlyAccepted: false));
+            }
+
+            var order = new Order(
+                orderId, scope.OrganizationId, OrderOrigin.RegisteredCustomer, customerId, guestContact: null, destinationBranchId, lines, _clock(),
+                orderNumber: null, entry.TakenByUserId, entry.Note);
+            _orders[orderId] = order;
+            AttemptDelivery(order, entry.TakenByUserId, correlationId, destination, hasAvailableStock);
+            return Task.FromResult(new OrderSubmissionOutcome(OrderSubmissionOutcomeStatus.Accepted, OrderSubmissionReasons.Accepted, order, WasNewlyAccepted: true));
+        }
+    }
+
     Task<OrderSubmissionOutcome> IOrderStore.RetryDeliveryAsync(
         CloudTenantScope scope, Guid orderId, Guid actorId, Guid correlationId,
         BranchSyncStore destination, bool hasAvailableStock, CancellationToken ct) =>

@@ -45,6 +45,18 @@ public sealed class Order
     /// persisted (in-memory test doubles).
     /// </summary>
     public OrderNumber? OrderNumber { get; }
+
+    /// <summary>
+    /// The signed-in staff member who took this order for the customer (staff-order-taking). Null for an order the
+    /// customer or a guest submitted themselves.
+    /// </summary>
+    public Guid? TakenByUserId { get; }
+
+    /// <summary>Optional free text the staff member typed for the order, at most <see cref="MaxNoteLength"/> characters.</summary>
+    public string? Note { get; }
+
+    public const int MaxNoteLength = 500;
+
     public OrderDeliveryStatus Status { get; private set; }
     public OrderPendingReason PendingReason { get; private set; }
 
@@ -65,8 +77,15 @@ public sealed class Order
         Guid destinationBranchId,
         IReadOnlyList<OrderLineSnapshot> lines,
         DateTimeOffset submittedAtUtc,
-        OrderNumber? orderNumber = null)
+        OrderNumber? orderNumber = null,
+        Guid? takenByUserId = null,
+        string? note = null)
     {
+        if (note is { Length: > MaxNoteLength })
+        {
+            throw new ArgumentException($"An order note has at most {MaxNoteLength} characters.", nameof(note));
+        }
+
         if (origin == OrderOrigin.RegisteredCustomer &&
             (customerId is null || customerId == Guid.Empty || guestContact is not null))
         {
@@ -93,6 +112,8 @@ public sealed class Order
         Lines = lines;
         SubmittedAtUtc = submittedAtUtc;
         OrderNumber = orderNumber;
+        TakenByUserId = takenByUserId;
+        Note = note;
         Status = OrderDeliveryStatus.PendingDestination;
         PendingReason = OrderPendingReason.None;
     }

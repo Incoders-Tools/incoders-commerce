@@ -7979,3 +7979,105 @@ BEGIN
 END $$;
 
 COMMIT;
+
+-- staff-order-taking: 0041_take_orders_permission.sql, appended verbatim per the hand-kept mirror convention.
+
+-- Repo-owned, transactional, idempotent, forward-only data migration.
+--
+-- staff-order-taking (T1): staff take orders for customers from the web with the new `TakeOrders` permission
+-- (bit 32), granted to `seller` and `business-admin` in RoleCatalog. Roles are persisted per user as
+-- `{"name", "permissions"}` in `users.roles` and the effective permissions are read from those rows (see 0020), so
+-- every existing `seller` and `business-admin` entry must gain the bit or no existing user could take an order.
+-- `cashier`, `provider` and `platform-admin` deliberately do NOT gain it. APPLIED AFTER: 0040_customer_party_type.sql.
+--
+-- `users` has `FORCE ROW LEVEL SECURITY` (0002): with no `app.current_org_id` even the owner sees ZERO rows, so an
+-- unguarded UPDATE would "succeed" while touching nothing (the hazard 0006/0020 document). FORCE is switched off for
+-- the owner ONLY inside this one transaction and restored before COMMIT; the post-condition aborts the whole
+-- transaction if any seller or business-admin entry still lacks the bit.
+--
+-- Idempotent: the permission is combined with a bitwise OR, so a second run rewrites the same value (and the WHERE
+-- skips rows that already carry it).
+--
+-- INVERSE (rollback), shipped as a comment - NOT executed by this file:
+--   BEGIN;
+--   ALTER TABLE users NO FORCE ROW LEVEL SECURITY;
+--   UPDATE users SET roles = (
+--       SELECT jsonb_agg(CASE WHEN e->>'name' IN ('seller', 'business-admin')
+--           THEN jsonb_set(e, '{permissions}', to_jsonb(((e->>'permissions')::int) & ~32))
+--           ELSE e END)
+--       FROM jsonb_array_elements(roles) AS e)
+--    WHERE roles @> '[{"name":"seller"}]' OR roles @> '[{"name":"business-admin"}]';
+--   ALTER TABLE users FORCE ROW LEVEL SECURITY;
+--   COMMIT;
+
+BEGIN;
+
+ALTER TABLE users NO FORCE ROW LEVEL SECURITY;
+
+UPDATE users
+   SET roles = (
+       SELECT jsonb_agg(
+           CASE WHEN e->>'name' IN ('seller', 'business-admin')
+                THEN jsonb_set(e, '{permissions}', to_jsonb(((e->>'permissions')::int) | 32))
+                ELSE e END
+           ORDER BY ord)
+       FROM jsonb_array_elements(roles) WITH ORDINALITY AS r(e, ord))
+ WHERE EXISTS (
+       SELECT 1 FROM jsonb_array_elements(roles) AS e
+        WHERE e->>'name' IN ('seller', 'business-admin')
+          AND (((e->>'permissions')::int) & 32) = 0);
+
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM users u, jsonb_array_elements(u.roles) AS e
+         WHERE e->>'name' IN ('seller', 'business-admin')
+           AND (((e->>'permissions')::int) & 32) = 0) THEN
+        RAISE EXCEPTION '0041: a seller or business-admin role entry survived without TakeOrders';
+    END IF;
+END
+$$;
+
+ALTER TABLE users FORCE ROW LEVEL SECURITY;
+
+COMMIT;
+
+-- staff-order-taking: 0042_staff_order_entry.sql, appended verbatim per the hand-kept mirror convention.
+
+-- Repo-owned, transactional, idempotent, forward-only migration.
+--
+-- staff-order-taking (T2): a staff member (seller, business admin, or a system administrator acting on the
+-- organization) takes an order for a customer from the web. The order records who took it and an optional note.
+--
+--   * orders.taken_by_user_id - the signed-in staff member who took the order (always the caller, never a request
+--     field). NULL for orders the customer or a guest submitted themselves.
+--   * orders.note             - optional free text the staff member typed for the order, at most 500 characters.
+--
+-- APPLIED AFTER: 0041_take_orders_permission.sql (and 0025_orders.sql, which creates `orders`).
+--
+-- Both columns are written once, at insert, like the rest of the order's identity: the table-level SELECT and INSERT
+-- grants of 0025 already cover them and the column-limited UPDATE grant (status, pending_reason) deliberately does
+-- not. The tenant-isolation policy of 0025 is unchanged. No foreign key to `users`: a system administrator's own row
+-- lives in another organization, and the order keeps the id even if the user is later removed.
+--
+-- The whole file runs in ONE transaction and can be re-run safely.
+--
+-- INVERSE (rollback), shipped as a comment - NOT executed by this file:
+--   ALTER TABLE orders DROP CONSTRAINT orders_note_length_ck;
+--   ALTER TABLE orders DROP COLUMN note;
+--   ALTER TABLE orders DROP COLUMN taken_by_user_id;
+
+BEGIN;
+
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS taken_by_user_id uuid NULL;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS note text NULL;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'orders_note_length_ck') THEN
+        ALTER TABLE orders
+            ADD CONSTRAINT orders_note_length_ck CHECK (note IS NULL OR char_length(note) <= 500);
+    END IF;
+END $$;
+
+COMMIT;

@@ -29,7 +29,7 @@ public sealed class PostgresOrderStoreTests : IDisposable
             foreach (var file in new[]
                      {
                          "0001_init_rls.sql", "0002_users.sql", "0003_organizations_branches.sql",
-                         "0021_branch_codes.sql", "0010_guest_ordering.sql", "0025_orders.sql", "0026_orders_guest_check.sql", "0038_order_line_price_provenance.sql",
+                         "0021_branch_codes.sql", "0010_guest_ordering.sql", "0025_orders.sql", "0026_orders_guest_check.sql", "0038_order_line_price_provenance.sql", "0042_staff_order_entry.sql",
                      })
             {
                 PostgresTestFixture.ApplyMigration(owner, file);

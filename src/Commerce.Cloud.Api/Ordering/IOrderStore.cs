@@ -32,6 +32,13 @@ public static class OrderSubmissionReasons
 /// <param name="DocumentId">The document id the ticket was issued for; must match.</param>
 /// <param name="ContactAddress">The contact address the ticket was issued for; matched ignoring case.</param>
 /// <param name="ConfirmedAfter">The ticket must have been confirmed after this instant (the confirm-to-submit TTL already applied to "now").</param>
+/// <summary>
+/// Who took a staff-entered order and the note they typed (staff-order-taking). The taker is always the signed-in
+/// caller, never a request field; the store records both on the order and audits the submission in the SAME
+/// transaction that stores it.
+/// </summary>
+public sealed record StaffOrderEntry(Guid TakenByUserId, string? Note);
+
 public sealed record GuestVerificationConsumption(
     Guid VerificationId, string DocumentId, string ContactAddress, DateTimeOffset ConfirmedAfter);
 
@@ -70,6 +77,23 @@ public interface IOrderStore
         BranchSyncStore? destination,
         bool hasAvailableStock,
         GuestVerificationConsumption? verification,
+        CancellationToken ct);
+
+    /// <summary>
+    /// Stores an order a staff member took for a registered customer: same numbering, idempotency and delivery as
+    /// <see cref="SubmitAsync"/>, plus <paramref name="entry"/> recorded on the order and an
+    /// <c>order.staff-submitted</c> audit row (actor = the taker) written only when the order is newly stored.
+    /// </summary>
+    Task<OrderSubmissionOutcome> SubmitStaffAsync(
+        CloudTenantScope scope,
+        Guid orderId,
+        Guid customerId,
+        Guid destinationBranchId,
+        StaffOrderEntry entry,
+        IReadOnlyList<OrderLineSnapshot> lines,
+        Guid correlationId,
+        BranchSyncStore? destination,
+        bool hasAvailableStock,
         CancellationToken ct);
 
     /// <summary>
