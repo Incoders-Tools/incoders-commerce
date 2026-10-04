@@ -36,6 +36,9 @@ public partial class CustomersView : UserControl, ISectionView
     // Set while the form fills the address from a stored customer: no city reload and no postal code prefill.
     private bool _fillingAddress;
 
+    // The operator changed the province or city since the form was filled; only then may an update clear the city.
+    private bool _cityChanged;
+
     public CustomersView(CustomerAdminClient adminClient)
     {
         InitializeComponent();
@@ -153,6 +156,7 @@ public partial class CustomersView : UserControl, ISectionView
     private async Task FillAddressAsync(string? provinceId, Guid? cityId)
     {
         _fillingAddress = true;
+        _cityChanged = false;
         try
         {
             ProvinceComboBox.SelectedValue = provinceId;
@@ -193,6 +197,7 @@ public partial class CustomersView : UserControl, ISectionView
             return;
         }
 
+        _cityChanged = true;
         CityComboBox.ItemsSource = null;
         if (ProvinceComboBox.SelectedValue is not string provinceId)
         {
@@ -212,7 +217,13 @@ public partial class CustomersView : UserControl, ISectionView
 
     private void CityComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (_fillingAddress || CityComboBox.SelectedItem is not CityOptionDto city)
+        if (_fillingAddress)
+        {
+            return;
+        }
+
+        _cityChanged = true;
+        if (CityComboBox.SelectedItem is not CityOptionDto city)
         {
             return;
         }
@@ -273,6 +284,7 @@ public partial class CustomersView : UserControl, ISectionView
         var customerKind = CustomerKindComboBox.SelectedValue as string ?? "Retail";
         var partyType = PartyTypeComboBox.SelectedValue as string ?? "Person";
         var cityId = CityComboBox.SelectedValue as Guid?;
+        var cityChange = CustomerFormRules.CityChange(cityId, _cityChanged);
         var selectedCustomerId = _selectedCustomerId;
         var isEnabled = IsEnabledCheckBox.IsChecked ?? true;
         var form = ReadForm();
@@ -286,7 +298,7 @@ public partial class CustomersView : UserControl, ISectionView
                     form.DisplayName, taxIdType, form.TaxId, taxCondition, form.Phone, form.Email,
                     form.AddressStreet, form.AddressNumber, form.Neighborhood, form.PostalCode,
                     form.DeliveryNotes, discountPercentage, form.PaymentTerms, form.Notes, isEnabled,
-                    cityId ?? Guid.Empty, partyType), _busy.Token);
+                    cityChange, partyType), _busy.Token);
             }
             else
             {
@@ -346,6 +358,7 @@ public partial class CustomersView : UserControl, ISectionView
         ProvinceComboBox.SelectedItem = null;
         CityComboBox.ItemsSource = null;
         _fillingAddress = false;
+        _cityChanged = false;
         _cityPostalCode = null;
         RenderEmailState();
     }

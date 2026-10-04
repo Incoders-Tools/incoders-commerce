@@ -178,8 +178,8 @@ public sealed record CreateCustomerAdminRequestDto(
     Guid? CityId, string PartyType);
 
 /// <summary>
-/// Mirrors `Commerce.Cloud.Api.Endpoints.UpdateCustomerRequest`. `CityId` is always sent: <see cref="Guid.Empty"/>
-/// clears the city.
+/// Mirrors `Commerce.Cloud.Api.Endpoints.UpdateCustomerRequest`. `CityId`: null keeps the stored city,
+/// <see cref="Guid.Empty"/> clears it (see <see cref="CustomerFormRules.CityChange"/>).
 /// </summary>
 public sealed record UpdateCustomerAdminRequestDto(
     string DisplayName,
@@ -187,7 +187,7 @@ public sealed record UpdateCustomerAdminRequestDto(
     string? Phone, string? Email,
     string? AddressStreet, string? AddressNumber, string? Neighborhood, string? PostalCode,
     string? DeliveryNotes, decimal? DiscountPercentage, string? PaymentTerms, string? Notes,
-    bool IsEnabled, Guid CityId, string PartyType);
+    bool IsEnabled, Guid? CityId, string PartyType);
 
 /// <summary>One row of `GET /geo/provinces`.</summary>
 public sealed record ProvinceOptionDto(string Id, string Name);

@@ -71,4 +71,12 @@ public static class CustomerFormRules
             || (previousCityPostalCode is not null && string.Equals(current.Trim(), previousCityPostalCode, StringComparison.OrdinalIgnoreCase));
         return untouched ? newCityPostalCode : current;
     }
+
+    /// <summary>
+    /// The city an update sends: the selected city; <see cref="Guid.Empty"/> (clear) only when the operator changed the
+    /// province or city and left none selected; otherwise null, which keeps the stored city. A stored city the combo
+    /// cannot show (deactivated, or the city list failed to load) must survive an unrelated edit.
+    /// </summary>
+    public static Guid? CityChange(Guid? selectedCityId, bool operatorChangedCity) =>
+        selectedCityId ?? (operatorChangedCity ? Guid.Empty : null);
 }

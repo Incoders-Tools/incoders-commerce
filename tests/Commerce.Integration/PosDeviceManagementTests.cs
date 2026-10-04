@@ -295,6 +295,29 @@ public sealed class PosDeviceManagementTests : IDisposable
     }
 
     [Fact]
+    public void CityChange_KeepsTheStoredCity_WhenTheOperatorNeverTouchedAnUnselectableOne()
+    {
+        var picked = Guid.NewGuid();
+
+        // A stored city that cannot be reselected (deactivated, or the city list failed to load) is kept, not cleared.
+        Assert.Null(CustomerFormRules.CityChange(selectedCityId: null, operatorChangedCity: false));
+        // The operator cleared the city or changed the province: the city is cleared.
+        Assert.Equal(Guid.Empty, CustomerFormRules.CityChange(selectedCityId: null, operatorChangedCity: true));
+        // A selected city is always sent.
+        Assert.Equal(picked, CustomerFormRules.CityChange(selectedCityId: picked, operatorChangedCity: false));
+        Assert.Equal(picked, CustomerFormRules.CityChange(selectedCityId: picked, operatorChangedCity: true));
+    }
+
+    [Fact]
+    public void CustomersView_SendsTheCityChange_NotAnUnconditionalClear()
+    {
+        var code = Src("CustomersView.xaml.cs");
+
+        Assert.Contains("CustomerFormRules.CityChange(", code);
+        Assert.DoesNotContain("cityId ?? Guid.Empty", code);
+    }
+
+    [Fact]
     public void CustomersView_HasTheNewNameAddressAndEmailFields()
     {
         var xaml = Src("CustomersView.xaml");
