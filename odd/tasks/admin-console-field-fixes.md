@@ -72,29 +72,41 @@ signed-in admin for their password again on every management section.
   import, catalog rename, orders); RED 3 App + 2 screen + 2 client tests,
   GREEN `npm test` 557 passed (75 files), `npm run lint` 0 errors, `npm run
   build` ok.
-- [ ] T2 Data and API: `organizations.country_code` (FK `countries`, default
+- [x] T2 Data and API: `organizations.country_code` (FK `countries`, default
   `AR`, backfilled), exposed in organization settings; `cities.postal_code`
   (optional, validated format) returned by `/geo/cities` and editable in
   `/geo/cities` create/update; `/geo/provinces` filtered to the caller
   organization's country; customer admin API stops reading/writing
   `locality` and `province` (columns kept, no longer written; sync contract
   stays additive-only, replica fields kept and sent as null / derived
-  province name) (route: delegated backend writer).
-- [ ] T3 Web customer form: Province select (organization country) ->
+  province name) (route: delegated backend writer) - done e4b5a44 (with the
+  T3b backend): migrations 0039 (organization country, city postal code) and
+  0040 (customer party type, backfilled Company when CUIT); RED every new
+  migration/endpoint/domain test failing, GREEN focused 73/73, full `dotnet
+  test` 2189 passed / 1 known failure; RDD review approved (4 lenses, 9
+  advisory findings; no stored malformed email exists locally).
+- [x] T3 Web customer form: Province select (organization country) ->
   City picker filtered by province showing the city name only -> Postal code
   prefilled from the city when known and still editable; Locality and free
   text Province removed; editing an existing customer preselects the
   province of its city; section dividers and spacing; Cities screen edits the
-  postal code (route: delegated web writer).
-- [ ] T3b Customer name and email: single name field driven by the customer
+  postal code (route: delegated web writer) - done 098e5dc (with the T3b
+  web part): RED 36 failing tests + 3 missing modules, GREEN `npm test` 647
+  passed (78 files), lint 0 errors, build ok; RDD review approved
+  (reliability, 5 advisory findings).
+- [x] T3b Customer name and email: single name field driven by the customer
   type (person -> "Nombre", company -> "Razón social"), contact person for
   companies; shared email validator (web field with live check, server rule,
   desktop field) applied to customer, contact, staff and supplier emails
-  (route: delegated backend writer, then delegated web writer).
-- [ ] T4 Desktop customer form: same Province -> City -> Postal code flow
+  (route: delegated backend writer, then delegated web writer) - done
+  e4b5a44 (server rule) + 098e5dc (EmailField, live check) + b58956f
+  (desktop).
+- [x] T4 Desktop customer form: same Province -> City -> Postal code flow
   and no Locality/Province text boxes in `CustomersView` (route: delegated
-  POS writer).
-- [ ] T5 Desktop management without password: server accepts customer and
+  POS writer) - done b58956f + 50591b6 (RDD correction R3-001: an update no
+  longer clears a stored city the combo cannot show; RED compile failure,
+  GREEN 2 new tests, targeted validation passed).
+- [x] T5 Desktop management without password: server accepts customer and
   staff management requests authenticated by the paired device credential
   plus the signed-in operator id, and authorizes them only when that user
   exists in the organization, is not revoked, holds `ManageUsers` and has the
@@ -102,7 +114,27 @@ signed-in admin for their password again on every management section.
   as actor and the device as origin. POS drops the inline password panel from
   Customers and Staff and shares one management client across sections.
   Menu entries stay gated by `ShellNavigation.Allowed` (route: delegated
-  backend writer, then delegated POS writer).
+  backend writer, then delegated POS writer) - done b58956f: opt-in per
+  endpoint (`.AllowDeviceOperator()`), cookie stays the default scheme;
+  DeviceOperatorManagementTests 21/21 (RED 11 failing), non-opted endpoints
+  proven unchanged for device callers; POS drops both password panels and
+  shares one management connection. Two writers crashed (infrastructure);
+  finished by the orchestrator. Full `dotnet test`: 2223 passed, 12 failed,
+  the same 12 fail on HEAD without this change (see follow-ups).
+
+## Follow-ups
+
+- Tests publish prices with the UTC date while pricing resolves with the
+  Argentina business day (0aee664), so OrderPricing, GuestOrdering,
+  CatalogPriceSync and PublicRateLimit full-flow tests fail between 21:00
+  and 24:00 Argentina time. Fix the test helpers to use the business-day
+  clock.
+- Audit rows cannot record that a mutation came from a terminal (no origin
+  column); needs a migration.
+- Desktop customer form: tell the operator when the stored city is kept but
+  cannot be shown (deactivated city or failed city list).
+- Owner to confirm: email error timing (now on blur / submit / 1.5 s pause,
+  green check immediate) and whether a CUIT should suggest Company.
 
 ## Acceptance criteria
 
