@@ -138,6 +138,16 @@ signed-in admin for their password again on every management section.
 
 ## Follow-ups
 
+- Deploy alignment deferred by the owner (2026-10-04): migrations stay in
+  `deploy/db/migrations` (0001-0042, contiguous, all appended to
+  `deploy/dev/db/init-rls.sql`) and seeds in `deploy/db/seeds`, applied by
+  hand to the local Docker database for now. No CI/pipeline step applies
+  them to real environments yet, and `deploy/README.md` documents only up to
+  `0026`; before the first real deploy, apply every migration in order and
+  then the seeds. Applied locally on 2026-10-04: 0039-0042 (run twice,
+  idempotent). The Vaca Verde seed now stores `party_type` itself, because a
+  fresh environment runs it after migration 0040's backfill.
+
 - Server-checked operator proof ("PIN with validity"): today the server
   trusts the device credential plus `X-Operator-Id`; anyone running as the
   terminal's Windows user can act as any cached admin without the PIN.
