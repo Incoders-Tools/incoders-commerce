@@ -123,52 +123,6 @@ describe('PriceListsScreen', () => {
     expect(JSON.parse(init.body as string)).toMatchObject({ isDefault: true })
   })
 
-  it('publishes a new price through the default price list', async () => {
-    fetchMock
-      .mockResolvedValueOnce(new Response(JSON.stringify([defaultPriceList]), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify([presentation]), { status: 200 }))
-      // GET .../prices — the date filter's own "now" load, fired on mount
-      // of the managed list's detail page.
-      .mockResolvedValueOnce(new Response(JSON.stringify([]), { status: 200 }))
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            id: '55555555-5555-5555-5555-555555555555',
-            organizationId: 'org-1',
-            priceListId: defaultPriceList.id,
-            presentationId: presentation.id,
-            unitPrice: 600,
-            effectiveFrom: '2024-07-01',
-            source: 'Manual',
-            importBatchId: null,
-            createdAtUtc: '2024-07-01T00:00:00Z',
-            createdByUserId: 'user-1',
-          }),
-          { status: 201 },
-        ),
-      )
-
-    const user = userEvent.setup()
-    render(<PriceListsScreen />)
-
-    await screen.findByText('Default')
-    await user.click(screen.getByRole('button', { name: /gestionar precios/i }))
-    await screen.findByText('1.5L bottle')
-    await user.click(screen.getByRole('button', { name: /nuevo precio/i }))
-    await user.type(screen.getByLabelText('Precio unitario'), '600')
-    await user.type(screen.getByLabelText('Vigente desde'), '2024-07-01')
-    await user.click(screen.getByRole('button', { name: /^publicar$/i }))
-
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4))
-    const [url, init] = fetchMock.mock.calls[3]
-    expect(url).toBe(`/pricing/price-lists/${defaultPriceList.id}/entries`)
-    expect(JSON.parse(init.body as string)).toMatchObject({
-      presentationId: presentation.id,
-      unitPrice: 600,
-      effectiveFrom: '2024-07-01',
-    })
-  })
-
   it('shows the Suppliers tab as a structural placeholder', async () => {
     fetchMock
       .mockResolvedValueOnce(new Response(JSON.stringify([defaultPriceList]), { status: 200 }))
@@ -419,124 +373,15 @@ describe('PriceListsScreen', () => {
     await waitFor(() => expect(window.localStorage.getItem('view:price-lists')).toBeNull())
   })
 
-  it('does not open any price list until "Manage prices" is clicked', async () => {
+  it('opens on the lists table, not on the price editor', async () => {
     loadOnce([defaultPriceList, seasonalPriceList])
 
     render(<PriceListsScreen />)
 
     await screen.findByText('Default')
-    expect(screen.queryByTestId('price-list-entries')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('price-editor-grid')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^precios$/i })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByRole('table')).toBeInTheDocument()
-  })
-
-  it('opens the default list\'s prices as a full-screen page, replacing the list', async () => {
-    loadOnce([defaultPriceList, seasonalPriceList])
-    // GET .../prices — the date filter's own "now" load.
-    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify([]), { status: 200 }))
-
-    const user = userEvent.setup()
-    render(<PriceListsScreen />)
-
-    const row = within(await screen.findByRole('table'))
-      .getAllByRole('row')
-      .find((candidate) => within(candidate).queryByText('Default') !== null)
-    expect(row).toBeDefined()
-    await user.click(within(row!).getByRole('button', { name: /gestionar precios/i }))
-
-    expect(screen.queryByRole('table')).not.toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: /precios en default/i })).toBeInTheDocument()
-    const prices = screen.getByTestId('price-list-entries')
-    expect(within(prices).getByText('1.5L bottle')).toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: /volver a listas de precios/i }))
-
-    expect(screen.getByText('Default')).toBeInTheDocument()
-    expect(screen.getByText('Seasonal')).toBeInTheDocument()
-  })
-
-  it('publishes against the price list the operator picked, not the default one', async () => {
-    loadOnce([defaultPriceList, seasonalPriceList])
-    fetchMock
-      // GET .../prices — the date filter's own "now" load.
-      .mockResolvedValueOnce(new Response(JSON.stringify([]), { status: 200 }))
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            id: '55555555-5555-5555-5555-555555555555',
-            organizationId: 'org-1',
-            priceListId: seasonalPriceList.id,
-            presentationId: presentation.id,
-            unitPrice: 720,
-            effectiveFrom: '2024-08-01',
-            source: 'Manual',
-            importBatchId: null,
-            createdAtUtc: '2024-08-01T00:00:00Z',
-            createdByUserId: 'user-1',
-          }),
-          { status: 201 },
-        ),
-      )
-
-    const user = userEvent.setup()
-    render(<PriceListsScreen />)
-
-    const row = within(await screen.findByRole('table'))
-      .getAllByRole('row')
-      .find((candidate) => within(candidate).queryByText('Seasonal') !== null)
-    expect(row).toBeDefined()
-    await user.click(within(row!).getByRole('button', { name: /gestionar precios/i }))
-
-    expect(screen.getByRole('heading', { name: /precios en seasonal/i })).toBeInTheDocument()
-    const prices = screen.getByTestId('price-list-entries')
-    await user.click(within(prices).getByRole('button', { name: /nuevo precio/i }))
-    await user.type(screen.getByLabelText('Precio unitario'), '720')
-    await user.type(screen.getByLabelText('Vigente desde'), '2024-08-01')
-    await user.click(screen.getByRole('button', { name: /^publicar$/i }))
-
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4))
-    expect(fetchMock.mock.calls[3][0]).toBe(`/pricing/price-lists/${seasonalPriceList.id}/entries`)
-  })
-
-  it('reads the history of the managed price list', async () => {
-    loadOnce([defaultPriceList, seasonalPriceList])
-    // GET .../prices — the date filter's own "now" load.
-    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify([]), { status: 200 }))
-
-    const user = userEvent.setup()
-    render(<PriceListsScreen />)
-
-    const row = within(await screen.findByRole('table'))
-      .getAllByRole('row')
-      .find((candidate) => within(candidate).queryByText('Default') !== null)
-    expect(row).toBeDefined()
-    await user.click(within(row!).getByRole('button', { name: /gestionar precios/i }))
-    const prices = await screen.findByTestId('price-list-entries')
-
-    fetchMock.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify([
-          {
-            id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-            organizationId: 'org-1',
-            priceListId: defaultPriceList.id,
-            presentationId: presentation.id,
-            unitPrice: 540.5,
-            effectiveFrom: '2024-05-01',
-            source: 'Manual',
-            importBatchId: null,
-            createdAtUtc: '2024-05-01T00:00:00Z',
-            createdByUserId: 'user-1',
-          },
-        ]),
-        { status: 200 },
-      ),
-    )
-    await user.click(within(prices).getByRole('button', { name: /^historial$/i }))
-
-    expect(await screen.findByText('2024-05-01: $540.50')).toBeInTheDocument()
-    expect(fetchMock.mock.calls[3][0]).toBe(
-      `/pricing/price-lists/${defaultPriceList.id}/presentations/${presentation.id}/history`,
-    )
   })
 
   it('asks for a branch instead of loading when none is selected', async () => {

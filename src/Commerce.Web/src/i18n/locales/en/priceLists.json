@@ -6,7 +6,6 @@
   "errors": {
     "unexpectedLoad": "Unexpected error loading price lists.",
     "unexpectedCreateDefault": "Unexpected error creating the default price list.",
-    "unexpectedPublish": "Unexpected error publishing the price.",
     "unexpectedLoadSupplierMappings": "Unexpected error loading supplier mappings.",
     "unexpectedUpload": "Unexpected error uploading the file.",
     "unexpectedCommit": "Unexpected error committing the batch.",
@@ -16,6 +15,7 @@
   "sectionsNav": {
     "label": "Price list sections",
     "prices": "Prices",
+    "edit": "Edit prices",
     "suppliers": "Suppliers",
     "import": "Import"
   },
@@ -40,42 +40,59 @@
     "composition": "Composition",
     "copy": "Copy list"
   },
-  "suppliersPlaceholder": "Supplier mappings (column mapping for Excel imports) land here in a future release — the `supplier_price_mappings` table does not exist yet.",
-  "detail": {
-    "title": "Prices in {{name}}",
-    "description": "Each presentation's published entries, newest effective date first.",
-    "backLabel": "Back to price lists",
-    "noPresentations": "No presentations yet.",
-    "noCode": "No code",
-    "newPrice": "New price"
-  },
-  "newPriceForm": {
-    "unitPriceLabel": "Unit price",
+  "editor": {
+    "listLabel": "Price list",
+    "noList": "Choose a list",
+    "loading": "Loading prices…",
+    "empty": "There are no products in the catalog yet.",
+    "noMatch": "No product matches this search.",
+    "search": {
+      "label": "Search products",
+      "placeholder": "Product or code…"
+    },
+    "categoryLabel": "Category",
+    "allCategories": "All categories",
     "effectiveFromLabel": "Effective from",
-    "publishing": "Publishing…",
-    "publish": "Publish",
-    "cancel": "Cancel"
-  },
-  "dateFilter": {
-    "title": "Filter by date",
-    "asOfLabel": "As of",
-    "or": "or",
-    "fromLabel": "From",
-    "toLabel": "To",
-    "apply": "Apply",
-    "clear": "Clear",
-    "loading": "Loading…",
-    "empty": "No prices in effect for this date.",
-    "rangeBothRequired": "Enter both dates of the range.",
-    "unexpectedLoad": "Unexpected error loading prices by date.",
+    "remark": {
+      "label": "Remark %",
+      "placeholder": "E.g. 10 or -5",
+      "apply": "Apply",
+      "hint": "Applies to the base price of the selected rows or, when none is selected, of every visible row. Review the preview before publishing.",
+      "invalid": "Enter a percentage greater than -100."
+    },
     "columns": {
+      "product": "Product",
       "presentation": "Presentation",
-      "price": "Price",
-      "effectiveFrom": "Effective from"
+      "code": "Code",
+      "category": "Category",
+      "base": "Current base",
+      "final": "Current final",
+      "newBase": "New base",
+      "history": "History"
+    },
+    "selectAll": "Select every visible row",
+    "selectRow": "Select {{name}}",
+    "newBaseOf": "New base of {{name}}",
+    "historyOf": "History of {{name}}",
+    "firstPrice": "First price: {{price}}",
+    "changedCount_one": "{{count}} price changed",
+    "changedCount_other": "{{count}} prices changed",
+    "undo": "Undo changes",
+    "publish": "Publish changes",
+    "publishing": "Publishing…",
+    "published_one": "{{count}} price published.",
+    "published_other": "{{count}} prices published.",
+    "violation": "{{price}} is below the floor {{floor}} ({{floorPrice}}).",
+    "dependentViolation": "Leaves {{list}} at {{price}}, below its floor {{floor}} ({{floorPrice}}).",
+    "errors": {
+      "invalidPrice": "Enter a price greater than zero, with up to two decimals.",
+      "belowFloor": "No price was published: some prices are below their floor list. Fix the marked rows.",
+      "unexpectedLoad": "Unexpected error while loading the prices.",
+      "unexpectedPublish": "Unexpected error while publishing the prices."
     }
   },
+  "suppliersPlaceholder": "Supplier mappings (column mapping for Excel imports) land here in a future release — the `supplier_price_mappings` table does not exist yet.",
   "history": {
-    "hide": "Hide history",
     "show": "History",
     "loading": "Loading history…",
     "unexpectedLoad": "Unexpected error loading price history.",

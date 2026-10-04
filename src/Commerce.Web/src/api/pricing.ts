@@ -8,6 +8,8 @@ import type {
   FloorViolation,
   PriceListBreakdown,
   PublishCompositionRequest,
+  PublishEntriesBatchRequest,
+  PublishEntriesBatchResponse,
   CreatePriceListRequest,
   CreateSupplierMappingRequest,
   ImportBatchDetail,
@@ -71,6 +73,21 @@ export function appendEntry(
   request: AppendPriceEntryRequest,
 ): Promise<PriceListEntryRecord> {
   return apiFetch<PriceListEntryRecord>(`/pricing/price-lists/${priceListId}/entries`, {
+    method: 'POST',
+    body: JSON.stringify(request),
+  })
+}
+
+/**
+ * Many prices of one list at once, all-or-nothing: `400` validation problem, `409` `price-below-floor`
+ * (read it with `floorViolationsOf`); nothing is written on any error. `effectiveFrom` null means today's
+ * business day.
+ */
+export function publishEntriesBatch(
+  priceListId: string,
+  request: PublishEntriesBatchRequest,
+): Promise<PublishEntriesBatchResponse> {
+  return apiFetch<PublishEntriesBatchResponse>(`/pricing/price-lists/${priceListId}/entries/batch`, {
     method: 'POST',
     body: JSON.stringify(request),
   })

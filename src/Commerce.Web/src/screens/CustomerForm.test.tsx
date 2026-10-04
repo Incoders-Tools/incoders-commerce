@@ -549,7 +549,8 @@ describe('CustomerForm', () => {
     })
   })
 
-  describe('contacts editor', () => {
+  // These tests type many fields; under a loaded machine they exceeded vitest's 5 s default.
+  describe('contacts editor', { timeout: 20_000 }, () => {
     const juana = {
       id: 'ct-1',
       firstName: 'Juana',

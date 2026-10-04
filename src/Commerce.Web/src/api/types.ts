@@ -467,6 +467,17 @@ export interface AppendPriceEntryRequest {
   effectiveFrom: string
 }
 
+// `POST /pricing/price-lists/{id}/entries/batch`: 1-2000 entries, a presentation at most once.
+export interface PublishEntriesBatchRequest {
+  effectiveFrom: string | null
+  entries: { presentationId: string; unitPrice: number }[]
+}
+
+export interface PublishEntriesBatchResponse {
+  published: number
+  entries: PriceListEntryRecord[]
+}
+
 // commerce-pricing-engine Work Unit 9: Endpoints/Pricing.cs supplier-mapping
 // and import lifecycle DTOs, mirrored exactly. `codeColumn`/`priceColumn`
 // are Excel COLUMN LETTERS (design.md "Per-supplier column mapping"), not

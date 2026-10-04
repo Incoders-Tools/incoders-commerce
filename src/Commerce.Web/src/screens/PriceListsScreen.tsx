@@ -7,16 +7,13 @@ import { DataToolbar } from '@/components/data/DataToolbar'
 import { DataView, type DataViewColumn } from '@/components/data/DataView'
 import { PageHeader } from '@/components/data/PageHeader'
 import { useViewPreference } from '@/components/data/useViewPreference'
-import { FormPage } from '@/components/layout/FormPage'
-import { PriceDateFilter } from './PriceDateFilter'
 import { PriceListBreakdownPage } from './PriceListBreakdownPage'
 import { CompositionForm } from './CompositionForm'
 import { CopyPriceListForm } from './CopyPriceListForm'
-import { PriceHistory } from './PriceHistory'
+import { PriceEditorTab } from './PriceEditorTab'
 import { ImportReviewTable, type ImportReviewRow } from './ImportReviewTable'
 import { listPresentations } from '@/api/catalog'
 import {
-  appendEntry,
   commitImport,
   createPriceList,
   createSupplierMapping,
@@ -30,9 +27,9 @@ import { ApiError } from '@/api/client'
 import { useMissingBranch } from '@/branch/useMissingBranch'
 import type { PresentationRecord, PriceListRecord, SupplierPriceMappingRecord } from '@/api/types'
 
-type Tab = 'prices' | 'suppliers' | 'import'
+type Tab = 'prices' | 'edit' | 'suppliers' | 'import'
 
-/** The composition pages of one list, each a full-screen page (like "Gestionar precios"). */
+/** The composition pages of one list, each a full-screen page. */
 type CompositionPage = { kind: 'breakdown' | 'composition' | 'copy'; listId: string; notice?: string }
 
 function formatCreatedAt(value: string): string {
@@ -42,7 +39,7 @@ function formatCreatedAt(value: string): string {
 
 /**
  * design.md "Web: `PriceListsScreen` under the existing `RequireAdmin`":
- * three sections on one screen. Reachable only through the existing
+ * four sections on one screen. Reachable only through the existing
  * `RequireAdmin` (App.tsx `/app/price-lists`) — no new guard component. The
  * server's `ManageCatalog` check on every `/pricing` call remains the real
  * gate (see `Endpoints/Pricing.cs`'s remarks on the
@@ -53,23 +50,15 @@ function formatCreatedAt(value: string): string {
  * primary one — the organization's price lists — goes through `DataView`
  * (columns from `PriceListRecord`, `view:price-lists` preference, client-side
  * search over what `GET /pricing/price-lists` already returned). The prices
- * held BY the selected list are a nested surface, not a second table/card
- * grid: one view switch cannot sensibly own two grids, and the nested
- * surface is per-presentation history plus a publish form rather than a
- * flat record list.
+ * held BY a list live in their own tab, not in a second table/card grid
+ * under the same view switch.
  *
- * T9: "Manage prices" used to reveal that nested surface as a bordered
- * `<section>` boxed under the list — another instance of the "embedded
- * modal" look the user complained about. Clicking it now swaps the whole
- * screen to a full-screen `FormPage` detail page (`managingListId`),
- * following the same state-swap `CatalogScreen`'s "Edit code" and
- * `CustomersScreen`'s create/edit use, instead of always auto-opening the
- * default list's entries under the table. Price history stays a full-width
- * expandable section WITHIN that detail page rather than its own page: it
- * is a small per-presentation lookup (a handful of rows), not a task that
- * deserves its own navigation hop, and giving it a separate screen would
- * add a back-and-forth for something meant to be glanced at while managing
- * prices.
+ * T9 moved the per-presentation prices to a full-screen detail page. The
+ * price editing redesign (odd/tasks/price-editing-and-desktop-polish.md, T3)
+ * replaced that page with the "Editar precios" tab (`PriceEditorTab`): a grid
+ * of every product of one list, edited one by one or remarked by a
+ * percentage and published as one batch. "Gestionar precios" on a list row
+ * now opens that tab with the row's list preselected.
  */
 export function PriceListsScreen() {
   const { t } = useTranslation('priceLists')
@@ -86,10 +75,8 @@ export function PriceListsScreen() {
   // about whether price lists exist.
   const [loadError, setLoadError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
-  // Set only by an explicit "Manage prices" click — the detail page is
-  // opened, never auto-shown for the default list (see the T9 remark above).
-  const [managingListId, setManagingListId] = useState<string | null>(null)
-  const [publishingFor, setPublishingFor] = useState<string | null>(null)
+  // The list the "Editar precios" tab edits; null until chosen there, or preselected by "Gestionar precios".
+  const [editorListId, setEditorListId] = useState<string | null>(null)
   const [page, setPage] = useState<CompositionPage | null>(null)
   const [search, setSearch] = useState('')
   const [view, setView] = useViewPreference('price-lists')
@@ -114,7 +101,7 @@ export function PriceListsScreen() {
   }, [refresh])
 
   const defaultPriceList = priceLists.find((list) => list.isDefault) ?? null
-  const managingList = priceLists.find((list) => list.id === managingListId) ?? null
+  const editedListId = editorListId ?? defaultPriceList?.id ?? priceLists[0]?.id ?? null
 
   const handleCreateDefault = async () => {
     setActionError(null)
@@ -200,21 +187,6 @@ export function PriceListsScreen() {
     )
   }
 
-  if (managingList) {
-    return (
-      <PriceListDetail
-        priceList={managingList}
-        presentations={presentations}
-        publishingFor={publishingFor}
-        setPublishingFor={setPublishingFor}
-        onBack={() => {
-          setManagingListId(null)
-          setPublishingFor(null)
-        }}
-      />
-    )
-  }
-
   return (
     <section className="flex w-full flex-col gap-6">
       <PageHeader
@@ -239,15 +211,17 @@ export function PriceListsScreen() {
       )}
 
       <nav aria-label={t('sectionsNav.label')} className="flex gap-2">
-        <Button variant={tab === 'prices' ? 'default' : 'outline'} size="sm" onClick={() => setTab('prices')}>
-          {t('sectionsNav.prices')}
-        </Button>
-        <Button variant={tab === 'suppliers' ? 'default' : 'outline'} size="sm" onClick={() => setTab('suppliers')}>
-          {t('sectionsNav.suppliers')}
-        </Button>
-        <Button variant={tab === 'import' ? 'default' : 'outline'} size="sm" onClick={() => setTab('import')}>
-          {t('sectionsNav.import')}
-        </Button>
+        {(['prices', 'edit', 'suppliers', 'import'] as const).map((section) => (
+          <Button
+            key={section}
+            variant={tab === section ? 'default' : 'outline'}
+            size="sm"
+            aria-pressed={tab === section}
+            onClick={() => setTab(section)}
+          >
+            {t(`sectionsNav.${section}`)}
+          </Button>
+        ))}
       </nav>
 
       {tab === 'prices' && (
@@ -282,8 +256,8 @@ export function PriceListsScreen() {
                   variant="outline"
                   size="sm"
                   onClick={() => {
-                    setManagingListId(list.id)
-                    setPublishingFor(null)
+                    setEditorListId(list.id)
+                    setTab('edit')
                   }}
                 >
                   {t('actions.managePrices')}
@@ -294,6 +268,15 @@ export function PriceListsScreen() {
         </>
       )}
 
+      {tab === 'edit' && (
+        <PriceEditorTab
+          priceLists={priceLists}
+          presentations={presentations}
+          priceListId={editedListId}
+          onPriceListChange={setEditorListId}
+        />
+      )}
+
       {tab === 'suppliers' && (
         <p className="text-sm text-muted-foreground">
           {t('suppliersPlaceholder')}
@@ -302,160 +285,6 @@ export function PriceListsScreen() {
 
       {tab === 'import' && <ImportTab />}
     </section>
-  )
-}
-
-/**
- * T9: the nested surface — the price entries (`PriceListEntryRecord`) the
- * managed list holds, reached per presentation through `PriceHistory`, plus
- * the publish form — as its own full-screen `FormPage`, reached only by
- * clicking "Manage prices" (`PriceListsScreen`'s `managingListId`).
- * Deliberately NOT a second `DataView`: one view switch cannot sensibly own
- * two grids, and this nested surface is per-presentation history plus a
- * publish form rather than a flat record list (see the screen's own remark
- * above).
- */
-function PriceListDetail({
-  priceList,
-  presentations,
-  publishingFor,
-  setPublishingFor,
-  onBack,
-}: {
-  priceList: PriceListRecord
-  presentations: PresentationRecord[]
-  publishingFor: string | null
-  setPublishingFor: (presentationId: string | null) => void
-  onBack: () => void
-}) {
-  const { t } = useTranslation('priceLists')
-  return (
-    <FormPage
-      title={t('detail.title', { name: priceList.name })}
-      description={t('detail.description')}
-      onBack={onBack}
-      backLabel={t('detail.backLabel')}
-    >
-      <PriceDateFilter priceListId={priceList.id} presentations={presentations} />
-
-      <div data-testid="price-list-entries" className="flex w-full flex-col gap-3">
-        {presentations.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{t('detail.noPresentations')}</p>
-        ) : (
-          <ul className="flex flex-col gap-3">
-            {presentations.map((presentation) => (
-              <li key={presentation.id} className="border-b border-border pb-3 last:border-0 last:pb-0">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="font-medium break-words">{presentation.name}</p>
-                    <p className="text-xs text-muted-foreground">{presentation.identificationCode ?? t('detail.noCode')}</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <PriceHistory priceListId={priceList.id} presentationId={presentation.id} />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setPublishingFor(publishingFor === presentation.id ? null : presentation.id)}
-                    >
-                      {t('detail.newPrice')}
-                    </Button>
-                  </div>
-                </div>
-                {publishingFor === presentation.id && (
-                  <NewPriceForm
-                    priceListId={priceList.id}
-                    presentationId={presentation.id}
-                    onCancel={() => setPublishingFor(null)}
-                    onPublished={() => setPublishingFor(null)}
-                  />
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </FormPage>
-  )
-}
-
-function NewPriceForm({
-  priceListId,
-  presentationId,
-  onCancel,
-  onPublished,
-}: {
-  priceListId: string
-  presentationId: string
-  onCancel: () => void
-  onPublished: () => void
-}) {
-  const { t } = useTranslation('priceLists')
-  const [unitPrice, setUnitPrice] = useState('')
-  const [effectiveFrom, setEffectiveFrom] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [submitting, setSubmitting] = useState(false)
-
-  const handleSubmit = async (event: FormEvent) => {
-    event.preventDefault()
-    setError(null)
-    setSubmitting(true)
-    try {
-      await appendEntry(priceListId, {
-        presentationId,
-        unitPrice: Number(unitPrice),
-        effectiveFrom,
-      })
-      onPublished()
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : t('errors.unexpectedPublish'))
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  return (
-    <form className="mt-2 flex flex-wrap items-end gap-2" onSubmit={handleSubmit}>
-      <div className="flex flex-col gap-1.5">
-        {/* Neutral label on purpose. `openspec/changes/commerce-price-composition`
-            (proposed, NOT implemented) turns `PriceListEntry.unitPrice` into a
-            BASE price, with the sellable price derived from the list's rate
-            components (IVA, IB, freight, markup). When that lands, this label —
-            and `PriceHistory`'s rendering of the same field — is what has to
-            change. Until then the screen shows the stored figure only, with no
-            derived column, tax breakdown or total. */}
-        <Label htmlFor={`unitPrice-${presentationId}`}>{t('newPriceForm.unitPriceLabel')}</Label>
-        <Input
-          id={`unitPrice-${presentationId}`}
-          type="number"
-          step="0.01"
-          value={unitPrice}
-          onChange={(e) => setUnitPrice(e.target.value)}
-          required
-        />
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor={`effectiveFrom-${presentationId}`}>{t('newPriceForm.effectiveFromLabel')}</Label>
-        <Input
-          id={`effectiveFrom-${presentationId}`}
-          type="date"
-          value={effectiveFrom}
-          onChange={(e) => setEffectiveFrom(e.target.value)}
-          required
-        />
-      </div>
-      {error && (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
-      )}
-      <Button type="submit" size="sm" disabled={submitting}>
-        {submitting ? t('newPriceForm.publishing') : t('newPriceForm.publish')}
-      </Button>
-      <Button type="button" variant="outline" size="sm" onClick={onCancel} disabled={submitting}>
-        {t('newPriceForm.cancel')}
-      </Button>
-    </form>
   )
 }
 

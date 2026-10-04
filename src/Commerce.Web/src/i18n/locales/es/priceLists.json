@@ -6,7 +6,6 @@
   "errors": {
     "unexpectedLoad": "Error inesperado al cargar las listas de precios.",
     "unexpectedCreateDefault": "Error inesperado al crear la lista de precios predeterminada.",
-    "unexpectedPublish": "Error inesperado al publicar el precio.",
     "unexpectedLoadSupplierMappings": "Error inesperado al cargar los mapeos de proveedores.",
     "unexpectedUpload": "Error inesperado al subir el archivo.",
     "unexpectedCommit": "Error inesperado al confirmar el lote.",
@@ -16,6 +15,7 @@
   "sectionsNav": {
     "label": "Secciones de listas de precios",
     "prices": "Precios",
+    "edit": "Editar precios",
     "suppliers": "Proveedores",
     "import": "Importar"
   },
@@ -40,42 +40,59 @@
     "composition": "Composición",
     "copy": "Copiar lista"
   },
-  "suppliersPlaceholder": "Los mapeos de proveedores (mapeo de columnas para importaciones de Excel) llegarán en una futura versión; la tabla `supplier_price_mappings` todavía no existe.",
-  "detail": {
-    "title": "Precios en {{name}}",
-    "description": "Las entradas publicadas de cada presentación, con la fecha de vigencia más reciente primero.",
-    "backLabel": "Volver a listas de precios",
-    "noPresentations": "Todavía no hay presentaciones.",
-    "noCode": "Sin código",
-    "newPrice": "Nuevo precio"
-  },
-  "newPriceForm": {
-    "unitPriceLabel": "Precio unitario",
+  "editor": {
+    "listLabel": "Lista de precios",
+    "noList": "Elegí una lista",
+    "loading": "Cargando precios…",
+    "empty": "Todavía no hay productos en el catálogo.",
+    "noMatch": "Ningún producto coincide con la búsqueda.",
+    "search": {
+      "label": "Buscar productos",
+      "placeholder": "Producto o código…"
+    },
+    "categoryLabel": "Categoría",
+    "allCategories": "Todas las categorías",
     "effectiveFromLabel": "Vigente desde",
-    "publishing": "Publicando…",
-    "publish": "Publicar",
-    "cancel": "Cancelar"
-  },
-  "dateFilter": {
-    "title": "Filtrar por fecha",
-    "asOfLabel": "Al día",
-    "or": "o",
-    "fromLabel": "Desde",
-    "toLabel": "Hasta",
-    "apply": "Aplicar",
-    "clear": "Limpiar",
-    "loading": "Cargando…",
-    "empty": "No hay precios vigentes para esta fecha.",
-    "rangeBothRequired": "Ingrese ambas fechas del rango.",
-    "unexpectedLoad": "Error inesperado al cargar los precios por fecha.",
+    "remark": {
+      "label": "Remarcar %",
+      "placeholder": "Ej: 10 o -5",
+      "apply": "Aplicar",
+      "hint": "Se aplica sobre el precio base de las filas seleccionadas o, si no hay ninguna, de todas las filas visibles. Revisá la vista previa antes de publicar.",
+      "invalid": "Ingresá un porcentaje mayor que -100."
+    },
     "columns": {
+      "product": "Producto",
       "presentation": "Presentación",
-      "price": "Precio",
-      "effectiveFrom": "Vigente desde"
+      "code": "Código",
+      "category": "Categoría",
+      "base": "Base actual",
+      "final": "Final actual",
+      "newBase": "Nueva base",
+      "history": "Historial"
+    },
+    "selectAll": "Seleccionar todas las filas visibles",
+    "selectRow": "Seleccionar {{name}}",
+    "newBaseOf": "Nueva base de {{name}}",
+    "historyOf": "Historial de {{name}}",
+    "firstPrice": "Primer precio: {{price}}",
+    "changedCount_one": "{{count}} precio modificado",
+    "changedCount_other": "{{count}} precios modificados",
+    "undo": "Deshacer cambios",
+    "publish": "Publicar cambios",
+    "publishing": "Publicando…",
+    "published_one": "Se publicó {{count}} precio.",
+    "published_other": "Se publicaron {{count}} precios.",
+    "violation": "{{price}} queda por debajo del piso {{floor}} ({{floorPrice}}).",
+    "dependentViolation": "Deja a {{list}} en {{price}}, por debajo de su piso {{floor}} ({{floorPrice}}).",
+    "errors": {
+      "invalidPrice": "Ingresá un precio mayor que cero, con hasta dos decimales.",
+      "belowFloor": "No se publicó ningún precio: hay precios por debajo de su lista piso. Corregí las filas marcadas.",
+      "unexpectedLoad": "Error inesperado al cargar los precios.",
+      "unexpectedPublish": "Error inesperado al publicar los precios."
     }
   },
+  "suppliersPlaceholder": "Los mapeos de proveedores (mapeo de columnas para importaciones de Excel) llegarán en una futura versión; la tabla `supplier_price_mappings` todavía no existe.",
   "history": {
-    "hide": "Ocultar historial",
     "show": "Historial",
     "loading": "Cargando historial…",
     "unexpectedLoad": "Error inesperado al cargar el historial de precios.",
