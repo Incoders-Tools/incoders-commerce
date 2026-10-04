@@ -108,6 +108,22 @@ internal static class PosHttp
         }
     }
 
+    /// <summary>The server's own words inside an already-read body: its `message`, else its `error`; null when neither.</summary>
+    public static string? ParseErrorMessage(string body)
+    {
+        try
+        {
+            var parsed = JsonSerializer.Deserialize<ErrorBodyDto>(body, WebOptions);
+            return NullIfBlank(parsed?.Message) ?? NullIfBlank(parsed?.Error);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+
+        static string? NullIfBlank(string? text) => string.IsNullOrWhiteSpace(text) ? null : text.Trim();
+    }
+
     public static void LogTransportFailure(string endpoint, Exception exception) =>
         PosLog.Error(Category, $"{endpoint} -> transport failure ({exception.GetType().Name}).", exception);
 
@@ -121,5 +137,5 @@ internal static class PosHttp
 
     public static string Endpoint(HttpMethod method, string path) => $"{method.Method} {path}";
 
-    private sealed record ErrorBodyDto(string? Error);
+    private sealed record ErrorBodyDto(string? Error, string? Message = null);
 }

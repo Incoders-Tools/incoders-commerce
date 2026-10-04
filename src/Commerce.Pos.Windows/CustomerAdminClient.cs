@@ -19,6 +19,9 @@ public sealed class CustomerAdminClient
     /// <summary>Safety stop for the city paging (a province has at most a few thousand localities).</summary>
     private const int MaxCityPages = 50;
 
+    /// <summary>The <c>error</c> of the 409 <c>PUT /customers/{id}</c> answers when <c>ExpectedUpdatedAtUtc</c> is stale.</summary>
+    internal const string CustomerModifiedError = "customer-modified";
+
     private readonly HttpClient _httpClient;
 
     /// <summary>Over the shared management client (or a caller-owned one in request-contract tests).</summary>
@@ -133,9 +136,15 @@ public sealed class CustomerAdminClient
         CreateCustomerAdminRequestDto request, CancellationToken ct = default) =>
         SendAsync(HttpMethod.Post, "/customers", () => _httpClient.PostAsJsonAsync("/customers", request, ct), ct);
 
-    public Task<CustomerAdminMutationOutcome> UpdateCustomerAsync(
-        Guid id, UpdateCustomerAdminRequestDto request, CancellationToken ct = default) =>
-        SendAsync(HttpMethod.Put, $"/customers/{id}", () => _httpClient.PutAsJsonAsync($"/customers/{id}", request, ct), ct);
+    /// <summary>The outcome carries the customer as saved (<see cref="CustomerAdminMutationOutcome.Customer"/>) when the answer is readable.</summary>
+    public async Task<CustomerAdminMutationOutcome> UpdateCustomerAsync(
+        Guid id, UpdateCustomerAdminRequestDto request, CancellationToken ct = default)
+    {
+        var path = $"/customers/{id}";
+        var (outcome, saved) = await SendAsync(HttpMethod.Put, path, () => _httpClient.PutAsJsonAsync(path, request, ct), ct,
+            response => PosHttp.TryReadJsonAsync<CustomerAdminRecordDto>(response, PosHttp.Endpoint(HttpMethod.Put, path), ct));
+        return outcome with { Customer = saved };
+    }
 
     private static async Task<CustomerAdminMutationOutcome> SendAsync(
         HttpMethod method, string path, Func<Task<HttpResponseMessage>> send, CancellationToken ct) =>
@@ -165,14 +174,16 @@ public sealed class CustomerAdminClient
                 HttpStatusCode.NotFound => CustomerAdminMutationOutcome.NotFound(),
                 HttpStatusCode.BadRequest => CustomerAdminMutationOutcome.Failed(PosMessages.InvalidData),
                 // The server's optimistic check (ExpectedUpdatedAtUtc): someone saved the customer after it was read.
-                HttpStatusCode.Conflict => CustomerAdminMutationOutcome.Failed(PosMessages.CustomerModified),
+                HttpStatusCode.Conflict when PosHttp.ParseErrorCode(body) == CustomerModifiedError => CustomerAdminMutationOutcome.Modified(),
+                // Any other conflict says what it is when the server does; never "someone modified it".
+                HttpStatusCode.Conflict => CustomerAdminMutationOutcome.Failed(PosHttp.ParseErrorMessage(body) ?? PosMessages.Conflict),
                 _ => CustomerAdminMutationOutcome.Failed(PosHttp.MessageFor(response)),
             }, null);
         }
         catch (Exception ex) when (PosHttp.IsTransportFailure(ex, ct))
         {
             PosHttp.LogTransportFailure(endpoint, ex);
-            return (CustomerAdminMutationOutcome.Failed(PosMessages.ServerUnreachable), null);
+            return (CustomerAdminMutationOutcome.Unreachable(), null);
         }
     }
 }
@@ -235,6 +246,14 @@ public sealed record CustomerAdminMutationOutcome(CustomerAdminMutationKind Kind
         new(CustomerAdminMutationKind.NotFound, PosMessages.CustomerNotFound);
 
     public static CustomerAdminMutationOutcome Failed(string message) => new(CustomerAdminMutationKind.Failed, message);
+
+    public static CustomerAdminMutationOutcome Modified(string? message = null) =>
+        new(CustomerAdminMutationKind.Modified, message ?? PosMessages.CustomerModified);
+
+    public static CustomerAdminMutationOutcome Unreachable() => new(CustomerAdminMutationKind.Unreachable, PosMessages.ServerUnreachable);
+
+    /// <summary>The customer as the server saved it (a successful update), when its answer could be read.</summary>
+    public CustomerAdminRecordDto? Customer { get; init; }
 }
 
 public enum CustomerAdminMutationKind
@@ -243,4 +262,10 @@ public enum CustomerAdminMutationKind
     Forbidden,
     NotFound,
     Failed,
+
+    /// <summary>409 <c>customer-modified</c>: someone saved the customer after the version the change was built on.</summary>
+    Modified,
+
+    /// <summary>The server could not be reached (timeout, no network): there is no server answer.</summary>
+    Unreachable,
 }

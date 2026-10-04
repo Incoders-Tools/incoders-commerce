@@ -122,6 +122,11 @@ public static class PosMessages
 
     public const string CustomerModified = "Otra persona modificó el cliente mientras tanto. Revisá la lista actualizada y volvé a intentarlo.";
 
+    public const string CustomerReloadedAfterConflict =
+        "Otra persona guardó este cliente mientras lo editabas. Se cargaron sus datos actuales: volvé a aplicar tus cambios y guardá.";
+
+    public const string Conflict = "El servidor rechazó el cambio porque choca con otros datos. Revisalos e intentá de nuevo.";
+
     public const string SaveFailed = "No se pudieron guardar los cambios.";
 
     public const string Saved = "Cambios guardados.";

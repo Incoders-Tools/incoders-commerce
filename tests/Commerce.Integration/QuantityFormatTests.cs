@@ -135,4 +135,36 @@ public sealed class QuantityFormatTests
         Assert.Equal("¿Confirmás 50.001 kg de Lengua?", InCulture("es-AR", () => SaleQuantity.ConfirmationQuestion(50.001m, "Weighted", "Lengua", Dot)));
         Assert.Equal("¿Confirmás 60,000 de Aceite suelto?", SaleQuantity.ConfirmationQuestion(60m, "Bulk", "Aceite suelto", Comma));
     }
+
+    // ---- T7: the confirmation looks at the kilos the LINE ends with ----------------
+
+    [Theory]
+    [InlineData(null, 30, 30)] // adding a product that is not in the sale yet
+    [InlineData(30.0, 30, 60)] // adding the same weighted product merges into its line
+    [InlineData(null, 60, 60)] // editing a line: the edited value replaces its kilos
+    public void TheResultingKilos_AreTheLineKilosPlusTheEntered_WhenTheProductMerges(double? onLine, double entered, double resulting) =>
+        Assert.Equal((decimal)resulting, SaleQuantity.ResultingQuantity((decimal?)onLine, (decimal)entered));
+
+    [Theory]
+    [InlineData(null, 30, false)]
+    [InlineData(30.0, 30, true)] // 30 + 30 kg reaches 60 kg: asks, though each entry is below the threshold
+    [InlineData(20.0, 30, false)] // 50 kg on the line is accepted as is
+    [InlineData(20.0, 30.001, true)] // 50,001 kg on the line asks
+    [InlineData(null, 50, false)] // editing to 50 kg
+    [InlineData(null, 50.001, true)] // editing to 50,001 kg
+    public void TheConfirmation_IsDecidedOnTheResultingLineKilos(double? onLine, double entered, bool asks) =>
+        Assert.Equal(asks, SaleQuantity.NeedsConfirmation(SaleQuantity.ResultingQuantity((decimal?)onLine, (decimal)entered)));
+
+    [Fact]
+    public void TheQuestion_ShowsTheResultingTotal_AndWhatItAddsUpFrom_WhenItMerges()
+    {
+        Assert.Equal("¿Confirmás 60,000 kg de Lengua (30,000 + 30,000)?",
+            InCulture("en-US", () => SaleQuantity.ConfirmationQuestion(30m, 30m, "Weighted", "Lengua", Comma)));
+        Assert.Equal("¿Confirmás 50.001 kg de Lengua (20.000 + 30.001)?",
+            InCulture("es-AR", () => SaleQuantity.ConfirmationQuestion(30.001m, 20m, "Weighted", "Lengua", Dot)));
+        // Nothing on the line (a new product or an edit): just the total, as before.
+        Assert.Equal("¿Confirmás 60,000 kg de Lengua?", SaleQuantity.ConfirmationQuestion(60m, null, "Weighted", "Lengua", Comma));
+        Assert.Equal("¿Confirmás 60,000 de Aceite suelto (10,000 + 50,000)?",
+            SaleQuantity.ConfirmationQuestion(50m, 10m, "Bulk", "Aceite suelto", Comma));
+    }
 }

@@ -13,7 +13,8 @@ namespace Commerce.Pos.Windows;
 /// decimal comma OR a decimal point (Spanish keyboards type the comma); a thousands separator is never accepted.
 ///
 /// Preventive confirmation (T6): a measure above <see cref="ConfirmAboveKilos"/> is confirmed by the operator before it
-/// is used (<see cref="NeedsConfirmation"/>); there is no hard cap.
+/// is used (<see cref="NeedsConfirmation"/>); there is no hard cap. The measure checked is the one the LINE ends with
+/// (T7, <see cref="ResultingQuantity"/>), since adding a product already in the sale merges into its line.
 /// </summary>
 public static class SaleQuantity
 {
@@ -30,6 +31,29 @@ public static class SaleQuantity
     /// <summary>"¿Confirmás 550,000 kg de Lengua?": the measure as the sale shows it, with the organization's separator.</summary>
     public static string ConfirmationQuestion(decimal quantity, string? quantityBehavior, string productName, QuantityFormat format) =>
         $"¿Confirmás {Text(quantity, quantityBehavior, format)} de {productName}?";
+
+    /// <summary>
+    /// The measure the line ends with (T7), which is what <see cref="NeedsConfirmation"/> looks at: adding a product that
+    /// is already in the sale merges into its line, so <paramref name="onLine"/> (its current kilos) plus the entered
+    /// ones; adding a new product or editing a line passes null, and the entered value is the line's.
+    /// </summary>
+    public static decimal ResultingQuantity(decimal? onLine, decimal entered) => (onLine ?? 0m) + entered;
+
+    /// <summary>
+    /// The question for the resulting line (<see cref="ResultingQuantity"/>): "¿Confirmás 60,000 kg de Lengua
+    /// (30,000 + 30,000)?" when it merges into a line with kilos, otherwise as <see cref="ConfirmationQuestion(decimal, string?, string, QuantityFormat)"/>.
+    /// </summary>
+    public static string ConfirmationQuestion(decimal entered, decimal? onLine, string? quantityBehavior, string productName, QuantityFormat format)
+    {
+        if (onLine is not { } current || current <= 0m)
+        {
+            return ConfirmationQuestion(entered, quantityBehavior, productName, format);
+        }
+
+        var total = Text(ResultingQuantity(current, entered), quantityBehavior, format);
+        var parts = $"{EditText(current, quantityBehavior, format)} + {EditText(entered, quantityBehavior, format)}";
+        return $"¿Confirmás {total} de {productName} ({parts})?";
+    }
 
     /// <summary>The line is in kilos (or litres) with decimals and is entered by its measure, never stepped by one.</summary>
     public static bool IsMeasured(string? quantityBehavior) => quantityBehavior is Weighted or Bulk;

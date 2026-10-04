@@ -61,6 +61,13 @@ public static class CustomerList
     /// someone saves in between. The asked state comes from the row the operator acted on; when the fresh record
     /// already has it, nothing is written.
     /// </summary>
+    /// <summary>
+    /// A refused toggle reloads the list so the operator sees what is stored now (T7): only after a server answer, never
+    /// when the server could not be reached (the list could not be read either).
+    /// </summary>
+    public static bool ReloadAfterFailedToggle(CustomerAdminMutationOutcome outcome) =>
+        outcome.Kind != CustomerAdminMutationKind.Unreachable;
+
     public static async Task<CustomerAdminMutationOutcome> ToggleEnabledAsync(
         CustomerAdminClient client, CustomerAdminRecordDto row, CancellationToken ct = default)
     {

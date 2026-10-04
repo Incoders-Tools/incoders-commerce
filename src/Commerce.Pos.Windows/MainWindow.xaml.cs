@@ -823,7 +823,8 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// Adds a product to the sale: one unit of a fixed-quantity product, or the kilos the operator enters for a weighted
-    /// (or bulk) one. Cancelling the kilos prompt adds nothing.
+    /// (or bulk) one. Cancelling the kilos prompt adds nothing. The kilos merge into the product's line when it is already
+    /// in the sale, so the prompt confirms the line's resulting kilos (T7).
     /// </summary>
     private async Task<SaleCartResult> AddToCartAsync(CatalogPriceReplicaItem item)
     {
@@ -832,7 +833,8 @@ public partial class MainWindow : Window
             return await _cart.AddAsync(item);
         }
 
-        var quantity = RequestMeasuredQuantity(item.ProductName, $"{item.ProductName} — {item.PresentationName}", item.QuantityBehavior, current: null);
+        var quantity = RequestMeasuredQuantity(
+            item.ProductName, $"{item.ProductName} — {item.PresentationName}", item.QuantityBehavior, current: null, onLine: _cart.Lines.FirstOrDefault(l => l.PresentationId == item.PresentationId)?.Quantity);
         return quantity is { } measured ? await _cart.AddAsync(item, measured) : SaleCartResult.Ok;
     }
 
@@ -844,23 +846,24 @@ public partial class MainWindow : Window
             return SaleCartResult.Ok;
         }
 
-        var quantity = RequestMeasuredQuantity(line.ProductName, line.DisplayName, line.QuantityBehavior, line.Quantity);
+        var quantity = RequestMeasuredQuantity(line.ProductName, line.DisplayName, line.QuantityBehavior, line.Quantity, onLine: null);
         return quantity is { } measured ? await _cart.SetQuantityAsync(presentationId, measured) : SaleCartResult.Ok;
     }
 
     /// <summary>
     /// The ONE entry point for the measure of a weighted (or bulk) product, to add it (<paramref name="current"/> null,
     /// the prompt opens empty) or to edit its line. Today the operator types it; a scale integration will supply it here.
-    /// Above <see cref="SaleQuantity.ConfirmAboveKilos"/> the prompt asks the operator to confirm the measure (T6) before
+    /// When the line ends above <see cref="SaleQuantity.ConfirmAboveKilos"/> (<paramref name="onLine"/>, the kilos already
+    /// on the line an addition merges into, plus the entered ones; T6/T7) the prompt asks the operator to confirm before
     /// returning it. Returns null when the operator cancelled.
     /// </summary>
-    private decimal? RequestMeasuredQuantity(string productName, string subject, string quantityBehavior, decimal? current)
+    private decimal? RequestMeasuredQuantity(string productName, string subject, string quantityBehavior, decimal? current, decimal? onLine)
     {
         var weighted = quantityBehavior == SaleQuantity.Weighted;
         var heading = current is null
             ? weighted ? "¿Cuántos kilos?" : "¿Qué cantidad?"
             : weighted ? "Editar kilos" : "Editar cantidad";
-        var window = new MeasuredQuantityWindow(heading, productName, subject, quantityBehavior, current, _quantityFormat) { Owner = this };
+        var window = new MeasuredQuantityWindow(heading, productName, subject, quantityBehavior, current, onLine, _quantityFormat) { Owner = this };
         var quantity = window.ShowDialog() == true ? window.Quantity : (decimal?)null;
         FocusSearchBox();
         return quantity;

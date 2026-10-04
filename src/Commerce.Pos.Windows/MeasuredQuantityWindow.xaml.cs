@@ -8,7 +8,8 @@ namespace Commerce.Pos.Windows;
 /// empty; editing a line prefills its current kilos (with the organization's decimal separator, T5). It only reads and
 /// validates the quantity (<see cref="SaleQuantity"/>); the host applies it to the cart. A measure above
 /// <see cref="SaleQuantity.ConfirmAboveKilos"/> is confirmed in the prompt itself (T6): "Sí" returns it, "No" (or Esc)
-/// returns to the input with the typed value selected. Only <c>RequestMeasuredQuantity</c> opens it, so adding, the
+/// returns to the input with the typed value selected. The measure checked is the line's after the change (T7): the
+/// kilos already on the line the entry merges into (<c>onLine</c>, null when editing) plus the typed ones. Only <c>RequestMeasuredQuantity</c> opens it, so adding, the
 /// card's "-" and editing a line all ask the same way.
 /// </summary>
 public partial class MeasuredQuantityWindow : Window
@@ -16,14 +17,17 @@ public partial class MeasuredQuantityWindow : Window
     private readonly string _quantityBehavior;
     private readonly string _productName;
     private readonly QuantityFormat _quantityFormat;
+    private readonly decimal? _onLine;
     private decimal _pending;
 
     public MeasuredQuantityWindow(
-        string heading, string productName, string subject, string quantityBehavior, decimal? current, QuantityFormat quantityFormat)
+        string heading, string productName, string subject, string quantityBehavior, decimal? current, decimal? onLine,
+        QuantityFormat quantityFormat)
     {
         InitializeComponent();
 
         _quantityBehavior = quantityBehavior;
+        _onLine = onLine;
         _productName = productName;
         _quantityFormat = quantityFormat;
         Title = heading;
@@ -63,12 +67,12 @@ public partial class MeasuredQuantityWindow : Window
             return;
         }
 
-        if (SaleQuantity.NeedsConfirmation(quantity))
+        if (SaleQuantity.NeedsConfirmation(SaleQuantity.ResultingQuantity(_onLine, quantity)))
         {
             // Preventive, never a cap: the operator says whether the measure is right. "No" has the focus, so a second
             // Enter never confirms an unusual measure by accident.
             _pending = quantity;
-            ConfirmationText.Text = SaleQuantity.ConfirmationQuestion(quantity, _quantityBehavior, _productName, _quantityFormat);
+            ConfirmationText.Text = SaleQuantity.ConfirmationQuestion(quantity, _onLine, _quantityBehavior, _productName, _quantityFormat);
             ShowConfirmation(true);
             NoButton.Focus();
             return;

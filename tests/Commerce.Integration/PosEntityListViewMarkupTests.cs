@@ -171,6 +171,28 @@ public sealed class PosEntityListViewMarkupTests
     }
 
     [Fact]
+    public void CustomersView_AFailedToggle_ReloadsTheListOnlyAfterAServerAnswer()
+    {
+        var toggle = CustomersCode[CustomersCode.IndexOf("private Task ToggleEnabledAsync(", StringComparison.Ordinal)..];
+        toggle = toggle[..toggle.IndexOf("private async Task FillFormAsync(", StringComparison.Ordinal)];
+
+        Assert.Matches(@"if \(CustomerList\.ReloadAfterFailedToggle\(outcome\)\)\s*\{\s*await LoadCustomersAsync\(\);", toggle);
+        Assert.Contains("CustomerFormSave.VersionAfterToggle(", toggle);
+    }
+
+    [Fact]
+    public void CustomersView_SavesAnEditWithTheLoadedVersion_AndRefillsTheFormWhenSomeoneSavedMeanwhile()
+    {
+        var save = CustomersCode[CustomersCode.IndexOf("private async void SaveButton_Click(", StringComparison.Ordinal)..];
+
+        Assert.Contains("CustomerFormSave.UpdateAsync(_adminClient, id, loadedUpdatedAtUtc, ", save);
+        Assert.DoesNotContain("_adminClient.UpdateCustomerAsync(", CustomersCode);
+        // The editor stays open on the customer as stored now; the operator re-applies the changes.
+        Assert.Matches(@"CustomerAdminMutationKind\.Modified[^}]*FillFields\(current\);\s*await FillAddressAsync\(", save);
+        Assert.Contains("_loadedUpdatedAtUtc = selected.UpdatedAtUtc;", CustomersCode);
+    }
+
+    [Fact]
     public void CustomersView_LaysTheAddressOutInRows_InTheAgreedOrder()
     {
         var labels = new[] { "\"Provincia\"", "\"Ciudad\"", "\"Código postal\"", "\"Barrio\"", "\"Calle\"", "\"Número\"", "\"Notas de entrega\"" };

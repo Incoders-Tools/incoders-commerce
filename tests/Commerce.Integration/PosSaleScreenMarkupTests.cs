@@ -92,13 +92,16 @@ public sealed class PosSaleScreenMarkupTests
         var entry = code[code.IndexOf("private decimal? RequestMeasuredQuantity(", StringComparison.Ordinal)..];
         entry = entry[..entry.IndexOf("private void FocusSearchBox()", StringComparison.Ordinal)];
         // The one entry point opens the one prompt with the product and the organization's quantity format.
-        Assert.Contains("new MeasuredQuantityWindow(heading, productName, subject, quantityBehavior, current, _quantityFormat)", entry);
+        Assert.Contains("new MeasuredQuantityWindow(heading, productName, subject, quantityBehavior, current, onLine, _quantityFormat)", entry);
         Assert.DoesNotContain("MessageBox", code);
+        // T7: adding passes the kilos already on the product's line (it merges into it); editing passes none.
+        Assert.Matches(@"RequestMeasuredQuantity\([^;]*item\.QuantityBehavior, current: null, onLine: _cart\.Lines\.FirstOrDefault\(l => l\.PresentationId == item\.PresentationId\)\?\.Quantity\)", code);
+        Assert.Matches(@"RequestMeasuredQuantity\([^;]*line\.Quantity, onLine: null\)", code);
 
         var prompt = Read("MeasuredQuantityWindow.xaml.cs");
         var window = Read("MeasuredQuantityWindow.xaml");
-        Assert.Contains("SaleQuantity.NeedsConfirmation(quantity)", prompt);
-        Assert.Contains("SaleQuantity.ConfirmationQuestion(", prompt);
+        Assert.Contains("SaleQuantity.NeedsConfirmation(SaleQuantity.ResultingQuantity(_onLine, quantity))", prompt);
+        Assert.Contains("SaleQuantity.ConfirmationQuestion(quantity, _onLine, ", prompt);
         Assert.Contains("x:Name=\"ConfirmationPanel\"", window);
         Assert.Contains("x:Name=\"YesButton\"", window);
         Assert.Contains("x:Name=\"NoButton\"", window);

@@ -37,6 +37,9 @@ public partial class CustomersView : UserControl, ISectionView
     private readonly EntityListModel<CustomerAdminRecordDto> _list;
     private Guid? _selectedCustomerId;
 
+    // The UpdatedAtUtc of the record the form was filled from: Guardar sends it so the server refuses a stale update (T7).
+    private DateTimeOffset _loadedUpdatedAtUtc;
+
     // The postal code the current city filled in, so a later city replaces it but never a hand-typed one.
     private string? _cityPostalCode;
 
@@ -136,7 +139,8 @@ public partial class CustomersView : UserControl, ISectionView
     /// Habilitar / Deshabilitar (after the inline confirmation) through the same <c>PUT /customers/{id}</c> the form
     /// uses, built from the customer read again right before it (<see cref="CustomerList.ToggleEnabledAsync"/>), so only
     /// the enabled state changes; an open form on that customer follows the new state so a later Guardar does not undo
-    /// it. A refused toggle reloads the list too, so the operator sees what is stored now.
+    /// it, and carries the version the toggle saved (<see cref="CustomerFormSave.VersionAfterToggle"/>). A refused toggle
+    /// reloads the list too, so the operator sees what is stored now, unless the server could not be reached (T7).
     /// </summary>
     private Task ToggleEnabledAsync(CustomerAdminRecordDto customer) => _busy.RunAsync(PosMessages.Saving, async () =>
     {
@@ -144,7 +148,11 @@ public partial class CustomersView : UserControl, ISectionView
         var outcome = await CustomerList.ToggleEnabledAsync(_adminClient, customer, _busy.Token);
         if (outcome.Kind != CustomerAdminMutationKind.Succeeded)
         {
-            await LoadCustomersAsync();
+            if (CustomerList.ReloadAfterFailedToggle(outcome))
+            {
+                await LoadCustomersAsync();
+            }
+
             ShowStatus(outcome.ErrorMessage ?? PosMessages.SaveFailed, isError: true);
             return;
         }
@@ -152,6 +160,7 @@ public partial class CustomersView : UserControl, ISectionView
         if (_selectedCustomerId == customer.Id)
         {
             IsEnabledCheckBox.IsChecked = !customer.IsEnabled;
+            _loadedUpdatedAtUtc = CustomerFormSave.VersionAfterToggle(_loadedUpdatedAtUtc, customer, outcome.Customer);
         }
 
         ShowStatus(PosMessages.Saved, isError: false);
@@ -160,7 +169,17 @@ public partial class CustomersView : UserControl, ISectionView
 
     private async Task FillFormAsync(CustomerAdminRecordDto selected)
     {
+        FillFields(selected);
+
+        // The stored city preselects its province; the stored postal code is kept as it is.
+        await _busy.RunAsync(PosMessages.Loading, () => FillAddressAsync(selected.ProvinceId, selected.CityId));
+    }
+
+    /// <summary>Every field but the address from a stored customer; the caller fills the address (<see cref="FillAddressAsync"/>).</summary>
+    private void FillFields(CustomerAdminRecordDto selected)
+    {
         _selectedCustomerId = selected.Id;
+        _loadedUpdatedAtUtc = selected.UpdatedAtUtc;
 
         _fillingForm = true;
         CustomerKindComboBox.SelectedValue = selected.CustomerKind;
@@ -187,9 +206,6 @@ public partial class CustomersView : UserControl, ISectionView
         // drives price-list selection, so flipping it retroactively changes
         // commercial meaning. The same rule applies on the desktop.
         CustomerKindComboBox.IsEnabled = false;
-
-        // The stored city preselects its province; the stored postal code is kept as it is.
-        await _busy.RunAsync(PosMessages.Loading, () => FillAddressAsync(selected.ProvinceId, selected.CityId));
     }
 
     // ---- address: Province -> City -> Postal code ------------------------------------
@@ -338,6 +354,7 @@ public partial class CustomersView : UserControl, ISectionView
         var cityId = CityComboBox.SelectedValue as Guid?;
         var cityChange = CustomerFormRules.CityChange(cityId, _cityChanged);
         var selectedCustomerId = _selectedCustomerId;
+        var loadedUpdatedAtUtc = _loadedUpdatedAtUtc;
         var isEnabled = IsEnabledCheckBox.IsChecked ?? true;
         var form = ReadForm();
 
@@ -346,11 +363,29 @@ public partial class CustomersView : UserControl, ISectionView
             CustomerAdminMutationOutcome outcome;
             if (selectedCustomerId is { } id)
             {
-                outcome = await _adminClient.UpdateCustomerAsync(id, new UpdateCustomerAdminRequestDto(
+                // Sent with the version the form was filled from: the server refuses it when someone saved meanwhile.
+                var result = await CustomerFormSave.UpdateAsync(_adminClient, id, loadedUpdatedAtUtc, new UpdateCustomerAdminRequestDto(
                     form.DisplayName, taxIdType, form.TaxId, taxCondition, form.Phone, form.Email,
                     form.AddressStreet, form.AddressNumber, form.Neighborhood, form.PostalCode,
                     form.DeliveryNotes, discountPercentage, form.PaymentTerms, form.Notes, isEnabled,
                     cityChange, partyType), _busy.Token);
+                outcome = result.Outcome;
+                if (result.Current is { } current && _selectedCustomerId == id)
+                {
+                    if (outcome.Kind == CustomerAdminMutationKind.Modified)
+                    {
+                        // Someone else saved it: the form (still open) shows the customer as stored now, the operator
+                        // re-applies the changes and saves again with this version.
+                        FillFields(current);
+                        await FillAddressAsync(current.ProvinceId, current.CityId);
+                        await LoadCustomersAsync();
+                        ShowStatus(outcome.ErrorMessage ?? PosMessages.CustomerModified, isError: true);
+                        return;
+                    }
+
+                    // The open form's next Guardar carries the version this one produced.
+                    _loadedUpdatedAtUtc = current.UpdatedAtUtc;
+                }
             }
             else
             {

@@ -236,7 +236,156 @@ public sealed class PosCustomerListTests
 
         var outcome = await CustomerList.ToggleEnabledAsync(AdminClient(server), Ana);
 
-        Assert.Equal(CustomerAdminMutationKind.Failed, outcome.Kind);
+        Assert.Equal(CustomerAdminMutationKind.Modified, outcome.Kind);
         Assert.Equal(PosMessages.CustomerModified, outcome.ErrorMessage);
+    }
+
+    // ---- T7 (b): only a 409 customer-modified means "someone saved it meanwhile" -------------------------------
+
+    private static async Task<CustomerAdminMutationOutcome> UpdateAnsweredWith(HttpResponseMessage answer) =>
+        await AdminClient(new CustomersServer((_, _) => answer)).UpdateCustomerAsync(Ana.Id, CustomerList.ToggleEnabledRequest(Ana));
+
+    [Fact]
+    public async Task A409CustomerModified_IsModified_WithTheCustomerModifiedMessage()
+    {
+        var outcome = await UpdateAnsweredWith(Json(new { error = "customer-modified" }, System.Net.HttpStatusCode.Conflict));
+
+        Assert.Equal((CustomerAdminMutationKind.Modified, PosMessages.CustomerModified), (outcome.Kind, outcome.ErrorMessage));
+    }
+
+    [Fact]
+    public async Task AnyOther409_ShowsTheServersMessage_OrItsError_OrAGenericConflict()
+    {
+        var withMessage = await UpdateAnsweredWith(
+            Json(new { error = "tax-id-taken", message = "Ya existe un cliente con ese CUIT." }, System.Net.HttpStatusCode.Conflict));
+        var withError = await UpdateAnsweredWith(Json(new { error = "tax-id-taken" }, System.Net.HttpStatusCode.Conflict));
+        var empty = await UpdateAnsweredWith(new HttpResponseMessage(System.Net.HttpStatusCode.Conflict));
+        var notJson = await UpdateAnsweredWith(new HttpResponseMessage(System.Net.HttpStatusCode.Conflict)
+        {
+            Content = new StringContent("<html>conflict</html>", System.Text.Encoding.UTF8, "text/html"),
+        });
+
+        Assert.Equal((CustomerAdminMutationKind.Failed, "Ya existe un cliente con ese CUIT."), (withMessage.Kind, withMessage.ErrorMessage));
+        Assert.Equal((CustomerAdminMutationKind.Failed, "tax-id-taken"), (withError.Kind, withError.ErrorMessage));
+        Assert.Equal((CustomerAdminMutationKind.Failed, PosMessages.Conflict), (empty.Kind, empty.ErrorMessage));
+        Assert.Equal((CustomerAdminMutationKind.Failed, PosMessages.Conflict), (notJson.Kind, notJson.ErrorMessage));
+        Assert.NotEqual(PosMessages.CustomerModified, PosMessages.Conflict);
+    }
+
+    [Fact]
+    public async Task ASuccessfulUpdate_CarriesTheCustomerAsTheServerSavedIt()
+    {
+        var saved = AnaChangedElsewhere with { IsEnabled = false };
+
+        var outcome = await UpdateAnsweredWith(Json(saved));
+
+        Assert.Equal(CustomerAdminMutationKind.Succeeded, outcome.Kind);
+        Assert.Equal(saved, outcome.Customer);
+    }
+
+    // ---- T7 (c): the form's Save sends the loaded version and reloads the customer on a 409 -------------------
+
+    private static readonly DateTimeOffset AnaLoadedAt = new(2026, 10, 4, 12, 0, 0, TimeSpan.Zero);
+
+    private static UpdateCustomerAdminRequestDto FormRequest => CustomerList.ToggleEnabledRequest(Ana) with { Phone = "2901 000000" };
+
+    [Fact]
+    public async Task SavingAnEdit_SendsTheLoadedRecordsUpdatedAtUtc_AndReturnsTheSavedCustomer()
+    {
+        var saved = Ana with { Phone = "2901 000000", UpdatedAtUtc = AnaLoadedAt.AddMinutes(5) };
+        var server = new CustomersServer((_, _) => Json(saved));
+
+        var result = await CustomerFormSave.UpdateAsync(AdminClient(server), Ana.Id, AnaLoadedAt, FormRequest);
+
+        Assert.Equal(CustomerAdminMutationKind.Succeeded, result.Outcome.Kind);
+        Assert.Equal([(HttpMethod.Put, $"/customers/{Ana.Id}")], server.Requests.Select(r => (r.Method, r.Path)));
+        var sent = System.Text.Json.JsonSerializer.Deserialize<UpdateCustomerAdminRequestDto>(server.Requests[0].Body!, Web)!;
+        Assert.Equal(FormRequest with { ExpectedUpdatedAtUtc = AnaLoadedAt }, sent);
+        // The next Save of the still open form must carry the version this save produced.
+        Assert.Equal(saved, result.Current);
+    }
+
+    [Fact]
+    public async Task SavingAnEdit_ThatSomeoneElseSavedMeanwhile_ReloadsTheCustomer_AndSaysSo()
+    {
+        var server = new CustomersServer((request, _) => request.Method == HttpMethod.Put
+            ? Json(new { error = "customer-modified" }, System.Net.HttpStatusCode.Conflict)
+            : Json(AnaChangedElsewhere));
+
+        var result = await CustomerFormSave.UpdateAsync(AdminClient(server), Ana.Id, AnaLoadedAt, FormRequest);
+
+        Assert.Equal([(HttpMethod.Put, $"/customers/{Ana.Id}"), (HttpMethod.Get, $"/customers/{Ana.Id}")],
+            server.Requests.Select(r => (r.Method, r.Path)));
+        Assert.Equal(CustomerAdminMutationKind.Modified, result.Outcome.Kind);
+        Assert.Equal(PosMessages.CustomerReloadedAfterConflict, result.Outcome.ErrorMessage);
+        Assert.Equal(AnaChangedElsewhere, result.Current);
+    }
+
+    [Fact]
+    public async Task SavingAnEdit_ThatConflicts_WhenTheReloadFails_KeepsTheFormAsIs_WithTheModifiedMessage()
+    {
+        var server = new CustomersServer((request, _) => request.Method == HttpMethod.Put
+            ? Json(new { error = "customer-modified" }, System.Net.HttpStatusCode.Conflict)
+            : new HttpResponseMessage(System.Net.HttpStatusCode.InternalServerError));
+
+        var result = await CustomerFormSave.UpdateAsync(AdminClient(server), Ana.Id, AnaLoadedAt, FormRequest);
+
+        Assert.Equal((CustomerAdminMutationKind.Modified, PosMessages.CustomerModified), (result.Outcome.Kind, result.Outcome.ErrorMessage));
+        Assert.Null(result.Current);
+    }
+
+    [Fact]
+    public async Task SavingAnEdit_ThatFailsOtherwise_DoesNotReload()
+    {
+        var server = new CustomersServer((_, _) => new HttpResponseMessage(System.Net.HttpStatusCode.BadRequest));
+
+        var result = await CustomerFormSave.UpdateAsync(AdminClient(server), Ana.Id, AnaLoadedAt, FormRequest);
+
+        Assert.Equal((CustomerAdminMutationKind.Failed, PosMessages.InvalidData), (result.Outcome.Kind, result.Outcome.ErrorMessage));
+        Assert.Equal([HttpMethod.Put], server.Requests.Select(r => r.Method));
+        Assert.Null(result.Current);
+    }
+
+    [Theory]
+    [InlineData(true, true, "saved")] // the form was current when the toggle wrote: it follows the toggle's version
+    [InlineData(false, true, "loaded")] // the form was older than the toggled row: a later Save must still be refused
+    [InlineData(true, false, "loaded")] // the toggle wrote nothing
+    public void AToggleOnTheOpenCustomer_MovesTheFormsVersion_OnlyWhenTheFormWasCurrent(bool formCurrent, bool wrote, string expected)
+    {
+        var row = Ana with { UpdatedAtUtc = AnaLoadedAt };
+        var loaded = formCurrent ? AnaLoadedAt : AnaLoadedAt.AddMinutes(-10);
+        var saved = wrote ? row with { IsEnabled = false, UpdatedAtUtc = AnaLoadedAt.AddMinutes(1) } : null;
+
+        var version = CustomerFormSave.VersionAfterToggle(loaded, row, saved);
+
+        Assert.Equal(expected == "saved" ? saved!.UpdatedAtUtc : loaded, version);
+    }
+
+    // ---- T7 (d): an unreachable server is not a server answer: no list reload ---------------------------------
+
+    private sealed class UnreachableServer : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            throw new HttpRequestException("no route to host");
+    }
+
+    [Fact]
+    public async Task Toggle_WhenTheServerIsUnreachable_IsUnreachable_WithTheOfflineMessage()
+    {
+        var client = new CustomerAdminClient(new HttpClient(new UnreachableServer()) { BaseAddress = new Uri("https://cloud.invalid") });
+
+        var outcome = await CustomerList.ToggleEnabledAsync(client, Ana);
+
+        Assert.Equal((CustomerAdminMutationKind.Unreachable, PosMessages.ServerUnreachable), (outcome.Kind, outcome.ErrorMessage));
+        Assert.False(CustomerList.ReloadAfterFailedToggle(outcome));
+    }
+
+    [Fact]
+    public void AFailedToggle_ReloadsTheList_OnlyAfterAServerAnswer()
+    {
+        Assert.True(CustomerList.ReloadAfterFailedToggle(CustomerAdminMutationOutcome.NotFound()));
+        Assert.True(CustomerList.ReloadAfterFailedToggle(CustomerAdminMutationOutcome.Modified()));
+        Assert.True(CustomerList.ReloadAfterFailedToggle(CustomerAdminMutationOutcome.Failed(PosMessages.Conflict)));
+        Assert.False(CustomerList.ReloadAfterFailedToggle(CustomerAdminMutationOutcome.Unreachable()));
     }
 }
