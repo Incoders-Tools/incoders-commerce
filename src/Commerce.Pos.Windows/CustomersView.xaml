@@ -85,7 +85,8 @@
                              AutomationProperties.LabeledBy="{Binding ElementName=NameLabel}" />
 
                     <TextBlock Text="Tipo de documento fiscal" Style="{StaticResource FieldLabel}" />
-                    <ComboBox x:Name="TaxIdTypeComboBox" Style="{StaticResource FieldCombo}" AutomationProperties.Name="Tipo de documento fiscal" />
+                    <ComboBox x:Name="TaxIdTypeComboBox" Style="{StaticResource FieldCombo}" AutomationProperties.Name="Tipo de documento fiscal"
+                              SelectionChanged="TaxIdTypeComboBox_SelectionChanged" />
 
                     <TextBlock Text="Número de documento fiscal" Style="{StaticResource FieldLabel}" />
                     <TextBox x:Name="TaxIdTextBox" Style="{StaticResource FieldBox}" AutomationProperties.Name="Número de documento fiscal" />

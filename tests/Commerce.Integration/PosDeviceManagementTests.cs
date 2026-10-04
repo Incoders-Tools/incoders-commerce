@@ -308,6 +308,27 @@ public sealed class PosDeviceManagementTests : IDisposable
         Assert.Equal(picked, CustomerFormRules.CityChange(selectedCityId: picked, operatorChangedCity: true));
     }
 
+    // Owner decision 2026-10-03: a CUIT suggests a company; a person with a CUIT can still be chosen afterwards.
+    [Theory]
+    [InlineData("Person", "Cuit", "Company")]
+    [InlineData("Company", "Cuit", "Company")]
+    [InlineData("Person", "Dni", "Person")]
+    [InlineData("Company", "None", "Company")]
+    public void PartyType_IsSuggestedAsCompany_WhenTheTaxIdTypeBecomesCuit(string current, string taxIdType, string expected)
+    {
+        Assert.Equal(expected, CustomerFormRules.PartyTypeAfterTaxIdTypeChange(current, taxIdType));
+    }
+
+    [Fact]
+    public void CustomersView_SuggestsCompanyOnlyWhenTheOperatorPicksCuit()
+    {
+        var code = Src("CustomersView.xaml.cs");
+
+        Assert.Contains("CustomerFormRules.PartyTypeAfterTaxIdTypeChange(", code);
+        Assert.Contains("_fillingForm", code);
+        Assert.Contains("SelectionChanged=\"TaxIdTypeComboBox_SelectionChanged\"", Src("CustomersView.xaml"));
+    }
+
     [Fact]
     public void CustomersView_SendsTheCityChange_NotAnUnconditionalClear()
     {

@@ -39,6 +39,9 @@ public partial class CustomersView : UserControl, ISectionView
     // The operator changed the province or city since the form was filled; only then may an update clear the city.
     private bool _cityChanged;
 
+    // Set while the form is filled from a stored customer or reset: selection handlers must not suggest anything.
+    private bool _fillingForm;
+
     public CustomersView(CustomerAdminClient adminClient)
     {
         InitializeComponent();
@@ -123,10 +126,12 @@ public partial class CustomersView : UserControl, ISectionView
         _selectedCustomerId = selected.Id;
         ShowStatus(string.Empty, isError: false);
 
+        _fillingForm = true;
         CustomerKindComboBox.SelectedValue = selected.CustomerKind;
         PartyTypeComboBox.SelectedValue = selected.PartyType;
         DisplayNameTextBox.Text = selected.DisplayName;
         TaxIdTypeComboBox.SelectedValue = selected.TaxIdType;
+        _fillingForm = false;
         TaxIdTextBox.Text = selected.TaxId ?? string.Empty;
         TaxConditionComboBox.SelectedValue = selected.TaxCondition;
         PhoneTextBox.Text = selected.Phone ?? string.Empty;
@@ -234,6 +239,17 @@ public partial class CustomersView : UserControl, ISectionView
 
     // ---- name and email -------------------------------------------------------------------
 
+    private void TaxIdTypeComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_fillingForm)
+        {
+            return;
+        }
+
+        PartyTypeComboBox.SelectedValue = CustomerFormRules.PartyTypeAfterTaxIdTypeChange(
+            PartyTypeComboBox.SelectedValue as string, TaxIdTypeComboBox.SelectedValue as string);
+    }
+
     private void PartyTypeComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
         NameLabel.Text = CustomerFormRules.NameLabel(PartyTypeComboBox.SelectedValue as string);
 
@@ -337,9 +353,11 @@ public partial class CustomersView : UserControl, ISectionView
         _selectedCustomerId = null;
         IsEnabledCheckBox.Visibility = Visibility.Collapsed;
         CustomerKindComboBox.IsEnabled = true;
+        _fillingForm = true;
         CustomerKindComboBox.SelectedValue = "Retail";
         PartyTypeComboBox.SelectedValue = "Person";
         TaxIdTypeComboBox.SelectedValue = "None";
+        _fillingForm = false;
         TaxConditionComboBox.SelectedValue = "NoAplica";
         DisplayNameTextBox.Text = string.Empty;
         TaxIdTextBox.Text = string.Empty;

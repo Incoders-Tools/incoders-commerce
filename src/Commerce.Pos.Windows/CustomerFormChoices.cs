@@ -50,6 +50,13 @@ public static class CustomerFormRules
     public static string NameLabel(string? partyType) =>
         partyType == "Company" ? "Razón social" : "Nombre y apellido";
 
+    /// <summary>
+    /// The party type after the operator picked a tax id type (owner decision 2026-10-03): a CUIT suggests a company;
+    /// any other type keeps the current choice, and the operator can still pick Person afterwards.
+    /// </summary>
+    public static string PartyTypeAfterTaxIdTypeChange(string? currentPartyType, string? newTaxIdType) =>
+        newTaxIdType == "Cuit" ? "Company" : currentPartyType ?? "Person";
+
     /// <summary>Blank is no email (optional field); otherwise valid or invalid under the shared rule.</summary>
     public static EmailFieldState Email(string? text) =>
         string.IsNullOrWhiteSpace(text) ? EmailFieldState.Empty
