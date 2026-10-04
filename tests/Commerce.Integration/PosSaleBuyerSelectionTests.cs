@@ -105,7 +105,7 @@ public sealed class PosSaleBuyerSelectionTests : IDisposable
         var selection = new SaleBuyerSelection(cart);
         await selection.RefreshAsync(BothCustomers());
         await selection.ChooseAsync(RepartoCustomer);
-        await cart.AddAsync(Item(Bola, "Bola de lomo"));
+        await cart.AddAsync(Item(Bola, "Bola de lomo"), 1m);
 
         cart.Clear();
 
@@ -123,7 +123,7 @@ public sealed class PosSaleBuyerSelectionTests : IDisposable
         var selection = new SaleBuyerSelection(cart);
         await selection.RefreshAsync(BothCustomers());
         await selection.ChooseAsync(RepartoCustomer);
-        await cart.AddAsync(Item(Bola, "Bola de lomo"));
+        await cart.AddAsync(Item(Bola, "Bola de lomo"), 1m);
         Assert.Equal(16_530m, cart.Lines.Single().UnitPrice);
 
         await selection.RefreshAsync([Customer(OtherCustomer, "Zulema")]);
@@ -158,7 +158,7 @@ public sealed class PosSaleBuyerSelectionTests : IDisposable
         var cart = CartOver(store);
         var selection = new SaleBuyerSelection(cart);
         await selection.RefreshAsync(BothCustomers());
-        await cart.AddAsync(Item(Lengua, "Lengua"));
+        await cart.AddAsync(Item(Lengua, "Lengua"), 1m);
         // Reparto never sold Lengua and the default list stops selling it: the customer change cannot price the line.
         store.ApplyPriceListsSync(Snapshot(true, false), DateTimeOffset.UtcNow);
 
@@ -177,7 +177,7 @@ public sealed class PosSaleBuyerSelectionTests : IDisposable
         var selection = new SaleBuyerSelection(cart);
         await selection.RefreshAsync(BothCustomers());
         await selection.ChooseAsync(RepartoCustomer);
-        await cart.AddAsync(Item(Bola, "Bola de lomo"));
+        await cart.AddAsync(Item(Bola, "Bola de lomo"), 1m);
         // The default list stops selling Bola (Reparto still does): walk-in cannot take over this sale.
         store.ApplyPriceListsSync(Snapshot(false, true), DateTimeOffset.UtcNow);
 

@@ -14,11 +14,11 @@
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" MinWidth="90" />
-                        <ColumnDefinition Width="84" />
-                        <ColumnDefinition Width="52" />
-                        <ColumnDefinition Width="80" />
+                        <ColumnDefinition Width="72" />
+                        <ColumnDefinition Width="72" />
+                        <ColumnDefinition Width="96" />
                         <ColumnDefinition Width="88" />
-                        <ColumnDefinition Width="112" />
+                        <ColumnDefinition Width="120" />
                     </Grid.ColumnDefinitions>
                     <TextBlock Text="Producto" Style="{StaticResource TableHeaderTextBlock}" />
                     <TextBlock Grid.Column="1" Text="SKU" Style="{StaticResource TableHeaderTextBlock}" />
@@ -37,11 +37,11 @@
                                 <Grid>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" MinWidth="90" />
-                                        <ColumnDefinition Width="84" />
-                                        <ColumnDefinition Width="52" />
-                                        <ColumnDefinition Width="80" />
+                                        <ColumnDefinition Width="72" />
+                                        <ColumnDefinition Width="72" />
+                                        <ColumnDefinition Width="96" />
                                         <ColumnDefinition Width="88" />
-                                        <ColumnDefinition Width="112" />
+                                        <ColumnDefinition Width="120" />
                                     </Grid.ColumnDefinitions>
                                     <StackPanel VerticalAlignment="Center" Margin="0,0,8,0">
                                         <TextBlock Text="{Binding DisplayName}" TextWrapping="Wrap" />
@@ -65,6 +65,7 @@
                                     <TextBlock Grid.Column="4" Text="{Binding NetTotalText}" FontWeight="SemiBold" VerticalAlignment="Center" TextAlignment="Right" />
                                     <StackPanel Grid.Column="5" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
                                         <ToggleButton x:Name="EditToggle" Width="32" Height="32" Cursor="Hand" ToolTip="Editar cantidad"
+                                                      Margin="{StaticResource ActionSpacing}" Checked="EditToggle_Checked"
                                                       AutomationProperties.Name="Editar cantidad">
                                             <ToggleButton.Template>
                                                 <ControlTemplate TargetType="ToggleButton">
@@ -87,12 +88,12 @@
                                             <Border Style="{StaticResource CardBorder}" Padding="12" CornerRadius="10" Margin="6" TextElement.Foreground="{DynamicResource TextBrush}">
                                                 <StackPanel Width="150">
                                                     <TextBlock Text="Cantidad" Style="{StaticResource MutedTextBlock}" FontSize="12" Margin="0,0,0,6" />
-                                                    <TextBox x:Name="QuantityEditBox" Text="{Binding QuantityText, Mode=OneWay}" KeyDown="QuantityEditBox_KeyDown" />
+                                                    <TextBox x:Name="QuantityEditBox" Text="{Binding QuantityEditText, Mode=OneWay}" KeyDown="QuantityEditBox_KeyDown" />
                                                     <Button Content="Aplicar" Margin="0,8,0,0" Click="ApplyQuantityButton_Click" />
                                                 </StackPanel>
                                             </Border>
                                         </Popup>
-                                        <Button Style="{StaticResource IconButton}" Click="DiscountButton_Click" ToolTip="Aplicar descuento" AutomationProperties.Name="Aplicar descuento">
+                                        <Button Style="{StaticResource IconButton}" Margin="{StaticResource ActionSpacing}" Click="DiscountButton_Click" ToolTip="Aplicar descuento" AutomationProperties.Name="Aplicar descuento">
                                             <TextBlock Text="%" FontSize="16" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource AccentTextBrush}" />
                                         </Button>
                                         <Button Style="{StaticResource IconButton}" Click="DeleteButton_Click" ToolTip="Quitar de la venta" AutomationProperties.Name="Quitar de la venta">

@@ -29,14 +29,14 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <TextBlock Text="Descuento" Style="{StaticResource MutedTextBlock}" VerticalAlignment="Center" />
-                <TextBlock x:Name="DiscountText" Grid.Column="1" Text="$0.00" Style="{StaticResource MutedTextBlock}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                <TextBlock x:Name="DiscountText" Grid.Column="1" Text="$0.00" Style="{StaticResource MutedTextBlock}" VerticalAlignment="Center" Margin="0,0,12,0" />
                 <Button x:Name="SaleDiscountButton" Grid.Column="2" Style="{StaticResource IconButton}" Width="28" Height="28"
                         Click="SaleDiscountButton_Click" ToolTip="Descuento de la venta" AutomationProperties.Name="Descuento de la venta">
                     <TextBlock Text="%" FontSize="15" FontWeight="Bold" Foreground="{DynamicResource AccentTextBrush}" />
                 </Button>
             </Grid>
 
-            <Grid Grid.Row="2" Margin="0,2,0,10">
+            <Grid Grid.Row="2" Margin="0,6,0,14">
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                     <TextBlock Text="TOTAL" FontSize="16" FontWeight="SemiBold" Style="{StaticResource MutedTextBlock}" VerticalAlignment="Center" Margin="0,0,10,0" />
                     <TextBlock x:Name="ScannedTotalText" Text="$0.00" FontSize="32" FontWeight="Bold" VerticalAlignment="Center" />
@@ -47,7 +47,7 @@
             <UniformGrid Grid.Row="3" Rows="1">
                 <UniformGrid.Resources>
                     <Style TargetType="Button" BasedOn="{StaticResource TenderButton}">
-                        <Setter Property="Margin" Value="0,0,6,0" />
+                        <Setter Property="Margin" Value="{StaticResource ActionSpacing}" />
                         <Setter Property="FontSize" Value="15" />
                         <Setter Property="FontWeight" Value="SemiBold" />
                         <EventSetter Event="Click" Handler="TenderButton_Click" />

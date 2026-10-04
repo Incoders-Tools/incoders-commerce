@@ -169,6 +169,7 @@ public partial class MainWindow : Window
         RefreshScannedTotal();
         RefreshCatalogFreshness();
         RefreshCashSession();
+        Loaded += (_, _) => FocusSearchBox();
 
         // pos-cash-session: the open-cash prompt is offered when the first operator
         // signs in (see LockScreen_SignedIn); a session left open by a previous run
@@ -320,7 +321,7 @@ public partial class MainWindow : Window
         RefreshCashSession();
         if (_cashSession is not null)
         {
-            ScanCodeTextBox.Focus();
+            FocusSearchBox();
         }
     }
 
@@ -366,7 +367,7 @@ public partial class MainWindow : Window
         }
         else if (_shell.Current == ShellSection.Sale && _cashSession is not null)
         {
-            ScanCodeTextBox.Focus();
+            FocusSearchBox();
         }
     }
 
@@ -593,6 +594,7 @@ public partial class MainWindow : Window
         // resets to walk-in after every commit — anonymous counter sale stays
         // the fastest, zero-friction default for the NEXT sale too. Clearing the cart resets the buyer; the picker follows.
         _cart.Clear();
+        FocusSearchBox();
 
         // Task 4.6: fire-and-forget post-sale nudge — never awaited, so a
         // slow or unreachable cloud can never delay or fail this commit
@@ -711,15 +713,15 @@ public partial class MainWindow : Window
         if (item is null)
         {
             ScanMessageText.Text = $"El código {code} no está en el catálogo de esta terminal.";
-            ScanCodeTextBox.Focus();
+            FocusSearchBox();
             return;
         }
 
-        var added = await _cart.AddAsync(item);
+        var added = await AddToCartAsync(item);
         ScanMessageText.Text = ScanMessage(added);
 
         RefreshScannedTotal();
-        ScanCodeTextBox.Focus();
+        FocusSearchBox();
     }
 
     /// <summary>
@@ -793,7 +795,7 @@ public partial class MainWindow : Window
     {
         if ((e.Source as FrameworkElement)?.DataContext is ProductCardViewModel card)
         {
-            await ApplyCartChangeAsync(() => _cart.AddAsync(card.Item));
+            await ApplyCartChangeAsync(() => AddToCartAsync(card.Item));
         }
     }
 
@@ -801,12 +803,80 @@ public partial class MainWindow : Window
     {
         if ((e.Source as FrameworkElement)?.DataContext is ProductCardViewModel card)
         {
-            await ApplyCartChangeAsync(() => _cart.DecrementAsync(card.PresentationId));
+            // A weighted product is never stepped by one kilo: "-" opens its kilos to edit them.
+            await ApplyCartChangeAsync(() => SaleQuantity.IsMeasured(card.Item.QuantityBehavior)
+                ? EditMeasuredLineAsync(card.PresentationId)
+                : _cart.DecrementAsync(card.PresentationId));
         }
     }
 
     private async void SaleTable_QuantityEdited(object? sender, Controls.SaleLineQuantityEventArgs e) =>
         await ApplyCartChangeAsync(() => _cart.SetQuantityAsync(e.PresentationId, e.Quantity));
+
+    private async void SaleTable_MeasuredQuantityEditRequested(object? sender, Guid presentationId) =>
+        await ApplyCartChangeAsync(() => EditMeasuredLineAsync(presentationId));
+
+    /// <summary>
+    /// Adds a product to the sale: one unit of a fixed-quantity product, or the kilos the operator enters for a weighted
+    /// (or bulk) one. Cancelling the kilos prompt adds nothing.
+    /// </summary>
+    private async Task<SaleCartResult> AddToCartAsync(CatalogPriceReplicaItem item)
+    {
+        if (!SaleQuantity.IsMeasured(item.QuantityBehavior))
+        {
+            return await _cart.AddAsync(item);
+        }
+
+        var quantity = RequestMeasuredQuantity($"{item.ProductName} — {item.PresentationName}", item.QuantityBehavior, current: null);
+        return quantity is { } measured ? await _cart.AddAsync(item, measured) : SaleCartResult.Ok;
+    }
+
+    /// <summary>Edits the kilos of a weighted line in the same prompt it was added with; cancelling changes nothing.</summary>
+    private async Task<SaleCartResult> EditMeasuredLineAsync(Guid presentationId)
+    {
+        if (_cart.Lines.FirstOrDefault(l => l.PresentationId == presentationId) is not { } line)
+        {
+            return SaleCartResult.Ok;
+        }
+
+        var quantity = RequestMeasuredQuantity(line.DisplayName, line.QuantityBehavior, line.Quantity);
+        return quantity is { } measured ? await _cart.SetQuantityAsync(presentationId, measured) : SaleCartResult.Ok;
+    }
+
+    /// <summary>
+    /// The ONE entry point for the measure of a weighted (or bulk) product, to add it (<paramref name="current"/> null,
+    /// the prompt opens empty) or to edit its line. Today the operator types it; a scale integration will supply it here.
+    /// Returns null when the operator cancelled.
+    /// </summary>
+    private decimal? RequestMeasuredQuantity(string subject, string quantityBehavior, decimal? current)
+    {
+        var weighted = quantityBehavior == SaleQuantity.Weighted;
+        var heading = current is null
+            ? weighted ? "¿Cuántos kilos?" : "¿Qué cantidad?"
+            : weighted ? "Editar kilos" : "Editar cantidad";
+        var window = new MeasuredQuantityWindow(heading, subject, quantityBehavior, current) { Owner = this };
+        var quantity = window.ShowDialog() == true ? window.Quantity : (decimal?)null;
+        FocusSearchBox();
+        return quantity;
+    }
+
+    /// <summary>
+    /// Gives the sale's search box the keyboard focus with the caret at the end of its text (the start, since it is
+    /// empty between scans), whenever the sale is the usable screen: an operator is signed in, the sale is the current
+    /// section and the cash is open. Deferred so it runs after the layout change that just showed the sale (unlock,
+    /// return from a section, a closed dialog); scanning keeps typing into the same box.
+    /// </summary>
+    private void FocusSearchBox() =>
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (_currentOperator.Value is null || _shell.Current != ShellSection.Sale || _cashSession is null)
+            {
+                return;
+            }
+
+            ScanCodeTextBox.Focus();
+            ScanCodeTextBox.CaretIndex = ScanCodeTextBox.Text.Length;
+        }, System.Windows.Threading.DispatcherPriority.Input);
 
     private async void SaleTable_LineRemoved(object? sender, Guid presentationId) =>
         await ApplyCartChangeAsync(() => Task.FromResult(_cart.Remove(presentationId) ? SaleCartResult.Ok : SaleCartResult.Fail("El producto no está en la venta.")));
@@ -856,6 +926,7 @@ public partial class MainWindow : Window
 
         if (window.ShowDialog() != true)
         {
+            FocusSearchBox();
             return;
         }
 
@@ -871,6 +942,7 @@ public partial class MainWindow : Window
         }
 
         RefreshScannedTotal();
+        FocusSearchBox();
     }
 
     /// <summary>
@@ -886,7 +958,9 @@ public partial class MainWindow : Window
     private StockSnapshot? StockOf(Guid presentationId) => StockSnapshots([presentationId]).GetValueOrDefault(presentationId);
 
     private string BehaviorOf(Guid presentationId) =>
-        _catalogCards.FirstOrDefault(card => card.PresentationId == presentationId)?.Item.QuantityBehavior ?? string.Empty;
+        _cart.Lines.FirstOrDefault(line => line.PresentationId == presentationId)?.QuantityBehavior
+        ?? _catalogCards.FirstOrDefault(card => card.PresentationId == presentationId)?.Item.QuantityBehavior
+        ?? string.Empty;
 
     private Dictionary<Guid, StockSnapshot> StockSnapshots(IEnumerable<Guid> presentationIds)
     {
@@ -919,6 +993,7 @@ public partial class MainWindow : Window
         var result = await change();
         ScanMessageText.Text = ScanMessage(result);
         RefreshScannedTotal();
+        FocusSearchBox();
     }
 
     private void ManualSaleButton_Click(object sender, RoutedEventArgs e)
@@ -959,6 +1034,7 @@ public partial class MainWindow : Window
         var tender = CollectTender(e.Method, total);
         if (tender is null)
         {
+            FocusSearchBox();
             return;
         }
 
@@ -993,6 +1069,7 @@ public partial class MainWindow : Window
         _cart.Clear();
         RefreshScannedTotal();
         RefreshStatus();
+        FocusSearchBox();
 
         // Task 4.6: same fire-and-forget post-sale nudge as the manual-total path.
         _ = RunSyncAsync(SyncTrigger.PostSale);
@@ -1218,7 +1295,7 @@ public partial class MainWindow : Window
         RefreshCashSession();
         if (isSale && _cashSession is not null)
         {
-            ScanCodeTextBox.Focus();
+            FocusSearchBox();
         }
     }
 

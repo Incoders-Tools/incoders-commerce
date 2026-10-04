@@ -53,10 +53,13 @@
                              KeyDown="ScanCodeTextBox_KeyDown" TextChanged="ScanCodeTextBox_TextChanged" AutomationProperties.Name="Escanear o buscar producto" />
                     <TextBlock Text="{StaticResource IconSearch}" Style="{StaticResource IconTextBlock}" FontSize="18" Foreground="{DynamicResource AccentTextBrush}"
                                HorizontalAlignment="Left" Margin="16,0,0,0" IsHitTestVisible="False" />
-                    <TextBlock Text="Escanear o buscar producto…" FontSize="20" IsHitTestVisible="False"
-                               VerticalAlignment="Center" Margin="47,0,0,0">
-                        <TextBlock.Style>
-                            <Style TargetType="TextBlock" BasedOn="{StaticResource MutedTextBlock}">
+                    <!-- The placeholder is a TextBox laid over the search box with the same template, padding and font, so its text
+                         starts exactly where the search text and the caret start. Transparent and inert: the caret shows through. -->
+                    <TextBox x:Name="ScanPlaceholderTextBox" Text="Escanear o buscar producto…" FontSize="20" MinHeight="52" Padding="46,8,12,8" VerticalContentAlignment="Center"
+                             IsHitTestVisible="False" Focusable="False" IsTabStop="False" IsReadOnly="True"
+                             Background="Transparent" BorderBrush="Transparent" Foreground="{DynamicResource MutedTextBrush}">
+                        <TextBox.Style>
+                            <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
                                 <Setter Property="Visibility" Value="Collapsed" />
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding Text, ElementName=ScanCodeTextBox}" Value="">
@@ -64,10 +67,10 @@
                                     </DataTrigger>
                                 </Style.Triggers>
                             </Style>
-                        </TextBlock.Style>
-                    </TextBlock>
+                        </TextBox.Style>
+                    </TextBox>
                 </Grid>
-                <Button x:Name="ManualSaleButton" Grid.Column="1" Style="{StaticResource SecondaryButton}" Margin="10,0,0,0" MinHeight="52" Padding="16,0"
+                <Button x:Name="ManualSaleButton" Grid.Column="1" Style="{StaticResource SecondaryButton}" Margin="{StaticResource FieldActionSpacing}" MinHeight="52" Padding="16,0"
                         Click="ManualSaleButton_Click" ToolTip="Registrar una venta por un importe sin código de producto" AutomationProperties.Name="Venta manual">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="{StaticResource IconEdit}" Style="{StaticResource IconTextBlock}" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Margin="0,0,8,0" />
@@ -94,7 +97,7 @@
                 </Popup>
             </Grid>
 
-            <StackPanel Grid.Row="2" Margin="0,2,0,2">
+            <StackPanel Grid.Row="2" Margin="0,6,0,8">
                 <TextBlock x:Name="ScanMessageText" TextWrapping="Wrap" Foreground="{DynamicResource DangerBrush}" />
                 <TextBlock x:Name="SaleResultText" TextWrapping="Wrap" Style="{StaticResource MutedTextBlock}" />
             </StackPanel>
@@ -141,7 +144,7 @@
                         <RowDefinition Height="*" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
-                    <Grid Margin="0,0,0,8">
+                    <Grid Margin="0,0,0,10">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
@@ -153,8 +156,9 @@
                             <TextBlock x:Name="PriceListText" Style="{StaticResource MutedTextBlock}" VerticalAlignment="Center" Margin="10,0,0,0" MaxWidth="260" TextTrimming="CharacterEllipsis" />
                         </StackPanel>
                     </Grid>
-                    <controls:SaleLinesTable x:Name="SaleTable" Grid.Row="1" QuantityEdited="SaleTable_QuantityEdited" LineRemoved="SaleTable_LineRemoved" LineDiscountRequested="SaleTable_LineDiscountRequested" />
-                    <controls:TotalsPanel x:Name="TotalsPanelControl" Grid.Row="2" Margin="0,10,0,0" TenderRequested="CommitScannedSaleButton_Click" SaleDiscountRequested="TotalsPanel_SaleDiscountRequested" />
+                    <controls:SaleLinesTable x:Name="SaleTable" Grid.Row="1" QuantityEdited="SaleTable_QuantityEdited" MeasuredQuantityEditRequested="SaleTable_MeasuredQuantityEditRequested"
+                                             LineRemoved="SaleTable_LineRemoved" LineDiscountRequested="SaleTable_LineDiscountRequested" />
+                    <controls:TotalsPanel x:Name="TotalsPanelControl" Grid.Row="2" Margin="{StaticResource ActionGroupSpacing}" TenderRequested="CommitScannedSaleButton_Click" SaleDiscountRequested="TotalsPanel_SaleDiscountRequested" />
                 </Grid>
 
                 <controls:CategoryRail x:Name="CategoryRailControl" CategorySelected="CategoryRail_CategorySelected" Grid.Column="2" Width="104" Margin="14,26,0,0" />

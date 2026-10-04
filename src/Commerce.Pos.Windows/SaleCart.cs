@@ -29,6 +29,11 @@ public sealed record SaleCartResult(bool Succeeded, string? Message = null)
 /// Adding or changing one demands a <see cref="DiscountAuthorization"/>: the
 /// cart never verifies a PIN itself, it only refuses to record a discount
 /// without proof. Removing one needs none.
+///
+/// Quantities (operator-ux-adjustments T3) follow the presentation's quantity behavior (<see cref="SaleQuantity"/>): a
+/// weighted (or bulk) line is in kilos with up to three decimals, entered by its measure and never stepped by one; a
+/// fixed-quantity line counts whole units. The line total of a weighted line is the price per kilo times the kilos, as
+/// the pricing service rounds it (the same money rule as every other line).
 /// </summary>
 public sealed class SaleCart : INotifyPropertyChanged
 {
@@ -165,20 +170,40 @@ public sealed class SaleCart : INotifyPropertyChanged
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    /// <summary>Adds one unit of the presentation, or bumps the existing line by one.</summary>
-    public async Task<SaleCartResult> AddAsync(CatalogPriceReplicaItem item)
+    /// <summary>
+    /// Adds <paramref name="quantity"/> of the presentation to the sale (a new line, or added to its existing line).
+    /// Without a quantity a fixed-quantity product adds one unit; a weighted product is refused: its kilos are always
+    /// entered, never assumed to be one.
+    /// </summary>
+    public async Task<SaleCartResult> AddAsync(CatalogPriceReplicaItem item, decimal? quantity = null)
     {
+        if (quantity is null && SaleQuantity.IsMeasured(item.QuantityBehavior))
+        {
+            return SaleCartResult.Fail($"Indique los kilos de {item.ProductName}.");
+        }
+
+        var added = quantity ?? 1m;
+        if (SaleQuantity.Validate(added, item.QuantityBehavior) is { } invalid)
+        {
+            return SaleCartResult.Fail(invalid);
+        }
+
         var existing = IndexOf(item.PresentationId);
-        var quantity = (existing >= 0 ? Lines[existing].Quantity : 0m) + 1m;
-        return await ApplyAsync(existing, item.PresentationId, item.IdentificationCode, item.ProductName, item.PresentationName, quantity);
+        var total = (existing >= 0 ? Lines[existing].Quantity : 0m) + added;
+        return await ApplyAsync(
+            item.PresentationId, item.IdentificationCode, item.ProductName, item.PresentationName, item.QuantityBehavior, total);
     }
 
+    /// <summary>Adds one unit; a weighted line is edited by its kilos instead (<see cref="SetQuantityAsync"/>).</summary>
     public Task<SaleCartResult> IncrementAsync(Guid presentationId) => ChangeByAsync(presentationId, 1m);
 
-    /// <summary>Decrements by one; a line at quantity one is removed.</summary>
+    /// <summary>Decrements by one; a line at quantity one is removed. A weighted line is edited by its kilos instead.</summary>
     public Task<SaleCartResult> DecrementAsync(Guid presentationId) => ChangeByAsync(presentationId, -1m);
 
-    /// <summary>Sets an absolute quantity; zero or less removes the line.</summary>
+    /// <summary>
+    /// Sets an absolute quantity. For a fixed-quantity line zero or less removes the line; a weighted line refuses zero
+    /// or less (it is removed explicitly) and more than three decimals, and a fixed one refuses fractions.
+    /// </summary>
     public async Task<SaleCartResult> SetQuantityAsync(Guid presentationId, decimal quantity)
     {
         var index = IndexOf(presentationId);
@@ -187,14 +212,20 @@ public sealed class SaleCart : INotifyPropertyChanged
             return SaleCartResult.Fail("El producto no está en la venta.");
         }
 
-        if (quantity <= 0m)
+        var line = Lines[index];
+        if (quantity <= 0m && !line.IsMeasured)
         {
             Remove(presentationId);
             return SaleCartResult.Ok;
         }
 
-        var line = Lines[index];
-        return await ApplyAsync(index, line.PresentationId, line.IdentificationCode, line.ProductName, line.PresentationName, quantity);
+        if (SaleQuantity.Validate(quantity, line.QuantityBehavior) is { } invalid)
+        {
+            return SaleCartResult.Fail(invalid);
+        }
+
+        return await ApplyAsync(
+            line.PresentationId, line.IdentificationCode, line.ProductName, line.PresentationName, line.QuantityBehavior, quantity);
     }
 
     public bool Remove(Guid presentationId)
@@ -309,13 +340,19 @@ public sealed class SaleCart : INotifyPropertyChanged
     private async Task<SaleCartResult> ChangeByAsync(Guid presentationId, decimal delta)
     {
         var index = IndexOf(presentationId);
-        return index < 0
-            ? SaleCartResult.Fail("El producto no está en la venta.")
-            : await SetQuantityAsync(presentationId, Lines[index].Quantity + delta);
+        if (index < 0)
+        {
+            return SaleCartResult.Fail("El producto no está en la venta.");
+        }
+
+        var line = Lines[index];
+        return line.IsMeasured
+            ? SaleCartResult.Fail($"{line.ProductName} se vende por kilo: edite los kilos de la línea.")
+            : await SetQuantityAsync(presentationId, line.Quantity + delta);
     }
 
     private async Task<SaleCartResult> ApplyAsync(
-        int existingIndex, Guid presentationId, string? code, string productName, string presentationName, decimal quantity)
+        Guid presentationId, string? code, string productName, string presentationName, string quantityBehavior, decimal quantity)
     {
         var effectiveOn = _today();
         var outcome = await _pricing.Service.ResolveAsync(presentationId, quantity, discountPercentage: null, effectiveOn, CancellationToken.None);
@@ -325,8 +362,8 @@ public sealed class SaleCart : INotifyPropertyChanged
                 $"No hay precio vigente para {presentationName} el {effectiveOn:yyyy-MM-dd}. Use venta manual o sincronice.");
         }
 
-        // Re-locate: an await separates the lookup from the write.
-        existingIndex = IndexOf(presentationId);
+        // Locate after the await: it separates any earlier lookup from the write.
+        var existingIndex = IndexOf(presentationId);
 
         // A quantity change keeps the line discount percentage (it is not a
         // new or changed discount) and recomputes the amount over the new total.
@@ -334,7 +371,7 @@ public sealed class SaleCart : INotifyPropertyChanged
         var line = new ScannedSaleLineViewModel(
             presentationId, code, productName, presentationName, quantity, resolved.UnitNetPrice, resolved.LineTotal,
             percent, percent is { } p ? DiscountMath.Amount(resolved.LineTotal, p) : null,
-            _pricing.FallbackNoteFor(resolved));
+            _pricing.FallbackNoteFor(resolved), quantityBehavior);
 
         if (existingIndex >= 0)
         {

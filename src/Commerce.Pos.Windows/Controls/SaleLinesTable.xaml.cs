@@ -34,6 +34,9 @@ public partial class SaleLinesTable : UserControl
 
     public event EventHandler<Guid>? LineRemoved;
 
+    /// <summary>The operator asked to edit the kilos of a weighted line; the host opens the kilos prompt and applies it.</summary>
+    public event EventHandler<Guid>? MeasuredQuantityEditRequested;
+
     /// <summary>The operator asked to add, change or remove the discount of a line; the host authorizes and applies it.</summary>
     public event EventHandler<Guid>? LineDiscountRequested;
 
@@ -84,12 +87,23 @@ public partial class SaleLinesTable : UserControl
         }
     }
 
+    // A weighted line is edited in the same kilos prompt it was added with, not in the inline units box.
+    private void EditToggle_Checked(object sender, RoutedEventArgs e)
+    {
+        var toggle = (ToggleButton)sender;
+        if (toggle.DataContext is ScannedSaleLineViewModel { IsMeasured: true } line)
+        {
+            toggle.IsChecked = false;
+            MeasuredQuantityEditRequested?.Invoke(this, line.PresentationId);
+        }
+    }
+
     private void EditPopup_Opened(object? sender, EventArgs e)
     {
         var popup = (Popup)sender!;
         if (popup.DataContext is ScannedSaleLineViewModel line && FindEditBox(popup) is { } box)
         {
-            box.Text = line.QuantityText;
+            box.Text = line.QuantityEditText;
             box.Focus();
             box.SelectAll();
         }

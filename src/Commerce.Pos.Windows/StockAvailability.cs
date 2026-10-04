@@ -31,16 +31,20 @@ public static class StockAvailability
               "La cantidad de la venta lo supera; la venta no se bloquea.";
 
     /// <summary>
-    /// One warning line per sale line over its known stock; null when none is. <paramref name="behaviorOf"/> supplies the
-    /// quantity behavior used only to label kilos (an unknown behavior just omits the unit).
+    /// One warning line per sale line over its known stock; null when none is. The quantity behavior, used only to label
+    /// kilos, is the line's own; <paramref name="behaviorOf"/> supplies it for a line that does not carry one (an unknown
+    /// behavior just omits the unit).
     /// </summary>
     public static string? CartWarnings(
         IEnumerable<ScannedSaleLineViewModel> lines, Func<Guid, StockSnapshot?> stockOf, Func<Guid, string>? behaviorOf = null)
     {
         var warnings = lines
-            .Select(line => Warning(stockOf(line.PresentationId), line.Quantity, behaviorOf?.Invoke(line.PresentationId) ?? string.Empty, line.ProductName))
+            .Select(line => Warning(stockOf(line.PresentationId), line.Quantity, BehaviorOf(line, behaviorOf), line.ProductName))
             .Where(text => text is not null)
             .ToList();
         return warnings.Count == 0 ? null : string.Join(Environment.NewLine, warnings);
     }
+
+    private static string BehaviorOf(ScannedSaleLineViewModel line, Func<Guid, string>? behaviorOf) =>
+        line.QuantityBehavior is { Length: > 0 } own ? own : behaviorOf?.Invoke(line.PresentationId) ?? string.Empty;
 }

@@ -86,7 +86,7 @@ public sealed class PosBuyerPricingTests : IDisposable
         using var store = SyncedStore();
         var cart = CartOver(store);
 
-        var added = await cart.AddAsync(Item(Bola, "Bola de lomo"));
+        var added = await cart.AddAsync(Item(Bola, "Bola de lomo"), 1m);
 
         Assert.True(added.Succeeded);
         Assert.Equal(16_872m, cart.Lines.Single().UnitPrice); // 11.400 x 1,48
@@ -101,7 +101,7 @@ public sealed class PosBuyerPricingTests : IDisposable
         var cart = CartOver(store);
         Assert.True((await cart.SetCustomerAsync(RepartoCustomer)).Succeeded);
 
-        await cart.AddAsync(Item(Bola, "Bola de lomo"));
+        await cart.AddAsync(Item(Bola, "Bola de lomo"), 1m);
 
         Assert.Equal(16_530m, cart.Lines.Single().UnitPrice); // 11.400 x 1,45
         Assert.Equal("Lista: Reparto", cart.PriceListLabel);
@@ -112,7 +112,7 @@ public sealed class PosBuyerPricingTests : IDisposable
     {
         using var store = SyncedStore();
         var cart = CartOver(store);
-        await cart.AddAsync(Item(Bola, "Bola de lomo"));
+        await cart.AddAsync(Item(Bola, "Bola de lomo"), 1m);
         await cart.SetQuantityAsync(Bola, 2m);
         Assert.Equal(33_744m, cart.Total);
 
@@ -134,7 +134,7 @@ public sealed class PosBuyerPricingTests : IDisposable
     {
         using var store = SyncedStore();
         var cart = CartOver(store);
-        await cart.AddAsync(Item(Bola, "Bola de lomo"));
+        await cart.AddAsync(Item(Bola, "Bola de lomo"), 1m);
         cart.SetLineDiscount(Bola, 10m, Auth);
         cart.SetSaleDiscount(5m, Auth);
 
@@ -152,8 +152,8 @@ public sealed class PosBuyerPricingTests : IDisposable
     {
         using var store = SyncedStore();
         var cart = CartOver(store);
-        await cart.AddAsync(Item(Bola, "Bola de lomo"));
-        await cart.AddAsync(Item(Lengua, "Lengua")); // sold only at the counter list
+        await cart.AddAsync(Item(Bola, "Bola de lomo"), 1m);
+        await cart.AddAsync(Item(Lengua, "Lengua"), 1m); // sold only at the counter list
 
         var result = await cart.SetCustomerAsync(RepartoCustomer);
 
@@ -174,7 +174,7 @@ public sealed class PosBuyerPricingTests : IDisposable
         var cart = CartOver(store);
         await cart.SetCustomerAsync(RepartoCustomer);
 
-        var added = await cart.AddAsync(Item(Lengua, "Lengua"));
+        var added = await cart.AddAsync(Item(Lengua, "Lengua"), 1m);
 
         Assert.True(added.Succeeded);
         Assert.Equal(11_570m, cart.Lines.Single().UnitPrice);
@@ -186,7 +186,7 @@ public sealed class PosBuyerPricingTests : IDisposable
     {
         using var store = SyncedStore();
         var cart = CartOver(store);
-        await cart.AddAsync(Item(Bola, "Bola de lomo"));
+        await cart.AddAsync(Item(Bola, "Bola de lomo"), 1m);
         // A line of a product no list prices (e.g. a price that stops being effective after the sale was started).
         var unpriced = new ScannedSaleLineViewModel(Guid.NewGuid(), null, "Hueso", "kg", 1m, 100m, 100m);
         cart.Lines.Add(unpriced);
@@ -207,7 +207,7 @@ public sealed class PosBuyerPricingTests : IDisposable
         var cart = CartOver(store);
         await cart.SetCustomerAsync(UnassignedCustomer);
 
-        await cart.AddAsync(Item(Bola, "Bola de lomo"));
+        await cart.AddAsync(Item(Bola, "Bola de lomo"), 1m);
 
         Assert.Equal(16_530m, cart.Lines.Single().UnitPrice);
         Assert.Equal("Lista: Reparto", cart.PriceListLabel);
@@ -220,7 +220,7 @@ public sealed class PosBuyerPricingTests : IDisposable
         var cart = CartOver(store);
         await cart.SetCustomerAsync(GhostCustomer);
 
-        await cart.AddAsync(Item(Bola, "Bola de lomo"));
+        await cart.AddAsync(Item(Bola, "Bola de lomo"), 1m);
 
         Assert.Equal(16_872m, cart.Lines.Single().UnitPrice); // no org default customer list: the branch default
         Assert.Equal("Mostrador", cart.PriceListName);
@@ -234,7 +234,7 @@ public sealed class PosBuyerPricingTests : IDisposable
         var cart = CartOver(store);
         await cart.SetCustomerAsync(GhostCustomer);
 
-        await cart.AddAsync(Item(Bola, "Bola de lomo"));
+        await cart.AddAsync(Item(Bola, "Bola de lomo"), 1m);
 
         Assert.Equal(16_530m, cart.Lines.Single().UnitPrice);
         Assert.Contains("Reparto", cart.PriceListLabel);
@@ -248,7 +248,7 @@ public sealed class PosBuyerPricingTests : IDisposable
         using var reopened = new BranchSyncStore($"Data Source={_dbPath}"); // a restart, offline
         var cart = CartOver(reopened);
 
-        await cart.AddAsync(Item(Bola, "Bola de lomo"));
+        await cart.AddAsync(Item(Bola, "Bola de lomo"), 1m);
 
         Assert.Equal(16_872m, cart.Lines.Single().UnitPrice);
     }
@@ -262,7 +262,7 @@ public sealed class PosBuyerPricingTests : IDisposable
             [], DateTimeOffset.UtcNow);
         var cart = CartOver(store);
 
-        await cart.AddAsync(Item(Bola, "Bola de lomo"));
+        await cart.AddAsync(Item(Bola, "Bola de lomo"), 1m);
 
         Assert.Equal(11_400m, cart.Lines.Single().UnitPrice);
         Assert.Null(cart.PriceListLabel);
@@ -287,7 +287,7 @@ public sealed class PosBuyerPricingTests : IDisposable
         using var store = SyncedStore();
         var cart = CartOver(store);
         await cart.SetCustomerAsync(RepartoCustomer);
-        await cart.AddAsync(Item(Bola, "Bola de lomo"));
+        await cart.AddAsync(Item(Bola, "Bola de lomo"), 1m);
 
         cart.Clear();
 

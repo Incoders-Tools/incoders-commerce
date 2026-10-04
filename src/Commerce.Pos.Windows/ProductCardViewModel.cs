@@ -33,10 +33,10 @@ public sealed class ProductCardViewModel : INotifyPropertyChanged
 
     public bool IsInSale => _line is not null;
 
-    public string QuantityText => Quantity.ToString("0.##", CultureInfo.InvariantCulture);
+    public string QuantityText => SaleQuantity.Text(Quantity, Item.QuantityBehavior, CultureInfo.CurrentCulture);
 
     public string UnitPriceText => _line?.UnitPriceText
-        ?? (Item.UnitPrice is { } price ? price.ToString("C", CultureInfo.CurrentCulture) : "Sin precio");
+        ?? (Item.UnitPrice is { } price ? SaleQuantity.UnitPriceText(price, Item.QuantityBehavior, CultureInfo.CurrentCulture) : "Sin precio");
 
     public string LineTotalText => (_line?.LineTotal ?? 0m).ToString("C", CultureInfo.CurrentCulture);
 

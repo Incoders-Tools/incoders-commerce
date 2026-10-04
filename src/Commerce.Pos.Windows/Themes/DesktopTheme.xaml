@@ -27,6 +27,11 @@
     <SolidColorBrush x:Key="InputBrush" Color="{DynamicResource ColorInput}" />
 
     <Thickness x:Key="CardPadding">20</Thickness>
+    <!-- Spacing of actions: between buttons of one row, between a field and the button beside it, and above a group of
+         actions that sits under the content it acts on. -->
+    <Thickness x:Key="ActionSpacing">0,0,8,0</Thickness>
+    <Thickness x:Key="FieldActionSpacing">12,0,0,0</Thickness>
+    <Thickness x:Key="ActionGroupSpacing">0,14,0,0</Thickness>
 
     <!-- No Foreground here on purpose: an implicit Foreground would also hit the TextBlock that a ContentPresenter
          creates inside buttons, tiles and list items and override their own foreground (dark text on the primary fill).
