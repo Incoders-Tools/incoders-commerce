@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
 
@@ -21,13 +22,19 @@ namespace Commerce.Pos.Windows;
 /// editable), and an email box checked live with the shared email rule; saving
 /// is blocked while it is invalid. Status and errors render above the scroll
 /// area so they stay visible however far the form is scrolled.
+///
+/// The section is the reusable entity list (operator-ux-adjustments T4,
+/// <see cref="Controls.EntityListView"/> over <see cref="CustomerList"/>):
+/// search, Estado / Tipo filters, sortable columns, "Nuevo", and the Editar /
+/// Habilitar-Deshabilitar row actions, with this form in the editor panel
+/// beside the list.
 /// </summary>
 public partial class CustomersView : UserControl, ISectionView
 {
     private readonly CustomerAdminClient _adminClient;
     private readonly BusyController _busy;
     private readonly Dictionary<string, IReadOnlyList<CityOptionDto>> _citiesByProvince = new();
-    private List<CustomerAdminRecordDto> _customers = new();
+    private readonly EntityListModel<CustomerAdminRecordDto> _list;
     private Guid? _selectedCustomerId;
 
     // The postal code the current city filled in, so a later city replaces it but never a hand-typed one.
@@ -52,6 +59,11 @@ public partial class CustomersView : UserControl, ISectionView
         PartyTypeComboBox.ItemsSource = CustomerFormChoices.PartyTypes;
         TaxIdTypeComboBox.ItemsSource = CustomerFormChoices.TaxIdTypes;
         TaxConditionComboBox.ItemsSource = CustomerFormChoices.TaxConditions;
+        AutomationProperties.SetLabeledBy(DisplayNameTextBox, NameLabel);
+
+        _list = new EntityListModel<CustomerAdminRecordDto>(CustomerList.Definition(ToggleEnabledAsync));
+        _list.EditorChanged += OnEditorChanged;
+        CustomersList.Model = _list;
 
         ResetForm();
         Loaded += async (_, _) => await _busy.RunAsync(PosMessages.Loading, async () =>
@@ -104,27 +116,48 @@ public partial class CustomersView : UserControl, ISectionView
             return;
         }
 
-        _customers = customers.ToList();
-        CustomersListBox.ItemsSource = null;
-        CustomersListBox.ItemsSource = _customers;
+        _list.SetItems(customers);
     }
 
-    private void NewCustomerButton_Click(object sender, RoutedEventArgs e)
+    /// <summary>"Nuevo" opens the form empty, a selected row (or Editar) opens it filled, closing it resets it.</summary>
+    private async void OnEditorChanged(EntityEditorMode mode, CustomerAdminRecordDto? customer)
     {
-        CustomersListBox.SelectedItem = null;
-        ResetForm();
         ShowStatus(string.Empty, isError: false);
-    }
-
-    private async void CustomersListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (CustomersListBox.SelectedItem is not CustomerAdminRecordDto selected)
+        if (mode == EntityEditorMode.Edit && customer is not null)
         {
+            await FillFormAsync(customer);
             return;
         }
 
-        _selectedCustomerId = selected.Id;
+        ResetForm();
+    }
+
+    /// <summary>
+    /// Habilitar / Deshabilitar (after the inline confirmation) through the same <c>PUT /customers/{id}</c> the form
+    /// uses; an open form on that customer follows the new state so a later Guardar does not undo it.
+    /// </summary>
+    private Task ToggleEnabledAsync(CustomerAdminRecordDto customer) => _busy.RunAsync(PosMessages.Saving, async () =>
+    {
         ShowStatus(string.Empty, isError: false);
+        var outcome = await _adminClient.UpdateCustomerAsync(customer.Id, CustomerList.ToggleEnabledRequest(customer), _busy.Token);
+        if (outcome.Kind != CustomerAdminMutationKind.Succeeded)
+        {
+            ShowStatus(outcome.ErrorMessage ?? PosMessages.SaveFailed, isError: true);
+            return;
+        }
+
+        if (_selectedCustomerId == customer.Id)
+        {
+            IsEnabledCheckBox.IsChecked = !customer.IsEnabled;
+        }
+
+        ShowStatus(PosMessages.Saved, isError: false);
+        await LoadCustomersAsync();
+    });
+
+    private async Task FillFormAsync(CustomerAdminRecordDto selected)
+    {
+        _selectedCustomerId = selected.Id;
 
         _fillingForm = true;
         CustomerKindComboBox.SelectedValue = selected.CustomerKind;
@@ -326,8 +359,13 @@ public partial class CustomersView : UserControl, ISectionView
 
             if (outcome.Kind == CustomerAdminMutationKind.Succeeded)
             {
+                // A created customer leaves the form (a second Guardar must not create it twice); an edited one stays open.
+                if (selectedCustomerId is null)
+                {
+                    _list.CloseEditor();
+                }
+
                 ShowStatus(PosMessages.Saved, isError: false);
-                CustomerKindComboBox.IsEnabled = true;
                 await LoadCustomersAsync();
                 return;
             }

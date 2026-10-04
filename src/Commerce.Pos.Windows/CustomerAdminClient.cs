@@ -155,7 +155,10 @@ public sealed class CustomerAdminClient
     }
 }
 
-/// <summary>Mirrors `Commerce.Cloud.Api.Persistence.CustomerRecord`'s wire shape (the fields the desktop form uses).</summary>
+/// <summary>
+/// Mirrors `Commerce.Cloud.Api.Persistence.CustomerRecord`'s wire shape (the fields the desktop form uses, plus the
+/// assigned price list's name the list shows; the desktop does not edit the price list).
+/// </summary>
 public sealed record CustomerAdminRecordDto(
     Guid Id, Guid OrganizationId, string CustomerKind, string DisplayName,
     string TaxIdType, string? TaxId, string TaxCondition, string? Phone, string? Email,
@@ -163,7 +166,7 @@ public sealed record CustomerAdminRecordDto(
     decimal? DiscountPercentage, string? PaymentTerms, string? Notes, bool IsEnabled, DateTimeOffset CreatedAtUtc,
     Guid CreatedByUserId, DateTimeOffset UpdatedAtUtc,
     Guid? CityId = null, string? CityName = null, string? ProvinceId = null, string? ProvinceName = null,
-    string PartyType = "Person");
+    string PartyType = "Person", string? PriceListName = null);
 
 /// <summary>
 /// Mirrors `Commerce.Cloud.Api.Endpoints.CreateCustomerRequest`: one name (`DisplayName`, a person's full name or a
