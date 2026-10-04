@@ -69,16 +69,35 @@ form that wastes the screen and has no search.
   763 POS/sale tests, full `dotnet test` (Debug) 2321 passed / 1 known
   failure.
 
-## Follow-ups
+- [ ] T5 Owner decision 2026-10-04: the organization's quantity decimal
+  separator (`organizations.quantity_decimal_separator`, Comma | Dot) drives
+  quantity display and entry on BOTH the web and the desktop. The POS
+  receives it through the device sync (additive contract), stores it
+  locally (offline-safe, last known value) and formats/parses kilos with it
+  (`SaleQuantity`, cart lines, product cards, kilos dialog); a change in the
+  web settings reaches the terminal on its next sync. Adding the same
+  weighted product again keeps summing its kilos into the same line
+  (confirmed). (route: delegated backend + POS writer, after T4.)
 
-- The POS has no copy of the organization's decimal separator; quantities
-  display with the terminal culture ("0,550 kg" on es-AR) while Vaca Verde's
-  setting is Dot. Replicate the setting to the POS if the owner wants them
-  to match.
-- [ ] T4 Desktop reusable entity list component (search, filters, column
+- [ ] T6 Owner decision 2026-10-04 (RDD advisory on d097a20: kilos had no
+  upper bound): entering more than 50 kg on a line (adding or editing) asks
+  for a preventive confirmation ("¿Confirmás 550,000 kg de Lengua?"); Yes
+  keeps it, No returns to the kilos input. No hard cap. The threshold is a
+  named constant in `SaleQuantity`, ready to become a setting. (route: with
+  T5, delegated POS writer.)
+- [x] T4 Desktop reusable entity list component (search, filters, column
   sorting, "Nuevo", row actions, side or wide edit panel) and the customers
   section rebuilt on it, wide layout without vertical scrolling at
-  1366x768 and above (route: delegated POS writer, after T3).
+  1366x768 and above (route: delegated POS writer, after T3) - done:
+  UI-free `EntityListModel` / `EntityListDefinition<T>` (search, filters,
+  sort toggle, row actions with confirmation, editor state) + template-only
+  `Controls/EntityListView` (a UserControl cannot host named form fields,
+  MC3093); Clientes rebuilt on it (list and form side by side, only the
+  form scrolls, enable/disable row action through `PUT /customers/{id}`).
+  RED 12 of 13 markup tests, GREEN 40 model + 13 markup tests, 244 POS
+  suites, full `dotnet test` 2374 passed / 1 known failure. One writer
+  crashed (infrastructure) mid-way; a second finished. Not yet checked by
+  eye at 1366x768 in both themes.
 
 ## Acceptance criteria
 
