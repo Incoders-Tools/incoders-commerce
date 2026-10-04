@@ -40,27 +40,44 @@ There is no staff-authorized order path and no price preview anywhere.
 
 ## Tasks
 
-- [ ] T1 Permission: `Permission.TakeOrders`, catalog grants, migration of
+- [x] T1 Permission: `Permission.TakeOrders`, catalog grants, migration of
   stored roles, web `hasPermission` and navigation gating (route: delegated
-  backend writer).
-- [ ] T2 Server: staff order submission authorized by `TakeOrders` for a
+  backend writer) - done ad1ba9c (migration 0041; seller 33, business-admin
+  63) + 9943444 (nav gating, `RequireTakeOrders`, sellers land on Orders).
+- [x] T2 Server: staff order submission authorized by `TakeOrders` for a
   chosen customer of the organization (customer exists, visible, enabled;
   same checks and pricing as the self-service path, without the customer
   credential), destination = selected branch (`branch-selection-required`
   otherwise), actor = caller, idempotent by `orderId`; quote endpoint with
   per-line resolved price, list used and fallback note, and order total;
-  audit record (route: delegated backend writer).
-- [ ] T3 Web: responsive "Take order" screen replacing `StaffOrderScreen`:
+  audit record (route: delegated backend writer) - done ad1ba9c (routes
+  under `/orders/staff`, migration 0042 taker + note, `order.staff-submitted`
+  audit) + c58c525 (409 order-id-conflict for another customer); RED 20 of
+  28, GREEN 28/28, full suite green except the known failures; RDD approved.
+- [x] T3 Web: responsive "Take order" screen replacing `StaffOrderScreen`:
   customer search (name, code, phone) showing city and price list; product
   search by name/code with the customer's prices; lines with quantity
   following the organization number format; running total; optional note;
   submit; confirmation with the human order number and a "new order" action.
   Shares `OrderLinesEditor` where it fits. Layout follows the other admin
-  screens (page header, no embedded card) (route: delegated web writer).
-- [ ] T4 E2E: Playwright journey at a phone viewport and at desktop width:
+  screens (page header, no embedded card) (route: delegated web writer) -
+  done 9943444: RED 17 failing + 1 missing module, GREEN `npm test` 666
+  passed, lint 0 errors, build ok; RDD approved.
+- [~] T4 E2E: Playwright journey at a phone viewport and at desktop width:
   pick a customer, add two products, see the customer's prices and total,
   submit, see the order number; the order appears in `/orders/pending`
-  (route: delegated web writer).
+  (route: delegated web writer) - written in 9943444
+  (`e2e/staff-ordering.spec.ts`, 390x844 and 1440x900), type-checked and
+  linted; NOT yet run against a live backend.
+
+## Follow-ups (from the RDD review of 9943444)
+
+- The draft keeps its order id after a failed submit even if the user then
+  edits it; when the first submit was stored but its answer was lost, the
+  edited resubmit returns the earlier order as `existing-order`. Keep the id
+  only across unknown outcomes (network failure) and warn clearly when the
+  server answers with an existing order whose lines differ.
+- A failed quote or search has no retry action; add one.
 
 ## Acceptance criteria
 
