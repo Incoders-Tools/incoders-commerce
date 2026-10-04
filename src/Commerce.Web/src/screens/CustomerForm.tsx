@@ -412,8 +412,11 @@ export function CustomerForm({
               id="taxIdType"
               value={taxIdType}
               onChange={(e) => {
-                setTaxIdType(e.target.value as TaxIdType)
+                const next = e.target.value as TaxIdType
+                setTaxIdType(next)
                 setTaxIdError(null)
+                // Owner decision 2026-10-03: a CUIT suggests a company; the user can still pick Person.
+                if (next === TaxIdType.Cuit) setPartyType(PartyType.Company)
               }}
             >
               <option value={TaxIdType.None}>{t('form.taxIdTypeOptions.none')}</option>

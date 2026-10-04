@@ -312,6 +312,28 @@ describe('CustomerForm', () => {
   })
 
   describe('person or company', () => {
+    // Owner decision 2026-10-03: a CUIT suggests a company; a person with a CUIT can still be chosen.
+    it('switches to Company when the tax id type becomes CUIT, and lets the user choose Person again', async () => {
+      const user = userEvent.setup()
+      render(<CustomerForm onSaved={vi.fn()} onCancel={vi.fn()} />)
+
+      expect(screen.getByRole('radio', { name: 'Persona' })).toBeChecked()
+      await user.selectOptions(screen.getByLabelText('Tipo de identificación fiscal'), 'Cuit')
+      expect(screen.getByRole('radio', { name: 'Empresa' })).toBeChecked()
+      expect(screen.getByLabelText('Razón social')).toBeInTheDocument()
+
+      await user.click(screen.getByRole('radio', { name: 'Persona' }))
+      expect(screen.getByRole('radio', { name: 'Persona' })).toBeChecked()
+    })
+
+    it('does not change the party type for other tax id types', async () => {
+      const user = userEvent.setup()
+      render(<CustomerForm onSaved={vi.fn()} onCancel={vi.fn()} />)
+
+      await user.selectOptions(screen.getByLabelText('Tipo de identificación fiscal'), 'Dni')
+      expect(screen.getByRole('radio', { name: 'Persona' })).toBeChecked()
+    })
+
     it('asks a person for "Nombre y apellido" only and sends the party type, never the old fields', async () => {
       const user = userEvent.setup()
       render(<CustomerForm onSaved={vi.fn()} onCancel={vi.fn()} />)

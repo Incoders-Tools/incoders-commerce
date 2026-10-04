@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { canBecomeValidEmail, emailStatus, isValidEmail } from './email'
+import { emailStatus, isValidEmail } from './email'
 
 /** Same cases as tests/Commerce.Integration/EmailAddressRulesTests.cs: the web mirrors the server rule. */
 describe('isValidEmail', () => {
@@ -56,27 +56,4 @@ describe('emailStatus', () => {
     expect(emailStatus('ana@mail.com')).toBe('valid')
     expect(emailStatus('ana@')).toBe('invalid')
   })
-})
-
-describe('canBecomeValidEmail', () => {
-  it.each(['a', 'ana', 'ana@', 'ana@mail', 'ana@mail.', 'ana@mail.c', 'ana.b', 'ana@mail-'])(
-    'keeps %j as a prefix of a valid address',
-    (value) => expect(canBecomeValidEmail(value)).toBe(true),
-  )
-
-  it.each([
-    'ana@@',
-    'ana maria',
-    'ana@mail .com',
-    '@mail.com',
-    '.ana',
-    'an..a',
-    'ana.@',
-    'ana@.mail',
-    'ana@-mail',
-    'ana@mail..com',
-    'ana@ma_il',
-    'an(a',
-    'a'.repeat(65),
-  ])('knows %j can never become valid', (value) => expect(canBecomeValidEmail(value)).toBe(false))
 })

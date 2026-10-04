@@ -35,6 +35,7 @@ describe('EmailField', () => {
     const input = screen.getByLabelText('Correo electrónico')
     await user.type(input, 'ana@mail.c')
     expect(input).not.toHaveAccessibleDescription(VALID)
+    expect(input).toHaveAccessibleDescription(INVALID)
     await user.type(input, 'om')
 
     expect(input).toHaveAccessibleDescription(VALID)
@@ -42,27 +43,24 @@ describe('EmailField', () => {
     expect(input).not.toHaveAttribute('aria-invalid')
   })
 
-  it('does not nag while the address can still become valid, and flags it on blur', async () => {
+  // Owner decision 2026-10-03: flagged on every keystroke until the address is valid; only then the check.
+  it('flags every keystroke while the address is not valid yet, then shows the check', async () => {
     const user = userEvent.setup()
     render(<Harness />)
 
     const input = screen.getByLabelText('Correo electrónico')
-    await user.type(input, 'ana@')
-    expect(screen.queryByText(INVALID)).not.toBeInTheDocument()
-
-    await user.tab()
+    await user.type(input, 'a')
     expect(screen.getByText(INVALID)).toBeInTheDocument()
     expect(input).toHaveAttribute('aria-invalid', 'true')
+
+    await user.type(input, 'na@')
     expect(input).toHaveAccessibleDescription(INVALID)
-  })
+    expect(screen.queryByTestId('email-valid-icon')).not.toBeInTheDocument()
 
-  it('flags an address that stopped changing while still invalid', async () => {
-    const user = userEvent.setup()
-    render(<Harness />)
-
-    await user.type(screen.getByLabelText('Correo electrónico'), 'ana@')
-
-    expect(await screen.findByText(INVALID, undefined, { timeout: 3000 })).toBeInTheDocument()
+    await user.type(input, 'mail.com')
+    expect(screen.queryByText(INVALID)).not.toBeInTheDocument()
+    expect(input).not.toHaveAttribute('aria-invalid')
+    expect(screen.getByTestId('email-valid-icon')).toBeInTheDocument()
   })
 
   it('flags at once a value that can never become a valid address', async () => {

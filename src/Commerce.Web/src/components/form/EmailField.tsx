@@ -1,14 +1,9 @@
-import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { CircleCheck } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { canBecomeValidEmail, emailStatus } from '@/lib/email'
-import { useDebouncedValue } from '@/lib/useDebouncedValue'
+import { emailStatus } from '@/lib/email'
 import { cn } from '@/lib/utils'
-
-/** How long the value must stay unchanged before an address that is still incomplete is flagged. */
-const PAUSE_MS = 1500
 
 interface EmailFieldProps {
   id: string
@@ -26,9 +21,8 @@ interface EmailFieldProps {
 
 /**
  * The one email input every email field uses (customer, contact, staff user, supplier), checked with the shared
- * rule (`lib/email.ts`) while typing. A valid address gets a green check at once; an invalid one is flagged only
- * when it can no longer become valid, on blur, or once the user stops typing, so finishing an address is never
- * nagged. Blank is neutral: whether the field is required is the form's business.
+ * rule (`lib/email.ts`) on every keystroke (owner decision 2026-10-03): flagged as invalid until the address is
+ * valid, and only then the green check. Blank is neutral: whether the field is required is the form's business.
  */
 export function EmailField({
   id,
@@ -42,11 +36,8 @@ export function EmailField({
   className,
 }: EmailFieldProps) {
   const { t } = useTranslation('common')
-  const [blurred, setBlurred] = useState(false)
-  const settled = useDebouncedValue(value, PAUSE_MS) === value
   const status = emailStatus(value)
-  const ownError = status === 'invalid' && (blurred || settled || !canBecomeValidEmail(value))
-  const message = error ?? (ownError ? t('email.invalid') : null)
+  const message = error ?? (status === 'invalid' ? t('email.invalid') : null)
   const valid = message === null && status === 'valid'
 
   return (
@@ -66,7 +57,6 @@ export function EmailField({
           aria-invalid={message ? true : undefined}
           aria-describedby={message ? `${id}-error` : valid ? `${id}-valid` : undefined}
           onChange={(e) => onChange(e.target.value)}
-          onBlur={() => setBlurred(true)}
         />
         {valid && (
           <CircleCheck
