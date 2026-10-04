@@ -122,7 +122,21 @@ signed-in admin for their password again on every management section.
   finished by the orchestrator. Full `dotnet test`: 2223 passed, 12 failed,
   the same 12 fail on HEAD without this change (see follow-ups).
 
+- [ ] T6 Security fixes from the post-review audit of b58956f (owner,
+  2026-10-03: fix now, server-checked operator proof later): reset-password
+  and PUT roles apply the same target rules as revoke/restore (the target
+  never holds permissions beyond the caller's and is inside the caller's
+  branch scope), reset-password writes an audit row; staff created through
+  a terminal are forced to the terminal's branch. Applies to cookie and
+  device callers (route: delegated backend writer, after the staff order
+  backend writer finishes).
+
 ## Follow-ups
+
+- Server-checked operator proof ("PIN with validity"): today the server
+  trusts the device credential plus `X-Operator-Id`; anyone running as the
+  terminal's Windows user can act as any cached admin without the PIN.
+  After T6 the reach is limited to that branch's staff and customers.
 
 - Tests publish prices with the UTC date while pricing resolves with the
   Argentina business day (0aee664), so OrderPricing, GuestOrdering,
