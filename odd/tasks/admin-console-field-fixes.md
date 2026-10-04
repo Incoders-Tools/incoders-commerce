@@ -122,14 +122,19 @@ signed-in admin for their password again on every management section.
   finished by the orchestrator. Full `dotnet test`: 2223 passed, 12 failed,
   the same 12 fail on HEAD without this change (see follow-ups).
 
-- [ ] T6 Security fixes from the post-review audit of b58956f (owner,
+- [x] T6 Security fixes from the post-review audit of b58956f (owner,
   2026-10-03: fix now, server-checked operator proof later): reset-password
   and PUT roles apply the same target rules as revoke/restore (the target
   never holds permissions beyond the caller's and is inside the caller's
   branch scope), reset-password writes an audit row; staff created through
   a terminal are forced to the terminal's branch. Applies to cookie and
   device callers (route: delegated backend writer, after the staff order
-  backend writer finishes).
+  backend writer finishes) - done: shared `AuthorizeTarget` (403
+  permissions-exceed-caller / branch-not-in-scope) for status, roles and
+  reset-password; `user.password.reset` audit row; terminal-created staff
+  forced to the terminal's branch; a staff order id reused for another
+  customer answers 409 order-id-conflict. RED 13 of 18 new tests failing,
+  GREEN focused 22/22, full `dotnet test` 2272 passed / 1 known failure.
 
 ## Follow-ups
 
@@ -147,8 +152,15 @@ signed-in admin for their password again on every management section.
   column); needs a migration.
 - Desktop customer form: tell the operator when the stored city is kept but
   cannot be shown (deactivated city or failed city list).
-- Owner to confirm: email error timing (now on blur / submit / 1.5 s pause,
-  green check immediate) and whether a CUIT should suggest Company.
+- [x] T7 Owner decisions 2026-10-03, web and desktop: (a) an email field
+  shows the invalid state on every keystroke while the value is not a valid
+  address and the green check only once it is valid (empty stays neutral);
+  (b) choosing tax id type CUIT suggests Company: the party type switches to
+  Company, and the user can still change it back (route: after the staff
+  order web writer and T6 finish) - done a1649da (web: RED 4, GREEN 646
+  tests) + desktop `PartyTypeAfterTaxIdTypeChange` (RED compile failure,
+  GREEN 99 POS/customer tests); the desktop email already flagged every
+  keystroke.
 
 ## Acceptance criteria
 
