@@ -10,7 +10,7 @@ import { useViewPreference } from '@/components/data/useViewPreference'
 import { PriceListBreakdownPage } from './PriceListBreakdownPage'
 import { CompositionForm } from './CompositionForm'
 import { CopyPriceListForm } from './CopyPriceListForm'
-import { PriceEditorTab } from './PriceEditorTab'
+import { DiscardEditsDialog, PriceEditorTab } from './PriceEditorTab'
 import { ImportReviewTable, type ImportReviewRow } from './ImportReviewTable'
 import { listPresentations } from '@/api/catalog'
 import {
@@ -77,6 +77,9 @@ export function PriceListsScreen() {
   const [actionError, setActionError] = useState<string | null>(null)
   // The list the "Editar precios" tab edits; null until chosen there, or preselected by "Gestionar precios".
   const [editorListId, setEditorListId] = useState<string | null>(null)
+  // Unpublished edits in "Editar precios": leaving the tab asks first, and the tab waits in `pendingTab`.
+  const [editorDirtyCount, setEditorDirtyCount] = useState(0)
+  const [pendingTab, setPendingTab] = useState<Tab | null>(null)
   const [page, setPage] = useState<CompositionPage | null>(null)
   const [search, setSearch] = useState('')
   const [view, setView] = useViewPreference('price-lists')
@@ -217,7 +220,10 @@ export function PriceListsScreen() {
             variant={tab === section ? 'default' : 'outline'}
             size="sm"
             aria-pressed={tab === section}
-            onClick={() => setTab(section)}
+            onClick={() => {
+              if (tab === 'edit' && section !== 'edit' && editorDirtyCount > 0) setPendingTab(section)
+              else setTab(section)
+            }}
           >
             {t(`sectionsNav.${section}`)}
           </Button>
@@ -274,6 +280,18 @@ export function PriceListsScreen() {
           presentations={presentations}
           priceListId={editedListId}
           onPriceListChange={setEditorListId}
+          onDirtyChange={setEditorDirtyCount}
+        />
+      )}
+
+      {pendingTab !== null && (
+        <DiscardEditsDialog
+          count={editorDirtyCount}
+          onDiscard={() => {
+            setTab(pendingTab)
+            setPendingTab(null)
+          }}
+          onKeepEditing={() => setPendingTab(null)}
         />
       )}
 

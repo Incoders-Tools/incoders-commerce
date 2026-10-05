@@ -2,7 +2,6 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PriceListsScreen } from './PriceListsScreen'
-import { todayIso } from '@/lib/isoDate'
 import type {
   BreakdownItem,
   CategoryRecord,
@@ -323,7 +322,8 @@ describe('PriceListsScreen "Editar precios" tab', () => {
     const [url, init] = batchCalls()[0]
     expect(url).toBe(`/pricing/price-lists/${minorista.id}/entries/batch`)
     expect(JSON.parse((init as RequestInit).body as string)).toEqual({
-      effectiveFrom: todayIso(),
+      // No date picked: the server's business day.
+      effectiveFrom: null,
       entries: [
         { presentationId: 'pres-lengua', unitPrice: 1100 },
         { presentationId: 'pres-vacio', unitPrice: 2600.5 },
@@ -428,14 +428,131 @@ describe('PriceListsScreen "Editar precios" tab', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
-  it('switching the list loads that list and drops the pending edits', async () => {
+  it('starts with no date, meaning the business day, and sends null', async () => {
+    batchHandler = () => json({ published: 1, entries: [] })
+    const user = await openEditor()
+
+    expect(screen.getByLabelText('Vigente desde')).toHaveValue('')
+    expect(screen.getByText('Vacío: hoy (día comercial).')).toBeInTheDocument()
+    // The current prices keep loading without a date.
+    expect(breakdownCalls(minorista.id)[0][0]).toBe(`/pricing/price-lists/${minorista.id}/breakdown`)
+
+    await user.type(screen.getByLabelText('Nueva base de Lengua'), '1100')
+    await user.click(screen.getByRole('button', { name: 'Publicar cambios' }))
+
+    await screen.findByText('Se publicó 1 precio.')
+    expect(JSON.parse((batchCalls()[0][1] as RequestInit).body as string).effectiveFrom).toBeNull()
+  })
+
+  it('clearing a picked date goes back to null', async () => {
+    batchHandler = () => json({ published: 1, entries: [] })
+    const user = await openEditor()
+
+    await user.type(screen.getByLabelText('Vigente desde'), '2026-10-10')
+    await user.clear(screen.getByLabelText('Vigente desde'))
+    await user.type(screen.getByLabelText('Nueva base de Lengua'), '1100')
+    await user.click(screen.getByRole('button', { name: 'Publicar cambios' }))
+
+    await screen.findByText('Se publicó 1 precio.')
+    expect(JSON.parse((batchCalls()[0][1] as RequestInit).body as string).effectiveFrom).toBeNull()
+  })
+
+  it('switching the list without pending edits does not ask', async () => {
+    const user = await openEditor()
+
+    await user.selectOptions(screen.getByLabelText('Lista de precios'), mayorista.id)
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    await waitFor(() => expect(breakdownCalls(mayorista.id)).toHaveLength(1))
+  })
+
+  it('switching the list with pending edits asks; "Seguir editando" keeps the list and the edits', async () => {
     const user = await openEditor()
 
     await user.type(screen.getByLabelText('Nueva base de Lengua'), '1100')
     await user.selectOptions(screen.getByLabelText('Lista de precios'), mayorista.id)
 
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog).toHaveTextContent('Tenés 1 cambio sin publicar. ¿Descartarlo?')
+    await user.click(within(dialog).getByRole('button', { name: 'Seguir editando' }))
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Lista de precios')).toHaveValue(minorista.id)
+    expect(screen.getByLabelText('Nueva base de Lengua')).toHaveValue('1100')
+    expect(breakdownCalls(mayorista.id)).toHaveLength(0)
+  })
+
+  it('switching the list with pending edits asks; "Descartar" loads that list and drops the edits', async () => {
+    const user = await openEditor()
+
+    await user.type(screen.getByLabelText('Nueva base de Lengua'), '1100')
+    await user.type(screen.getByLabelText('Nueva base de Vacío'), '2600')
+    await user.selectOptions(screen.getByLabelText('Lista de precios'), mayorista.id)
+
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog).toHaveTextContent('Tenés 2 cambios sin publicar. ¿Descartarlos?')
+    await user.click(within(dialog).getByRole('button', { name: 'Descartar' }))
+
     await waitFor(() => expect(breakdownCalls(mayorista.id)).toHaveLength(1))
+    expect(screen.getByLabelText('Lista de precios')).toHaveValue(mayorista.id)
     expect(await within(rowOf('Lengua')).findByText('$ 900,00')).toBeInTheDocument()
     expect(screen.getByLabelText('Nueva base de Lengua')).toHaveValue('')
+  })
+
+  it('switching tab with pending edits asks; "Seguir editando" stays on the editor with the edits', async () => {
+    const user = await openEditor()
+
+    await user.type(screen.getByLabelText('Nueva base de Lengua'), '1100')
+    await user.click(screen.getByRole('button', { name: 'Importar' }))
+
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog).toHaveTextContent('Tenés 1 cambio sin publicar. ¿Descartarlo?')
+    await user.click(within(dialog).getByRole('button', { name: 'Seguir editando' }))
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^editar precios$/i })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByLabelText('Nueva base de Lengua')).toHaveValue('1100')
+  })
+
+  it('switching tab with pending edits asks; "Descartar" switches and the editor starts clean', async () => {
+    const user = await openEditor()
+
+    await user.type(screen.getByLabelText('Nueva base de Lengua'), '1100')
+    await user.click(screen.getByRole('button', { name: 'Precios' }))
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Descartar' }))
+
+    expect(screen.getByRole('button', { name: 'Precios' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.queryByTestId('price-editor-grid')).not.toBeInTheDocument()
+
+    // Nothing is pending any more: leaving again does not ask.
+    await user.click(screen.getByRole('button', { name: /^editar precios$/i }))
+    await screen.findByText('Lengua')
+    await user.click(screen.getByRole('button', { name: 'Importar' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Importar' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('switching tab without pending edits does not ask', async () => {
+    const user = await openEditor()
+
+    await user.click(screen.getByRole('button', { name: 'Precios' }))
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Precios' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('warns before closing or reloading the browser tab only while edits are pending', async () => {
+    const user = await openEditor()
+    const unload = () => {
+      const event = new Event('beforeunload', { cancelable: true })
+      window.dispatchEvent(event)
+      return event.defaultPrevented
+    }
+
+    expect(unload()).toBe(false)
+    await user.type(screen.getByLabelText('Nueva base de Lengua'), '1100')
+    expect(unload()).toBe(true)
+    await user.click(screen.getByRole('button', { name: 'Deshacer cambios' }))
+    expect(unload()).toBe(false)
   })
 })

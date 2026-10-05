@@ -53,6 +53,8 @@
     "categoryLabel": "Categoría",
     "allCategories": "Todas las categorías",
     "effectiveFromLabel": "Vigente desde",
+    "effectiveFromToday": "Hoy (día comercial)",
+    "effectiveFromHint": "Vacío: hoy (día comercial).",
     "remark": {
       "label": "Remarcar %",
       "placeholder": "Ej: 10 o -5",
@@ -89,6 +91,13 @@
       "belowFloor": "No se publicó ningún precio: hay precios por debajo de su lista piso. Corregí las filas marcadas.",
       "unexpectedLoad": "Error inesperado al cargar los precios.",
       "unexpectedPublish": "Error inesperado al publicar los precios."
+    },
+    "discard": {
+      "title": "Cambios sin publicar",
+      "message_one": "Tenés {{count}} cambio sin publicar. ¿Descartarlo?",
+      "message_other": "Tenés {{count}} cambios sin publicar. ¿Descartarlos?",
+      "confirm": "Descartar",
+      "keepEditing": "Seguir editando"
     }
   },
   "suppliersPlaceholder": "Los mapeos de proveedores (mapeo de columnas para importaciones de Excel) llegarán en una futura versión; la tabla `supplier_price_mappings` todavía no existe.",

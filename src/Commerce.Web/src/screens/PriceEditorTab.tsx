@@ -1,11 +1,11 @@
 import { useEffect, useId, useMemo, useState } from 'react'
+import { ConfirmDialog } from '@/components/layout/ConfirmDialog'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
 import { formatMoney } from '@/dashboard/format'
-import { todayIso } from '@/lib/isoDate'
 import { parseAmount } from '@/lib/quantity'
 import { applyPercent, differencePercent, hasAtMostTwoDecimals, round2 } from '@/lib/priceEditing'
 import { useNumberFormat } from '@/organization/NumberFormatContext'
@@ -22,6 +22,8 @@ interface PriceEditorTabProps {
   /** The list being edited; the screen owns it so "Gestionar precios" can preselect one. */
   priceListId: string | null
   onPriceListChange: (priceListId: string) => void
+  /** How many rows hold an unpublished edit, so the screen can ask before leaving the tab. */
+  onDirtyChange?: (count: number) => void
 }
 
 /** One presentation of the edited list, as the grid shows it. */
@@ -56,11 +58,41 @@ const toInputText = (value: number) => value.toFixed(2).replace('.', ',')
  * published together through ONE all-or-nothing batch. The composition (IVA, IB, flete, remarcación)
  * keeps applying on top, so the grid shows the current base and final side by side.
  */
-export function PriceEditorTab({ priceLists, presentations, priceListId, onPriceListChange }: PriceEditorTabProps) {
+export function PriceEditorTab({
+  priceLists,
+  presentations,
+  priceListId,
+  onPriceListChange,
+  onDirtyChange,
+}: PriceEditorTabProps) {
   const { t } = useTranslation('priceLists')
   const [products, setProducts] = useState<ProductRecord[]>([])
   const [categories, setCategories] = useState<CategoryRecord[]>([])
   const [catalogError, setCatalogError] = useState<string | null>(null)
+  const [dirtyCount, setDirtyCount] = useState(0)
+  // The list chosen while edits were pending, waiting for "Descartar".
+  const [pendingListId, setPendingListId] = useState<string | null>(null)
+
+  useEffect(() => {
+    onDirtyChange?.(dirtyCount)
+  }, [dirtyCount, onDirtyChange])
+
+  // Closing or reloading the browser tab would lose the edits: the browser asks while any is pending.
+  // In-app route changes are not guarded: the app uses <BrowserRouter>, and `useBlocker` needs a data router.
+  useEffect(() => {
+    if (dirtyCount === 0) return
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [dirtyCount])
+
+  const changeList = (nextId: string) => {
+    if (dirtyCount > 0) setPendingListId(nextId)
+    else onPriceListChange(nextId)
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -84,7 +116,7 @@ export function PriceEditorTab({ priceLists, presentations, priceListId, onPrice
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-1.5 sm:max-w-xs">
         <Label htmlFor="price-editor-list">{t('editor.listLabel')}</Label>
-        <Select id="price-editor-list" value={priceListId ?? ''} onChange={(e) => onPriceListChange(e.target.value)}>
+        <Select id="price-editor-list" value={priceListId ?? ''} onChange={(e) => changeList(e.target.value)}>
           {priceListId === null && <option value="">{t('editor.noList')}</option>}
           {priceLists.map((list) => (
             <option key={list.id} value={list.id}>
@@ -108,9 +140,46 @@ export function PriceEditorTab({ priceLists, presentations, priceListId, onPrice
           presentations={presentations}
           products={products}
           categories={categories}
+          onDirtyChange={setDirtyCount}
+        />
+      )}
+
+      {pendingListId !== null && (
+        <DiscardEditsDialog
+          count={dirtyCount}
+          onDiscard={() => {
+            onPriceListChange(pendingListId)
+            setPendingListId(null)
+          }}
+          onKeepEditing={() => setPendingListId(null)}
         />
       )}
     </div>
+  )
+}
+
+/** "Tenés N cambios sin publicar. ¿Descartarlos?": asked before anything drops the pending edits. */
+export function DiscardEditsDialog({
+  count,
+  onDiscard,
+  onKeepEditing,
+}: {
+  count: number
+  onDiscard: () => void
+  onKeepEditing: () => void
+}) {
+  const { t } = useTranslation('priceLists')
+  return (
+    <ConfirmDialog
+      title={t('editor.discard.title')}
+      message={t('editor.discard.message', { count })}
+      confirmLabel={t('editor.discard.confirm')}
+      busyLabel={t('editor.discard.confirm')}
+      cancelLabel={t('editor.discard.keepEditing')}
+      destructive
+      onConfirm={onDiscard}
+      onCancel={onKeepEditing}
+    />
   )
 }
 
@@ -119,11 +188,13 @@ function PriceEditorGrid({
   presentations,
   products,
   categories,
+  onDirtyChange,
 }: {
   priceList: PriceListRecord
   presentations: PresentationRecord[]
   products: ProductRecord[]
   categories: CategoryRecord[]
+  onDirtyChange: (count: number) => void
 }) {
   const { t } = useTranslation('priceLists')
   const numberFormat = useNumberFormat()
@@ -131,7 +202,8 @@ function PriceEditorGrid({
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [reloadToken, setReloadToken] = useState(0)
-  const [effectiveFrom, setEffectiveFrom] = useState(todayIso)
+  // Empty means "today" as the server's business day decides it, not the browser's calendar.
+  const [effectiveFrom, setEffectiveFrom] = useState('')
   const [search, setSearch] = useState('')
   const [categoryId, setCategoryId] = useState('')
   const [edits, setEdits] = useState<Record<string, string>>({})
@@ -191,6 +263,15 @@ function PriceEditorGrid({
   const changed = rowEdits.filter((entry) => entry.edit.status === 'changed')
   const anyInvalid = rowEdits.some((entry) => entry.edit.status === 'invalid')
   const canPublish = changed.length > 0 && !anyInvalid && !publishing
+  // An invalid value is unpublished work too.
+  const dirtyCount = rowEdits.filter((entry) => entry.edit.status !== 'unchanged').length
+
+  useEffect(() => {
+    onDirtyChange(dirtyCount)
+  }, [dirtyCount, onDirtyChange])
+
+  // Another list (or leaving the tab) unmounts the grid: nothing of it stays pending.
+  useEffect(() => () => onDirtyChange(0), [onDirtyChange])
 
   const allVisibleSelected = visibleRows.length > 0 && visibleRows.every((row) => selected.has(row.presentationId))
 
@@ -311,8 +392,13 @@ function PriceEditorGrid({
             id="price-editor-effective-from"
             type="date"
             value={effectiveFrom}
+            placeholder={t('editor.effectiveFromToday')}
+            aria-describedby="price-editor-effective-from-hint"
             onChange={(e) => setEffectiveFrom(e.target.value)}
           />
+          <p id="price-editor-effective-from-hint" className="text-xs text-muted-foreground">
+            {t('editor.effectiveFromHint')}
+          </p>
         </div>
       </div>
 

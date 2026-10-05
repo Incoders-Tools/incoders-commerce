@@ -9,6 +9,8 @@ interface ConfirmDialogProps {
   message: ReactNode
   confirmLabel: string
   busyLabel: string
+  /** Defaults to "Cancelar". */
+  cancelLabel?: string
   busy?: boolean
   destructive?: boolean
   onConfirm: (reason: string) => void
@@ -27,6 +29,7 @@ export function ConfirmDialog({
   message,
   confirmLabel,
   busyLabel,
+  cancelLabel,
   busy = false,
   destructive = false,
   onConfirm,
@@ -91,7 +94,7 @@ export function ConfirmDialog({
         )}
         <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" variant="outline" onClick={onCancel} disabled={busy}>
-            {t('actions.cancel')}
+            {cancelLabel ?? t('actions.cancel')}
           </Button>
           <Button type="button" variant={destructive ? 'destructive' : 'default'} onClick={submit} disabled={busy}>
             {busy ? busyLabel : confirmLabel}

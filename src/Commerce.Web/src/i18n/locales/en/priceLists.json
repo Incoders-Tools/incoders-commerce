@@ -53,6 +53,8 @@
     "categoryLabel": "Category",
     "allCategories": "All categories",
     "effectiveFromLabel": "Effective from",
+    "effectiveFromToday": "Today (business day)",
+    "effectiveFromHint": "Empty: today (business day).",
     "remark": {
       "label": "Remark %",
       "placeholder": "E.g. 10 or -5",
@@ -89,6 +91,13 @@
       "belowFloor": "No price was published: some prices are below their floor list. Fix the marked rows.",
       "unexpectedLoad": "Unexpected error while loading the prices.",
       "unexpectedPublish": "Unexpected error while publishing the prices."
+    },
+    "discard": {
+      "title": "Unpublished changes",
+      "message_one": "You have {{count}} unpublished change. Discard it?",
+      "message_other": "You have {{count}} unpublished changes. Discard them?",
+      "confirm": "Discard",
+      "keepEditing": "Keep editing"
     }
   },
   "suppliersPlaceholder": "Supplier mappings (column mapping for Excel imports) land here in a future release — the `supplier_price_mappings` table does not exist yet.",
