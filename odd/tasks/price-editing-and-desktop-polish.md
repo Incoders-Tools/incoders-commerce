@@ -85,8 +85,16 @@ of the product and offers no real way to edit prices one by one or in bulk.
   history in a side panel; the old nested "Gestionar precios" page goes away
   or opens the new tab (route: delegated web writer, mocks the batch
   contract above).
-- [ ] T4 Server batch endpoint as specified (route: delegated backend writer,
-  after T1/T2 finish to avoid concurrent .NET builds).
+- [x] T4 Server batch endpoint as specified (route: delegated backend writer,
+  after T1/T2 finish to avoid concurrent .NET builds) - done: one
+  transaction, floor validator both directions, same-day replace through
+  migration 0043 (column-scoped GRANT UPDATE (unit_price, created_at_utc,
+  created_by_user_id) to app_runtime; the 0017 tenant policy already covers
+  UPDATE; the batch path is the only UPDATE on entries), one
+  `price-list.entries-published` audit row with replaced old/new prices;
+  replaced prices reach the POS sync. RED 19 of 40, GREEN 41 and 62 related;
+  full suite green except the known failure (the 21-24 h UTC-date window
+  failures reran clean after midnight).
 
 ## Acceptance criteria
 
@@ -100,14 +108,17 @@ of the product and offers no real way to edit prices one by one or in bulk.
   cents); a change that breaks the floor list publishes nothing and marks the
   offending rows.
 
-- [ ] T5 Fixes before the owner's next test run (owner, 2026-10-04): (a)
+- [x] T5 Fixes before the owner's next test run (owner, 2026-10-04): (a)
   desktop Staff wording follows the existing messages: row action "Dar de
   baja" / "Reactivar", status "Activo" / "Dado de baja", Estado filter
   "Activos" / "Dados de baja" / "Todos", and "Restablecer contraseña"
   everywhere; (b) the web price editor sends `effectiveFrom: null` (server
   business day) unless the user picked another date; (c) switching tab or
   list with unpublished price edits asks for confirmation (route: (a) with
-  T4 in the .NET writer, (b)(c) web writer).
+  T4 in the .NET writer, (b)(c) web writer) - done: (a) with T4; (b)(c)
+  c3df7da (RED 7, GREEN `npm test` 672). In-app route changes cannot be
+  blocked (the app uses `<BrowserRouter>`); tab, list and browser unload
+  are guarded.
 
 ## Decisions for T4 (orchestrator default, owner informed 2026-10-04)
 
