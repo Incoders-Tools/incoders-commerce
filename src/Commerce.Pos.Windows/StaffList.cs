@@ -11,8 +11,8 @@ public enum StaffEditorPurpose
 
 /// <summary>
 /// The Personal list on the reusable entity list (price-editing-and-desktop-polish T1): the Email / Rol / Sucursal /
-/// Estado columns, the search over the email, the Rol and Estado filters, the Editar rol / Revocar-Restaurar /
-/// Resetear contraseña row actions, and which form the editor shows. UI-free; the screen supplies the status change
+/// Estado columns, the search over the email, the Rol and Estado filters, the Editar rol / Dar de baja-Reactivar /
+/// Restablecer contraseña row actions, and which form the editor shows. UI-free; the screen supplies the status change
 /// (it needs the connection and its busy controller) and fills its forms on <see cref="EditorChanged"/>.
 ///
 /// The rules the server enforces too are mirrored here so the list never offers them: the signed-in administrator
@@ -34,7 +34,7 @@ public sealed class StaffList
 
     /// <param name="callerUserId">The signed-in operator: their own row never offers revoke nor a role change.</param>
     /// <param name="terminalBranchId">This terminal's branch: new staff is created in it, the Sucursal column is relative to it.</param>
-    /// <param name="toggleStatus">Revocar / Restaurar, after the inline confirmation.</param>
+    /// <param name="toggleStatus">Dar de baja / Reactivar, after the inline confirmation.</param>
     public StaffList(Guid callerUserId, Guid terminalBranchId, Func<UserAdminRecordDto, Task> toggleStatus)
     {
         _callerUserId = callerUserId;
@@ -57,7 +57,7 @@ public sealed class StaffList
     /// <summary>Opens the role form on <paramref name="user"/> (Editar rol).</summary>
     public void BeginEditRole(UserAdminRecordDto user) => Open(user, StaffEditorPurpose.EditRole);
 
-    /// <summary>Opens the new password form on <paramref name="user"/> (Resetear contraseña).</summary>
+    /// <summary>Opens the new password form on <paramref name="user"/> (Restablecer contraseña).</summary>
     public void BeginResetPassword(UserAdminRecordDto user) => Open(user, StaffEditorPurpose.ResetPassword);
 
     /// <summary>
@@ -110,9 +110,9 @@ public sealed class StaffList
         return branchIds.Count == 1 ? "Esta sucursal" : "Esta sucursal y otras";
     }
 
-    public static string StatusText(UserAdminRecordDto user) => user.IsRevoked ? "Revocado" : "Activo";
+    public static string StatusText(UserAdminRecordDto user) => user.IsRevoked ? "Dado de baja" : "Activo";
 
-    private static string ToggleLabel(UserAdminRecordDto user) => user.IsRevoked ? "Restaurar" : "Revocar";
+    private static string ToggleLabel(UserAdminRecordDto user) => user.IsRevoked ? "Reactivar" : "Dar de baja";
 
     private static bool HasRole(UserAdminRecordDto user, string role) =>
         user.RoleNames.Any(name => string.Equals(name, role, StringComparison.OrdinalIgnoreCase));
@@ -141,7 +141,7 @@ public sealed class StaffList
             new("state", "Estado",
             [
                 new("Activos", user => !user.IsRevoked),
-                new("Revocados", user => user.IsRevoked),
+                new("Dados de baja", user => user.IsRevoked),
                 new("Todos"),
             ]),
         ],
@@ -158,7 +158,7 @@ public sealed class StaffList
                 Run = toggleStatus,
                 Confirmation = user => $"¿{ToggleLabel(user)} a {user.Email}?",
             },
-            new(ResetPasswordAction, _ => "Resetear contraseña", _ => EntityIcons.Password)
+            new(ResetPasswordAction, _ => "Restablecer contraseña", _ => EntityIcons.Password)
             {
                 Run = user => { BeginResetPassword(user); return Task.CompletedTask; },
             },

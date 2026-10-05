@@ -50,7 +50,7 @@
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
-            <!-- The list over the full width; "Nuevo", Editar rol or Resetear contraseña open one form beside it. -->
+            <!-- The list over the full width; "Nuevo", Editar rol or Restablecer contraseña open one form beside it. -->
             <controls:EntityListView x:Name="StaffListView" EditorWidth="440" HidesClosedEditor="True">
                 <controls:EntityListView.EditorContent>
                     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">

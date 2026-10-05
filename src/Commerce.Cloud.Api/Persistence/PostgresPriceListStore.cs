@@ -15,7 +15,9 @@ namespace Commerce.Cloud.Api.Persistence;
 /// "Effective-dating shape": append-only, no `EffectiveTo`). A same-day
 /// double-publish surfaces as a <see cref="PostgresException"/> with
 /// SqlState `23505` (`price_list_entries_one_per_day`) for the caller
-/// (endpoint) to translate into a 409.
+/// (endpoint) to translate into a 409. The one narrow exception is
+/// <see cref="PublishEntriesAsync"/>: a batch publish corrects the price of an
+/// entry effective that same day (0043), audited with the old price.
 /// </summary>
 public sealed class PostgresPriceListStore
 {
@@ -491,6 +493,118 @@ public sealed class PostgresPriceListStore
             ct);
 
         return record;
+    }
+
+    /// <summary>
+    /// price-editing-and-desktop-polish T4: publishes many base prices of ONE list effective on
+    /// <paramref name="effectiveFrom"/>, all in one transaction with ONE audit row for the batch. A presentation without
+    /// an entry that day gets a new one (the same INSERT as <see cref="AppendEntryCoreAsync"/>); one that already has an
+    /// entry that day has its price replaced as a correction, the only UPDATE ever issued on `price_list_entries` (0043:
+    /// price, publish time and author only; the publish time moves so the POS catalog replica picks it up). The audit
+    /// row keeps the old and new price of every replaced entry. The caller validates the batch (shape, catalog, floor)
+    /// first. Returns the entries in the order given.
+    /// </summary>
+    public async Task<IReadOnlyList<PriceListEntryRecord>> PublishEntriesAsync(
+        CloudTenantScope scope, Guid priceListId, DateOnly effectiveFrom, IReadOnlyList<(Guid PresentationId, decimal UnitPrice)> entries,
+        string actorKind, Guid actorId, CancellationToken ct)
+    {
+        var branchId = scope.BranchId
+            ?? throw new InvalidOperationException("PublishEntriesAsync requires a selected branch.");
+        var effectiveOn = effectiveFrom.ToDateTime(TimeOnly.MinValue);
+        var prices = entries.ToDictionary(e => e.PresentationId, e => e.UnitPrice);
+
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+
+        await SetTenantScopeAsync(connection, tx, scope, ct);
+
+        // The same-day entries this batch corrects, locked so the old price the audit keeps is the one replaced.
+        var existing = new Dictionary<Guid, (Guid Id, decimal UnitPrice)>();
+        await using (var cmd = new NpgsqlCommand(
+            """
+            SELECT presentation_id, id, unit_price FROM price_list_entries
+            WHERE price_list_id = $1 AND effective_from = $2 AND presentation_id = ANY($3)
+            FOR UPDATE
+            """, connection, tx))
+        {
+            cmd.Parameters.AddWithValue(priceListId);
+            cmd.Parameters.AddWithValue(effectiveOn);
+            cmd.Parameters.AddWithValue(prices.Keys.ToArray());
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+            {
+                existing[reader.GetGuid(0)] = (reader.GetGuid(1), reader.GetDecimal(2));
+            }
+        }
+
+        var written = new Dictionary<Guid, PriceListEntryRecord>();
+        if (existing.Count > 0)
+        {
+            await using var cmd = new NpgsqlCommand(
+                $"""
+                UPDATE price_list_entries e
+                SET unit_price = u.unit_price, created_at_utc = now(), created_by_user_id = $3
+                FROM unnest($1::uuid[], $2::numeric[]) AS u(id, unit_price)
+                WHERE e.id = u.id
+                RETURNING {string.Join(", ", EntryColumns.Split(", ").Select(c => "e." + c))}
+                """, connection, tx);
+            cmd.Parameters.AddWithValue(existing.Values.Select(e => e.Id).ToArray());
+            cmd.Parameters.AddWithValue(existing.Keys.Select(p => prices[p]).ToArray());
+            cmd.Parameters.AddWithValue(actorId);
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+            {
+                var record = ReadEntry(reader);
+                written[record.PresentationId] = record;
+            }
+        }
+
+        var added = entries.Where(e => !existing.ContainsKey(e.PresentationId)).ToList();
+        if (added.Count > 0)
+        {
+            await using var cmd = new NpgsqlCommand(
+                $"""
+                INSERT INTO price_list_entries
+                    (id, organization_id, branch_id, price_list_id, presentation_id, unit_price, effective_from, source, import_batch_id, created_by_user_id)
+                SELECT n.id, $4, $5, $6, n.presentation_id, n.unit_price, $7, 'Manual', NULL, $8
+                FROM unnest($1::uuid[], $2::uuid[], $3::numeric[]) AS n(id, presentation_id, unit_price)
+                RETURNING {EntryColumns}
+                """, connection, tx);
+            cmd.Parameters.AddWithValue(added.Select(_ => Guid.NewGuid()).ToArray());
+            cmd.Parameters.AddWithValue(added.Select(e => e.PresentationId).ToArray());
+            cmd.Parameters.AddWithValue(added.Select(e => e.UnitPrice).ToArray());
+            cmd.Parameters.AddWithValue(scope.OrganizationId);
+            cmd.Parameters.AddWithValue(branchId);
+            cmd.Parameters.AddWithValue(priceListId);
+            cmd.Parameters.AddWithValue(effectiveOn);
+            cmd.Parameters.AddWithValue(actorId);
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+            {
+                var record = ReadEntry(reader);
+                written[record.PresentationId] = record;
+            }
+        }
+
+        // InvariantCulture is implicit: System.Text.Json always writes '.' decimals.
+        var replaced = existing
+            .Select(e => new { presentationId = e.Key, oldUnitPrice = e.Value.UnitPrice, newUnitPrice = written[e.Key].UnitPrice })
+            .ToArray();
+        await AuditLogWriter.InsertAsync(
+            connection, tx,
+            new UserManagementAuditEntry(
+                actorKind, actorId, scope.OrganizationId, "price_list", priceListId, "price-list.entries-published",
+                OldValueJson: null,
+                NewValueJson: System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    effectiveFrom = effectiveFrom.ToString("yyyy-MM-dd"),
+                    count = entries.Count,
+                    replaced,
+                })),
+            ct);
+
+        await tx.CommitAsync(ct);
+        return [.. entries.Select(e => written[e.PresentationId])];
     }
 
     /// <summary>

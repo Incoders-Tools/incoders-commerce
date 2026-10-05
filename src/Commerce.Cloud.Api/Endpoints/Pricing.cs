@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Commerce.Application.Pricing;
 using Commerce.Application.Pricing.Import;
 using Commerce.Cloud.Api.Persistence;
 using Commerce.Cloud.Api.Tenancy;
@@ -300,6 +301,83 @@ public static class PricingEndpoints
             }
 
             return Results.Created($"/pricing/price-lists/{priceListId}/presentations/{request.PresentationId}/history", created);
+        });
+
+        // price-editing-and-desktop-polish T4: many base prices of one list at once, all-or-nothing, under the same
+        // permission, branch and floor rules as the single entry above. `effectiveFrom` null = today's business day. A
+        // presentation that already has an entry effective that day gets its price corrected (the single entry refuses).
+        group.MapPost("/price-lists/{priceListId:guid}/entries/batch", async (
+            Guid priceListId,
+            PublishEntriesBatchRequest request,
+            HttpContext httpContext,
+            PostgresUserAccountStore userStore,
+            PostgresPriceListStore priceListStore,
+            Commerce.Cloud.Api.Pricing.PriceFloorValidator floorValidator,
+            CancellationToken ct) =>
+        {
+            var branchFailure = BranchSelectionRequirement.Enforce(httpContext);
+            if (branchFailure is not null)
+            {
+                return branchFailure;
+            }
+
+            var auth = await AuthorizeCallerAsync(httpContext, userStore, ct);
+            if (auth is null)
+            {
+                return Results.Forbid();
+            }
+            var (scope, caller) = auth.Value;
+
+            var errors = PriceEntryBatchRules.Validate(request.Entries);
+            if (errors.Count > 0)
+            {
+                return Results.ValidationProblem(errors);
+            }
+
+            // Cross-org (or nonexistent) price list is invisible under RLS — the same 404 as the single entry.
+            var priceList = await priceListStore.FindPriceListAsync(scope, priceListId, ct);
+            if (priceList is null)
+            {
+                return Results.NotFound();
+            }
+
+            var entries = request.Entries!.Select(e => (PresentationId: e!.PresentationId!.Value, UnitPrice: e.UnitPrice!.Value)).ToList();
+
+            // A presentation of another organization or branch is as invisible (RLS) as one that does not exist.
+            var known = await priceListStore.GetPresentationLabelsAsync(scope, [.. entries.Select(e => e.PresentationId)], ct);
+            var unknown = entries
+                .Select((e, index) => (e.PresentationId, Index: index))
+                .Where(e => !known.ContainsKey(e.PresentationId))
+                .ToDictionary(e => PriceEntryBatchRules.PresentationKey(e.Index), _ => new[] { "presentation not found." });
+            if (unknown.Count > 0)
+            {
+                return Results.ValidationProblem(unknown);
+            }
+
+            var effectiveFrom = request.EffectiveFrom ?? httpContext.Today();
+            var violations = await floorValidator.CheckChangeAsync(
+                scope, priceListId, effectiveFrom, entries.ToDictionary(e => e.PresentationId, e => e.UnitPrice), null, ct);
+            if (violations.Count > 0)
+            {
+                return PriceListCompositionEndpoints.BelowFloor(violations);
+            }
+
+            IReadOnlyList<PriceListEntryRecord> published;
+            try
+            {
+                published = await priceListStore.PublishEntriesAsync(scope, priceListId, effectiveFrom, entries, "org-user", caller.Id, ct);
+            }
+            catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UniqueViolation)
+            {
+                // Another publish inserted one of these prices for the same day while this one ran: nothing was written.
+                return Results.Conflict(new { error = "entry-already-exists-for-date" });
+            }
+            catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.ForeignKeyViolation)
+            {
+                return Results.NotFound();
+            }
+
+            return Results.Ok(new PublishEntriesBatchResponse(published.Count, published));
         });
 
         // --- Supplier mappings (Work Unit 9: "Per-Supplier Saved Column Mapping") ---
@@ -664,5 +742,9 @@ public static class PricingEndpoints
 public sealed record CreatePriceListRequest(string Name, bool IsDefault);
 
 public sealed record AppendPriceEntryRequest(Guid PresentationId, decimal UnitPrice, DateOnly EffectiveFrom);
+
+public sealed record PublishEntriesBatchRequest(DateOnly? EffectiveFrom, IReadOnlyList<PriceEntryBatchItem?>? Entries);
+
+public sealed record PublishEntriesBatchResponse(int Published, IReadOnlyList<PriceListEntryRecord> Entries);
 
 public sealed record CreateSupplierMappingRequest(string SupplierName, string SheetName, int HeaderRow, string CodeColumn, string PriceColumn);

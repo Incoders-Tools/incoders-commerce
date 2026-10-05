@@ -6,7 +6,7 @@ namespace Commerce.Integration;
 
 /// <summary>
 /// Personal on the reusable entity list (price-editing-and-desktop-polish T1): the columns, the search over the email,
-/// the Rol / Estado filters, the row actions (Editar rol, Revocar / Restaurar with confirmation, Resetear contraseña),
+/// the Rol / Estado filters, the row actions (Editar rol, Dar de baja / Reactivar with confirmation, Restablecer contraseña),
 /// which form the editor shows (create, role, password), the requests the forms send, and the structure of the view
 /// (list at full width, the form hidden until "Nuevo" or a row asks for it).
 /// </summary>
@@ -55,7 +55,7 @@ public sealed class PosStaffListTests
         var rows = ((IEntityListModel)list.Model).Rows;
 
         Assert.Equal(["bruno@x.test", "Vendedor, Cajero", "Esta sucursal", "Activo"], rows[0].Cells);
-        Assert.Equal(["carla@x.test", "Sin rol", "Otras sucursales", "Revocado"], rows[1].Cells);
+        Assert.Equal(["carla@x.test", "Sin rol", "Otras sucursales", "Dado de baja"], rows[1].Cells);
         Assert.Equal(["dario@x.test", "Cajero", "Esta sucursal y otras", "Activo"], rows[2].Cells);
         Assert.Equal(string.Empty, StaffList.BranchText(null, TerminalBranch));
     }
@@ -78,7 +78,7 @@ public sealed class PosStaffListTests
 
         Assert.Equal(["Rol", "Estado"], filters.Select(f => f.Label));
         Assert.Equal(["Todos", "Cajero", "Vendedor", "Administrador"], filters[0].Options);
-        Assert.Equal(["Activos", "Revocados", "Todos"], filters[1].Options);
+        Assert.Equal(["Activos", "Dados de baja", "Todos"], filters[1].Options);
         Assert.Equal(["bruno@x.test", "dario@x.test", "me@x.test"], list.Model.Visible.Select(u => u.Email));
 
         list.Model.SelectFilterOption("state", 1);
@@ -92,14 +92,14 @@ public sealed class PosStaffListTests
     // ---- row actions ----------------------------------------------------------------------
 
     [Fact]
-    public void RowActions_AreEditarRol_RevocarOrRestaurar_AndResetearContrasena()
+    public void RowActions_AreEditarRol_DarDeBajaOrReactivar_AndRestablecerContrasena()
     {
         var list = List();
         ShowAll(list);
         var rows = ((IEntityListModel)list.Model).Rows;
 
-        Assert.Equal(["Editar rol", "Revocar", "Resetear contraseña"], rows[0].Actions.Select(a => a.Label));
-        Assert.Equal(["Editar rol", "Restaurar", "Resetear contraseña"], rows[1].Actions.Select(a => a.Label));
+        Assert.Equal(["Editar rol", "Dar de baja", "Restablecer contraseña"], rows[0].Actions.Select(a => a.Label));
+        Assert.Equal(["Editar rol", "Reactivar", "Restablecer contraseña"], rows[1].Actions.Select(a => a.Label));
     }
 
     [Fact]
@@ -118,27 +118,27 @@ public sealed class PosStaffListTests
     }
 
     [Fact]
-    public async Task RevocarAndRestaurar_AskFirst_ThenRunOnce()
+    public async Task DarDeBajaAndReactivar_AskFirst_ThenRunOnce()
     {
         var toggled = new List<UserAdminRecordDto>();
         var list = List(user => { toggled.Add(user); return Task.CompletedTask; });
 
         await list.Model.InvokeAsync(Bruno, StaffList.ToggleStatusAction);
         Assert.Empty(toggled);
-        Assert.Equal("¿Revocar a bruno@x.test?", list.Model.PendingConfirmation!.Question);
-        Assert.Equal("Revocar", list.Model.PendingConfirmation.ConfirmLabel);
+        Assert.Equal("¿Dar de baja a bruno@x.test?", list.Model.PendingConfirmation!.Question);
+        Assert.Equal("Dar de baja", list.Model.PendingConfirmation.ConfirmLabel);
 
         await list.Model.ConfirmAsync();
         Assert.Equal([Bruno], toggled);
 
         await list.Model.InvokeAsync(Carla, StaffList.ToggleStatusAction);
-        Assert.Equal("¿Restaurar a carla@x.test?", list.Model.PendingConfirmation!.Question);
+        Assert.Equal("¿Reactivar a carla@x.test?", list.Model.PendingConfirmation!.Question);
         list.Model.CancelConfirmation();
         Assert.Equal([Bruno], toggled);
     }
 
     [Fact]
-    public async Task Revocar_OnTheOwnRow_DoesNothing()
+    public async Task DarDeBaja_OnTheOwnRow_DoesNothing()
     {
         var toggled = 0;
         var list = List(_ => { toggled++; return Task.CompletedTask; });
@@ -149,7 +149,7 @@ public sealed class PosStaffListTests
         Assert.Equal(0, toggled);
     }
 
-    // ---- the editor: hidden, Nuevo, Editar rol, Resetear contraseña ----------------------------
+    // ---- the editor: hidden, Nuevo, Editar rol, Restablecer contraseña---------------------------
 
     [Fact]
     public void TheEditor_StartsClosed_AndNuevoOpensTheCreateForm()
@@ -196,7 +196,7 @@ public sealed class PosStaffListTests
     }
 
     [Fact]
-    public async Task ResetearContrasena_OpensThePasswordForm_EvenOnTheRowOpenForItsRole_AndBack()
+    public async Task RestablecerContrasena_OpensThePasswordForm_EvenOnTheRowOpenForItsRole_AndBack()
     {
         var list = List();
         var seen = new List<(StaffEditorPurpose Purpose, UserAdminRecordDto? User)>();
@@ -221,7 +221,7 @@ public sealed class PosStaffListTests
     }
 
     [Fact]
-    public async Task ResetearContrasena_IsOfferedOnTheOwnRowToo()
+    public async Task RestablecerContrasena_IsOfferedOnTheOwnRowToo()
     {
         var list = List();
 
@@ -309,6 +309,20 @@ public sealed class PosStaffListTests
         Assert.Contains("StaffList.RolesAfterEdit(", code);
         Assert.Contains("ResetPasswordAsync", code);
         Assert.Contains("SetStatusAsync", code);
+    }
+
+    [Fact]
+    public void TheStaffScreen_FollowsTheExistingWording_DarDeBajaReactivarRestablecer()
+    {
+        // T5 (a): the messages already say "Usuario dado de baja." / "Usuario reactivado." and the form button says
+        // "Restablecer contraseña"; the list, its filter and its actions must not say anything else.
+        foreach (var source in new[] { Src("StaffList.cs"), Src("StaffView.xaml"), Src("StaffView.xaml.cs") })
+        {
+            Assert.DoesNotMatch(@"Revoca|Restaura|Resetea", source);
+        }
+
+        Assert.Equal("Usuario dado de baja.", PosMessages.StaffDeactivated);
+        Assert.Equal("Usuario reactivado.", PosMessages.StaffReactivated);
     }
 
     [Fact]

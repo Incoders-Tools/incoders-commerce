@@ -13,8 +13,8 @@ namespace Commerce.Pos.Windows;
 /// The staff list is the reusable entity list (price-editing-and-desktop-polish
 /// T1, <see cref="Controls.EntityListView"/> over <see cref="StaffList"/>) over
 /// the full width: search by email, Rol / Estado filters, sortable columns, and
-/// the Editar rol / Revocar-Restaurar (after an inline confirmation) / Resetear
-/// contraseña row actions. The form is hidden until "Nuevo" (email, initial
+/// the Editar rol / Dar de baja-Reactivar (after an inline confirmation) /
+/// Restablecer contraseña row actions. The form is hidden until "Nuevo" (email, initial
 /// password, role; created in this terminal's branch) or a row action opens it
 /// beside the list; a successful save closes it, back to the list.
 ///
@@ -187,7 +187,7 @@ public partial class StaffView : UserControl, ISectionView
 
     // ---- revoke / restore ---------------------------------------------------------------
 
-    /// <summary>Revocar / Restaurar, after the list's inline confirmation.</summary>
+    /// <summary>Dar de baja / Reactivar, after the list's inline confirmation.</summary>
     private Task ToggleStatusAsync(UserAdminRecordDto target) => _busy.RunAsync(PosMessages.UpdatingStatus, async () =>
     {
         var revoke = !target.IsRevoked;

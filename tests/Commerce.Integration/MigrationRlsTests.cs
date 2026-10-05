@@ -2259,8 +2259,12 @@ public sealed class MigrationRlsTests
     /// <summary>
     /// `app_runtime` has no `DELETE` grant on any of the four new tables —
     /// the `customers`/`platform_admins` precedent. `price_list_entries` also
-    /// has no `UPDATE` grant: append-only is enforced at the GRANT level, not
-    /// merely by convention (design.md "Effective-dating shape").
+    /// has no `UPDATE` grant on what dates an entry: append-only is enforced at
+    /// the GRANT level, not merely by convention (design.md "Effective-dating
+    /// shape"). 0043 later grants the narrow same-day price correction
+    /// (`unit_price`, `created_at_utc`, `created_by_user_id` only), and this
+    /// test shares `commerce_test` with fixtures that apply it, so the refused
+    /// UPDATE here is one 0043 never allows.
     /// </summary>
     [Fact]
     public void CatalogAndPricingMigration_AppRuntime_HasNoDeleteGrant_OnAnyTable_AndNoUpdateOnPriceListEntries()
@@ -2292,7 +2296,7 @@ public sealed class MigrationRlsTests
         }
 
         using (var updateCmd = new NpgsqlCommand(
-            "UPDATE price_list_entries SET unit_price = 1 WHERE false", appRuntimeConnection))
+            "UPDATE price_list_entries SET effective_from = effective_from WHERE false", appRuntimeConnection))
         {
             var ex = Assert.Throws<PostgresException>(() => updateCmd.ExecuteNonQuery());
             Assert.Equal("42501", ex.SqlState);
