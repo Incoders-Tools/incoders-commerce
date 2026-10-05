@@ -100,6 +100,15 @@ of the product and offers no real way to edit prices one by one or in bulk.
   cents); a change that breaks the floor list publishes nothing and marks the
   offending rows.
 
+- [ ] T5 Fixes before the owner's next test run (owner, 2026-10-04): (a)
+  desktop Staff wording follows the existing messages: row action "Dar de
+  baja" / "Reactivar", status "Activo" / "Dado de baja", Estado filter
+  "Activos" / "Dados de baja" / "Todos", and "Restablecer contraseña"
+  everywhere; (b) the web price editor sends `effectiveFrom: null` (server
+  business day) unless the user picked another date; (c) switching tab or
+  list with unpublished price edits asks for confirmation (route: (a) with
+  T4 in the .NET writer, (b)(c) web writer).
+
 ## Decisions for T4 (orchestrator default, owner informed 2026-10-04)
 
 - A batch entry for a presentation that already has an entry effective the
