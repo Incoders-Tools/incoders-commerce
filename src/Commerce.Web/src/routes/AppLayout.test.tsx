@@ -1,8 +1,9 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { MemoryRouter, Route, Routes } from 'react-router'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router'
+import { useUnsavedChanges } from '@/components/layout/UnsavedChanges'
 import { AuthContext } from '@/auth/AuthContext'
 import { BranchProvider } from '@/branch/BranchContext'
 import { OrganizationProvider } from '@/organization/OrganizationContext'
@@ -417,5 +418,138 @@ describe('AppLayout', () => {
     await user.selectOptions(screen.getByRole('combobox', { name: 'Sucursal' }), 'b2')
 
     expect(mounts).toHaveLength(2)
+  })
+
+  describe('unsaved changes guard', () => {
+    // A screen with pending work: registers its message while dirty, and can become clean or close.
+    function DirtyScreen() {
+      const [dirty, setDirty] = useState(true)
+      useUnsavedChanges(dirty ? 'Tenés 2 cambios sin publicar.' : null)
+      return (
+        <div>
+          Editor content
+          <button type="button" onClick={() => setDirty(false)}>
+            Publicar
+          </button>
+        </div>
+      )
+    }
+
+    function ClosableDirtyScreen() {
+      const [open, setOpen] = useState(true)
+      return (
+        <div>
+          {open && <DirtyScreen />}
+          <button type="button" onClick={() => setOpen(false)}>
+            Cerrar editor
+          </button>
+        </div>
+      )
+    }
+
+    function CurrentPath() {
+      return <output data-testid="path">{useLocation().pathname}</output>
+    }
+
+    function renderGuarded(screenElement = <DirtyScreen />, signOut: () => Promise<void> = async () => {}) {
+      render(
+        <MemoryRouter initialEntries={['/app/price-lists']}>
+          <AuthContext.Provider
+            value={{ user: buildUser({ permissions: Permission.ManageUsers }), error: null, signIn: async () => {}, signOut }}
+          >
+            <BranchProvider>
+              <OrganizationBrandingContext.Provider value={{ branding: { logoUrl: null, primaryColor: null }, loading: false }}>
+                <ThemeProvider>
+                  <CurrentPath />
+                  <Routes>
+                    <Route path="/app" element={<AppLayout />}>
+                      <Route path="price-lists" element={screenElement} />
+                      <Route path="customers" element={<div>Customers content</div>} />
+                      <Route path="password" element={<div>Password content</div>} />
+                    </Route>
+                  </Routes>
+                </ThemeProvider>
+              </OrganizationBrandingContext.Provider>
+            </BranchProvider>
+          </AuthContext.Provider>
+        </MemoryRouter>,
+      )
+      return userEvent.setup()
+    }
+
+    const clientesLink = () => within(screen.getByRole('navigation')).getByRole('link', { name: 'Clientes' })
+
+    it('a sidebar click with pending changes asks first and stays on "Seguir editando"', async () => {
+      const user = renderGuarded()
+
+      await user.click(clientesLink())
+
+      const dialog = await screen.findByRole('dialog')
+      expect(dialog).toHaveTextContent('Tenés 2 cambios sin publicar.')
+      expect(screen.getByTestId('path')).toHaveTextContent('/app/price-lists')
+      await user.click(within(dialog).getByRole('button', { name: 'Seguir editando' }))
+
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      expect(screen.getByTestId('path')).toHaveTextContent('/app/price-lists')
+      expect(screen.getByText('Editor content')).toBeInTheDocument()
+    })
+
+    it('"Descartar" navigates to the clicked target', async () => {
+      const user = renderGuarded()
+
+      await user.click(clientesLink())
+      await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Descartar' }))
+
+      expect(await screen.findByText('Customers content')).toBeInTheDocument()
+      expect(screen.getByTestId('path')).toHaveTextContent('/app/customers')
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+
+    it('the account menu link is guarded too', async () => {
+      const user = renderGuarded()
+
+      await user.click(screen.getByRole('button', { name: /ada lovelace/i }))
+      await user.click(screen.getByRole('menuitem', { name: /cambiar contraseña/i }))
+
+      const dialog = await screen.findByRole('dialog')
+      expect(screen.getByTestId('path')).toHaveTextContent('/app/price-lists')
+      await user.click(within(dialog).getByRole('button', { name: 'Descartar' }))
+      expect(await screen.findByText('Password content')).toBeInTheDocument()
+    })
+
+    it('signing out with pending changes asks first', async () => {
+      const signOut = vi.fn().mockResolvedValue(undefined)
+      const user = renderGuarded(<DirtyScreen />, signOut)
+
+      await user.click(screen.getByRole('button', { name: /ada lovelace/i }))
+      await user.click(screen.getByRole('menuitem', { name: /cerrar sesión/i }))
+      await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Seguir editando' }))
+      expect(signOut).not.toHaveBeenCalled()
+
+      await user.click(screen.getByRole('button', { name: /ada lovelace/i }))
+      await user.click(screen.getByRole('menuitem', { name: /cerrar sesión/i }))
+      await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Descartar' }))
+      expect(signOut).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not ask once the screen is clean', async () => {
+      const user = renderGuarded()
+
+      await user.click(screen.getByRole('button', { name: 'Publicar' }))
+      await user.click(clientesLink())
+
+      expect(await screen.findByText('Customers content')).toBeInTheDocument()
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+
+    it('does not ask once the dirty screen unmounted', async () => {
+      const user = renderGuarded(<ClosableDirtyScreen />)
+
+      await user.click(screen.getByRole('button', { name: 'Cerrar editor' }))
+      await user.click(clientesLink())
+
+      expect(await screen.findByText('Customers content')).toBeInTheDocument()
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
   })
 })

@@ -44,6 +44,7 @@
     "listLabel": "Price list",
     "noList": "Choose a list",
     "loading": "Loading prices…",
+    "loadingBaseline": "Loading the prices in effect on the chosen date…",
     "empty": "There are no products in the catalog yet.",
     "noMatch": "No product matches this search.",
     "search": {

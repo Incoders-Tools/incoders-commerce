@@ -1,7 +1,8 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PriceListsScreen } from './PriceListsScreen'
+import { UnsavedChangesProvider, useUnsavedChangesGuard } from '@/components/layout/UnsavedChanges'
 import type {
   BreakdownItem,
   CategoryRecord,
@@ -117,9 +118,12 @@ describe('PriceListsScreen "Editar precios" tab', () => {
   const fetchMock = vi.fn()
   let batchHandler: Handler
   let breakdownItems: BreakdownItem[]
+  // Overrides the breakdown of Minorista on 2026-10-20 (to hold or fail it); undefined answers futureItems.
+  let futureBreakdownHandler: (() => Response | Promise<Response>) | undefined
 
   beforeEach(() => {
     breakdownItems = minoristaItems
+    futureBreakdownHandler = undefined
     batchHandler = () => json({ published: 0, entries: [] })
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
       if (url === '/pricing/price-lists') return json([minorista, mayorista])
@@ -130,7 +134,10 @@ describe('PriceListsScreen "Editar precios" tab', () => {
       const breakdown = url.match(/^\/pricing\/price-lists\/([^/]+)\/breakdown/)
       if (breakdown) {
         const owner = breakdown[1] === mayorista.id ? mayorista : minorista
-        if (owner === minorista && url.endsWith('?on=2026-10-20')) return json({ ...breakdownOf(owner, futureItems), on: '2026-10-20' })
+        if (owner === minorista && url.endsWith('?on=2026-10-20')) {
+          if (futureBreakdownHandler) return futureBreakdownHandler()
+          return json({ ...breakdownOf(owner, futureItems), on: '2026-10-20' })
+        }
         return json(breakdownOf(owner, owner === mayorista ? [item('pres-lengua', 'Lengua', 'Por kg', 900, 1089)] : breakdownItems))
       }
       if (url.includes('/history')) {
@@ -173,9 +180,23 @@ describe('PriceListsScreen "Editar precios" tab', () => {
     return row
   }
 
-  async function openEditor() {
+  // What the app-wide unsaved changes guard currently holds.
+  function GuardProbe() {
+    return <output data-testid="app-guard">{useUnsavedChangesGuard().message ?? ''}</output>
+  }
+
+  async function openEditor({ withAppGuard = false } = {}) {
     const user = userEvent.setup()
-    render(<PriceListsScreen />)
+    render(
+      withAppGuard ? (
+        <UnsavedChangesProvider>
+          <GuardProbe />
+          <PriceListsScreen />
+        </UnsavedChangesProvider>
+      ) : (
+        <PriceListsScreen />
+      ),
+    )
     await screen.findByText('Minorista')
     await user.click(screen.getByRole('button', { name: /^editar precios$/i }))
     await screen.findByText('Lengua')
@@ -578,20 +599,118 @@ describe('PriceListsScreen "Editar precios" tab', () => {
   })
 
   it('on success clears only the edits that were published', async () => {
-    batchHandler = () => json({ published: 1, entries: [] })
+    let respond!: (response: Response) => void
+    batchHandler = () => new Promise<Response>((resolve) => (respond = resolve))
     const user = await openEditor()
 
     await user.type(screen.getByLabelText('Nueva base de Lengua'), '1100')
+    await user.type(screen.getByLabelText('Nueva base de Queso · Por kg'), '900')
     // The current price again: not a change, so it is not published, but it is the operator's text.
     await user.type(screen.getByLabelText('Nueva base de Vacío'), '2500,55')
     await user.click(screen.getByRole('button', { name: 'Publicar cambios' }))
+    await screen.findByRole('button', { name: 'Publicando…' })
 
-    await screen.findByText('Se publicó 1 precio.')
+    // The grid is locked while publishing, so this stands for any text that differs from what the batch
+    // carried by the time it answers (the clear compares values, not rows): Queso is no longer 900.
+    fireEvent.change(screen.getByLabelText('Nueva base de Queso · Por kg'), { target: { value: '950' } })
+    expect(screen.getByLabelText('Nueva base de Queso · Por kg')).toHaveValue('950')
+    respond(json({ published: 2, entries: [] }))
+
+    await screen.findByText('Se publicaron 2 precios.')
     expect(JSON.parse((batchCalls()[0][1] as RequestInit).body as string).entries).toEqual([
       { presentationId: 'pres-lengua', unitPrice: 1100 },
+      { presentationId: 'pres-queso-kg', unitPrice: 900 },
     ])
+    // Published as typed: done.
     expect(screen.getByLabelText('Nueva base de Lengua')).toHaveValue('')
+    // Changed during the publish: 950 was never published, so it stays.
+    expect(screen.getByLabelText('Nueva base de Queso · Por kg')).toHaveValue('950')
+    // Not part of the batch: stays.
     expect(screen.getByLabelText('Nueva base de Vacío')).toHaveValue('2500,55')
+  })
+
+  it('while a picked date loads its prices, the remark and publishing wait and the old prices are not shown', async () => {
+    let release!: () => void
+    futureBreakdownHandler = () =>
+      new Promise<Response>((resolve) => {
+        release = () => resolve(json({ ...breakdownOf(minorista, futureItems), on: '2026-10-20' }))
+      })
+    const user = await openEditor()
+
+    await user.type(screen.getByLabelText('Nueva base de Lengua'), '1200')
+    await user.type(screen.getByLabelText('Remarcar %'), '10')
+    expect(screen.getByRole('button', { name: 'Publicar cambios' })).toBeEnabled()
+    await user.type(screen.getByLabelText('Vigente desde'), '2026-10-20')
+
+    expect(await screen.findByText('Cargando los precios vigentes en la fecha elegida…')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Publicar cambios' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Aplicar' })).toBeDisabled()
+    // Today's prices are not the baseline of 2026-10-20.
+    expect(within(rowOf('Lengua')).queryByText('$ 1.000,00')).not.toBeInTheDocument()
+    expect(within(rowOf('Lengua')).queryByText('$ 1.210,00')).not.toBeInTheDocument()
+    expect(within(rowOf('Lengua')).queryByText(/\$ 1\.000,00 →/)).not.toBeInTheDocument()
+
+    release()
+
+    expect(await within(rowOf('Lengua')).findByText('$ 1.100,00')).toBeInTheDocument()
+    expect(within(rowOf('Lengua')).getByText('$ 1.100,00 → $ 1.200,00')).toBeInTheDocument()
+    expect(screen.queryByText('Cargando los precios vigentes en la fecha elegida…')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Publicar cambios' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Aplicar' })).toBeEnabled()
+  })
+
+  it('a failed load of the picked date blocks publishing until "Reintentar" loads it', async () => {
+    futureBreakdownHandler = () => json({ title: 'No se pudo leer la lista.' }, 500)
+    const user = await openEditor()
+
+    await user.type(screen.getByLabelText('Nueva base de Lengua'), '1200')
+    await user.type(screen.getByLabelText('Remarcar %'), '10')
+    await user.type(screen.getByLabelText('Vigente desde'), '2026-10-20')
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('No se pudo leer la lista.')
+    expect(screen.queryByText('Cargando los precios vigentes en la fecha elegida…')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Publicar cambios' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Aplicar' })).toBeDisabled()
+    // The previous date's prices are not presented as the current ones.
+    expect(within(rowOf('Lengua')).queryByText('$ 1.000,00')).not.toBeInTheDocument()
+    expect(within(rowOf('Lengua')).queryByText(/\$ 1\.000,00 →/)).not.toBeInTheDocument()
+
+    futureBreakdownHandler = undefined
+    const callsBefore = breakdownCalls(minorista.id).length
+    await user.click(within(alert).getByRole('button', { name: 'Reintentar' }))
+
+    expect(await within(rowOf('Lengua')).findByText('$ 1.100,00')).toBeInTheDocument()
+    expect(breakdownCalls(minorista.id)).toHaveLength(callsBefore + 1)
+    expect(breakdownCalls(minorista.id).at(-1)?.[0]).toBe(`/pricing/price-lists/${minorista.id}/breakdown?on=2026-10-20`)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Publicar cambios' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Aplicar' })).toBeEnabled()
+  })
+
+  it('registers its pending edits with the app-wide guard only while there are any', async () => {
+    const user = await openEditor({ withAppGuard: true })
+
+    expect(screen.getByTestId('app-guard')).toHaveTextContent('')
+    await user.type(screen.getByLabelText('Nueva base de Lengua'), '1100')
+    expect(screen.getByTestId('app-guard')).toHaveTextContent('Tenés 1 cambio sin publicar.')
+    await user.type(screen.getByLabelText('Nueva base de Vacío'), '2600')
+    expect(screen.getByTestId('app-guard')).toHaveTextContent('Tenés 2 cambios sin publicar.')
+
+    await user.click(screen.getByRole('button', { name: 'Deshacer cambios' }))
+    expect(screen.getByTestId('app-guard')).toHaveTextContent('')
+  })
+
+  it('drops its registration with the app-wide guard when the editor closes', async () => {
+    const user = await openEditor({ withAppGuard: true })
+
+    await user.type(screen.getByLabelText('Nueva base de Lengua'), '1100')
+    expect(screen.getByTestId('app-guard')).toHaveTextContent('Tenés 1 cambio sin publicar.')
+    await user.click(screen.getByRole('button', { name: 'Precios' }))
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Descartar' }))
+
+    expect(screen.queryByTestId('price-editor-grid')).not.toBeInTheDocument()
+    expect(screen.getByTestId('app-guard')).toHaveTextContent('')
   })
 
   it('an invalid value on a filtered-out row is named in the summary, and "Mostrar" brings it back', async () => {

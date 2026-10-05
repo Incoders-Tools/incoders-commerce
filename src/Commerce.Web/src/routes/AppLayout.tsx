@@ -28,6 +28,7 @@ import { Permission } from '@/api/types'
 import { AccountMenu } from '@/components/layout/AccountMenu'
 import { BranchSwitcher } from '@/components/layout/BranchSwitcher'
 import { OrganizationSwitcher } from '@/components/layout/OrganizationSwitcher'
+import { UnsavedChangesProvider, useGuardedLinkClick } from '@/components/layout/UnsavedChanges'
 import { useOptionalBranchContext } from '@/branch/BranchContext'
 import { useOrganizationBranding } from '@/theme/OrganizationBrandingProvider'
 import { useOptionalOrganizationContext } from '@/organization/OrganizationContext'
@@ -79,106 +80,109 @@ export function AppLayout() {
   // siblings; RequireTakeOrders and the server's check are the boundary).
   const showOrdersNav = canTakeOrders(user, actingAsSysadminOnSelectedOrganization)
 
+  // Screens register pending work with UnsavedChangesProvider; the sidebar and account menu links ask before leaving it.
   return (
-    <div className="flex min-h-screen flex-col bg-background text-foreground">
-      <header className="flex h-14 items-center gap-3 border-b border-border bg-card px-4 md:px-6">
-        <button
-          type="button"
-          aria-label={t('toggleNavigation')}
-          onClick={() => setMobileOpen((prev) => !prev)}
-          className="rounded-md p-1.5 text-foreground transition-colors hover:bg-accent hover:text-accent-foreground md:hidden"
-        >
-          <Menu aria-hidden="true" className="size-5 shrink-0" />
-        </button>
-        <div className="flex shrink-0 items-center">
-          <BrandMark />
-        </div>
-        <div className="flex flex-1 items-center gap-3 overflow-x-auto">
-          <OrganizationSwitcher />
-          <BranchSwitcher />
-        </div>
-        <AccountMenu />
-      </header>
+    <UnsavedChangesProvider>
+      <div className="flex min-h-screen flex-col bg-background text-foreground">
+        <header className="flex h-14 items-center gap-3 border-b border-border bg-card px-4 md:px-6">
+          <button
+            type="button"
+            aria-label={t('toggleNavigation')}
+            onClick={() => setMobileOpen((prev) => !prev)}
+            className="rounded-md p-1.5 text-foreground transition-colors hover:bg-accent hover:text-accent-foreground md:hidden"
+          >
+            <Menu aria-hidden="true" className="size-5 shrink-0" />
+          </button>
+          <div className="flex shrink-0 items-center">
+            <BrandMark />
+          </div>
+          <div className="flex flex-1 items-center gap-3 overflow-x-auto">
+            <OrganizationSwitcher />
+            <BranchSwitcher />
+          </div>
+          <AccountMenu />
+        </header>
 
-      <div className="flex flex-1">
-        {mobileOpen && (
-          <div
-            className="fixed inset-0 z-30 bg-black/50 md:hidden"
-            onClick={closeMobileNav}
-            aria-hidden="true"
-          />
-        )}
-
-        <aside
-          className={cn(
-            'fixed inset-y-14 left-0 z-40 flex w-64 flex-col border-r border-border bg-card transition-transform duration-200 ease-in-out md:static md:w-64 md:shrink-0 md:translate-x-0',
-            mobileOpen ? 'translate-x-0' : '-translate-x-full',
+        <div className="flex flex-1">
+          {mobileOpen && (
+            <div
+              className="fixed inset-0 z-30 bg-black/50 md:hidden"
+              onClick={closeMobileNav}
+              aria-hidden="true"
+            />
           )}
-        >
-          <nav aria-label={t('primary')} className="flex flex-1 flex-col gap-1 overflow-y-auto p-3">
-            {/* Home of a business admin: first in the sidebar, outside any section.
-                UI-only gate, like its siblings; RequireAdmin guards the route. */}
-            {showTenantNav && (
-              <NavItem to="/app/dashboard" icon={LayoutDashboard} onNavigate={closeMobileNav}>{t('items.dashboard')}</NavItem>
-            )}
-            {(showCatalogNav || showOrdersNav) && (
-              <NavSection title={t('sections.operations')}>
-                {showCatalogNav && (
-                  <NavItem to="/app/catalog" icon={Package} onNavigate={closeMobileNav}>{t('items.catalog')}</NavItem>
-                )}
-                {showOrdersNav && (
-                  <NavItem to="/app/orders" icon={ClipboardList} onNavigate={closeMobileNav}>{t('items.orders')}</NavItem>
-                )}
-              </NavSection>
-            )}
-            {/* commerce-customer-identity "Web admin gating": hidden, not just
-                unreachable — a UX affordance, not the security boundary. The
-                server's ManageUsers check on every call is that, and
-                `App.tsx`'s `RequireAdmin` guards the routes. operator-ux-adjustments
-                T2: daily work first, rarely used lookup tables and system
-                administration at the end; every section keeps this same gate. */}
-            {showTenantNav && (
-              <NavSection title={t('sections.management')}>
-                <NavItem to="/app/customers" icon={Users2} onNavigate={closeMobileNav}>{t('items.customers')}</NavItem>
-                <NavItem to="/app/suppliers" icon={Truck} onNavigate={closeMobileNav}>{t('items.suppliers')}</NavItem>
-                <NavItem to="/app/price-lists" icon={Tags} onNavigate={closeMobileNav}>{t('items.priceLists')}</NavItem>
-              </NavSection>
-            )}
-            {showTenantNav && (
-              <NavSection title={t('sections.purchasing')}>
-                <NavItem to="/app/receptions" icon={PackageCheck} onNavigate={closeMobileNav}>{t('items.receptions')}</NavItem>
-                <NavItem to="/app/stock" icon={Warehouse} onNavigate={closeMobileNav}>{t('items.stock')}</NavItem>
-              </NavSection>
-            )}
-            {showTenantNav && (
-              <NavSection title={t('sections.lookupTables')}>
-                <NavItem to="/app/categories" icon={LayoutGrid} onNavigate={closeMobileNav}>{t('items.categories')}</NavItem>
-                <NavItem to="/app/supplier-categories" icon={Boxes} onNavigate={closeMobileNav}>{t('items.supplierCategories')}</NavItem>
-                <NavItem to="/app/business-types" icon={Briefcase} onNavigate={closeMobileNav}>{t('items.businessTypes')}</NavItem>
-              </NavSection>
-            )}
-            {showTenantNav && (
-              <NavSection title={t('sections.system')}>
-                <NavItem to="/app/users" icon={UserCog} onNavigate={closeMobileNav}>{t('items.users')}</NavItem>
-                <NavItem to="/app/branches" icon={Store} onNavigate={closeMobileNav}>{t('items.branches')}</NavItem>
-                <NavItem to="/app/settings" icon={Settings} onNavigate={closeMobileNav}>{t('items.settings')}</NavItem>
-              </NavSection>
-            )}
-            {user?.isSystemAdmin && (
-              <NavSection title={t('sections.platform')}>
-                <NavItem to="/app/organizations" icon={Building2} onNavigate={closeMobileNav}>{t('items.organizations')}</NavItem>
-                {/* Core geography is organization-independent: system administrator only. */}
-                <NavItem to="/app/cities" icon={MapPin} onNavigate={closeMobileNav}>{t('items.cities')}</NavItem>
-              </NavSection>
-            )}
-          </nav>
-        </aside>
 
-        <main className="w-full min-w-0 flex-1 p-4 md:p-6">
-          <Outlet key={outletKey} />
-        </main>
+          <aside
+            className={cn(
+              'fixed inset-y-14 left-0 z-40 flex w-64 flex-col border-r border-border bg-card transition-transform duration-200 ease-in-out md:static md:w-64 md:shrink-0 md:translate-x-0',
+              mobileOpen ? 'translate-x-0' : '-translate-x-full',
+            )}
+          >
+            <nav aria-label={t('primary')} className="flex flex-1 flex-col gap-1 overflow-y-auto p-3">
+              {/* Home of a business admin: first in the sidebar, outside any section.
+                  UI-only gate, like its siblings; RequireAdmin guards the route. */}
+              {showTenantNav && (
+                <NavItem to="/app/dashboard" icon={LayoutDashboard} onNavigate={closeMobileNav}>{t('items.dashboard')}</NavItem>
+              )}
+              {(showCatalogNav || showOrdersNav) && (
+                <NavSection title={t('sections.operations')}>
+                  {showCatalogNav && (
+                    <NavItem to="/app/catalog" icon={Package} onNavigate={closeMobileNav}>{t('items.catalog')}</NavItem>
+                  )}
+                  {showOrdersNav && (
+                    <NavItem to="/app/orders" icon={ClipboardList} onNavigate={closeMobileNav}>{t('items.orders')}</NavItem>
+                  )}
+                </NavSection>
+              )}
+              {/* commerce-customer-identity "Web admin gating": hidden, not just
+                  unreachable — a UX affordance, not the security boundary. The
+                  server's ManageUsers check on every call is that, and
+                  `App.tsx`'s `RequireAdmin` guards the routes. operator-ux-adjustments
+                  T2: daily work first, rarely used lookup tables and system
+                  administration at the end; every section keeps this same gate. */}
+              {showTenantNav && (
+                <NavSection title={t('sections.management')}>
+                  <NavItem to="/app/customers" icon={Users2} onNavigate={closeMobileNav}>{t('items.customers')}</NavItem>
+                  <NavItem to="/app/suppliers" icon={Truck} onNavigate={closeMobileNav}>{t('items.suppliers')}</NavItem>
+                  <NavItem to="/app/price-lists" icon={Tags} onNavigate={closeMobileNav}>{t('items.priceLists')}</NavItem>
+                </NavSection>
+              )}
+              {showTenantNav && (
+                <NavSection title={t('sections.purchasing')}>
+                  <NavItem to="/app/receptions" icon={PackageCheck} onNavigate={closeMobileNav}>{t('items.receptions')}</NavItem>
+                  <NavItem to="/app/stock" icon={Warehouse} onNavigate={closeMobileNav}>{t('items.stock')}</NavItem>
+                </NavSection>
+              )}
+              {showTenantNav && (
+                <NavSection title={t('sections.lookupTables')}>
+                  <NavItem to="/app/categories" icon={LayoutGrid} onNavigate={closeMobileNav}>{t('items.categories')}</NavItem>
+                  <NavItem to="/app/supplier-categories" icon={Boxes} onNavigate={closeMobileNav}>{t('items.supplierCategories')}</NavItem>
+                  <NavItem to="/app/business-types" icon={Briefcase} onNavigate={closeMobileNav}>{t('items.businessTypes')}</NavItem>
+                </NavSection>
+              )}
+              {showTenantNav && (
+                <NavSection title={t('sections.system')}>
+                  <NavItem to="/app/users" icon={UserCog} onNavigate={closeMobileNav}>{t('items.users')}</NavItem>
+                  <NavItem to="/app/branches" icon={Store} onNavigate={closeMobileNav}>{t('items.branches')}</NavItem>
+                  <NavItem to="/app/settings" icon={Settings} onNavigate={closeMobileNav}>{t('items.settings')}</NavItem>
+                </NavSection>
+              )}
+              {user?.isSystemAdmin && (
+                <NavSection title={t('sections.platform')}>
+                  <NavItem to="/app/organizations" icon={Building2} onNavigate={closeMobileNav}>{t('items.organizations')}</NavItem>
+                  {/* Core geography is organization-independent: system administrator only. */}
+                  <NavItem to="/app/cities" icon={MapPin} onNavigate={closeMobileNav}>{t('items.cities')}</NavItem>
+                </NavSection>
+              )}
+            </nav>
+          </aside>
+
+          <main className="w-full min-w-0 flex-1 p-4 md:p-6">
+            <Outlet key={outletKey} />
+          </main>
+        </div>
       </div>
-    </div>
+    </UnsavedChangesProvider>
   )
 }
 
@@ -237,10 +241,14 @@ function NavItem({
   icon: ComponentType<LucideProps>
   onNavigate?: () => void
 }) {
+  const guardedClick = useGuardedLinkClick()(to)
   return (
     <NavLink
       to={to}
-      onClick={onNavigate}
+      onClick={(event) => {
+        onNavigate?.()
+        guardedClick(event)
+      }}
       className={({ isActive }) =>
         cn(
           'flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors',

@@ -5,6 +5,7 @@ import { ChevronDown, KeyRound, LogOut } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/auth/AuthContext'
 import { ThemeSwitcher } from '@/components/theme/ThemeSwitcher'
+import { useGuardedLinkClick, useUnsavedChangesGuard } from './UnsavedChanges'
 
 /**
  * Account-scoped dropdown (T3): trigger shows the signed-in user's display
@@ -20,6 +21,8 @@ export function AccountMenu() {
   const { user, signOut } = useAuth()
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
+  const guardedLinkClick = useGuardedLinkClick()
+  const { confirmLeave } = useUnsavedChangesGuard()
 
   useEffect(() => {
     if (!open) return
@@ -71,7 +74,10 @@ export function AccountMenu() {
             <Link
               role="menuitem"
               to="/app/password"
-              onClick={() => setOpen(false)}
+              onClick={(event) => {
+                setOpen(false)
+                guardedLinkClick('/app/password')(event)
+              }}
               className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
             >
               <KeyRound aria-hidden="true" className="size-4 shrink-0" />
@@ -87,7 +93,8 @@ export function AccountMenu() {
               role="menuitem"
               onClick={() => {
                 setOpen(false)
-                void signOut()
+                // Signing out drops any pending work too.
+                confirmLeave(() => void signOut())
               }}
               className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
             >

@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { ConfirmDialog } from '@/components/layout/ConfirmDialog'
+import { useUnsavedChanges } from '@/components/layout/UnsavedChanges'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -79,8 +80,10 @@ export function PriceEditorTab({
     onDirtyChange?.(dirtyCount)
   }, [dirtyCount, onDirtyChange])
 
+  // Leaving through the app's links (sidebar, account menu) asks with the same message as the tab and list.
+  useUnsavedChanges(dirtyCount > 0 ? t('editor.discard.message', { count: dirtyCount }) : null)
+
   // Closing or reloading the browser tab would lose the edits: the browser asks while any is pending.
-  // In-app route changes are not guarded: the app uses <BrowserRouter>, and `useBlocker` needs a data router.
   useEffect(() => {
     if (dirtyCount === 0) return
     const warn = (event: BeforeUnloadEvent) => {
@@ -199,6 +202,7 @@ function PriceEditorGrid({
   onDirtyChange: (count: number) => void
 }) {
   const { t } = useTranslation('priceLists')
+  const { t: tCommon } = useTranslation('common')
   const numberFormat = useNumberFormat()
   const [items, setItems] = useState<BreakdownItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -271,8 +275,10 @@ function PriceEditorGrid({
   const rowEdits = rows.map((row) => ({ row, edit: editOf(row) }))
   const changed = rowEdits.filter((entry) => entry.edit.status === 'changed')
   const invalid = rowEdits.filter((entry) => entry.edit.status === 'invalid')
-  // A baseline still loading (a date just picked) would compare against the wrong prices.
-  const canPublish = changed.length > 0 && invalid.length === 0 && !publishing && !loading
+  // The prices on screen are those of another date (a date just picked, or its load failed): nothing
+  // may compare against, remark or publish over them until the right ones arrive.
+  const baselineStale = loading || loadError !== null
+  const canPublish = changed.length > 0 && invalid.length === 0 && !publishing && !baselineStale
   // An invalid value is unpublished work too.
   const dirtyCount = rowEdits.filter((entry) => entry.edit.status !== 'unchanged').length
 
@@ -470,7 +476,12 @@ function PriceEditorGrid({
             }}
           />
         </div>
-        <Button type="button" variant="outline" onClick={applyRemark} disabled={publishing || percentText.trim() === ''}>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={applyRemark}
+          disabled={publishing || baselineStale || percentText.trim() === ''}
+        >
           {t('editor.remark.apply')}
         </Button>
         <p className="min-w-0 flex-1 basis-60 text-xs text-muted-foreground">{t('editor.remark.hint')}</p>
@@ -478,8 +489,19 @@ function PriceEditorGrid({
       </div>
 
       {loadError && (
-        <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          {loadError}
+        <div
+          role="alert"
+          className="flex flex-wrap items-center gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+        >
+          <p className="min-w-0 flex-1">{loadError}</p>
+          <Button type="button" variant="outline" size="sm" onClick={() => setReloadToken((token) => token + 1)}>
+            {tCommon('actions.retry')}
+          </Button>
+        </div>
+      )}
+      {loading && rows.length > 0 && (
+        <p role="status" className="text-sm text-muted-foreground">
+          {t('editor.loadingBaseline')}
         </p>
       )}
 
@@ -530,6 +552,7 @@ function PriceEditorGrid({
                   edit={editOf(row)}
                   serverError={rowErrors[row.presentationId] ?? null}
                   selected={selected.has(row.presentationId)}
+                  baselineStale={baselineStale}
                   locked={publishing}
                   formatPercent={(value) => `${numberFormat.formatSigned(Math.round(value * 10) / 10)} %`}
                   onToggle={() => toggleRow(row.presentationId)}
@@ -586,6 +609,7 @@ function EditorGridRow({
   edit,
   serverError,
   selected,
+  baselineStale,
   locked,
   formatPercent,
   onToggle,
@@ -597,6 +621,8 @@ function EditorGridRow({
   edit: RowEdit
   serverError: string | null
   selected: boolean
+  /** The row's current prices belong to another date: they are not shown, nor compared against. */
+  baselineStale: boolean
   /** While a publish is in flight nothing the batch reads can change. */
   locked: boolean
   formatPercent: (value: number) => string
@@ -626,8 +652,12 @@ function EditorGridRow({
       <td className="px-3 py-2 text-muted-foreground">{row.showPresentation ? row.presentationName : ''}</td>
       <td className="px-3 py-2 tabular-nums">{row.code ?? '—'}</td>
       <td className="px-3 py-2">{row.categoryName ?? '—'}</td>
-      <td className="px-3 py-2 text-right tabular-nums">{row.base === null ? '—' : formatMoney(row.base)}</td>
-      <td className="px-3 py-2 text-right tabular-nums">{row.final === null ? '—' : formatMoney(row.final)}</td>
+      <td className="px-3 py-2 text-right tabular-nums">
+        {baselineStale ? '…' : row.base === null ? '—' : formatMoney(row.base)}
+      </td>
+      <td className="px-3 py-2 text-right tabular-nums">
+        {baselineStale ? '…' : row.final === null ? '—' : formatMoney(row.final)}
+      </td>
       <td className="px-3 py-2">
         <div className="flex min-w-40 flex-col gap-1">
           <Input
@@ -636,14 +666,16 @@ function EditorGridRow({
             className="h-8 w-32"
             aria-label={t('editor.newBaseOf', { name: row.label })}
             aria-invalid={invalid ? true : undefined}
-            aria-describedby={edit.status !== 'unchanged' || serverError ? messageId : undefined}
+            aria-describedby={
+              (edit.status === 'changed' && !baselineStale) || edit.status === 'invalid' || serverError ? messageId : undefined
+            }
             data-presentation-id={row.presentationId}
             value={text}
             disabled={locked}
             onChange={(e) => onEdit(e.target.value)}
           />
           <div id={messageId} className="flex flex-col gap-0.5 text-xs">
-            {edit.status === 'changed' && (
+            {edit.status === 'changed' && !baselineStale && (
               <span className="flex flex-wrap gap-x-2">
                 <span className="tabular-nums">
                   {row.base === null

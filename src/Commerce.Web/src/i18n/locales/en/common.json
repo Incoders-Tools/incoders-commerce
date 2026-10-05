@@ -48,5 +48,10 @@
   "email": {
     "invalid": "Enter a valid email address, for example name@domain.com.",
     "valid": "Valid email address"
+  },
+  "unsavedChanges": {
+    "title": "Unsaved changes",
+    "discard": "Discard",
+    "keepEditing": "Keep editing"
   }
 }
