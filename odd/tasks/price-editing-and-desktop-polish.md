@@ -120,6 +120,15 @@ of the product and offers no real way to edit prices one by one or in bulk.
   blocked (the app uses `<BrowserRouter>`); tab, list and browser unload
   are guarded.
 
+- [x] T6 RDD review fixes on the web price editor (6bd4d59 + c3df7da) and the
+  batch endpoint (5518713): a batch effective before today's business day is
+  refused (c793eb2, so price history is never rewritten); the editor locks
+  while publishing and clears only the published edits; hidden invalid rows
+  are reported with a "show" action; a picked future date loads its own
+  baseline, the date input starts at today and a server `effectiveFrom`
+  error lands on the field; the "today" hint is visible; the clear-date test
+  now proves the date was in effect first. GREEN `npm test` 679.
+
 ## Decisions for T4 (orchestrator default, owner informed 2026-10-04)
 
 - A batch entry for a presentation that already has an entry effective the
