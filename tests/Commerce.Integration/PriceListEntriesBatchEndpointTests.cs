@@ -234,6 +234,20 @@ public sealed class PriceListEntriesBatchEndpointTests : IClassFixture<WebApplic
         Assert.Equal("2026-11-01", (await JsonAsync(response)).GetProperty("entries")[0].GetProperty("effectiveFrom").GetString());
     }
 
+    // A batch may replace a same-day price, so it must never reach a day already in the past: that would rewrite the
+    // history a sale or an order was priced with. Today and future days stay correctable.
+    [Fact]
+    public async Task APastEffectiveDate_IsRefused_SoTheHistoryIsNeverRewritten()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+        var w = await NewWorldAsync();
+
+        var response = await PublishAsync(w.Admin, w.Bare, Initial, Entry(w.Bola, 100m));
+
+        Assert.Equal(["effectiveFrom"], await ErrorKeysAsync(response));
+        Assert.Equal(0L, EntryCount(w.Bare));
+    }
+
     // ---------------------------------------------------------------- validation
 
     [Fact]

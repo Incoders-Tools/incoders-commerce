@@ -354,7 +354,18 @@ public static class PricingEndpoints
                 return Results.ValidationProblem(unknown);
             }
 
-            var effectiveFrom = request.EffectiveFrom ?? httpContext.Today();
+            // A batch replaces a same-day price, so a past day would rewrite the history sales and orders were priced
+            // with: only today (business day) and future days may be published or corrected.
+            var today = httpContext.Today();
+            var effectiveFrom = request.EffectiveFrom ?? today;
+            if (effectiveFrom < today)
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["effectiveFrom"] = ["effectiveFrom cannot be earlier than today's business day."],
+                });
+            }
+
             var violations = await floorValidator.CheckChangeAsync(
                 scope, priceListId, effectiveFrom, entries.ToDictionary(e => e.PresentationId, e => e.UnitPrice), null, ct);
             if (violations.Count > 0)
