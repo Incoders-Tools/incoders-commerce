@@ -1,30 +1,7 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:sys="clr-namespace:System;assembly=System.Runtime">
-    <!-- Semantic resources consume the active palette dictionary (DarkTheme.xaml by default). -->
-    <SolidColorBrush x:Key="ShellBrush" Color="{DynamicResource ColorShell}" />
-    <SolidColorBrush x:Key="ShellElevatedBrush" Color="{DynamicResource ColorShellElevated}" />
-    <SolidColorBrush x:Key="SurfaceBrush" Color="{DynamicResource ColorSurface}" />
-    <SolidColorBrush x:Key="SurfaceSoftBrush" Color="{DynamicResource ColorSurfaceSoft}" />
-    <SolidColorBrush x:Key="BorderBrushMuted" Color="{DynamicResource ColorBorder}" />
-    <SolidColorBrush x:Key="PrimaryBrush" Color="{DynamicResource ColorPrimary}" />
-    <SolidColorBrush x:Key="PrimaryHoverBrush" Color="{DynamicResource ColorPrimaryHover}" />
-    <SolidColorBrush x:Key="PrimaryPressedBrush" Color="{DynamicResource ColorPrimaryPressed}" />
-    <SolidColorBrush x:Key="OnPrimaryBrush" Color="{DynamicResource ColorOnPrimary}" />
-    <SolidColorBrush x:Key="AccentBrush" Color="{DynamicResource ColorAccent}" />
-    <SolidColorBrush x:Key="AccentTextBrush" Color="{DynamicResource ColorAccentText}" />
-    <SolidColorBrush x:Key="HoverSurfaceBrush" Color="{DynamicResource ColorHoverSurface}" />
-    <SolidColorBrush x:Key="PressedSurfaceBrush" Color="{DynamicResource ColorPressedSurface}" />
-    <SolidColorBrush x:Key="ScrollThumbBrush" Color="{DynamicResource ColorScrollThumb}" />
-    <SolidColorBrush x:Key="SuccessBrush" Color="{DynamicResource ColorSuccess}" />
-    <SolidColorBrush x:Key="WarningSurfaceBrush" Color="{DynamicResource ColorWarningSurface}" />
-    <SolidColorBrush x:Key="WarningBorderBrush" Color="{DynamicResource ColorWarningBorder}" />
-    <SolidColorBrush x:Key="WarningTextBrush" Color="{DynamicResource ColorWarningText}" />
-    <SolidColorBrush x:Key="DangerBrush" Color="{DynamicResource ColorDanger}" />
-    <SolidColorBrush x:Key="DangerSurfaceBrush" Color="{DynamicResource ColorDangerSurface}" />
-    <SolidColorBrush x:Key="TextBrush" Color="{DynamicResource ColorText}" />
-    <SolidColorBrush x:Key="MutedTextBrush" Color="{DynamicResource ColorTextMuted}" />
-    <SolidColorBrush x:Key="InputBrush" Color="{DynamicResource ColorInput}" />
+    <!-- The semantic brushes (SurfaceBrush, TextBrush, ...) are in ThemeBrushes.xaml, merged before this file. -->
 
     <Thickness x:Key="CardPadding">20</Thickness>
     <!-- Spacing of actions: between buttons of one row, between a field and the button beside it, and above a group of

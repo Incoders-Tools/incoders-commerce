@@ -7,41 +7,47 @@ namespace Commerce.Pos.Windows;
 /// <summary>
 /// Personal section of the main window: administrator staff management over the
 /// shared <see cref="ManagementConnection"/> (device credential + the signed-in
-/// operator, no password prompt; the server authorizes the operator on every
-/// call). The admin creates staff (email, initial password, role, this
-/// terminal's branch), sees the staff list with its status, deactivates or
-/// reactivates people after an inline confirmation, and resets a password.
+/// operator, no password prompt; the server authorizes the operator and applies
+/// its grant caps on every call).
+///
+/// The staff list is the reusable entity list (price-editing-and-desktop-polish
+/// T1, <see cref="Controls.EntityListView"/> over <see cref="StaffList"/>) over
+/// the full width: search by email, Rol / Estado filters, sortable columns, and
+/// the Editar rol / Revocar-Restaurar (after an inline confirmation) / Resetear
+/// contraseña row actions. The form is hidden until "Nuevo" (email, initial
+/// password, role; created in this terminal's branch) or a row action opens it
+/// beside the list; a successful save closes it, back to the list.
 ///
 /// "Operadores de esta terminal" lists who can sign in with a PIN here and lets
 /// the admin remove one (local only: the user's cloud account is untouched).
 /// Adding an operator is NOT done here: a new person signs in with email and
 /// password from the lock/login flow after the current operator signs out.
-/// Status and errors render above the scroll area so they are never hidden.
+/// Status and errors render above the list so they are never hidden.
 /// </summary>
 public partial class StaffView : UserControl, ISectionView
 {
     private readonly UserAdminClient _client;
     private readonly LocalOperatorStore _operatorStore;
-    private readonly Guid _branchId;
-    private readonly Guid _callerUserId;
     private readonly BusyController _busy;
-    private IReadOnlyList<UserAdminRecordDto> _users = [];
-    private Guid? _pendingStatusUserId;
+    private readonly StaffList _staff;
     private Guid? _pendingOperatorRemovalUserId;
-    private Guid? _resetUserId;
 
-    /// <param name="callerUserId">The signed-in operator's user id: their own row never offers deactivation.</param>
+    /// <param name="callerUserId">The signed-in operator's user id: their own row never offers revoke nor a role change.</param>
     public StaffView(UserAdminClient client, LocalOperatorStore operatorStore, Guid branchId, Guid callerUserId)
     {
         InitializeComponent();
         _client = client;
         _operatorStore = operatorStore;
-        _branchId = branchId;
-        _callerUserId = callerUserId;
         _busy = new BusyController(ApplyBusy, nameof(StaffView), message => ShowStatus(message, isError: true));
 
         RoleComboBox.ItemsSource = StaffRoleOptions.All;
-        RoleComboBox.SelectedValue = StaffRoleOptions.Default.Name;
+        EditRoleComboBox.ItemsSource = StaffRoleOptions.All;
+
+        _staff = new StaffList(callerUserId, branchId, ToggleStatusAsync);
+        _staff.EditorChanged += OnEditorChanged;
+        StaffListView.Model = _staff.Model;
+
+        ShowForm(StaffEditorPurpose.None);
         RenderOperators();
         Loaded += async (_, _) => await _busy.RunAsync(PosMessages.Loading, LoadUsersAsync);
     }
@@ -86,25 +92,51 @@ public partial class StaffView : UserControl, ISectionView
             return;
         }
 
-        _users = users;
-        RenderStaff();
+        _staff.Model.SetItems(users);
     }
 
-    private void RenderStaff()
+    // ---- the editor: one form at a time ------------------------------------------------
+
+    /// <summary>"Nuevo" opens the create form empty, a row its role or password form; closing clears them all.</summary>
+    private void OnEditorChanged(StaffEditorPurpose purpose, UserAdminRecordDto? user)
     {
-        var rows = StaffRowPresenter.Build(_users, _callerUserId, _branchId, _pendingStatusUserId);
-        StaffItemsControl.ItemsSource = rows;
-        StaffEmptyText.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        ShowStatus(string.Empty, isError: false);
+        ShowForm(purpose);
+        if (purpose == StaffEditorPurpose.EditRole && user is not null)
+        {
+            var canEdit = _staff.CanEditRole(user);
+            EditRoleComboBox.SelectedValue = StaffList.InitialRole(user);
+            EditRoleComboBox.IsEnabled = canEdit;
+            SaveRoleButton.IsEnabled = canEdit;
+            OwnRoleHint.Visibility = canEdit ? Visibility.Collapsed : Visibility.Visible;
+        }
     }
+
+    private void ShowForm(StaffEditorPurpose purpose)
+    {
+        CreatePanel.Visibility = purpose == StaffEditorPurpose.Create ? Visibility.Visible : Visibility.Collapsed;
+        EditRolePanel.Visibility = purpose == StaffEditorPurpose.EditRole ? Visibility.Visible : Visibility.Collapsed;
+        ResetPanel.Visibility = purpose == StaffEditorPurpose.ResetPassword ? Visibility.Visible : Visibility.Collapsed;
+        if (purpose != StaffEditorPurpose.Create)
+        {
+            NewEmailTextBox.Text = string.Empty;
+            NewPasswordBox.Clear();
+            RoleComboBox.SelectedValue = StaffRoleOptions.Default.Name;
+        }
+
+        if (purpose != StaffEditorPurpose.ResetPassword)
+        {
+            ResetPasswordBox.Clear();
+        }
+    }
+
+    private void CancelEditorButton_Click(object sender, RoutedEventArgs e) => _staff.Model.CloseEditor();
 
     // ---- create ----------------------------------------------------------------
 
     private async void CreateButton_Click(object sender, RoutedEventArgs e)
     {
-        var email = NewEmailTextBox.Text.Trim();
-        var password = NewPasswordBox.Password;
-        var role = RoleComboBox.SelectedValue as string ?? StaffRoleOptions.Default.Name;
-        if (email.Length == 0 || password.Length == 0)
+        if (_staff.CreateRequest(NewEmailTextBox.Text, NewPasswordBox.Password, RoleComboBox.SelectedValue as string) is not { } request)
         {
             ShowStatus(PosMessages.EmailAndPasswordRequired, isError: true);
             return;
@@ -113,89 +145,69 @@ public partial class StaffView : UserControl, ISectionView
         await _busy.RunAsync(PosMessages.Saving, async () =>
         {
             ShowStatus(string.Empty, isError: false);
-            var outcome = await _client.CreateUserAsync(new CreateUserAdminRequestDto(email, password, [role], [_branchId]), _busy.Token);
+            var outcome = await _client.CreateUserAsync(request, _busy.Token);
             if (outcome.Kind != UserAdminMutationKind.Succeeded)
             {
                 ShowStatus(outcome.ErrorMessage ?? PosMessages.SaveFailed, isError: true);
                 return;
             }
 
-            NewEmailTextBox.Text = string.Empty;
-            NewPasswordBox.Clear();
-            RoleComboBox.SelectedValue = StaffRoleOptions.Default.Name;
+            // Back to the list: a second Crear usuario must not create the user twice.
+            _staff.Model.CloseEditor();
             ShowStatus(PosMessages.StaffCreated, isError: false);
             await LoadUsersAsync();
         });
     }
 
-    // ---- deactivate / reactivate -------------------------------------------------
+    // ---- role ----------------------------------------------------------------------
 
-    private static Guid? UserIdOf(object sender) => (sender as FrameworkElement)?.Tag as Guid?;
-
-    private void StatusActionButton_Click(object sender, RoutedEventArgs e)
+    private async void SaveRoleButton_Click(object sender, RoutedEventArgs e)
     {
-        _pendingStatusUserId = UserIdOf(sender);
-        ShowStatus(string.Empty, isError: false);
-        RenderStaff();
-    }
-
-    private void CancelStatusButton_Click(object sender, RoutedEventArgs e)
-    {
-        _pendingStatusUserId = null;
-        RenderStaff();
-    }
-
-    private async void ConfirmStatusButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (UserIdOf(sender) is not { } id || _users.FirstOrDefault(user => user.UserId == id) is not { } target)
+        if (_staff.Purpose != StaffEditorPurpose.EditRole || _staff.Model.Editing is not { } target || !_staff.CanEditRole(target))
         {
             return;
         }
 
-        var revoke = !target.IsRevoked;
-        _pendingStatusUserId = null;
-        RenderStaff();
-        await _busy.RunAsync(PosMessages.UpdatingStatus, async () =>
+        var roles = StaffList.RolesAfterEdit(target, EditRoleComboBox.SelectedValue as string);
+        await _busy.RunAsync(PosMessages.Saving, async () =>
         {
             ShowStatus(string.Empty, isError: false);
-            var outcome = await _client.SetStatusAsync(id, revoke, _busy.Token);
+            var outcome = await _client.ReplaceRolesAsync(target.UserId, new AssignRolesAdminRequestDto(roles), _busy.Token);
             if (outcome.Kind != UserAdminMutationKind.Succeeded)
             {
-                ShowStatus(outcome.ErrorMessage ?? PosMessages.StaffDeactivateFailed, isError: true);
+                ShowStatus(outcome.ErrorMessage ?? PosMessages.SaveFailed, isError: true);
                 return;
             }
 
-            ShowStatus(revoke ? PosMessages.StaffDeactivated : PosMessages.StaffReactivated, isError: false);
+            _staff.Model.CloseEditor();
+            ShowStatus(PosMessages.Saved, isError: false);
             await LoadUsersAsync();
         });
     }
 
-    // ---- reset password --------------------------------------------------------------
+    // ---- revoke / restore ---------------------------------------------------------------
 
-    private void ResetPasswordRowButton_Click(object sender, RoutedEventArgs e)
+    /// <summary>Revocar / Restaurar, after the list's inline confirmation.</summary>
+    private Task ToggleStatusAsync(UserAdminRecordDto target) => _busy.RunAsync(PosMessages.UpdatingStatus, async () =>
     {
-        if (UserIdOf(sender) is not { } id || _users.FirstOrDefault(user => user.UserId == id) is not { } target)
+        var revoke = !target.IsRevoked;
+        ShowStatus(string.Empty, isError: false);
+        var outcome = await _client.SetStatusAsync(target.UserId, revoke, _busy.Token);
+        if (outcome.Kind != UserAdminMutationKind.Succeeded)
         {
+            ShowStatus(outcome.ErrorMessage ?? PosMessages.StaffDeactivateFailed, isError: true);
             return;
         }
 
-        _resetUserId = id;
-        ResetTitle.Text = $"Nueva contraseña para {target.Email}";
-        ResetPasswordBox.Clear();
-        ResetPanel.Visibility = Visibility.Visible;
-        ResetPasswordBox.Focus();
-    }
+        ShowStatus(revoke ? PosMessages.StaffDeactivated : PosMessages.StaffReactivated, isError: false);
+        await LoadUsersAsync();
+    });
 
-    private void ResetCancelButton_Click(object sender, RoutedEventArgs e)
-    {
-        _resetUserId = null;
-        ResetPasswordBox.Clear();
-        ResetPanel.Visibility = Visibility.Collapsed;
-    }
+    // ---- reset password --------------------------------------------------------------
 
     private async void ResetSaveButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_resetUserId is not { } id)
+        if (_staff.Purpose != StaffEditorPurpose.ResetPassword || _staff.Model.Editing is not { } target)
         {
             ShowStatus(PosMessages.SelectStaffUserFirst, isError: true);
             return;
@@ -211,21 +223,21 @@ public partial class StaffView : UserControl, ISectionView
         await _busy.RunAsync(PosMessages.ResettingPassword, async () =>
         {
             ShowStatus(string.Empty, isError: false);
-            var outcome = await _client.ResetPasswordAsync(id, new AdminResetPasswordRequestDto(newPassword), _busy.Token);
+            var outcome = await _client.ResetPasswordAsync(target.UserId, new AdminResetPasswordRequestDto(newPassword), _busy.Token);
             if (outcome.Kind != UserAdminMutationKind.Succeeded)
             {
                 ShowStatus(outcome.ErrorMessage ?? PosMessages.PasswordResetFailed, isError: true);
                 return;
             }
 
-            ResetPasswordBox.Clear();
-            ResetPanel.Visibility = Visibility.Collapsed;
-            _resetUserId = null;
+            _staff.Model.CloseEditor();
             ShowStatus(PosMessages.PasswordResetDone, isError: false);
         });
     }
 
     // ---- operators of this terminal --------------------------------------------------
+
+    private static Guid? UserIdOf(object sender) => (sender as FrameworkElement)?.Tag as Guid?;
 
     private void RenderOperators()
     {

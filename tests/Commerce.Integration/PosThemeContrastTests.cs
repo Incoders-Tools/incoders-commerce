@@ -162,12 +162,12 @@ public sealed class PosThemeContrastTests
         }
     }
 
-    // {DynamicResource TextBrush} -> the palette key behind that brush (ColorText).
+    // {DynamicResource TextBrush} -> the palette key behind that brush (ColorText); the brushes live in ThemeBrushes.xaml.
     private static string ColorKey(string brushReference)
     {
         var brush = Regex.Match(brushReference, @"\{(?:Dynamic|Static)Resource (\w+)\}").Groups[1].Value;
-        var desktop = XDocument.Parse(Src("Themes", "DesktopTheme.xaml"));
-        var element = desktop.Descendants().Single(e => e.Name.LocalName == "SolidColorBrush" && Attr(e, "Key") == brush);
+        var brushes = XDocument.Parse(Src("Themes", "ThemeBrushes.xaml"));
+        var element = brushes.Descendants().Single(e => e.Name.LocalName == "SolidColorBrush" && Attr(e, "Key") == brush);
         return Regex.Match(Attr(element, "Color")!, @"\{DynamicResource (\w+)\}").Groups[1].Value;
     }
 

@@ -106,9 +106,10 @@ public partial class UpdateWizardWindow : Window
         StatusText.Text = success ? "Instalación enviada a Windows." : "La actualización no se instaló.";
 
         ResultBorder.Visibility = Visibility.Visible;
-        ResultBorder.Background = (Brush)FindResource(success ? "SurfaceSoftBrush" : "DangerSurfaceBrush");
-        ResultBorder.BorderBrush = (Brush)FindResource(success ? "SuccessBrush" : "DangerBrush");
-        ResultTitleText.Foreground = (Brush)FindResource(success ? "SuccessBrush" : "DangerBrush");
+        // Resource references, not the brushes themselves: they follow a theme switch.
+        ResultBorder.SetResourceReference(Border.BackgroundProperty, success ? "SurfaceSoftBrush" : "DangerSurfaceBrush");
+        ResultBorder.SetResourceReference(Border.BorderBrushProperty, success ? "SuccessBrush" : "DangerBrush");
+        ResultTitleText.SetResourceReference(TextBlock.ForegroundProperty, success ? "SuccessBrush" : "DangerBrush");
         ResultTitleText.Text = success ? "Actualización instalada" : UpdateWizardText.FailureTitle(outcome.Reason ?? UpdateFailureReason.InstallFailed);
         ResultMessageText.Text = outcome.Message;
 

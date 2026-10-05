@@ -132,102 +132,30 @@ public sealed class PosStaffViewTests
         Assert.Equal(label, StaffRoleOptions.LabelFor(role));
     }
 
-    // ---- staff rows -----------------------------------------------------------
+    // ---- staff rows (the list itself: PosStaffListTests) -------------------------
 
     private static readonly Guid TerminalBranch = Guid.NewGuid();
     private static readonly Guid Me = Guid.NewGuid();
 
-    private static UserAdminRecordDto User(string email, string[] roles, bool revoked = false, Guid? id = null, Guid[]? branches = null) =>
-        new(id ?? Guid.NewGuid(), email, roles, revoked, branches);
+    private static UserAdminRecordDto User(string email, string[] roles, bool revoked = false, Guid? id = null) =>
+        new(id ?? Guid.NewGuid(), email, roles, revoked, null);
 
     [Fact]
-    public void Rows_ShowRoleBranchAndStatus_InSpanish_OrderedByEmail()
-    {
-        var rows = StaffRowPresenter.Build(
-            [
-                User("b@x.test", ["seller", "cashier"], branches: [TerminalBranch]),
-                User("a@x.test", [], revoked: true, branches: [Guid.NewGuid()]),
-                User("c@x.test", ["cashier"], branches: [TerminalBranch, Guid.NewGuid()]),
-                User("d@x.test", ["cashier"]),
-            ],
-            Me, TerminalBranch, pendingUserId: null);
-
-        Assert.Equal(["a@x.test", "b@x.test", "c@x.test", "d@x.test"], rows.Select(r => r.Email));
-        Assert.Equal("Sin rol", rows[0].RolesText);
-        Assert.Equal("Vendedor, Cajero", rows[1].RolesText);
-        Assert.Equal("Otras sucursales", rows[0].BranchText);
-        Assert.Equal("Esta sucursal", rows[1].BranchText);
-        Assert.Equal("Esta sucursal y otras", rows[2].BranchText);
-        Assert.Equal(string.Empty, rows[3].BranchText);
-        Assert.Equal("De baja", rows[0].StatusText);
-        Assert.Equal("Activo", rows[1].StatusText);
-    }
-
-    [Fact]
-    public void Rows_OfferDarDeBaja_ToActive_AndReactivar_ToRevoked()
-    {
-        var rows = StaffRowPresenter.Build(
-            [User("a@x.test", ["cashier"]), User("b@x.test", ["cashier"], revoked: true)], Me, TerminalBranch, null);
-
-        Assert.Equal("Dar de baja", rows[0].ActionLabel);
-        Assert.True(rows[0].WillRevoke);
-        Assert.Equal("Reactivar", rows[1].ActionLabel);
-        Assert.False(rows[1].WillRevoke);
-    }
-
-    [Fact]
-    public void Rows_HideTheStatusActionOnTheSignedInAdminsOwnRow()
-    {
-        var rows = StaffRowPresenter.Build([User("me@x.test", ["business-admin"], id: Me), User("o@x.test", ["cashier"])], Me, TerminalBranch, null);
-
-        Assert.False(rows.Single(r => r.Email == "me@x.test").CanChangeStatus);
-        Assert.True(rows.Single(r => r.Email == "o@x.test").CanChangeStatus);
-    }
-
-    [Fact]
-    public void Rows_OfferPasswordReset_OnEveryRow_EvenTheOwnOne_AndWhileConfirmingAStatusChange()
+    public async Task Rows_OfferPasswordReset_OnEveryRow_EvenTheOwnOne_AndWhileConfirmingAStatusChange()
     {
         // The API has no self restriction on reset-password, and it does not depend on the status action.
-        var target = Guid.NewGuid();
-        var rows = StaffRowPresenter.Build(
-            [User("me@x.test", ["business-admin"], id: Me), User("a@x.test", ["cashier"], id: target), User("b@x.test", [], revoked: true)],
-            Me, TerminalBranch, pendingUserId: target);
+        var target = User("a@x.test", ["cashier"]);
+        var list = new StaffList(Me, TerminalBranch, _ => Task.CompletedTask);
+        list.Model.SetItems([User("me@x.test", ["business-admin"], id: Me), target, User("b@x.test", [], revoked: true)]);
+        list.Model.SelectFilterOption("state", 2);
 
-        Assert.All(rows, row => Assert.True(row.CanResetPassword));
-        Assert.False(rows.Single(r => r.Email == "me@x.test").CanChangeStatus);
-        Assert.True(rows.Single(r => r.Email == "a@x.test").IsConfirming);
-    }
+        await list.Model.InvokeAsync(target, StaffList.ToggleStatusAction);
 
-    [Fact]
-    public void StaffView_OffersPasswordResetIndependentlyOfTheStatusAction()
-    {
-        var xaml = Src("StaffView.xaml");
-        var reset = System.Text.RegularExpressions.Regex.Match(xaml, @"<Button[^>]*ResetPasswordRowButton_Click[^>]*/>");
-
-        Assert.True(reset.Success);
-        Assert.Contains("{Binding CanResetPassword,", reset.Value);
-        Assert.DoesNotContain("ShowAction", reset.Value);
-        Assert.DoesNotContain("IsConfirming", reset.Value);
-    }
-
-    [Fact]
-    public void Rows_AskForConfirmation_OnlyForThePendingRow()
-    {
-        var target = Guid.NewGuid();
-        var rows = StaffRowPresenter.Build([User("a@x.test", ["cashier"], id: target), User("b@x.test", ["cashier"])], Me, TerminalBranch, target);
-
-        Assert.True(rows[0].IsConfirming);
-        Assert.Equal("¿Dar de baja a a@x.test?", rows[0].ConfirmText);
-        Assert.False(rows[1].IsConfirming);
-    }
-
-    [Fact]
-    public void Rows_ConfirmationWording_FollowsTheDirection()
-    {
-        var target = Guid.NewGuid();
-        var rows = StaffRowPresenter.Build([User("a@x.test", [], revoked: true, id: target)], Me, TerminalBranch, target);
-
-        Assert.Equal("¿Reactivar a a@x.test?", rows[0].ConfirmText);
+        Assert.NotNull(list.Model.PendingConfirmation);
+        var rows = ((IEntityListModel)list.Model).Rows;
+        Assert.Equal(3, rows.Count);
+        Assert.All(rows, row => Assert.True(row.Actions.Single(a => a.Key == StaffList.ResetPasswordAction).IsEnabled));
+        Assert.False(rows.Single(r => ((UserAdminRecordDto)r.Item).UserId == Me).Actions.Single(a => a.Key == StaffList.ToggleStatusAction).IsEnabled);
     }
 
     // ---- operators of this terminal --------------------------------------------
@@ -283,7 +211,7 @@ public sealed class PosStaffViewTests
         Assert.Contains("x:Name=\"NewEmailTextBox\"", xaml);
         Assert.Contains("x:Name=\"NewPasswordBox\"", xaml);
         Assert.Contains("x:Name=\"RoleComboBox\"", xaml);
-        Assert.Contains("x:Name=\"StaffItemsControl\"", xaml);
+        Assert.Contains("<controls:EntityListView x:Name=\"StaffListView\"", xaml);
         Assert.Contains("x:Name=\"OperatorsItemsControl\"", xaml);
         Assert.Contains("Operadores de esta terminal", xaml);
         Assert.Contains("Quitar de esta terminal", xaml);

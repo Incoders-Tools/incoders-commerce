@@ -43,9 +43,8 @@ public partial class CloseCashWindow : Window
         if (entry.Difference is { } difference)
         {
             DifferenceText.Text = CashSessionInput.DifferenceLabel(difference);
-            DifferenceText.Foreground = difference == 0m
-                ? (System.Windows.Media.Brush)FindResource("AccentTextBrush")
-                : (System.Windows.Media.Brush)FindResource("DangerBrush");
+            // A resource reference, not the brush itself: it follows a theme switch.
+            DifferenceText.SetResourceReference(TextBlock.ForegroundProperty, difference == 0m ? "AccentTextBrush" : "DangerBrush");
         }
         else
         {

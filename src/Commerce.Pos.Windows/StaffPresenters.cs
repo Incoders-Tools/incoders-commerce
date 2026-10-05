@@ -31,69 +31,6 @@ public static class StaffRoleOptions
     };
 }
 
-/// <summary>One staff member as the Personal list shows it.</summary>
-public sealed record StaffRow(
-    Guid UserId, string Email, string RolesText, string BranchText, string StatusText,
-    bool CanChangeStatus, bool WillRevoke, string ActionLabel, bool IsConfirming, string ConfirmText)
-{
-    /// <summary>Convenience for the template: the confirm step and the action are mutually exclusive.</summary>
-    public bool ShowAction => CanChangeStatus && !IsConfirming;
-
-    /// <summary>Password reset does not depend on the status action: the API allows it on any staff user, the admin's own row included.</summary>
-    public bool CanResetPassword => true;
-
-    /// <summary>Second line of a row: where the person works and whether the account is active.</summary>
-    public string DetailText => string.Join(" · ", new[] { BranchText, StatusText }.Where(part => part.Length > 0));
-}
-
-/// <summary>
-/// Turns the staff list of the API into rows: Spanish role labels, branch
-/// membership relative to THIS terminal's branch, the status, and the
-/// deactivate/reactivate action (hidden on the signed-in administrator's own
-/// row; the server refuses it too) with its inline confirmation.
-/// </summary>
-public static class StaffRowPresenter
-{
-    public static IReadOnlyList<StaffRow> Build(
-        IReadOnlyList<UserAdminRecordDto> users, Guid callerUserId, Guid terminalBranchId, Guid? pendingUserId) =>
-        users
-            .OrderBy(user => user.Email, StringComparer.OrdinalIgnoreCase)
-            .Select(user => ToRow(user, callerUserId, terminalBranchId, pendingUserId))
-            .ToList();
-
-    private static StaffRow ToRow(UserAdminRecordDto user, Guid callerUserId, Guid terminalBranchId, Guid? pendingUserId)
-    {
-        var willRevoke = !user.IsRevoked;
-        var actionLabel = willRevoke ? "Dar de baja" : "Reactivar";
-        return new StaffRow(
-            user.UserId,
-            user.Email,
-            user.RoleNames.Count == 0 ? "Sin rol" : string.Join(", ", user.RoleNames.Select(StaffRoleOptions.LabelFor)),
-            BranchText(user.BranchIds, terminalBranchId),
-            user.IsRevoked ? "De baja" : "Activo",
-            CanChangeStatus: user.UserId != callerUserId,
-            willRevoke,
-            actionLabel,
-            IsConfirming: pendingUserId == user.UserId,
-            ConfirmText: $"¿{actionLabel} a {user.Email}?");
-    }
-
-    private static string BranchText(IReadOnlyList<Guid>? branchIds, Guid terminalBranchId)
-    {
-        if (branchIds is null || branchIds.Count == 0)
-        {
-            return string.Empty;
-        }
-
-        if (!branchIds.Contains(terminalBranchId))
-        {
-            return "Otras sucursales";
-        }
-
-        return branchIds.Count == 1 ? "Esta sucursal" : "Esta sucursal y otras";
-    }
-}
-
 /// <summary>One operator cached on this terminal, as "Operadores de esta terminal" lists it.</summary>
 public sealed record TerminalOperatorRow(Guid UserId, string Email, string Detail, bool IsConfirming = false)
 {

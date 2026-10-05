@@ -47,6 +47,15 @@ public sealed class EntityRowSelectionGate
 }
 
 /// <summary>
+/// Whether the editor panel of an entity list takes its place beside the list. A list that hides its closed editor
+/// (Personal) uses the full width until "Nuevo" or a row opens the form; otherwise the panel stays, showing its hint.
+/// </summary>
+public static class EntityEditorPanel
+{
+    public static bool IsShown(bool hidesClosedEditor, EntityEditorMode mode) => !hidesClosedEditor || mode != EntityEditorMode.None;
+}
+
+/// <summary>
 /// The non-generic face of <see cref="EntityListModel{T}"/> the WPF control (<c>Controls/EntityListView</c>) binds to.
 /// The control renders it again on <see cref="Changed"/> and forwards the operator's clicks; it holds no rules.
 /// </summary>

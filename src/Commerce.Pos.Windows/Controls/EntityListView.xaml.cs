@@ -45,6 +45,14 @@ public sealed class EntityListView : Control
         nameof(EditorWidth), typeof(GridLength), typeof(EntityListView),
         new PropertyMetadata(new GridLength(2, GridUnitType.Star), (d, _) => ((EntityListView)d).ApplyEditorWidth()));
 
+    /// <summary>
+    /// True folds the editor panel away while nothing is open, so the list takes the full width; "Nuevo" or a row
+    /// brings it back beside the list. False (the default) keeps the panel with its hint.
+    /// </summary>
+    public static readonly DependencyProperty HidesClosedEditorProperty = DependencyProperty.Register(
+        nameof(HidesClosedEditor), typeof(bool), typeof(EntityListView),
+        new PropertyMetadata(false, (d, _) => ((EntityListView)d).ApplyEditorWidth()));
+
     private readonly List<DataGridColumn> _columns = new();
     private readonly List<ComboBox> _filterBoxes = new();
     private readonly EntityRowSelectionGate _selectionGate = new();
@@ -64,6 +72,9 @@ public sealed class EntityListView : Control
     private TextBlock? _confirmationText;
     private Button? _confirmButton;
     private Button? _cancelConfirmationButton;
+    private UIElement? _editorPanel;
+    private double _editorMinWidth;
+    private double _editorGapWidth;
     private UIElement? _editorHeader;
     private TextBlock? _editorTitle;
     private Button? _closeEditorButton;
@@ -91,6 +102,12 @@ public sealed class EntityListView : Control
     {
         get => (GridLength)GetValue(EditorWidthProperty);
         set => SetValue(EditorWidthProperty, value);
+    }
+
+    public bool HidesClosedEditor
+    {
+        get => (bool)GetValue(HidesClosedEditorProperty);
+        set => SetValue(HidesClosedEditorProperty, value);
     }
 
     /// <summary>The list to render; the columns and filters are built from it.</summary>
@@ -152,6 +169,7 @@ public sealed class EntityListView : Control
         _confirmationText = GetTemplateChild("PART_ConfirmationText") as TextBlock;
         _confirmButton = GetTemplateChild("PART_ConfirmButton") as Button;
         _cancelConfirmationButton = GetTemplateChild("PART_CancelConfirmationButton") as Button;
+        _editorPanel = GetTemplateChild("PART_EditorPanel") as UIElement;
         _editorHeader = GetTemplateChild("PART_EditorHeader") as UIElement;
         _editorTitle = GetTemplateChild("PART_EditorTitle") as TextBlock;
         _closeEditorButton = GetTemplateChild("PART_CloseEditorButton") as Button;
@@ -174,6 +192,12 @@ public sealed class EntityListView : Control
         Hook(_confirmButton, ConfirmButton_Click);
         Hook(_cancelConfirmationButton, CancelConfirmationButton_Click);
         Hook(_closeEditorButton, CloseEditorButton_Click);
+
+        if (_layout is { ColumnDefinitions.Count: 3 })
+        {
+            _editorGapWidth = _layout.ColumnDefinitions[1].Width.Value;
+            _editorMinWidth = _layout.ColumnDefinitions[2].MinWidth;
+        }
 
         ApplyEditorWidth();
         _rows = [];
@@ -211,11 +235,16 @@ public sealed class EntityListView : Control
         }
     }
 
+    /// <summary>The editor's share of the width, or none (the list takes it all) while a hidden editor is closed.</summary>
     private void ApplyEditorWidth()
     {
+        var shown = EntityEditorPanel.IsShown(HidesClosedEditor, _model?.EditorMode ?? EntityEditorMode.None);
+        SetVisible(_editorPanel, shown);
         if (_layout is { ColumnDefinitions.Count: 3 })
         {
-            _layout.ColumnDefinitions[2].Width = EditorWidth;
+            _layout.ColumnDefinitions[1].Width = new GridLength(shown ? _editorGapWidth : 0);
+            _layout.ColumnDefinitions[2].MinWidth = shown ? _editorMinWidth : 0;
+            _layout.ColumnDefinitions[2].Width = shown ? EditorWidth : new GridLength(0);
         }
     }
 
@@ -399,6 +428,7 @@ public sealed class EntityListView : Control
 
     private void RenderEditor(EntityEditorMode mode, string title, string emptyHint)
     {
+        ApplyEditorWidth();
         var open = mode != EntityEditorMode.None;
         SetVisible(_editorHeader, open);
         SetVisible(_editor, open);

@@ -7,6 +7,8 @@
             <ResourceDictionary.MergedDictionaries>
                 <!-- Default palette: dark. App startup replaces it with the saved local choice when needed. -->
                 <ResourceDictionary Source="Themes/DarkTheme.xaml" />
+                <!-- The brushes drawn from the palette; a theme switch loads both again (DesktopThemeService.Apply). -->
+                <ResourceDictionary Source="Themes/ThemeBrushes.xaml" />
                 <ResourceDictionary Source="Themes/DesktopTheme.xaml" />
                 <!-- The reusable entity list's template (Controls/EntityListView.xaml.cs); after the theme it draws on. -->
                 <ResourceDictionary Source="Controls/EntityListView.xaml" />

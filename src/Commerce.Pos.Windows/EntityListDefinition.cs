@@ -95,4 +95,5 @@ public static class EntityIcons
     public const string Edit = "\uE70F";
     public const string Enable = "\uE73E";
     public const string Disable = "\uE733";
+    public const string Password = "\uE8D7";
 }

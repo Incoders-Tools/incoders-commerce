@@ -103,7 +103,7 @@
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="3*" MinWidth="560" />
                             <ColumnDefinition Width="16" />
-                            <!-- The editor's share; EntityListView.EditorWidth sets it. -->
+                            <!-- The editor's share; EntityListView.EditorWidth sets it, HidesClosedEditor folds it while closed. -->
                             <ColumnDefinition Width="2*" MinWidth="440" />
                         </Grid.ColumnDefinitions>
 
@@ -165,7 +165,7 @@
                         </Grid>
 
                         <!-- Editor: the entity's own form (EditorContent), or a hint while nothing is open. -->
-                        <Border Grid.Column="2" Style="{DynamicResource CardBorder}" Padding="16,12,8,12">
+                        <Border x:Name="PART_EditorPanel" Grid.Column="2" Style="{DynamicResource CardBorder}" Padding="16,12,8,12">
                             <Grid>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto" />
