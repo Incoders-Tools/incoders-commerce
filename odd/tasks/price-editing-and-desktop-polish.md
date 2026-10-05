@@ -129,6 +129,15 @@ of the product and offers no real way to edit prices one by one or in bulk.
   error lands on the field; the "today" hint is visible; the clear-date test
   now proves the date was in effect first. GREEN `npm test` 679.
 
+- [x] T7 Close the remaining follow-ups (owner, 2026-10-05): an app-wide
+  unsaved-changes guard (`components/layout/UnsavedChanges.tsx`, mounted in
+  AppLayout; works with `<BrowserRouter>`) asks before sidebar, mobile nav,
+  account-menu links and sign-out discard pending price edits; while a picked
+  date's prices load (or failed to load) the remark and publish are disabled,
+  base/final cells show "…" and a failed load offers Reintentar. RED 7,
+  GREEN `npm test` 689. Not covered: the organization/branch switchers still
+  remount the screen without asking.
+
 ## Decisions for T4 (orchestrator default, owner informed 2026-10-04)
 
 - A batch entry for a presentation that already has an entry effective the
