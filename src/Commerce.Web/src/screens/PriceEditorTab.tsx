@@ -1,4 +1,5 @@
-import { useEffect, useId, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import { ConfirmDialog } from '@/components/layout/ConfirmDialog'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
@@ -6,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
 import { formatMoney } from '@/dashboard/format'
+import { todayIso } from '@/lib/isoDate'
 import { parseAmount } from '@/lib/quantity'
 import { applyPercent, differencePercent, hasAtMostTwoDecimals, round2 } from '@/lib/priceEditing'
 import { useNumberFormat } from '@/organization/NumberFormatContext'
@@ -204,6 +206,9 @@ function PriceEditorGrid({
   const [reloadToken, setReloadToken] = useState(0)
   // Empty means "today" as the server's business day decides it, not the browser's calendar.
   const [effectiveFrom, setEffectiveFrom] = useState('')
+  // The server's business day, as the breakdown without a date reports it: the earliest date to publish on.
+  const [businessDay, setBusinessDay] = useState<string | null>(null)
+  const [dateError, setDateError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [categoryId, setCategoryId] = useState('')
   const [edits, setEdits] = useState<Record<string, string>>({})
@@ -215,15 +220,19 @@ function PriceEditorGrid({
   const [notice, setNotice] = useState<string | null>(null)
   const [publishing, setPublishing] = useState(false)
   const [historyRow, setHistoryRow] = useState<EditorRow | null>(null)
+  const gridRef = useRef<HTMLDivElement>(null)
 
-  // The current prices: the breakdown of today (the server's business day), base and final.
+  // The prices the edits replace: the breakdown of the picked date, or of today (the server's business
+  // day) with none, so a date that already has an entry compares against that entry.
   useEffect(() => {
     let cancelled = false
     setLoading(true)
     setLoadError(null)
-    getBreakdown(priceList.id)
+    getBreakdown(priceList.id, effectiveFrom === '' ? undefined : effectiveFrom)
       .then((breakdown) => {
-        if (!cancelled) setItems(breakdown.items)
+        if (cancelled) return
+        setItems(breakdown.items)
+        if (effectiveFrom === '') setBusinessDay(breakdown.on)
       })
       .catch((err) => {
         if (!cancelled) setLoadError(err instanceof ApiError ? err.message : t('editor.errors.unexpectedLoad'))
@@ -234,7 +243,7 @@ function PriceEditorGrid({
     return () => {
       cancelled = true
     }
-  }, [priceList.id, reloadToken, t])
+  }, [priceList.id, effectiveFrom, reloadToken, t])
 
   const rows = useMemo(
     () => buildRows(presentations, products, categories, items),
@@ -261,8 +270,9 @@ function PriceEditorGrid({
 
   const rowEdits = rows.map((row) => ({ row, edit: editOf(row) }))
   const changed = rowEdits.filter((entry) => entry.edit.status === 'changed')
-  const anyInvalid = rowEdits.some((entry) => entry.edit.status === 'invalid')
-  const canPublish = changed.length > 0 && !anyInvalid && !publishing
+  const invalid = rowEdits.filter((entry) => entry.edit.status === 'invalid')
+  // A baseline still loading (a date just picked) would compare against the wrong prices.
+  const canPublish = changed.length > 0 && invalid.length === 0 && !publishing && !loading
   // An invalid value is unpublished work too.
   const dirtyCount = rowEdits.filter((entry) => entry.edit.status !== 'unchanged').length
 
@@ -320,6 +330,21 @@ function PriceEditorGrid({
     })
   }
 
+  // An invalid row may be hidden by the filters: clear them and bring the first one into view.
+  const showFirstInvalid = () => {
+    const first = invalid[0]
+    if (!first) return
+    flushSync(() => {
+      setSearch('')
+      setCategoryId('')
+    })
+    const input = gridRef.current?.querySelector<HTMLInputElement>(
+      `input[data-presentation-id="${first.row.presentationId}"]`,
+    )
+    input?.scrollIntoView?.({ block: 'center' })
+    input?.focus()
+  }
+
   const undoAll = () => {
     setEdits({})
     setRowErrors({})
@@ -336,9 +361,19 @@ function PriceEditorGrid({
     setPublishError(null)
     setNotice(null)
     setRowErrors({})
+    setDateError(null)
     try {
       const result = await publishEntriesBatch(priceList.id, { effectiveFrom: effectiveFrom === '' ? null : effectiveFrom, entries })
-      setEdits({})
+      // Only what was published is done; any other text stays the operator's.
+      const published = new Map(entries.map((entry) => [entry.presentationId, entry.unitPrice]))
+      setEdits((current) =>
+        Object.fromEntries(
+          Object.entries(current).filter(([presentationId, text]) => {
+            const value = parseAmount(text.trim())
+            return value === null || round2(value) !== published.get(presentationId)
+          }),
+        ),
+      )
       setSelected(new Set())
       setPercentText('')
       setNotice(t('editor.published', { count: result.published }))
@@ -349,8 +384,9 @@ function PriceEditorGrid({
         setRowErrors(violationMessages(violations, priceList.id, t))
         setPublishError(t('editor.errors.belowFloor'))
       } else if (err instanceof ApiError && err.status === 400) {
-        const { byRow, general } = validationMessages(err, entries)
+        const { byRow, date, general } = validationMessages(err, entries)
         setRowErrors(byRow)
+        if (date.length > 0) setDateError(date.join(' '))
         setPublishError([err.message, ...general].join(' '))
       } else {
         setPublishError(err instanceof ApiError ? err.message : t('editor.errors.unexpectedPublish'))
@@ -392,13 +428,28 @@ function PriceEditorGrid({
             id="price-editor-effective-from"
             type="date"
             value={effectiveFrom}
+            min={businessDay ?? todayIso()}
+            disabled={publishing}
             placeholder={t('editor.effectiveFromToday')}
-            aria-describedby="price-editor-effective-from-hint"
-            onChange={(e) => setEffectiveFrom(e.target.value)}
+            aria-invalid={dateError ? true : undefined}
+            aria-describedby={
+              dateError
+                ? 'price-editor-effective-from-hint price-editor-effective-from-error'
+                : 'price-editor-effective-from-hint'
+            }
+            onChange={(e) => {
+              setEffectiveFrom(e.target.value)
+              setDateError(null)
+            }}
           />
           <p id="price-editor-effective-from-hint" className="text-xs text-muted-foreground">
             {t('editor.effectiveFromHint')}
           </p>
+          {dateError && (
+            <p id="price-editor-effective-from-error" className="text-xs text-destructive">
+              {dateError}
+            </p>
+          )}
         </div>
       </div>
 
@@ -410,6 +461,7 @@ function PriceEditorGrid({
             inputMode="decimal"
             className="w-28"
             value={percentText}
+            disabled={publishing}
             placeholder={t('editor.remark.placeholder')}
             aria-invalid={percentError ? true : undefined}
             onChange={(e) => {
@@ -418,7 +470,7 @@ function PriceEditorGrid({
             }}
           />
         </div>
-        <Button type="button" variant="outline" onClick={applyRemark} disabled={percentText.trim() === ''}>
+        <Button type="button" variant="outline" onClick={applyRemark} disabled={publishing || percentText.trim() === ''}>
           {t('editor.remark.apply')}
         </Button>
         <p className="min-w-0 flex-1 basis-60 text-xs text-muted-foreground">{t('editor.remark.hint')}</p>
@@ -431,7 +483,7 @@ function PriceEditorGrid({
         </p>
       )}
 
-      <div data-testid="price-editor-grid" className="w-full overflow-x-auto rounded-lg border border-border bg-card">
+      <div ref={gridRef} data-testid="price-editor-grid" className="w-full overflow-x-auto rounded-lg border border-border bg-card">
         <table className="w-full min-w-[760px] text-left text-sm">
           <thead className="border-b border-border text-xs text-muted-foreground uppercase">
             <tr>
@@ -440,7 +492,7 @@ function PriceEditorGrid({
                   type="checkbox"
                   aria-label={t('editor.selectAll')}
                   checked={allVisibleSelected}
-                  disabled={visibleRows.length === 0}
+                  disabled={publishing || visibleRows.length === 0}
                   onChange={toggleAllVisible}
                 />
               </th>
@@ -478,6 +530,7 @@ function PriceEditorGrid({
                   edit={editOf(row)}
                   serverError={rowErrors[row.presentationId] ?? null}
                   selected={selected.has(row.presentationId)}
+                  locked={publishing}
                   formatPercent={(value) => `${numberFormat.formatSigned(Math.round(value * 10) / 10)} %`}
                   onToggle={() => toggleRow(row.presentationId)}
                   onEdit={(text) => setEdit(row.presentationId, text)}
@@ -501,7 +554,16 @@ function PriceEditorGrid({
           </p>
         )}
         <div className="flex flex-wrap items-center gap-2">
-          <p className="mr-auto text-sm font-medium">{t('editor.changedCount', { count: changed.length })}</p>
+          <p className="text-sm font-medium">{t('editor.changedCount', { count: changed.length })}</p>
+          {invalid.length > 0 && (
+            <>
+              <p className="text-sm text-destructive">{t('editor.invalidCount', { count: invalid.length })}</p>
+              <Button type="button" variant="outline" size="sm" onClick={showFirstInvalid}>
+                {t('editor.showInvalid')}
+              </Button>
+            </>
+          )}
+          <span className="mr-auto" />
           <Button type="button" variant="outline" onClick={undoAll} disabled={publishing || Object.keys(edits).length === 0}>
             {t('editor.undo')}
           </Button>
@@ -524,6 +586,7 @@ function EditorGridRow({
   edit,
   serverError,
   selected,
+  locked,
   formatPercent,
   onToggle,
   onEdit,
@@ -534,6 +597,8 @@ function EditorGridRow({
   edit: RowEdit
   serverError: string | null
   selected: boolean
+  /** While a publish is in flight nothing the batch reads can change. */
+  locked: boolean
   formatPercent: (value: number) => string
   onToggle: () => void
   onEdit: (text: string) => void
@@ -549,7 +614,13 @@ function EditorGridRow({
       className={`border-b border-border align-top last:border-0 ${edit.status === 'changed' ? 'bg-primary/5' : ''}`}
     >
       <td className="px-3 py-2">
-        <input type="checkbox" aria-label={t('editor.selectRow', { name: row.label })} checked={selected} onChange={onToggle} />
+        <input
+          type="checkbox"
+          aria-label={t('editor.selectRow', { name: row.label })}
+          checked={selected}
+          disabled={locked}
+          onChange={onToggle}
+        />
       </td>
       <td className="px-3 py-2 font-medium break-words">{row.productName}</td>
       <td className="px-3 py-2 text-muted-foreground">{row.showPresentation ? row.presentationName : ''}</td>
@@ -566,7 +637,9 @@ function EditorGridRow({
             aria-label={t('editor.newBaseOf', { name: row.label })}
             aria-invalid={invalid ? true : undefined}
             aria-describedby={edit.status !== 'unchanged' || serverError ? messageId : undefined}
+            data-presentation-id={row.presentationId}
             value={text}
+            disabled={locked}
             onChange={(e) => onEdit(e.target.value)}
           />
           <div id={messageId} className="flex flex-col gap-0.5 text-xs">
@@ -726,19 +799,24 @@ function violationMessages(
 
 /**
  * A 400 names the offending entry by its index in the batch (`entries[3].unitPrice`); those land on
- * their row, anything else (the date, the batch size) stays general.
+ * their row, a refused `effectiveFrom` lands on the date field, anything else (the batch size) stays general.
  */
 function validationMessages(
   error: ApiError,
   entries: { presentationId: string }[],
-): { byRow: Record<string, string>; general: string[] } {
+): { byRow: Record<string, string>; date: string[]; general: string[] } {
   const byRow: Record<string, string> = {}
+  const date: string[] = []
   const general: string[] = []
   for (const [field, messages] of Object.entries(error.fieldErrors ?? {})) {
+    if (field.toLowerCase() === 'effectivefrom') {
+      date.push(...messages)
+      continue
+    }
     const index = /^entries\[(\d+)\]/i.exec(field)?.[1]
     const entry = index === undefined ? undefined : entries[Number(index)]
     if (entry) byRow[entry.presentationId] = [byRow[entry.presentationId], ...messages].filter(Boolean).join(' ')
     else general.push(...messages)
   }
-  return { byRow, general }
+  return { byRow, date, general }
 }

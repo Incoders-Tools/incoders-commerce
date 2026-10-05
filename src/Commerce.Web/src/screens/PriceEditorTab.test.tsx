@@ -104,7 +104,14 @@ const minoristaItems = [
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status })
 
-type Handler = (url: string, init?: RequestInit) => Response | undefined
+type Handler = (url: string, init?: RequestInit) => Response | Promise<Response> | undefined
+
+// The prices already published for 2026-10-20: Lengua goes to 1100 that day.
+const futureItems = [
+  item('pres-lengua', 'Lengua', 'Por kg', 1100, 1331),
+  item('pres-vacio', 'Vacío', 'Por kg', 2500.55, 3025.67),
+  item('pres-queso-kg', 'Queso', 'Por kg', 800.05, 968.06),
+]
 
 describe('PriceListsScreen "Editar precios" tab', () => {
   const fetchMock = vi.fn()
@@ -123,6 +130,7 @@ describe('PriceListsScreen "Editar precios" tab', () => {
       const breakdown = url.match(/^\/pricing\/price-lists\/([^/]+)\/breakdown/)
       if (breakdown) {
         const owner = breakdown[1] === mayorista.id ? mayorista : minorista
+        if (owner === minorista && url.endsWith('?on=2026-10-20')) return json({ ...breakdownOf(owner, futureItems), on: '2026-10-20' })
         return json(breakdownOf(owner, owner === mayorista ? [item('pres-lengua', 'Lengua', 'Por kg', 900, 1089)] : breakdownItems))
       }
       if (url.includes('/history')) {
@@ -448,7 +456,11 @@ describe('PriceListsScreen "Editar precios" tab', () => {
     batchHandler = () => json({ published: 1, entries: [] })
     const user = await openEditor()
 
-    await user.type(screen.getByLabelText('Vigente desde'), '2026-10-10')
+    // The picked date is really in effect first (prices reload as of it), so clearing it below is a real change.
+    await user.type(screen.getByLabelText('Vigente desde'), '2099-12-31')
+    await waitFor(() =>
+      expect(breakdownCalls(minorista.id).some(([url]) => String(url).includes('on=2099-12-31'))).toBe(true),
+    )
     await user.clear(screen.getByLabelText('Vigente desde'))
     await user.type(screen.getByLabelText('Nueva base de Lengua'), '1100')
     await user.click(screen.getByRole('button', { name: 'Publicar cambios' }))
@@ -539,6 +551,138 @@ describe('PriceListsScreen "Editar precios" tab', () => {
 
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Precios' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('locks the grid and the remark while publishing, showing "Publicando…"', async () => {
+    let respond!: (response: Response) => void
+    batchHandler = () => new Promise<Response>((resolve) => (respond = resolve))
+    const user = await openEditor()
+
+    await user.type(screen.getByLabelText('Nueva base de Lengua'), '1100')
+    await user.type(screen.getByLabelText('Remarcar %'), '10')
+    await user.click(screen.getByRole('button', { name: 'Publicar cambios' }))
+
+    expect(await screen.findByRole('button', { name: 'Publicando…' })).toBeDisabled()
+    expect(screen.getByLabelText('Nueva base de Lengua')).toBeDisabled()
+    expect(screen.getByLabelText('Nueva base de Vacío')).toBeDisabled()
+    expect(screen.getByLabelText('Seleccionar Lengua')).toBeDisabled()
+    expect(screen.getByLabelText('Seleccionar todas las filas visibles')).toBeDisabled()
+    expect(screen.getByLabelText('Remarcar %')).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Aplicar' })).toBeDisabled()
+    expect(screen.getByLabelText('Vigente desde')).toBeDisabled()
+
+    respond(json({ published: 1, entries: [] }))
+    await screen.findByText('Se publicó 1 precio.')
+    expect(screen.getByLabelText('Nueva base de Vacío')).toBeEnabled()
+    expect(screen.getByLabelText('Remarcar %')).toBeEnabled()
+  })
+
+  it('on success clears only the edits that were published', async () => {
+    batchHandler = () => json({ published: 1, entries: [] })
+    const user = await openEditor()
+
+    await user.type(screen.getByLabelText('Nueva base de Lengua'), '1100')
+    // The current price again: not a change, so it is not published, but it is the operator's text.
+    await user.type(screen.getByLabelText('Nueva base de Vacío'), '2500,55')
+    await user.click(screen.getByRole('button', { name: 'Publicar cambios' }))
+
+    await screen.findByText('Se publicó 1 precio.')
+    expect(JSON.parse((batchCalls()[0][1] as RequestInit).body as string).entries).toEqual([
+      { presentationId: 'pres-lengua', unitPrice: 1100 },
+    ])
+    expect(screen.getByLabelText('Nueva base de Lengua')).toHaveValue('')
+    expect(screen.getByLabelText('Nueva base de Vacío')).toHaveValue('2500,55')
+  })
+
+  it('an invalid value on a filtered-out row is named in the summary, and "Mostrar" brings it back', async () => {
+    const user = await openEditor()
+
+    await user.type(screen.getByLabelText('Nueva base de Lengua'), '1100')
+    await user.type(screen.getByLabelText('Nueva base de Vacío'), 'abc')
+    await user.type(screen.getByLabelText('Buscar productos'), 'queso')
+    await user.selectOptions(screen.getByLabelText('Categoría'), 'cat-lacteos')
+    expect(screen.queryByLabelText('Nueva base de Vacío')).not.toBeInTheDocument()
+
+    expect(screen.getByText('1 fila con valores inválidos')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Publicar cambios' })).toBeDisabled()
+
+    await user.click(screen.getByRole('button', { name: 'Mostrar' }))
+
+    expect(screen.getByLabelText('Buscar productos')).toHaveValue('')
+    expect(screen.getByLabelText('Categoría')).toHaveValue('')
+    await waitFor(() => expect(screen.getByLabelText('Nueva base de Vacío')).toHaveFocus())
+    expect(screen.getByRole('button', { name: 'Publicar cambios' })).toBeDisabled()
+  })
+
+  it('counts every invalid row in the summary', async () => {
+    const user = await openEditor()
+
+    await user.type(screen.getByLabelText('Nueva base de Lengua'), '0')
+    await user.type(screen.getByLabelText('Nueva base de Vacío'), 'abc')
+
+    expect(screen.getByText('2 filas con valores inválidos')).toBeInTheDocument()
+    await user.clear(screen.getByLabelText('Nueva base de Lengua'))
+    await user.clear(screen.getByLabelText('Nueva base de Vacío'))
+    expect(screen.queryByText(/con valores inválidos/)).not.toBeInTheDocument()
+  })
+
+  it('a picked date loads the prices of that date as the baseline for changes and the remark', async () => {
+    const user = await openEditor()
+
+    await user.type(screen.getByLabelText('Vigente desde'), '2026-10-20')
+
+    await waitFor(() =>
+      expect(breakdownCalls(minorista.id).map(([url]) => url)).toContain(
+        `/pricing/price-lists/${minorista.id}/breakdown?on=2026-10-20`,
+      ),
+    )
+    expect(await within(rowOf('Lengua')).findByText('$ 1.100,00')).toBeInTheDocument()
+    expect(within(rowOf('Lengua')).getByText('$ 1.331,00')).toBeInTheDocument()
+
+    // 1100 is already the price of that date: not a change.
+    await user.type(screen.getByLabelText('Nueva base de Lengua'), '1100')
+    expect(rowOf('Lengua')).not.toHaveAttribute('data-changed')
+    expect(screen.getByRole('button', { name: 'Publicar cambios' })).toBeDisabled()
+
+    await user.clear(screen.getByLabelText('Nueva base de Lengua'))
+    await user.click(screen.getByLabelText('Seleccionar Lengua'))
+    await user.type(screen.getByLabelText('Remarcar %'), '10')
+    await user.click(screen.getByRole('button', { name: 'Aplicar' }))
+    expect(screen.getByLabelText('Nueva base de Lengua')).toHaveValue('1210,00')
+
+    // Back to no date: today's prices again.
+    await user.clear(screen.getByLabelText('Vigente desde'))
+    expect(await within(rowOf('Lengua')).findByText('$ 1.000,00')).toBeInTheDocument()
+  })
+
+  it('the date cannot be earlier than the business day', async () => {
+    await openEditor()
+
+    // The breakdown without a date is the server's business day.
+    await waitFor(() => expect(screen.getByLabelText('Vigente desde')).toHaveAttribute('min', '2026-10-04'))
+  })
+
+  it('a refused effective date is shown on the date field', async () => {
+    batchHandler = () =>
+      json(
+        {
+          title: 'One or more validation errors occurred.',
+          errors: { effectiveFrom: ['effectiveFrom cannot be earlier than today.'] },
+        },
+        400,
+      )
+    const user = await openEditor()
+
+    await user.type(screen.getByLabelText('Vigente desde'), '2026-10-10')
+    await user.type(screen.getByLabelText('Nueva base de Lengua'), '1100')
+    await user.click(screen.getByRole('button', { name: 'Publicar cambios' }))
+
+    const date = screen.getByLabelText('Vigente desde')
+    await waitFor(() => expect(date).toHaveAttribute('aria-invalid', 'true'))
+    expect(date).toHaveAccessibleDescription(/effectiveFrom cannot be earlier than today\./)
+
+    await user.clear(date)
+    expect(date).not.toHaveAttribute('aria-invalid')
   })
 
   it('warns before closing or reloading the browser tab only while edits are pending', async () => {
