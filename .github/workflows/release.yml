@@ -246,7 +246,7 @@ jobs:
           SYSADMIN_PASSWORD="correct-horse-battery-staple"
           RESPONSE=$(curl -sf -X POST http://localhost:8080/internal/test-seed/user \
             -H "Content-Type: application/json" \
-            -d "{\"organizationId\":\"$SYSADMIN_ORG_ID\",\"email\":\"$SYSADMIN_EMAIL\",\"password\":\"$SYSADMIN_PASSWORD\"}")
+            -d "{\"organizationId\":\"$SYSADMIN_ORG_ID\",\"email\":\"$SYSADMIN_EMAIL\",\"password\":\"$SYSADMIN_PASSWORD\",\"systemAdmin\":true}")
           SYSADMIN_USER_ID=$(echo "$RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin)['userId'])")
           psql -h localhost -U commerce_owner -d commerce_dev \
             -v ON_ERROR_STOP=1 \
