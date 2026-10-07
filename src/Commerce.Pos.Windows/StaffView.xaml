@@ -31,7 +31,7 @@
 
         <StackPanel Grid.Row="0" Margin="0,0,0,10">
             <TextBlock Text="PERSONAL" Style="{StaticResource EyebrowTextBlock}" />
-            <TextBlock Text="Personal" Style="{StaticResource HeroTextBlock}" FontSize="24" Margin="0" />
+            <TextBlock Text="Usuarios y acceso" Style="{StaticResource HeroTextBlock}" FontSize="24" Margin="0" />
         </StackPanel>
 
         <!-- Outside the list and the form on purpose: an error must stay visible however far the section is scrolled. -->

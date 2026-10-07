@@ -197,5 +197,41 @@ public static class PosMessages
 
     public const string DisplayNameRequired = "El nombre para mostrar es obligatorio.";
 
+    // ---- Personal → Empleados (the same wording as the web's es/employees.json) ----
+
+    public const string EmployeesLoadFailed = "No se pudo cargar el personal.";
+
+    public const string EmployeeRolesLoadFailed = "No se pudo cargar la lista de puestos. Intentá de nuevo.";
+
+    public const string TreasuryAccountsLoadFailed = "No se pudo cargar la lista de cuentas de Tesorería. Intentá de nuevo.";
+
+    public const string EmployeeAccountLoadFailed = "No se pudo cargar la cuenta corriente.";
+
+    public const string EmployeeNotFound = "No se encontró el empleado.";
+
+    public const string EmployeeNameRequired = "Escribí apellido y nombre.";
+
+    public const string EmployeeSalaryInvalid = "El sueldo es un importe con hasta dos decimales (o vacío).";
+
+    public const string EmployeeFileNumberInvalid = "El legajo es un número entero mayor que cero.";
+
+    public const string EmployeeHireDateInvalid = "La fecha de ingreso no es válida (por ejemplo, 15/03/2024).";
+
+    public const string EmployeeFileNumberInUse = "Ese número de legajo ya lo tiene otro empleado.";
+
+    public const string EmployeeRoleNotFound = "Ese puesto no existe.";
+
+    public const string EmployeeBranchNotFound = "Esa sucursal no existe.";
+
+    public const string TreasuryAccountNotFound = "Esa cuenta de Tesorería no existe.";
+
+    public const string TreasuryAccountInactive = "Esa cuenta de Tesorería está inactiva.";
+
+    public const string AdvanceAmountInvalid = "Escribí un importe mayor que cero, con hasta dos decimales.";
+
+    public const string AdvanceAccountRequired = "Elegí de qué cuenta sale el dinero.";
+
+    public const string AdvanceDateInvalid = "La fecha no es válida (por ejemplo, 15/03/2024).";
+
     public const string DiscountMustBeNumber = "El porcentaje de descuento debe ser un número.";
 }

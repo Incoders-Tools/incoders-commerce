@@ -1,0 +1,224 @@
+<UserControl x:Class="Commerce.Pos.Windows.EmployeesView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:Commerce.Pos.Windows.Controls"
+             Foreground="{DynamicResource TextBrush}">
+    <UserControl.Resources>
+        <Style x:Key="FieldLabel" TargetType="TextBlock" BasedOn="{StaticResource MutedTextBlock}">
+            <Setter Property="Margin" Value="0,0,0,4" />
+        </Style>
+        <Style x:Key="FieldBox" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+            <Setter Property="Margin" Value="0,0,0,10" />
+        </Style>
+        <Style x:Key="FieldCombo" TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
+            <Setter Property="Margin" Value="0,0,0,10" />
+            <Setter Property="DisplayMemberPath" Value="Label" />
+            <Setter Property="SelectedValuePath" Value="Value" />
+        </Style>
+        <Style x:Key="FieldHint" TargetType="TextBlock" BasedOn="{StaticResource MutedTextBlock}">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="Margin" Value="0,-4,0,10" />
+        </Style>
+        <!-- One field of a two-column row; the row's negative margin takes the last gap back. -->
+        <Style x:Key="FormCell" TargetType="StackPanel">
+            <Setter Property="Margin" Value="0,0,12,0" />
+        </Style>
+        <Style x:Key="FormRow" TargetType="UniformGrid">
+            <Setter Property="Margin" Value="0,0,-12,0" />
+        </Style>
+        <Style x:Key="FormSectionTitle" TargetType="TextBlock" BasedOn="{StaticResource SectionTitleTextBlock}">
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="Margin" Value="0,0,0,8" />
+        </Style>
+    </UserControl.Resources>
+    <Grid Margin="16,12,16,8">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,10">
+            <TextBlock Text="PERSONAL" Style="{StaticResource EyebrowTextBlock}" />
+            <TextBlock Text="Empleados" Style="{StaticResource HeroTextBlock}" FontSize="24" Margin="0" />
+            <TextBlock Text="Los empleados de esta sucursal: legajo, puesto, sueldo pactado, lo que se les debe (o deben) y la mercadería que llevaron. Los sueldos se liquidan en la web, en «Sueldos»."
+                       Style="{StaticResource MutedTextBlock}" TextWrapping="Wrap" Margin="0,4,0,0" />
+        </StackPanel>
+
+        <!-- Outside the list and the form on purpose: an error must stay visible however far the form is scrolled. -->
+        <TextBlock x:Name="StatusText" Grid.Row="1" TextWrapping="Wrap" Margin="0,0,0,8" Foreground="{DynamicResource DangerBrush}"
+                   Visibility="Collapsed" AutomationProperties.Name="Estado" />
+
+        <StackPanel x:Name="BusyPanel" Grid.Row="2" Visibility="Collapsed" Margin="0,0,0,8">
+            <ProgressBar IsIndeterminate="True" Height="6" BorderThickness="0"
+                         Foreground="{DynamicResource PrimaryBrush}" Background="{DynamicResource BorderBrushMuted}" />
+            <TextBlock x:Name="BusyText" Margin="0,6,0,0" TextWrapping="Wrap" Style="{StaticResource MutedTextBlock}" />
+        </StackPanel>
+
+        <Grid x:Name="FormPanel" Grid.Row="3">
+            <controls:EntityListView x:Name="EmployeesListView" EditorWidth="480" HidesClosedEditor="True">
+                <controls:EntityListView.EditorContent>
+                    <Grid>
+                        <!-- The staff file: new or edit. -->
+                        <Grid x:Name="FilePanel">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="*" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                <StackPanel Margin="0,0,12,0">
+                                    <TextBlock Text="Datos del legajo y lo que se le paga. No es la liquidación legal (aportes, recibo oficial): eso lo sigue haciendo el contador."
+                                               Style="{StaticResource MutedTextBlock}" TextWrapping="Wrap" Margin="0,0,0,12" />
+
+                                    <UniformGrid Columns="2" Style="{StaticResource FormRow}">
+                                        <StackPanel Style="{StaticResource FormCell}">
+                                            <TextBlock Text="Apellido" Style="{StaticResource FieldLabel}" />
+                                            <TextBox x:Name="LastNameTextBox" Style="{StaticResource FieldBox}" AutomationProperties.Name="Apellido" />
+                                        </StackPanel>
+                                        <StackPanel Style="{StaticResource FormCell}">
+                                            <TextBlock Text="Nombre" Style="{StaticResource FieldLabel}" />
+                                            <TextBox x:Name="FirstNameTextBox" Style="{StaticResource FieldBox}" AutomationProperties.Name="Nombre" />
+                                        </StackPanel>
+                                        <StackPanel Style="{StaticResource FormCell}">
+                                            <TextBlock Text="Legajo" Style="{StaticResource FieldLabel}" />
+                                            <TextBox x:Name="FileNumberTextBox" Style="{StaticResource FieldBox}" AutomationProperties.Name="Legajo"
+                                                     ToolTip="Vacío: automático (el siguiente)" />
+                                        </StackPanel>
+                                        <StackPanel Style="{StaticResource FormCell}">
+                                            <TextBlock Text="Puesto" Style="{StaticResource FieldLabel}" />
+                                            <ComboBox x:Name="RoleComboBox" Style="{StaticResource FieldCombo}" DisplayMemberPath="Name" SelectedValuePath="Id"
+                                                      AutomationProperties.Name="Puesto" />
+                                        </StackPanel>
+                                    </UniformGrid>
+                                    <TextBlock x:Name="FileNumberHint" Text="Legajo vacío: automático (el siguiente)." Style="{StaticResource FieldHint}" />
+                                    <TextBlock Text="Los puestos se cargan en la web, en Tablas auxiliares → Puestos." Style="{StaticResource FieldHint}" />
+
+                                    <UniformGrid Columns="2" Style="{StaticResource FormRow}">
+                                        <StackPanel Style="{StaticResource FormCell}">
+                                            <TextBlock Text="Fecha de ingreso" Style="{StaticResource FieldLabel}" />
+                                            <TextBox x:Name="HireDateTextBox" Style="{StaticResource FieldBox}" AutomationProperties.Name="Fecha de ingreso"
+                                                     ToolTip="dd/mm/aaaa" />
+                                        </StackPanel>
+                                        <StackPanel Style="{StaticResource FormCell}">
+                                            <TextBlock Text="DNI" Style="{StaticResource FieldLabel}" />
+                                            <TextBox x:Name="DocumentTextBox" Style="{StaticResource FieldBox}" AutomationProperties.Name="DNI" />
+                                        </StackPanel>
+                                        <StackPanel Style="{StaticResource FormCell}">
+                                            <TextBlock Text="CUIL" Style="{StaticResource FieldLabel}" />
+                                            <TextBox x:Name="CuilTextBox" Style="{StaticResource FieldBox}" AutomationProperties.Name="CUIL" />
+                                        </StackPanel>
+                                        <StackPanel Style="{StaticResource FormCell}">
+                                            <TextBlock Text="Teléfono" Style="{StaticResource FieldLabel}" />
+                                            <TextBox x:Name="PhoneTextBox" Style="{StaticResource FieldBox}" AutomationProperties.Name="Teléfono" />
+                                        </StackPanel>
+                                    </UniformGrid>
+
+                                    <TextBlock Text="Correo" Style="{StaticResource FieldLabel}" />
+                                    <TextBox x:Name="EmailTextBox" Style="{StaticResource FieldBox}" AutomationProperties.Name="Correo" />
+                                    <TextBlock Text="Domicilio" Style="{StaticResource FieldLabel}" />
+                                    <TextBox x:Name="AddressTextBox" Style="{StaticResource FieldBox}" AutomationProperties.Name="Domicilio" />
+
+                                    <Separator />
+                                    <TextBlock Text="Sueldo" Style="{StaticResource FormSectionTitle}" />
+                                    <UniformGrid Columns="2" Style="{StaticResource FormRow}">
+                                        <StackPanel Style="{StaticResource FormCell}">
+                                            <TextBlock Text="Se le paga" Style="{StaticResource FieldLabel}" />
+                                            <ComboBox x:Name="FrequencyComboBox" Style="{StaticResource FieldCombo}" AutomationProperties.Name="Se le paga" />
+                                        </StackPanel>
+                                        <StackPanel Style="{StaticResource FormCell}">
+                                            <TextBlock Text="Sueldo pactado por período" Style="{StaticResource FieldLabel}" />
+                                            <TextBox x:Name="SalaryTextBox" Style="{StaticResource FieldBox}" AutomationProperties.Name="Sueldo pactado por período"
+                                                     ToolTip="Ej.: 650000" />
+                                        </StackPanel>
+                                    </UniformGrid>
+                                    <TextBlock Text="Es el importe base que se propone en cada liquidación de su frecuencia. En cada liquidación se pueden sumar horas extra, premios, aguinaldo, etc."
+                                               Style="{StaticResource FieldHint}" />
+                                    <CheckBox x:Name="TakesGoodsCheckBox" Margin="0,0,0,4"
+                                              Content="Lleva mercadería (se le vende en el POS a cuenta y se descuenta del sueldo)"
+                                              AutomationProperties.Name="Lleva mercadería" />
+                                    <TextBlock Text="Se crea un cliente «Apellido, Nombre (personal)» para venderle en el POS a cuenta corriente. Al liquidar, lo que debe se descuenta del sueldo con el % de bonificación que decidas en ese momento."
+                                               Style="{StaticResource FieldHint}" Margin="0,0,0,10" />
+
+                                    <TextBlock Text="Observaciones" Style="{StaticResource FieldLabel}" />
+                                    <TextBox x:Name="NotesTextBox" Style="{StaticResource FieldBox}" MaxLength="1000" AutomationProperties.Name="Observaciones" />
+                                </StackPanel>
+                            </ScrollViewer>
+
+                            <!-- Outside the scroll area: Guardar is always reachable. -->
+                            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="{StaticResource ActionGroupSpacing}">
+                                <Button x:Name="SaveButton" Content="Guardar" Margin="{StaticResource ActionSpacing}" Click="SaveButton_Click" />
+                                <Button Content="Cancelar" Style="{StaticResource GhostButton}" Click="CancelEditorButton_Click" />
+                            </StackPanel>
+                        </Grid>
+
+                        <!-- An advance: money out of a treasury account, a debit on the employee's account. -->
+                        <StackPanel x:Name="AdvancePanel" Visibility="Collapsed">
+                            <TextBlock Text="El dinero sale de la cuenta de Tesorería que elijas y queda en la cuenta del empleado: la próxima liquidación lo descuenta."
+                                       Style="{StaticResource MutedTextBlock}" TextWrapping="Wrap" Margin="0,0,0,12" />
+                            <TextBlock Text="Importe" Style="{StaticResource FieldLabel}" />
+                            <TextBox x:Name="AdvanceAmountTextBox" Style="{StaticResource FieldBox}" AutomationProperties.Name="Importe" ToolTip="Ej.: 50000" />
+                            <TextBlock Text="Sale de" Style="{StaticResource FieldLabel}" />
+                            <ComboBox x:Name="AdvanceAccountComboBox" Style="{StaticResource FieldCombo}" AutomationProperties.Name="Sale de" />
+                            <TextBlock Text="Fecha" Style="{StaticResource FieldLabel}" />
+                            <TextBox x:Name="AdvanceDateTextBox" Style="{StaticResource FieldBox}" AutomationProperties.Name="Fecha" ToolTip="dd/mm/aaaa" />
+                            <TextBlock Text="Motivo (opcional)" Style="{StaticResource FieldLabel}" />
+                            <TextBox x:Name="AdvanceConceptTextBox" Style="{StaticResource FieldBox}" MaxLength="200" AutomationProperties.Name="Motivo"
+                                     ToolTip="Ej.: a cuenta del sueldo de octubre" />
+                            <StackPanel Orientation="Horizontal" Margin="{StaticResource ActionGroupSpacing}">
+                                <Button x:Name="AdvanceSaveButton" Content="Registrar adelanto" Margin="{StaticResource ActionSpacing}" Click="AdvanceSaveButton_Click" />
+                                <Button Content="Cancelar" Style="{StaticResource GhostButton}" Click="CancelEditorButton_Click" />
+                            </StackPanel>
+                        </StackPanel>
+
+                        <!-- The employee's account, read-only here: manual movements are registered in the web (accounting). -->
+                        <Grid x:Name="AccountPanel" Visibility="Collapsed">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="Saldo" Style="{StaticResource FieldLabel}" />
+                                <TextBlock x:Name="AccountBalanceText" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,4" AutomationProperties.Name="Saldo" />
+                                <TextBlock Text="Positivo: le debemos (sueldo pendiente). Negativo: nos debe (adelantos, compras)." Style="{StaticResource FieldHint}" Margin="0,0,0,10" />
+                                <TextBlock Text="Movimientos" Style="{StaticResource FormSectionTitle}" />
+                            </StackPanel>
+                            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                <ItemsControl x:Name="MovementsItemsControl" AutomationProperties.Name="Movimientos">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Style="{StaticResource SoftCardBorder}" Padding="12,8" Margin="0,0,12,6">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <StackPanel>
+                                                        <TextBlock Text="{Binding Concept}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                                        <TextBlock Text="{Binding Detail}" Style="{StaticResource MutedTextBlock}" FontSize="12" />
+                                                    </StackPanel>
+                                                    <StackPanel Grid.Column="1" HorizontalAlignment="Right" Margin="12,0,0,0">
+                                                        <TextBlock Text="{Binding Amount}" HorizontalAlignment="Right" FontWeight="SemiBold" />
+                                                        <TextBlock Text="{Binding Balance}" HorizontalAlignment="Right" Style="{StaticResource MutedTextBlock}" FontSize="12" />
+                                                    </StackPanel>
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                            <StackPanel Grid.Row="2">
+                                <TextBlock x:Name="MovementsEmptyText" Text="No hay movimientos." Style="{StaticResource MutedTextBlock}" Visibility="Collapsed" />
+                                <TextBlock Text="Los movimientos manuales y las anulaciones se registran en la web (Personal → Cuenta)." Style="{StaticResource FieldHint}" Margin="0,8,0,0" />
+                                <Button Content="Cerrar" Style="{StaticResource GhostButton}" HorizontalAlignment="Left" Margin="{StaticResource ActionGroupSpacing}"
+                                        Click="CancelEditorButton_Click" />
+                            </StackPanel>
+                        </Grid>
+                    </Grid>
+                </controls:EntityListView.EditorContent>
+            </controls:EntityListView>
+        </Grid>
+    </Grid>
+</UserControl>

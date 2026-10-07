@@ -34,6 +34,7 @@ public sealed class ManagementConnection : IDisposable
         _httpClient = new HttpClient(handler) { BaseAddress = baseAddress };
         Customers = new CustomerAdminClient(_httpClient);
         Staff = new UserAdminClient(_httpClient);
+        Employees = new EmployeeAdminClient(_httpClient);
     }
 
     /// <summary>The app's connection: no cookie jar, the device credential and operator added per request.</summary>
@@ -43,6 +44,9 @@ public sealed class ManagementConnection : IDisposable
     public CustomerAdminClient Customers { get; }
 
     public UserAdminClient Staff { get; }
+
+    /// <summary>Personal → Empleados: the staff file, advances and accounts (<c>/employees</c>).</summary>
+    public EmployeeAdminClient Employees { get; }
 
     /// <summary>
     /// The server refused the current operator. May be raised off the UI thread (from the HTTP pipeline); the

@@ -1447,7 +1447,10 @@ public partial class MainWindow : Window
         }
         else if (section == ShellSection.Staff && _currentOperator.Value is { } admin)
         {
-            var view = new StaffView(_management.Staff, _localOperatorStore, _pairing.BranchId, admin.UserId);
+            var branchId = _pairing.BranchId;
+            var view = new PersonalView(
+                new EmployeesView(_management.Employees, branchId),
+                () => new StaffView(_management.Staff, _localOperatorStore, branchId, admin.UserId));
             view.OperatorsChanged += StaffView_OperatorsChanged;
             _sections.Show(view);
             SectionHost.Content = view;
@@ -1519,7 +1522,10 @@ public partial class MainWindow : Window
 
     private void ReleaseDetachedSection() => OnDetachedSectionReleased(_sections.ReleaseDetached());
 
-    /// <summary>Shows Personal inside the shell: admin staff management plus removal of this terminal's operators (no provisioning).</summary>
+    /// <summary>
+    /// Shows Personal inside the shell: Empleados (the staff file, advances, accounts) and Usuarios y acceso (system users plus
+    /// removal of this terminal's operators, no provisioning).
+    /// </summary>
     private void ManageStaffButton_Click(object sender, RoutedEventArgs e) => ShowSection(ShellSection.Staff);
 
     /// <summary>

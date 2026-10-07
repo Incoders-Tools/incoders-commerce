@@ -193,6 +193,69 @@ public sealed class DeviceOperatorManagementTests : IClassFixture<WebApplication
         Assert.Equal(HttpStatusCode.BadRequest, self.StatusCode);
     }
 
+    /// <summary>
+    /// Personal → Empleados at the POS (cross-layer parity with the web's Personal): the same <c>/employees</c> endpoints —
+    /// list, create, edit, an advance from a treasury account, the account statement and Dar de baja / Reincorporar — plus
+    /// the positions and the treasury accounts the forms pick from, every write acting as the operator.
+    /// </summary>
+    [Fact]
+    public async Task DeviceWithAnAdminOperator_ManagesEmployees_LikeTheWeb()
+    {
+        if (!_postgresAvailable) return;
+        var tenant = await BootstrapAsync("dop-emp");
+        var admin = await SignInAsync(tenant.AdminEmail);
+        var role = await admin.PostAsJsonAsync("/employees/roles", new { name = "Carnicero" });
+        Assert.Equal(HttpStatusCode.Created, role.StatusCode);
+        var roleId = (await role.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
+        var safe = await admin.PostAsJsonAsync("/treasury/accounts", new CreateTreasuryAccountRequest("Safe", "Caja fuerte", tenant.BranchId, null));
+        Assert.Equal(HttpStatusCode.Created, safe.StatusCode);
+        var accountId = (await safe.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("accountId").GetGuid();
+
+        var device = DeviceClient(await PairDeviceAsync(tenant), tenant.AdminId.ToString());
+
+        var roles = await device.GetFromJsonAsync<JsonElement>("/employees/roles?includeInactive=true");
+        Assert.Contains(roles.EnumerateArray(), r => r.GetProperty("id").GetGuid() == roleId);
+        var accounts = await device.GetFromJsonAsync<JsonElement>("/treasury/accounts");
+        Assert.Contains(accounts.EnumerateArray(), a => a.GetProperty("accountId").GetGuid() == accountId);
+
+        var created = await device.PostAsJsonAsync("/employees", new EmployeeRequest(
+            tenant.BranchId, null, "Ana", "Pérez", "30111222", null, roleId, null, null, null, new DateOnly(2024, 3, 15),
+            "Monthly", 650_000m, null, true));
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var employee = await created.Content.ReadFromJsonAsync<JsonElement>();
+        var employeeId = employee.GetProperty("id").GetGuid();
+        Assert.Equal("Pérez, Ana", employee.GetProperty("fullName").GetString());
+        Assert.NotEqual(JsonValueKind.Null, employee.GetProperty("customerId").ValueKind);
+        Assert.Equal(tenant.AdminId, (Guid)OwnerScalar(
+            "SELECT actor_id FROM audit_log WHERE entity_id = $1 ORDER BY id LIMIT 1", employeeId)!);
+
+        var updated = await device.PutAsJsonAsync($"/employees/{employeeId}", new EmployeeRequest(
+            tenant.BranchId, employee.GetProperty("fileNumber").GetInt32(), "Ana", "Pérez", "30111222", null, roleId, "2901 444555",
+            null, null, new DateOnly(2024, 3, 15), "Biweekly", 320_000m, null, true));
+        Assert.Equal(HttpStatusCode.OK, updated.StatusCode);
+
+        var advance = await device.PostAsJsonAsync($"/employees/{employeeId}/advances", new EmployeeAdvanceRequest(50_000m, null, accountId, "A cuenta"));
+        Assert.Equal(HttpStatusCode.OK, advance.StatusCode);
+        var statement = await device.GetFromJsonAsync<JsonElement>($"/employees/{employeeId}/account/statement");
+        Assert.Equal(-50_000m, statement.GetProperty("closingBalance").GetDecimal());
+        Assert.Equal(HttpStatusCode.OK, (await device.GetAsync($"/employees/{employeeId}/account/summary")).StatusCode);
+
+        var listed = await device.GetFromJsonAsync<JsonElement>($"/employees?branchId={tenant.BranchId}&includeInactive=true");
+        var row = Assert.Single(listed.EnumerateArray());
+        Assert.Equal((-50_000m, "Biweekly"), (row.GetProperty("balance").GetDecimal(), row.GetProperty("payFrequency").GetString()));
+
+        Assert.Equal(HttpStatusCode.NoContent,
+            (await device.PostAsJsonAsync($"/employees/{employeeId}/active", new SetEmployeeActiveRequest(false, null))).StatusCode);
+        Assert.False((bool)OwnerScalar("SELECT is_active FROM employees WHERE id = $1", employeeId)!);
+        Assert.Equal(HttpStatusCode.NoContent,
+            (await device.PostAsJsonAsync($"/employees/{employeeId}/active", new SetEmployeeActiveRequest(true, null))).StatusCode);
+
+        // Manual movements on the employee's account stay a web (accounting) operation.
+        var manual = await device.PostAsJsonAsync($"/employees/{employeeId}/account/movements",
+            new { kind = "Adjustment", direction = "Credit", amount = 1m, concept = "No" });
+        Assert.False(manual.IsSuccessStatusCode);
+    }
+
     [Fact]
     public async Task DeviceOperator_KeepsTheGrantCap_AndTheBranchRule()
     {
@@ -300,6 +363,14 @@ public sealed class DeviceOperatorManagementTests : IClassFixture<WebApplication
             await device.PutAsJsonAsync($"/account/users/{existingUser}/roles", new AssignRolesRequest([RoleCatalog.Cashier])),
             await device.PutAsJsonAsync($"/account/users/{existingUser}/status", new UpdateUserStatusRequest(true)),
             await device.PostAsJsonAsync($"/account/users/{existingUser}/reset-password", new AdminResetPasswordRequest("x-password-123")),
+            await device.GetAsync("/employees"),
+            await device.GetAsync($"/employees/{Guid.NewGuid()}"),
+            await device.PostAsJsonAsync("/employees", new { branchId = tenant.BranchId, firstName = "No", lastName = "No" }),
+            await device.PostAsJsonAsync($"/employees/{Guid.NewGuid()}/active", new { isActive = false }),
+            await device.PostAsJsonAsync($"/employees/{Guid.NewGuid()}/advances", new { amount = 1m, accountId = Guid.NewGuid() }),
+            await device.GetAsync($"/employees/{Guid.NewGuid()}/account/statement"),
+            await device.GetAsync("/employees/roles"),
+            await device.GetAsync("/treasury/accounts"),
         };
 
         foreach (var response in responses)
@@ -337,6 +408,10 @@ public sealed class DeviceOperatorManagementTests : IClassFixture<WebApplication
     [InlineData("POST", "/customers/{customer}/ordering-access")]
     [InlineData("POST", "/geo/cities")]
     [InlineData("PUT", "/geo/cities/{customer}")]
+    [InlineData("GET", "/payroll/runs")]
+    [InlineData("POST", "/employees/roles")]
+    [InlineData("POST", "/treasury/accounts")]
+    [InlineData("POST", "/employees/{customer}/account/movements")]
     public async Task DeviceCredential_OnAnEndpointThatDidNotOptIn_IsRefusedLikeAnAnonymousCall(string method, string pathTemplate)
     {
         if (!_postgresAvailable) return;
