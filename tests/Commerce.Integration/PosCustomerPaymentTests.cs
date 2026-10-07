@@ -1,3 +1,4 @@
+using System.Globalization;
 using Commerce.Application.Access;
 using Commerce.Application.Audit;
 using Commerce.BranchNode;
@@ -138,7 +139,7 @@ public sealed class PosCustomerPaymentTests : IDisposable
         var view = service.GetCustomerAccountView(_customer);
         Assert.Equal((20_000m, 1_000m, 4_000m, 10_000m, 14_000m),
             (view.SyncedBalance!.Value, view.SyncedOverdue!.Value, view.PendingSalesOnAccount, view.PendingPayments, view.EstimatedBalance));
-        Assert.Equal("Debe $ 14.000,00", CustomerPaymentInput.BalanceHeadline(view).Replace('\u00a0', ' '));
+        Assert.Equal($"Debe {14_000m.ToString("C", CultureInfo.CurrentCulture)}", CustomerPaymentInput.BalanceHeadline(view));
         Assert.Contains("cobros desde entonces", CustomerPaymentInput.BalanceDetail(view));
 
         // Once the cloud counted them (acknowledged before a newer snapshot), they are no longer added again.
@@ -204,7 +205,9 @@ public sealed class PosCustomerPaymentTests : IDisposable
         Assert.IsType<PaymentHistoryRow>(rows[0]);
         Assert.IsType<SaleHistoryRow>(rows[1]);
         Assert.All(rows, row => Assert.True(row.CanVoid));
-        Assert.Equal("1 venta · $ 4.000,00 · 1 cobro · $ 2.500,00", SaleHistory.Summary(rows).Replace('\u00a0', ' '));
+        Assert.Equal(
+            $"1 venta · {4_000m.ToString("C", CultureInfo.CurrentCulture)} · 1 cobro · {2_500m.ToString("C", CultureInfo.CurrentCulture)}",
+            SaleHistory.Summary(rows));
         Assert.Single(SaleHistory.Filter(rows, "cobro"));
     }
 }
