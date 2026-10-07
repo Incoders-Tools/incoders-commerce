@@ -3,7 +3,8 @@
   "description": "Agrupan los productos de todas las sucursales y se usan como filtros en la caja.",
   "columns": {
     "name": "Nombre",
-    "icon": "Ícono"
+    "icon": "Ícono",
+    "pos": "En el POS"
   },
   "actions": {
     "create": "Nueva categoría",
@@ -30,7 +31,13 @@
     "icon": "Ícono",
     "save": "Guardar",
     "saving": "Guardando…",
-    "cancel": "Cancelar"
+    "cancel": "Cancelar",
+    "pos": {
+      "title": "Punto de venta (POS)",
+      "show": "Mostrar como filtro en el POS",
+      "order": "Orden en el POS",
+      "hint": "Define qué categorías aparecen en la barra de filtros del POS y en qué orden (a igual orden, por nombre). Aunque no se muestre, sus productos se siguen vendiendo: se encuentran escaneando, buscando o en \"Todos\". Las terminales lo toman en la próxima sincronización."
+    }
   },
   "icons": {
     "meat": "Carne",
@@ -51,6 +58,11 @@
     "unableToSave": "No se pudo guardar la categoría.",
     "unableToDelete": "No se pudo eliminar la categoría.",
     "nameInUse": "Ya existe una categoría con ese nombre.",
-    "inUse": "No se puede eliminar: hay productos que usan esta categoría."
+    "inUse": "No se puede eliminar: hay productos que usan esta categoría.",
+    "posSortOrder": "El orden en el POS es un número entero de 0 a 9999."
+  },
+  "pos": {
+    "shown": "Se muestra (orden {{order}})",
+    "hidden": "No se muestra"
   }
 }

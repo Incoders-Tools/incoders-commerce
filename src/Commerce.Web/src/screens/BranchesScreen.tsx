@@ -11,6 +11,7 @@ import { DataView, type DataViewColumn } from '@/components/data/DataView'
 import { PageHeader } from '@/components/data/PageHeader'
 import { useViewPreference } from '@/components/data/useViewPreference'
 import { DiscountPinPanel } from './DiscountPinPanel'
+import { BranchDocumentForm } from './BranchDocumentForm'
 
 /**
  * T4b: migrated onto the shared data-view layer (`components/data/*`),
@@ -39,6 +40,8 @@ export function BranchesScreen() {
   const [search, setSearch] = useState('')
   const [view, setView] = useViewPreference('branches')
   const [pinBranch, setPinBranch] = useState<BranchSummary | null>(null)
+  const [documentBranch, setDocumentBranch] = useState<BranchSummary | null>(null)
+  const { t: tDocuments } = useTranslation('fulfillment')
 
   const refresh = useCallback(async () => {
     try {
@@ -99,6 +102,16 @@ export function BranchesScreen() {
       : []),
   ]
 
+  if (documentBranch) {
+    return (
+      <BranchDocumentForm
+        branchId={documentBranch.branchId}
+        branchName={documentBranch.branchName}
+        onBack={() => setDocumentBranch(null)}
+      />
+    )
+  }
+
   return (
     <section className="flex w-full flex-col gap-6">
       <PageHeader
@@ -147,14 +160,19 @@ export function BranchesScreen() {
         columns={columns}
         getRowKey={(branch) => branch.branchId}
         renderActions={(branch) => (
-          <Button
-            type="button"
-            variant="outline"
-            aria-label={t('discountPin.openFor', { name: branch.branchName })}
-            onClick={() => setPinBranch(branch)}
-          >
-            {t('discountPin.open')}
-          </Button>
+          <span className="inline-flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              aria-label={t('discountPin.openFor', { name: branch.branchName })}
+              onClick={() => setPinBranch(branch)}
+            >
+              {t('discountPin.open')}
+            </Button>
+            <Button type="button" variant="outline" onClick={() => setDocumentBranch(branch)}>
+              {tDocuments('documents.branch.action')}
+            </Button>
+          </span>
         )}
         view={view}
         loading={loading}

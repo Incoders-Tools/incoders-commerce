@@ -65,6 +65,22 @@ public partial class TotalsPanel : UserControl
         set => CashTenderButton.IsEnabled = CardTenderButton.IsEnabled = QrTenderButton.IsEnabled = value;
     }
 
+    /// <summary>
+    /// The sale can go on a customer's current account: a customer is chosen. Without one the button stays disabled and
+    /// says why.
+    /// </summary>
+    public bool AccountAvailable
+    {
+        get => AccountTenderButton.IsEnabled;
+        set
+        {
+            AccountTenderButton.IsEnabled = value;
+            AccountTenderButton.ToolTip = value
+                ? "Se carga a la cuenta corriente del cliente: no se cobra ahora"
+                : "Elegí un cliente para vender a cuenta corriente";
+        }
+    }
+
     private void Refresh()
     {
         SubtotalText.Text = Subtotal.ToString("C", CultureInfo.CurrentCulture);

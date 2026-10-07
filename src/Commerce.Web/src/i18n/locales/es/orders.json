@@ -119,7 +119,8 @@
       "replay": "Este pedido ya estaba registrado: no se duplicó.",
       "customer": "Cliente: {{name}}",
       "total": "Total: {{total}}",
-      "newOrder": "Nuevo pedido"
+      "newOrder": "Nuevo pedido",
+      "viewOrders": "Ver pedidos"
     }
   },
   "lineEditor": {

@@ -19,10 +19,20 @@ public sealed record RateSetReplica(Guid Id, Guid? PriceListId, DateOnly Effecti
 /// <summary>The price list a customer is priced from.</summary>
 public sealed record CustomerPriceListReplica(Guid CustomerId, Guid PriceListId);
 
+/// <summary>A customer's own discount percentage, applied after the list composition (never a zero).</summary>
+public sealed record CustomerDiscountReplica(Guid CustomerId, decimal DiscountPercentage);
+
+/// <summary>What a customer owes on its current account (and how much of it is overdue) when the snapshot was taken.</summary>
+public sealed record CustomerBalanceReplica(Guid CustomerId, decimal Balance, decimal Overdue);
+
+/// <summary>A customer's own payment terms in days (customers without them use the organization's default).</summary>
+public sealed record CustomerTermsReplica(Guid CustomerId, int Days);
+
 /// <summary>
 /// One whole `price-lists` snapshot (channel `price-lists`): applying it REPLACES the replica, so what the cloud no longer
 /// has disappears here. `OrganizationId` is stamped by the caller (the terminal's paired organization), like
-/// <see cref="CustomerReplica"/>.
+/// <see cref="CustomerReplica"/>. <see cref="CustomerDiscounts"/> is null when the cloud predates customer discounts on
+/// the POS: the replica then holds none.
 /// </summary>
 public sealed record PriceListsReplicaSnapshot(
     Guid OrganizationId,
@@ -30,7 +40,12 @@ public sealed record PriceListsReplicaSnapshot(
     IReadOnlyList<PriceListEntryReplica> Entries,
     IReadOnlyList<RateSetReplica> RateSets,
     IReadOnlyList<CustomerPriceListReplica> CustomerPriceLists,
-    Guid? OrganizationDefaultCustomerPriceListId);
+    Guid? OrganizationDefaultCustomerPriceListId,
+    IReadOnlyList<CustomerDiscountReplica>? CustomerDiscounts = null,
+    IReadOnlyList<CustomerBalanceReplica>? CustomerBalances = null,
+    IReadOnlyList<CustomerTermsReplica>? CustomerPaymentTerms = null,
+    int? DefaultCustomerPaymentTermsDays = null,
+    IReadOnlyList<CategoryReplica>? Categories = null);
 
 public sealed partial class BranchSyncStore
 {
@@ -82,6 +97,10 @@ public sealed partial class BranchSyncStore
                 id INTEGER PRIMARY KEY CHECK (id = 1),
                 default_customer_price_list_id TEXT NULL
             );
+            CREATE TABLE IF NOT EXISTS customer_discounts_replica (
+                customer_id TEXT PRIMARY KEY,
+                discount_percentage TEXT NOT NULL
+            );
             """;
         create.ExecuteNonQuery();
     }
@@ -120,6 +139,7 @@ public sealed partial class BranchSyncStore
             DELETE FROM rate_sets_replica;
             DELETE FROM rate_components_replica;
             DELETE FROM customer_price_lists_replica;
+            DELETE FROM customer_discounts_replica;
             DELETE FROM price_list_settings;
             """);
 
@@ -162,9 +182,25 @@ public sealed partial class BranchSyncStore
                 ("$customer", assignment.CustomerId.ToString()), ("$list", assignment.PriceListId.ToString()));
         }
 
+        foreach (var discount in snapshot.CustomerDiscounts ?? [])
+        {
+            if (discount.DiscountPercentage <= 0m)
+            {
+                continue;
+            }
+
+            Exec(transaction,
+                "INSERT INTO customer_discounts_replica (customer_id, discount_percentage) VALUES ($customer, $percentage);",
+                ("$customer", discount.CustomerId.ToString()),
+                ("$percentage", discount.DiscountPercentage.ToString(CultureInfo.InvariantCulture)));
+        }
+
         Exec(transaction,
             "INSERT INTO price_list_settings (id, default_customer_price_list_id) VALUES (1, $list);",
             ("$list", snapshot.OrganizationDefaultCustomerPriceListId?.ToString()));
+        WriteCustomerAccountsSnapshot(
+            snapshot.CustomerBalances, snapshot.CustomerPaymentTerms, snapshot.DefaultCustomerPaymentTermsDays, transaction);
+        WriteCategoriesSnapshot(snapshot.Categories, transaction);
         UpsertCursor(PriceListsChannel, serverTimeUtc, transaction);
     }
 
@@ -303,6 +339,16 @@ public sealed partial class BranchSyncStore
         command.Parameters.AddWithValue("$customer", customerId.ToString());
 
         return command.ExecuteScalar() is string raw ? Guid.Parse(raw) : null;
+    }
+
+    /// <summary>The customer's own discount percentage (`null`: none, or the channel never synced it).</summary>
+    public decimal? GetCustomerDiscountPercentage(Guid customerId)
+    {
+        using var command = _connection.CreateCommand();
+        command.CommandText = "SELECT discount_percentage FROM customer_discounts_replica WHERE customer_id = $customer;";
+        command.Parameters.AddWithValue("$customer", customerId.ToString());
+
+        return command.ExecuteScalar() is string raw ? decimal.Parse(raw, CultureInfo.InvariantCulture) : null;
     }
 
     /// <summary>The organization default price list for customers, or `null` when none is set or the channel never synced.</summary>

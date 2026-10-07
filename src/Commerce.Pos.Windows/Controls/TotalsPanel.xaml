@@ -55,7 +55,11 @@
                 </UniformGrid.Resources>
                 <Button x:Name="CashTenderButton" Content="Efectivo" Tag="cash" AutomationProperties.Name="Cobrar en efectivo" />
                 <Button x:Name="CardTenderButton" Content="Tarjeta" Tag="card" AutomationProperties.Name="Cobrar con tarjeta" />
-                <Button x:Name="QrTenderButton" Content="QR" Tag="qr" Margin="0" AutomationProperties.Name="Cobrar con QR" />
+                <Button x:Name="QrTenderButton" Content="QR" Tag="qr" AutomationProperties.Name="Cobrar con QR" />
+                <!-- A sale on the customer's current account: only with a customer chosen (walk-in has no account). -->
+                <Button x:Name="AccountTenderButton" Content="Cuenta corriente" Tag="account" Margin="0" IsEnabled="False"
+                        ToolTip="Elegí un cliente para vender a cuenta corriente" ToolTipService.ShowOnDisabled="True"
+                        AutomationProperties.Name="Vender a cuenta corriente" />
             </UniformGrid>
         </Grid>
     </Border>

@@ -13,7 +13,7 @@ public static class DefaultCategory
 }
 
 /// <summary>Input to <see cref="PostgresCategoryStore.CreateAsync"/>; the organization comes from the tenant scope.</summary>
-public sealed record NewCategory(Guid Id, string Name, string IconKey);
+public sealed record NewCategory(Guid Id, string Name, string IconKey, bool ShowInPos = true, int PosSortOrder = 0);
 
 /// <summary>Full persisted shape of one `categories` row.</summary>
 public sealed record CategoryRecord(
@@ -22,4 +22,6 @@ public sealed record CategoryRecord(
     string Name,
     string IconKey,
     DateTimeOffset CreatedAtUtc,
-    DateTimeOffset UpdatedAtUtc);
+    DateTimeOffset UpdatedAtUtc,
+    bool ShowInPos = true,
+    int PosSortOrder = 0);

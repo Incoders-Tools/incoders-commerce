@@ -50,6 +50,8 @@ builder.Services.AddSingleton<PostgresStaffOrderLookupStore>();
 builder.Services.AddSingleton<PostgresCategoryStore>();
 builder.Services.AddSingleton<PostgresBusinessTypeStore>();
 builder.Services.AddSingleton<PostgresSupplierCategoryStore>();
+builder.Services.AddSingleton<PostgresTreasuryAccountTypeStore>();
+builder.Services.AddSingleton<PostgresEmployeeRoleStore>();
 builder.Services.AddSingleton<PostgresSupplierStore>();
 builder.Services.AddSingleton<PostgresCurrentAccountStore>();
 builder.Services.AddSingleton<PostgresPurchaseReceptionStore>();
@@ -169,6 +171,15 @@ builder.Services.AddSingleton<CloudSyncReceiver>();
 builder.Services.AddSingleton<CloudCatalogManagementAdapter>();
 // persist-web-orders: orders live in Postgres (survive restarts, carry P{branch}-W-{seq} numbers).
 builder.Services.AddSingleton<IOrderStore>(sp => new PostgresOrderStore(sp.GetRequiredService<NpgsqlDataSource>()));
+// order-fulfillment-and-delivery (0045): order tracking, delivery runs, remitos and the document data they print.
+builder.Services.AddSingleton<PostgresFulfillmentStore>();
+// payment-terms-and-treasury (0046): the company's money accounts per branch and payment method.
+builder.Services.AddSingleton<PostgresTreasuryStore>();
+builder.Services.AddSingleton<PostgresTreasuryRecurrenceStore>();
+// Records the recurring treasury movements on their dates (every few hours; needs the platform-read connection).
+builder.Services.AddHostedService<TreasuryRecurrenceJob>();
+builder.Services.AddSingleton<PostgresEmployeeStore>();
+builder.Services.AddSingleton<PostgresPayrollStore>();
 // commerce-price-composition slice 2: resolution composes the effective rate
 // components onto the entry's base price, so the submission service needs the
 // component store. Registered here rather than defaulted to null inside the
@@ -197,6 +208,20 @@ builder.Services
         {
             var validator = context.HttpContext.RequestServices.GetRequiredService<SessionVersionValidator>();
             return validator.ValidateAsync(context);
+        };
+        // The SPA calls this API with fetch: a denied or anonymous request must answer 403/401, never the cookie
+        // handler's default 302 to /Account/AccessDenied or /Account/Login (pages this API does not have). Behind the
+        // local HTTPS proxy that redirect pointed at http:// on the HTTPS port, fetch failed at the network level and the
+        // SPA reported "Commerce.Cloud.Api no está disponible" for what was really a missing permission.
+        options.Events.OnRedirectToLogin = context =>
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            return Task.CompletedTask;
+        };
+        options.Events.OnRedirectToAccessDenied = context =>
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            return Task.CompletedTask;
         };
     })
     .AddScheme<DeviceBearerAuthenticationOptions, DeviceBearerAuthenticationHandler>(
@@ -338,12 +363,17 @@ app.MapCategoryEndpoints();
 app.MapMasterDataEndpoints();
 app.MapSupplierEndpoints();
 app.MapSupplierAccountEndpoints();
+app.MapCustomerAccountEndpoints();
+app.MapEmployeeAccountEndpoints();
 app.MapPurchaseReceptionEndpoints();
 app.MapStockEndpoints();
 app.MapGeographyEndpoints();
 app.MapBranchDiscountPinEndpoints();
 app.MapOrderingEndpoints();
 app.MapStaffOrderingEndpoints();
+app.MapFulfillmentEndpoints();
+app.MapTreasuryEndpoints();
+app.MapEmployeeEndpoints();
 app.MapCustomerEndpoints();
 app.MapCustomerSessionEndpoints();
 app.MapPricingEndpoints();

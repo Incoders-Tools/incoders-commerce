@@ -1,6 +1,7 @@
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { MemoryRouter } from 'react-router'
 import { BranchContext } from '@/branch/BranchContext'
 import type { StaffCustomerOption, StaffOrderQuote, StaffPresentationOption } from '@/api/types'
 import { StaffOrderScreen } from './StaffOrderScreen'
@@ -156,7 +157,7 @@ describe('StaffOrderScreen', () => {
 
   it('searches customers on the server and shows city, price list and why a customer cannot be chosen', async () => {
     const user = userEvent.setup()
-    render(<StaffOrderScreen />)
+    render(<MemoryRouter><StaffOrderScreen /></MemoryRouter>)
 
     expect(screen.getByRole('heading', { name: 'Tomar pedido' })).toBeInTheDocument()
     await user.type(screen.getByLabelText('Buscar cliente'), 'ram')
@@ -182,7 +183,7 @@ describe('StaffOrderScreen', () => {
 
   it('adds products as lines, merges the same presentation and removes a line', async () => {
     const user = userEvent.setup()
-    render(<StaffOrderScreen />)
+    render(<MemoryRouter><StaffOrderScreen /></MemoryRouter>)
 
     await addProduct(user, 'Chorizo')
     await addProduct(user, 'Chorizo')
@@ -199,7 +200,7 @@ describe('StaffOrderScreen', () => {
 
   it('quotes the draft and shows per line price, the list used, the fallback note and the total', async () => {
     const user = userEvent.setup()
-    render(<StaffOrderScreen />)
+    render(<MemoryRouter><StaffOrderScreen /></MemoryRouter>)
 
     await pickCustomer(user)
     await addProduct(user, 'Chorizo')
@@ -229,7 +230,7 @@ describe('StaffOrderScreen', () => {
 
   it('accepts only whole units for fixed-quantity products and blocks submit while a quantity is invalid', async () => {
     const user = userEvent.setup()
-    render(<StaffOrderScreen />)
+    render(<MemoryRouter><StaffOrderScreen /></MemoryRouter>)
 
     await pickCustomer(user)
     await addProduct(user, 'Chorizo')
@@ -243,7 +244,7 @@ describe('StaffOrderScreen', () => {
   it('marks lines without a price and blocks submit', async () => {
     unpriced = ['pr-2']
     const user = userEvent.setup()
-    render(<StaffOrderScreen />)
+    render(<MemoryRouter><StaffOrderScreen /></MemoryRouter>)
 
     await pickCustomer(user)
     await addProduct(user, 'Chorizo')
@@ -260,7 +261,7 @@ describe('StaffOrderScreen', () => {
 
   it('submits the order and shows its number, then starts a new draft', async () => {
     const user = userEvent.setup()
-    render(<StaffOrderScreen />)
+    render(<MemoryRouter><StaffOrderScreen /></MemoryRouter>)
 
     await pickCustomer(user)
     await addProduct(user, 'Chorizo')
@@ -292,7 +293,7 @@ describe('StaffOrderScreen', () => {
       return json({ status: 'accepted', reason: 'existing-order', wasNewlyAccepted: false, orderNumber: 'P01-W-7', order: { orderId: body.orderId } })
     }
     const user = userEvent.setup()
-    render(<StaffOrderScreen />)
+    render(<MemoryRouter><StaffOrderScreen /></MemoryRouter>)
 
     await pickCustomer(user)
     await addProduct(user, 'Chorizo')
@@ -321,7 +322,7 @@ describe('StaffOrderScreen', () => {
       return baseImplementation(url, init)
     })
     const user = userEvent.setup()
-    render(<StaffOrderScreen />)
+    render(<MemoryRouter><StaffOrderScreen /></MemoryRouter>)
 
     await pickCustomer(user)
     await addProduct(user, 'Chorizo')
@@ -337,7 +338,7 @@ describe('StaffOrderScreen', () => {
 
   it('uses a new order id for the next draft', async () => {
     const user = userEvent.setup()
-    render(<StaffOrderScreen />)
+    render(<MemoryRouter><StaffOrderScreen /></MemoryRouter>)
 
     for (let order = 0; order < 2; order++) {
       await pickCustomer(user)
@@ -359,7 +360,7 @@ describe('StaffOrderScreen', () => {
   ])('maps a %i %s answer to a clear message', async (status, reason, message) => {
     submitResponse = () => json({ status: 'denied', reason, wasNewlyAccepted: false, orderNumber: null, order: null }, status)
     const user = userEvent.setup()
-    render(<StaffOrderScreen />)
+    render(<MemoryRouter><StaffOrderScreen /></MemoryRouter>)
 
     await pickCustomer(user)
     await addProduct(user, 'Chorizo')
@@ -373,7 +374,7 @@ describe('StaffOrderScreen', () => {
   it('maps a validation problem to a clear message', async () => {
     submitResponse = () => json({ title: 'One or more validation errors occurred.', errors: { note: ['too long'] } }, 400)
     const user = userEvent.setup()
-    render(<StaffOrderScreen />)
+    render(<MemoryRouter><StaffOrderScreen /></MemoryRouter>)
 
     await pickCustomer(user)
     await addProduct(user, 'Chorizo')

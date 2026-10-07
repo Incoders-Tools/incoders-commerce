@@ -88,6 +88,8 @@ public sealed class PriceListsReplicaClientTests : IDisposable
             customerPriceLists = new[] { new { customerId = Customer, priceListId = Reparto } }.Where(_ => withReparto),
             organizationDefaultCustomerPriceListId = withReparto ? Reparto : (Guid?)null,
             serverTimeUtc = "2026-10-02T18:30:00+00:00",
+            // null: what a cloud from before customer discounts on the POS sends (the field absent reads the same).
+            customerDiscounts = withReparto ? new[] { new { customerId = Customer, discountPercentage = 12.5m } } : null,
         },
         new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
 
@@ -150,6 +152,7 @@ public sealed class PriceListsReplicaClientTests : IDisposable
         Assert.Equal(16_872m, store.GetEffectiveRateSet(Mostrador, Today)!.Compose(11_400m));
         Assert.Equal(16_530m, store.GetEffectiveRateSet(Reparto, Today)!.Compose(11_400m));
         Assert.Equal(Reparto, store.GetCustomerPriceListId(Customer));
+        Assert.Equal(12.5m, store.GetCustomerDiscountPercentage(Customer));
         Assert.Equal(new DateTimeOffset(2026, 10, 2, 18, 30, 0, TimeSpan.Zero), store.GetPriceListsCursor());
     }
 
@@ -167,6 +170,7 @@ public sealed class PriceListsReplicaClientTests : IDisposable
         Assert.Equal("Mostrador", Assert.Single(store.ListPriceLists()).Name);
         Assert.Null(store.GetEffectivePrice(Reparto, Bola, Today));
         Assert.Null(store.GetCustomerPriceListId(Customer));
+        Assert.Null(store.GetCustomerDiscountPercentage(Customer)); // a snapshot without discounts clears them
     }
 
     [Fact]

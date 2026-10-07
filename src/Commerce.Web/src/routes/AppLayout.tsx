@@ -2,8 +2,12 @@ import { useState, type ComponentType, type ReactNode } from 'react'
 import { NavLink, Outlet } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import {
+  BadgeCheck,
+  Banknote,
   Briefcase,
   Building2,
+  IdCard,
+  Landmark,
   ClipboardList,
   LayoutDashboard,
   LayoutGrid,
@@ -11,11 +15,13 @@ import {
   Menu,
   Package,
   PackageCheck,
+  Route as RouteIcon,
   Settings,
   Store,
   Truck,
   Boxes,
   Tags,
+  Wallet,
   Warehouse,
   UserCog,
   Users2,
@@ -132,6 +138,9 @@ export function AppLayout() {
                   {showOrdersNav && (
                     <NavItem to="/app/orders" icon={ClipboardList} onNavigate={closeMobileNav}>{t('items.orders')}</NavItem>
                   )}
+                  {showOrdersNav && (
+                    <NavItem to="/app/deliveries" icon={RouteIcon} onNavigate={closeMobileNav}>{t('items.deliveries')}</NavItem>
+                  )}
                 </NavSection>
               )}
               {/* commerce-customer-identity "Web admin gating": hidden, not just
@@ -144,6 +153,9 @@ export function AppLayout() {
                 <NavSection title={t('sections.management')}>
                   <NavItem to="/app/customers" icon={Users2} onNavigate={closeMobileNav}>{t('items.customers')}</NavItem>
                   <NavItem to="/app/suppliers" icon={Truck} onNavigate={closeMobileNav}>{t('items.suppliers')}</NavItem>
+                  <NavItem to="/app/treasury" icon={Landmark} onNavigate={closeMobileNav}>{t('items.treasury')}</NavItem>
+                  <NavItem to="/app/employees" icon={IdCard} onNavigate={closeMobileNav}>{t('items.employees')}</NavItem>
+                  <NavItem to="/app/payroll" icon={Banknote} onNavigate={closeMobileNav}>{t('items.payroll')}</NavItem>
                   <NavItem to="/app/price-lists" icon={Tags} onNavigate={closeMobileNav}>{t('items.priceLists')}</NavItem>
                 </NavSection>
               )}
@@ -158,6 +170,8 @@ export function AppLayout() {
                   <NavItem to="/app/categories" icon={LayoutGrid} onNavigate={closeMobileNav}>{t('items.categories')}</NavItem>
                   <NavItem to="/app/supplier-categories" icon={Boxes} onNavigate={closeMobileNav}>{t('items.supplierCategories')}</NavItem>
                   <NavItem to="/app/business-types" icon={Briefcase} onNavigate={closeMobileNav}>{t('items.businessTypes')}</NavItem>
+                  <NavItem to="/app/treasury-account-types" icon={Wallet} onNavigate={closeMobileNav}>{t('items.treasuryAccountTypes')}</NavItem>
+                  <NavItem to="/app/employee-roles" icon={BadgeCheck} onNavigate={closeMobileNav}>{t('items.employeeRoles')}</NavItem>
                 </NavSection>
               )}
               {showTenantNav && (

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Button } from '@/components/ui/button'
+import { Link } from 'react-router'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { Select } from '@/components/ui/select'
 import { DataToolbar } from '@/components/data/DataToolbar'
 import { DataView, type DataViewColumn } from '@/components/data/DataView'
@@ -12,6 +13,8 @@ import { CustomerForm } from './CustomerForm'
 import { businessTypesApi } from '@/api/businessTypes'
 import { getOwnOrganizationSettings } from '@/api/account'
 import { issueOrderingAccess, listCustomers } from '@/api/customers'
+import { listCustomerBalances, type CustomerBalance } from '@/api/currentAccount'
+import { formatMoney } from '@/dashboard/format'
 import { listProvinces } from '@/api/geo'
 import { listPriceLists } from '@/api/pricing'
 import { ApiError } from '@/api/client'
@@ -45,6 +48,7 @@ const SEARCH_DEBOUNCE_MS = 300
 export function CustomersScreen() {
   const { t } = useTranslation('customers')
   const [customers, setCustomers] = useState<CustomerRecord[]>([])
+  const [balances, setBalances] = useState<ReadonlyMap<string, CustomerBalance>>(new Map())
   const [loading, setLoading] = useState(true)
   /** Why the last load failed, if it did. Never set by an action: an action
    * failing says nothing about whether the collection could be read. */
@@ -61,6 +65,7 @@ export function CustomersScreen() {
   const [provinces, setProvinces] = useState<GeoProvince[]>([])
   const [priceLists, setPriceLists] = useState<PriceListRecord[]>([])
   const [defaultPriceListId, setDefaultPriceListId] = useState<string | null>(null)
+  const [defaultPaymentTermsDays, setDefaultPaymentTermsDays] = useState<number | null>(null)
   const [priceListFilter, setPriceListFilter] = useState('')
   const [view, setView] = useViewPreference('customers')
   const debouncedSearch = useDebouncedValue(search.trim(), SEARCH_DEBOUNCE_MS)
@@ -72,8 +77,15 @@ export function CustomersScreen() {
     setLoading(true)
     setLoadError(null)
     try {
-      const result = await listCustomers({ search: debouncedSearch, cityId, businessTypeId })
-      if (request === latestRequest.current) setCustomers(result)
+      // The balances are a bonus: without them the list still shows every customer.
+      const [result, balanceRows] = await Promise.all([
+        listCustomers({ search: debouncedSearch, cityId, businessTypeId }),
+        listCustomerBalances().catch(() => [] as CustomerBalance[]),
+      ])
+      if (request === latestRequest.current) {
+        setCustomers(result)
+        setBalances(new Map((Array.isArray(balanceRows) ? balanceRows : []).map((row) => [row.customerId, row])))
+      }
     } catch (err) {
       if (request === latestRequest.current) {
         setLoadError(err instanceof ApiError ? err.message : t('errors.unexpectedLoad'))
@@ -111,7 +123,10 @@ export function CustomersScreen() {
       () => setPriceLists([]),
     )
     getOwnOrganizationSettings().then(
-      (settings) => setDefaultPriceListId(settings?.defaultCustomerPriceListId ?? null),
+      (settings) => {
+        setDefaultPriceListId(settings?.defaultCustomerPriceListId ?? null)
+        setDefaultPaymentTermsDays(settings?.defaultCustomerPaymentTermsDays ?? null)
+      },
       () => setDefaultPriceListId(null),
     )
   }, [])
@@ -153,6 +168,7 @@ export function CustomersScreen() {
         priceLists={priceLists}
         provinces={provinces}
         defaultPriceListId={defaultPriceListId}
+        defaultPaymentTermsDays={defaultPaymentTermsDays}
         onSaved={handleSaved}
         onCancel={closeForm}
         onReload={setEditingCustomer}
@@ -163,6 +179,23 @@ export function CustomersScreen() {
   const noValue = <span className="text-muted-foreground">{t('columns.noValue')}</span>
   const columns: DataViewColumn<CustomerRecord>[] = [
     { key: 'displayName', header: t('columns.name'), cell: (customer) => customer.displayName },
+    {
+      key: 'balance',
+      header: t('columns.balance'),
+      headerHint: t('columns.balanceHint'),
+      cell: (customer) => {
+        const row = balances.get(customer.id)
+        if (!row || row.balance === 0) return <span className="text-muted-foreground">—</span>
+        return (
+          <span className="flex flex-col">
+            <span className={row.balance < 0 ? 'text-muted-foreground' : undefined}>
+              {row.balance < 0 ? t('balance.inFavour', { amount: formatMoney(-row.balance) }) : formatMoney(row.balance)}
+            </span>
+            {row.overdue > 0 && <span className="text-xs text-destructive">{t('balance.overdue', { amount: formatMoney(row.overdue) })}</span>}
+          </span>
+        )
+      },
+    },
     {
       key: 'contact',
       header: t('columns.contact'),
@@ -299,6 +332,9 @@ export function CustomersScreen() {
             <Button variant="outline" size="sm" onClick={() => setEditingCustomer(customer)}>
               {t('actions.edit')}
             </Button>
+            <Link to={`/app/customers/${customer.id}/account`} className={buttonVariants({ variant: 'outline', size: 'sm' })}>
+              {t('actions.account')}
+            </Link>
             <Button variant="outline" size="sm" onClick={() => void handleIssueAccess(customer.id)}>
               {t('actions.issueAccess')}
             </Button>

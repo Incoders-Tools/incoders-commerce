@@ -123,17 +123,17 @@ describe('PriceListsScreen', () => {
     expect(JSON.parse(init.body as string)).toMatchObject({ isDefault: true })
   })
 
-  it('shows the Suppliers tab as a structural placeholder', async () => {
+  it('hides the Suppliers and Import sections for now', async () => {
     fetchMock
       .mockResolvedValueOnce(new Response(JSON.stringify([defaultPriceList]), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify([presentation]), { status: 200 }))
 
-    const user = userEvent.setup()
     render(<PriceListsScreen />)
 
     await screen.findByText('Default')
-    await user.click(screen.getByRole('button', { name: /^proveedores$/i }))
-    expect(screen.getByText(/mapeos de proveedores/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Precios' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^proveedores$/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^importar$/i })).not.toBeInTheDocument()
   })
 
   const mapping = {
@@ -179,7 +179,8 @@ describe('PriceListsScreen', () => {
     ],
   }
 
-  it('uploads a file, renders the real review table, and commits through the endpoint', async () => {
+  // The Import section is hidden for now (PriceListsScreen VISIBLE_TABS); re-enable with it.
+  it.skip('uploads a file, renders the real review table, and commits through the endpoint', async () => {
     fetchMock
       .mockResolvedValueOnce(new Response(JSON.stringify([defaultPriceList]), { status: 200 })) // GET /pricing/price-lists
       .mockResolvedValueOnce(new Response(JSON.stringify([presentation]), { status: 200 })) // GET /catalog/presentations
@@ -213,7 +214,8 @@ describe('PriceListsScreen', () => {
     })
   })
 
-  it('rejects a staged batch through the endpoint', async () => {
+  // The Import section is hidden for now (PriceListsScreen VISIBLE_TABS); re-enable with it.
+  it.skip('rejects a staged batch through the endpoint', async () => {
     loadOnce([defaultPriceList])
 
     const user = userEvent.setup()

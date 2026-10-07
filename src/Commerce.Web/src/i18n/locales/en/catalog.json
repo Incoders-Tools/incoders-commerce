@@ -1,13 +1,15 @@
 {
   "title": "Catalog",
-  "description": "Presentations available to sell, and their identification codes.",
+  "description": "The branch's products and presentations: create, edit, codes and categories.",
+  "readOnlyDescription": "The branch's products and presentations, with their codes. Read only.",
   "branchRequired": "Pick a branch in the top bar to view the catalog.",
   "columns": {
     "name": "Name",
     "identificationCode": "Identification code",
     "noCode": "No code",
     "quantityBehavior": "Quantity behavior",
-    "lastUpdated": "Last updated"
+    "lastUpdated": "Last updated",
+    "category": "Category"
   },
   "quantityBehaviorOptions": {
     "fixedQuantity": "Fixed quantity",
@@ -24,7 +26,7 @@
     "none": "No presentations yet.",
     "noMatch": "No presentations match this search."
   },
-  "editCode": "Edit code",
+  "edit": "Edit",
   "status": {
     "filterLabel": "Status",
     "active": "Active",
@@ -47,7 +49,7 @@
   },
   "form": {
     "title": "Edit presentation",
-    "description": "Identification code and category of \"{{name}}\".",
+    "description": "Name, category, presentation and code of \"{{name}}\".",
     "backLabel": "Back to catalog",
     "label": "Identification code",
     "category": "Category",
@@ -81,6 +83,50 @@
       "noPriceList": "No price list was copied.",
       "skipped": "Presentations skipped: {{count}}",
       "skippedNote": "Their identification code already exists in the target branch:"
+    }
+  },
+  "filters": {
+    "categoryLabel": "Category",
+    "allCategories": "All categories"
+  },
+  "sort": {
+    "label": "Sort by",
+    "options": {
+      "name-asc": "Name (A-Z)",
+      "name-desc": "Name (Z-A)",
+      "code": "Code",
+      "category": "Category",
+      "updated-desc": "Recently updated"
+    }
+  },
+  "productForm": {
+    "newAction": "New product",
+    "createTitle": "New product",
+    "createDescription": "Product, category and the presentation it is sold as.",
+    "create": "Create product",
+    "productName": "Product name",
+    "presentationName": "Presentation",
+    "quantityBehaviorHint": "Weighted: sold by the kilo. Fixed quantity: by the unit.",
+    "codeHint": "The code scanned or typed at the POS. Optional and unique in the branch.",
+    "priceNote": "The product is created without a price: set it in Price lists to sell it.",
+    "defaultPresentation": {
+      "weighted": "Per kg",
+      "fixedQuantity": "Unit",
+      "bulk": "Bulk"
+    },
+    "errors": {
+      "nameRequired": "Enter the product name.",
+      "presentationRequired": "Enter the presentation name.",
+      "codeInUse": "That code is already used by another product in this branch.",
+      "productInactive": "The product is inactive: reactivate it to edit it.",
+      "renameDenied": "The product name could not be changed.",
+      "unexpectedCreate": "Unexpected error while creating the product."
+    },
+    "codeSuggestion": {
+      "proposed": "Last code in use: {{last}}. The next one, {{next}}, is proposed; you can change it.",
+      "last": "Last code in use: {{last}} (the next free one is {{next}}).",
+      "use": "Use {{next}}",
+      "placeholder": "E.g.: {{next}}"
     }
   }
 }

@@ -158,7 +158,7 @@ public sealed class OrderPricingTests : IDisposable
         var priceListStore = new PostgresPriceListStore(_dataSource!);
         await priceListStore.AppendEntryAsync(
             scope,
-            new NewPriceListEntry(Guid.NewGuid(), priceListId, presentationId, unitPrice, effectiveFrom ?? DateOnly.FromDateTime(DateTime.UtcNow), "Manual", ImportBatchId: null, actorId),
+            new NewPriceListEntry(Guid.NewGuid(), priceListId, presentationId, unitPrice, effectiveFrom ?? Commerce.Application.Time.BusinessClock.System.Today, "Manual", ImportBatchId: null, actorId),
             "org-user", actorId, CancellationToken.None);
     }
 
@@ -184,7 +184,7 @@ public sealed class OrderPricingTests : IDisposable
         await new PostgresRateComponentStore(_dataSource!).PublishSetAsync(
             scope,
             new NewRateComponentSet(
-                Guid.NewGuid(), priceListId, DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-1), components, actorId),
+                Guid.NewGuid(), priceListId, Commerce.Application.Time.BusinessClock.System.Today.AddDays(-1), components, actorId),
             "org-user", actorId, CancellationToken.None);
     }
 
@@ -396,7 +396,7 @@ public sealed class OrderPricingTests : IDisposable
         var customerId = await SeedCustomerAsync(scope, actorId);
         var presentationId = await SeedPresentationAsync(scope, actorId);
         var priceListId = await SeedDefaultPriceListAsync(scope, actorId);
-        await PublishPriceAsync(scope, priceListId, presentationId, 100.00m, actorId, DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-1));
+        await PublishPriceAsync(scope, priceListId, presentationId, 100.00m, actorId, Commerce.Application.Time.BusinessClock.System.Today.AddDays(-1));
 
         var (_, submissionService, accessStore) = NewServices();
         var credential = await accessStore.IssueAsync(scope, customerId, actorId, CancellationToken.None);

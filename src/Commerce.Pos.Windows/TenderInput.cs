@@ -54,6 +54,7 @@ public static class TenderInput
         SaleTender.Cash => "Efectivo",
         SaleTender.Card => "Tarjeta",
         SaleTender.Qr => "QR",
+        SaleTender.Account => "Cuenta corriente",
         _ => method,
     };
 

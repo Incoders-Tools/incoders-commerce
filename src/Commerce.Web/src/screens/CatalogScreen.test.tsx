@@ -1,10 +1,11 @@
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { AuthContext } from '@/auth/AuthContext'
 import { BranchContext } from '@/branch/BranchContext'
 import { CatalogScreen } from './CatalogScreen'
-import { QuantityBehavior } from '@/api/types'
-import type { CategoryRecord, PresentationRecord, ProductRecord } from '@/api/types'
+import { Permission, QuantityBehavior } from '@/api/types'
+import type { CategoryRecord, PresentationRecord, ProductRecord, SignedInResponse } from '@/api/types'
 
 /**
  * design.md "Web: CatalogScreen rework": real presentation list +
@@ -108,7 +109,7 @@ describe('CatalogScreen', () => {
     render(<CatalogScreen />)
 
     await screen.findByText('1.5L bottle')
-    await user.click(screen.getByRole('button', { name: /editar código/i }))
+    await user.click(screen.getByRole('button', { name: /^editar$/i }))
     await user.type(screen.getByLabelText(/código de identificación/i), '7791234567890')
     await user.click(screen.getByRole('button', { name: /^guardar$/i }))
 
@@ -140,7 +141,7 @@ describe('CatalogScreen', () => {
     render(<CatalogScreen />)
 
     await screen.findByText('1.5L bottle')
-    await user.click(screen.getByRole('button', { name: /editar código/i }))
+    await user.click(screen.getByRole('button', { name: /^editar$/i }))
 
     const select = await screen.findByLabelText('Categoría')
     await waitFor(() => expect(select).toHaveValue('cat-1'))
@@ -165,7 +166,7 @@ describe('CatalogScreen', () => {
     render(<CatalogScreen />)
 
     await screen.findByText('1.5L bottle')
-    await user.click(screen.getByRole('button', { name: /editar código/i }))
+    await user.click(screen.getByRole('button', { name: /^editar$/i }))
     await user.type(screen.getByLabelText(/código de identificación/i), '7791234567890')
     await user.click(screen.getByRole('button', { name: /^guardar$/i }))
 
@@ -350,7 +351,7 @@ describe('CatalogScreen', () => {
     render(<CatalogScreen />)
 
     await screen.findByText('1.5L bottle')
-    await user.click(screen.getByRole('button', { name: /editar código/i }))
+    await user.click(screen.getByRole('button', { name: /^editar$/i }))
     await user.type(screen.getByLabelText(/código de identificación/i), '7791234567890')
     await user.click(screen.getByRole('button', { name: /^guardar$/i }))
 
@@ -364,7 +365,7 @@ describe('CatalogScreen', () => {
     render(<CatalogScreen />)
 
     await screen.findByText('1.5L bottle')
-    await user.click(screen.getAllByRole('button', { name: /editar código/i })[0])
+    await user.click(screen.getAllByRole('button', { name: /^editar$/i })[0])
 
     // The list (and the other presentation's row) is gone, not just a form
     // appended under this row.
@@ -390,7 +391,7 @@ describe('CatalogScreen', () => {
     expect(screen.getByText('330ml can')).toBeInTheDocument()
     expect(screen.queryByText('1.5L bottle')).not.toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: /editar código/i }))
+    await user.click(screen.getByRole('button', { name: /^editar$/i }))
     await user.click(screen.getByRole('button', { name: /volver al catálogo/i }))
 
     expect(screen.getByLabelText(/buscar presentaciones/i)).toHaveValue('330')
@@ -492,6 +493,222 @@ describe('CatalogScreen', () => {
 
       await waitFor(() => expect(callsTo(`POST /catalog/products/${inactiveProduct.id}/reactivate`)).toHaveLength(1))
       await waitFor(() => expect(screen.queryByText('Inactivo')).not.toBeInTheDocument())
+    })
+  })
+
+  // Seller (ViewSales | TakeOrders): the catalog is read-only for them, the server refuses changes anyway.
+  describe('read-only for a seller', () => {
+    const seller: SignedInResponse = {
+      organizationId: 'org-1',
+      userId: 'seller-1',
+      displayName: 'Vendedor',
+      permissions: Permission.ViewSales | Permission.TakeOrders,
+      isSystemAdmin: false,
+      selectableBranches: [],
+    }
+
+    it('lists the products without offering create, edit, deactivate or the status filter', async () => {
+      routeFetch({
+        'GET /catalog/presentations': () => json([unlabelled, labelled]),
+        'GET /catalog/products': () => json([product]),
+        'GET /catalog/categories': () => json([meat, wine]),
+      })
+
+      render(
+        <AuthContext.Provider value={{ user: seller, error: null, signIn: async () => {}, signOut: async () => {} }}>
+          <CatalogScreen />
+        </AuthContext.Provider>,
+      )
+
+      expect((await screen.findAllByText('Soda')).length).toBeGreaterThan(0)
+      expect(screen.queryByRole('button', { name: /nuevo producto/i })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /^editar$/i })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /^desactivar$/i })).not.toBeInTheDocument()
+      expect(screen.queryByLabelText('Estado')).not.toBeInTheDocument()
+      expect(screen.getByText(/solo lectura/i)).toBeInTheDocument()
+    })
+  })
+
+  describe('creating and fully editing a product', () => {
+    it('creates the product and then its presentation, sold by kilo with the kg unit of the catalog', async () => {
+      const created: ProductRecord = { ...product, id: 'p-new', name: 'Vacío', categoryId: 'cat-2' }
+      routeFetch({
+        'GET /catalog/presentations': () =>
+          json([{ ...labelled, quantityBehavior: QuantityBehavior.Weighted, unitId: 'kg-unit' }]),
+        'GET /catalog/products': () => json([product]),
+        'GET /catalog/categories': () => json([meat, wine]),
+        'POST /catalog/products': () => json(created, 201),
+        'POST /catalog/presentations': () =>
+          json(
+            {
+              ...unlabelled,
+              id: 'pres-new',
+              productId: 'p-new',
+              name: 'Por kg',
+              quantityBehavior: QuantityBehavior.Weighted,
+              identificationCode: '0042',
+            },
+            201,
+          ),
+      })
+
+      const user = userEvent.setup()
+      render(<CatalogScreen />)
+
+      await user.click(await screen.findByRole('button', { name: /nuevo producto/i }))
+      await user.type(screen.getByLabelText('Nombre del producto'), 'Vacío')
+      await user.selectOptions(screen.getByLabelText('Categoría'), 'cat-2')
+      await user.type(screen.getByLabelText(/código de identificación/i), '0042')
+      await user.click(screen.getByRole('button', { name: /crear producto/i }))
+
+      await waitFor(() => expect(callsTo('POST /catalog/presentations')).toHaveLength(1))
+      expect(JSON.parse(callsTo('POST /catalog/products')[0][1].body as string)).toEqual({
+        name: 'Vacío',
+        categoryId: 'cat-2',
+        defaultUnitId: 'kg-unit',
+      })
+      expect(JSON.parse(callsTo('POST /catalog/presentations')[0][1].body as string)).toEqual({
+        productId: 'p-new',
+        name: 'Por kg',
+        quantityBehavior: QuantityBehavior.Weighted,
+        unitId: 'kg-unit',
+        identificationCode: '0042',
+      })
+      // Back on the list, with the new product in it.
+      expect(await screen.findByText('Vacío')).toBeInTheDocument()
+    })
+
+    it('proposes the code after the last internal one, which the operator can keep or change', async () => {
+      routeFetch({
+        'GET /catalog/presentations': () =>
+          json([
+            { ...unlabelled, id: 'a', identificationCode: '001' },
+            { ...labelled, id: 'b', identificationCode: '090' },
+          ]),
+        'GET /catalog/products': () => json([product]),
+        'GET /catalog/categories': () => json([meat, wine]),
+      })
+
+      const user = userEvent.setup()
+      render(<CatalogScreen />)
+      await user.click(await screen.findByRole('button', { name: /nuevo producto/i }))
+
+      const code = screen.getByLabelText(/código de identificación/i)
+      await waitFor(() => expect(code).toHaveValue('091'))
+      expect(screen.getByText(/último código cargado: 090/i)).toBeInTheDocument()
+
+      await user.clear(code)
+      await user.type(code, '500')
+      await user.click(screen.getByRole('button', { name: 'Usar 091' }))
+      expect(code).toHaveValue('091')
+    })
+
+    it('edits the quantity behavior and the product name, renaming through the rename endpoint', async () => {
+      routeFetch({
+        'GET /catalog/presentations': () => json([unlabelled]),
+        'GET /catalog/products': () => json([product]),
+        'GET /catalog/categories': () => json([meat, wine]),
+        [`PUT /catalog/presentations/${unlabelled.id}`]: () =>
+          json({ ...unlabelled, name: 'Por kg', quantityBehavior: QuantityBehavior.Weighted }),
+        [`POST /catalog/products/${product.id}/rename`]: () =>
+          json({ status: 0, reason: '', updatedProduct: { ...product, name: 'Soda grande' } }),
+      })
+
+      const user = userEvent.setup()
+      render(<CatalogScreen />)
+
+      await user.click(await screen.findByRole('button', { name: /^editar$/i }))
+      const name = screen.getByLabelText('Nombre del producto')
+      await user.clear(name)
+      await user.type(name, 'Soda grande')
+      await user.selectOptions(screen.getByLabelText('Comportamiento de cantidad'), String(QuantityBehavior.Weighted))
+      await user.clear(screen.getByLabelText('Presentación'))
+      await user.type(screen.getByLabelText('Presentación'), 'Por kg')
+      await user.click(screen.getByRole('button', { name: /^guardar$/i }))
+
+      await waitFor(() => expect(callsTo(`POST /catalog/products/${product.id}/rename`)).toHaveLength(1))
+      expect(JSON.parse(callsTo(`PUT /catalog/presentations/${unlabelled.id}`)[0][1].body as string)).toMatchObject({
+        name: 'Por kg',
+        quantityBehavior: QuantityBehavior.Weighted,
+      })
+      expect(JSON.parse(callsTo(`POST /catalog/products/${product.id}/rename`)[0][1].body as string)).toMatchObject({
+        newName: 'Soda grande',
+        isOffline: false,
+      })
+      expect(await screen.findByText('Soda grande')).toBeInTheDocument()
+      expect(screen.getByText('Pesable')).toBeInTheDocument()
+    })
+
+    it('explains a code already used in the branch', async () => {
+      routeFetch({
+        'GET /catalog/presentations': () => json([unlabelled]),
+        'GET /catalog/products': () => json([product]),
+        'GET /catalog/categories': () => json([meat]),
+        [`PUT /catalog/presentations/${unlabelled.id}`]: () => json({ error: 'identification-code-in-use' }, 409),
+      })
+
+      const user = userEvent.setup()
+      render(<CatalogScreen />)
+
+      await user.click(await screen.findByRole('button', { name: /^editar$/i }))
+      await user.type(screen.getByLabelText(/código de identificación/i), '001')
+      await user.click(screen.getByRole('button', { name: /^guardar$/i }))
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(/ya lo usa otro producto/i)
+    })
+  })
+
+  describe('category filter and sorting', () => {
+    const steak: ProductRecord = { ...product, id: 'p-steak', name: 'Asado', categoryId: 'cat-1' }
+    const malbec: ProductRecord = { ...product, id: 'p-wine', name: 'Malbec', categoryId: 'cat-2' }
+    const steakKg: PresentationRecord = {
+      ...unlabelled,
+      id: 'pr-steak',
+      productId: steak.id,
+      name: 'Por kg',
+      identificationCode: '200',
+      updatedAtUtc: '2024-03-01T00:00:00Z',
+    }
+    const malbecBottle: PresentationRecord = {
+      ...unlabelled,
+      id: 'pr-wine',
+      productId: malbec.id,
+      name: 'Botella',
+      identificationCode: '100',
+      updatedAtUtc: '2024-05-01T00:00:00Z',
+    }
+
+    const rowNames = () =>
+      screen
+        .getAllByRole('row')
+        .slice(1)
+        .map((row) => (within(row).queryByText('Asado') ? 'Asado' : 'Malbec'))
+
+    it('filters by category and sorts by name, code and last update', async () => {
+      routeFetch({
+        'GET /catalog/presentations': () => json([malbecBottle, steakKg]),
+        'GET /catalog/products': () => json([steak, malbec]),
+        'GET /catalog/categories': () => json([meat, wine]),
+      })
+
+      const user = userEvent.setup()
+      render(<CatalogScreen />)
+
+      await screen.findByText('Asado')
+      expect(rowNames()).toEqual(['Asado', 'Malbec'])
+
+      await user.selectOptions(screen.getByLabelText('Ordenar por'), 'name-desc')
+      expect(rowNames()).toEqual(['Malbec', 'Asado'])
+
+      await user.selectOptions(screen.getByLabelText('Ordenar por'), 'code')
+      expect(rowNames()).toEqual(['Malbec', 'Asado'])
+
+      await user.selectOptions(screen.getByLabelText('Ordenar por'), 'updated-desc')
+      expect(rowNames()).toEqual(['Malbec', 'Asado'])
+
+      await user.selectOptions(screen.getByLabelText('Ordenar por'), 'name-asc')
+      await user.selectOptions(screen.getByLabelText('Categoría'), 'cat-2')
+      expect(rowNames()).toEqual(['Malbec'])
     })
   })
 

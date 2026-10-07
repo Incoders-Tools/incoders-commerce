@@ -1,0 +1,111 @@
+{
+  "title": "Staff",
+  "description": "The employees of each branch: file number, position, agreed pay, what we owe them (or they owe) and the goods they took. Salaries are paid in \"Payroll\".",
+  "inactive": "Left",
+  "empty": "No employees yet.",
+  "noGoods": "Takes none",
+  "owedToThem": "We owe {{amount}}",
+  "owesUs": "Owes us {{amount}}",
+  "frequency": {
+    "Monthly": "Monthly",
+    "Biweekly": "Every two weeks",
+    "Weekly": "Weekly"
+  },
+  "frequencyShort": {
+    "Monthly": "a month",
+    "Biweekly": "every two weeks",
+    "Weekly": "a week"
+  },
+  "columns": {
+    "file": "File",
+    "name": "Name",
+    "role": "Position",
+    "branch": "Branch",
+    "pay": "Agreed pay",
+    "balance": "Account",
+    "balanceHint": "What we owe them (unpaid salary) or they owe us (advances)",
+    "goods": "Goods to deduct"
+  },
+  "filters": {
+    "branch": "Branch",
+    "allBranches": "All",
+    "showInactive": "Show those who left"
+  },
+  "actions": {
+    "create": "New employee",
+    "edit": "Edit",
+    "account": "Account",
+    "advance": "Advance",
+    "deactivate": "Mark as left",
+    "activate": "Rehire"
+  },
+  "status": {
+    "saved": "{{name}} saved (file {{file}}).",
+    "advanced": "Advance of {{amount}} to {{name}} recorded: it left the till and is deducted from the next payroll.",
+    "deactivated": "{{name}} marked as left.",
+    "activated": "{{name}} rehired."
+  },
+  "form": {
+    "createTitle": "New employee",
+    "editTitle": "Edit {{name}}",
+    "description": "File data and pay. Not the legal payroll (contributions, official payslip): the accountant keeps doing that.",
+    "back": "Back to staff",
+    "lastName": "Last name",
+    "firstName": "First name",
+    "fileNumber": "File number",
+    "fileNumberPlaceholder": "Automatic (the next one)",
+    "branch": "Branch",
+    "chooseBranch": "Choose the branch",
+    "role": "Position",
+    "noRole": "No position",
+    "roleHint": "Positions are managed in Lookup tables → Positions.",
+    "hireDate": "Hire date",
+    "document": "ID number",
+    "cuil": "CUIL",
+    "phone": "Phone",
+    "email": "Email",
+    "address": "Address",
+    "payTitle": "Pay",
+    "frequency": "Paid",
+    "salary": "Agreed pay per period",
+    "salaryPlaceholder": "E.g.: 650000",
+    "payHint": "The base amount proposed in every payroll of its frequency. Overtime, bonuses, SAC, etc. are added in each payroll.",
+    "takesGoods": "Takes goods (sold at the POS on account, deducted from the salary)",
+    "takesGoodsHint": "A customer \"Last, First (personal)\" is created to sell to at the POS on account. At payroll, what they owe is deducted with the discount you decide then.",
+    "notes": "Notes",
+    "save": "Save",
+    "saving": "Saving…",
+    "cancel": "Cancel",
+    "errors": {
+      "name": "Enter last and first name.",
+      "branch": "Choose the branch.",
+      "salary": "The pay is an amount with up to two decimals (or empty).",
+      "file": "The file number is a whole number above zero."
+    }
+  },
+  "advance": {
+    "title": "Advance to {{name}}",
+    "description": "The money leaves the treasury account you choose and stays on the employee's account: the next payroll deducts it.",
+    "amount": "Amount",
+    "account": "Paid from",
+    "date": "Date",
+    "concept": "Reason (optional)",
+    "conceptPlaceholder": "E.g.: on account of October's salary",
+    "save": "Record advance",
+    "errors": {
+      "amount": "Enter an amount above zero, with up to two decimals.",
+      "account": "Choose the account the money comes from."
+    }
+  },
+  "errors": {
+    "load": "The staff could not be loaded.",
+    "save": "It could not be saved. Try again.",
+    "codes": {
+      "file-number-in-use": "Another employee has that file number.",
+      "role-not-found": "That position does not exist.",
+      "branch-not-found": "That branch does not exist.",
+      "account-not-found": "That treasury account does not exist.",
+      "account-inactive": "That treasury account is inactive."
+    }
+  }
+}

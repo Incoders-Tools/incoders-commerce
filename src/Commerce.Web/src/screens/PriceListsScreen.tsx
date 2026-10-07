@@ -30,7 +30,19 @@ import type { PresentationRecord, PriceListRecord, SupplierPriceMappingRecord } 
 type Tab = 'prices' | 'edit' | 'suppliers' | 'import'
 
 /** The composition pages of one list, each a full-screen page. */
-type CompositionPage = { kind: 'breakdown' | 'composition' | 'copy'; listId: string; notice?: string }
+type CompositionPage = {
+  kind: 'breakdown' | 'composition' | 'copy'
+  listId: string
+  notice?: string
+  /** The composition was opened from "Editar precios": leaving it goes back there. */
+  fromEditor?: boolean
+}
+
+/**
+ * The sections offered. Suppliers and Import stay in the code but are hidden for now: the business does not use them
+ * yet (their tabs come back by adding them here).
+ */
+const VISIBLE_TABS = ['prices', 'edit'] as const
 
 function formatCreatedAt(value: string): string {
   const parsed = new Date(value)
@@ -155,7 +167,14 @@ export function PriceListsScreen() {
   if (page && pageList) {
     const toBreakdown = () => setPage({ kind: 'breakdown', listId: pageList.id })
     if (page.kind === 'composition') {
-      return <CompositionForm priceList={pageList} onBack={toBreakdown} onPublished={toBreakdown} />
+      const back = page.fromEditor
+        ? () => {
+            setPage(null)
+            setEditorListId(pageList.id)
+            setTab('edit')
+          }
+        : toBreakdown
+      return <CompositionForm priceList={pageList} onBack={back} onPublished={back} />
     }
     if (page.kind === 'copy') {
       return (
@@ -214,7 +233,7 @@ export function PriceListsScreen() {
       )}
 
       <nav aria-label={t('sectionsNav.label')} className="flex gap-2">
-        {(['prices', 'edit', 'suppliers', 'import'] as const).map((section) => (
+        {VISIBLE_TABS.map((section) => (
           <Button
             key={section}
             variant={tab === section ? 'default' : 'outline'}
@@ -281,6 +300,7 @@ export function PriceListsScreen() {
           priceListId={editedListId}
           onPriceListChange={setEditorListId}
           onDirtyChange={setEditorDirtyCount}
+          onEditComposition={(listId) => setPage({ kind: 'composition', listId, fromEditor: true })}
         />
       )}
 

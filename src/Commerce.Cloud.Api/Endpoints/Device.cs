@@ -431,6 +431,9 @@ public static class DeviceEndpoints
             PostgresPriceListStore priceListStore,
             PostgresRateComponentStore rateStore,
             PostgresCustomerStore customerStore,
+            PostgresCurrentAccountStore accountStore,
+            PostgresOrganizationStore organizationStore,
+            PostgresCategoryStore categoryStore,
             CancellationToken ct) =>
         {
             var scope = TenantScopeEndpointFilter.GetScope(httpContext);
@@ -465,7 +468,15 @@ public static class DeviceEndpoints
                 rateSets,
                 await customerStore.ListPriceListAssignmentsAsync(scope, ct),
                 await priceListStore.FindOrganizationDefaultCustomerPriceListIdAsync(scope, ct),
-                serverTimeUtc));
+                serverTimeUtc,
+                await customerStore.ListDiscountAssignmentsAsync(scope, ct),
+                // What each customer owes (for collecting at the counter) and the payment terms of its sales on account.
+                await accountStore.CustomerBalancesAsync(scope, today, ct),
+                await customerStore.ListPaymentTermsAsync(scope, ct),
+                (await organizationStore.GetSettingsAsync(scope.OrganizationId, ct))?.DefaultCustomerPaymentTermsDays
+                    ?? Commerce.Domain.CurrentAccounts.PaymentTerms.DefaultDays,
+                // The categories and which of them the POS rail offers (a handful of rows: the whole set every time).
+                [.. (await categoryStore.ListAsync(scope, ct)).Select(c => new CategoryReplicaRow(c.Id, c.Name, c.IconKey, c.ShowInPos, c.PosSortOrder))]));
         });
 
         // Cloud->local stock replica (purchases-receptions-and-stock T5, channel `stock`): device bearer; org AND branch come
@@ -562,7 +573,9 @@ public static class DeviceEndpoints
 /// `GET /device/pricelists/sync` response (customer-price-lists T4, channel `price-lists`): a SNAPSHOT of what the branch
 /// needs to price a sale from any list. `Entries` are the BASE prices effective today of every list visible to the
 /// branch, `RateSets` the rate component sets (list-specific, or `PriceListId` null for the organization default),
-/// `CustomerPriceLists` the customers that have a list of their own. Additive: no existing payload or channel changes.
+/// `CustomerPriceLists` the customers that have a list of their own, `CustomerDiscounts` the customers that have a discount
+/// of their own (applied after the composition). Additive: no existing payload or channel changes, and a terminal that
+/// predates `CustomerDiscounts` ignores it.
 /// </summary>
 public sealed record PriceListsSyncResponse(
     IReadOnlyList<PriceListReplicaRow> Lists,
@@ -570,7 +583,15 @@ public sealed record PriceListsSyncResponse(
     IReadOnlyList<RateSetReplicaRow> RateSets,
     IReadOnlyList<CustomerPriceListAssignment> CustomerPriceLists,
     Guid? OrganizationDefaultCustomerPriceListId,
-    DateTimeOffset ServerTimeUtc);
+    DateTimeOffset ServerTimeUtc,
+    IReadOnlyList<CustomerDiscountAssignment>? CustomerDiscounts = null,
+    IReadOnlyList<CustomerAccountBalance>? CustomerBalances = null,
+    IReadOnlyList<CustomerTermsAssignment>? CustomerPaymentTerms = null,
+    int? DefaultCustomerPaymentTermsDays = null,
+    IReadOnlyList<CategoryReplicaRow>? Categories = null);
+
+/// <summary>A product category as the POS needs it: its rail shows the ones with <see cref="ShowInPos"/>, by <see cref="PosSortOrder"/> then name.</summary>
+public sealed record CategoryReplicaRow(Guid Id, string Name, string IconKey, bool ShowInPos, int PosSortOrder);
 
 /// <summary>
 /// `GET /device/organization/settings` response (operator-ux-adjustments T5): the organization's quantity decimal

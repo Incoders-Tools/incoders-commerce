@@ -121,6 +121,8 @@ for (const viewport of viewports) {
       // In-SPA navigation (no reload): AuthProvider keeps the session in memory only.
       if (viewport.collapsedNav) await page.getByRole('button', { name: 'Alternar navegación' }).click()
       await page.getByRole('link', { name: 'Pedidos' }).click()
+      await expect(page.getByRole('heading', { name: 'Pedidos' })).toBeVisible()
+      await page.getByRole('link', { name: 'Tomar pedido' }).click()
       await expect(page.getByRole('heading', { name: 'Tomar pedido' })).toBeVisible()
 
       await page.getByLabel('Buscar cliente').fill(seeded.customerName)

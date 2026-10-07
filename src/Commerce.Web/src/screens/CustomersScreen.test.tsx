@@ -1,5 +1,6 @@
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CustomersScreen } from './CustomersScreen'
 import type { CustomerRecord, MasterDataEntry } from '@/api/types'
@@ -130,7 +131,7 @@ describe('CustomersScreen', () => {
   })
 
   it('lists customers from GET /customers', async () => {
-    render(<CustomersScreen />)
+    render(<MemoryRouter><CustomersScreen /></MemoryRouter>)
 
     await screen.findByText('Jane Doe')
     expect(customerListCalls()[0]).toBe('/customers')
@@ -138,7 +139,7 @@ describe('CustomersScreen', () => {
 
   it('shows an empty state when there are no customers', async () => {
     customers = []
-    render(<CustomersScreen />)
+    render(<MemoryRouter><CustomersScreen /></MemoryRouter>)
 
     await screen.findByText('Todavía no hay clientes.')
   })
@@ -146,7 +147,7 @@ describe('CustomersScreen', () => {
   it('opens the create form, saves, and refreshes the list', async () => {
     customers = []
     const user = userEvent.setup()
-    render(<CustomersScreen />)
+    render(<MemoryRouter><CustomersScreen /></MemoryRouter>)
 
     await screen.findByText('Todavía no hay clientes.')
     await user.click(screen.getByRole('button', { name: /nuevo cliente/i }))
@@ -161,7 +162,7 @@ describe('CustomersScreen', () => {
 
   it('opens the edit form for a listed customer', async () => {
     const user = userEvent.setup()
-    render(<CustomersScreen />)
+    render(<MemoryRouter><CustomersScreen /></MemoryRouter>)
 
     await screen.findByText('Jane Doe')
     await user.click(screen.getByRole('button', { name: /^editar$/i }))
@@ -173,7 +174,7 @@ describe('CustomersScreen', () => {
   it('hands the organization provinces to the form and preselects the province of the customer city', async () => {
     customers = [wholesaleCustomer]
     const user = userEvent.setup()
-    render(<CustomersScreen />)
+    render(<MemoryRouter><CustomersScreen /></MemoryRouter>)
 
     await screen.findByText('Acme Supplies')
     await user.click(screen.getByRole('button', { name: /^editar$/i }))
@@ -187,7 +188,7 @@ describe('CustomersScreen', () => {
 
   it('still issues ordering access and shows the one-time credential', async () => {
     const user = userEvent.setup()
-    render(<CustomersScreen />)
+    render(<MemoryRouter><CustomersScreen /></MemoryRouter>)
 
     await screen.findByText('Jane Doe')
     await user.click(screen.getByRole('button', { name: /emitir acceso para pedidos/i }))
@@ -203,7 +204,7 @@ describe('CustomersScreen', () => {
       return json([])
     })
 
-    render(<CustomersScreen />)
+    render(<MemoryRouter><CustomersScreen /></MemoryRouter>)
 
     await screen.findByRole('alert')
     expect(screen.queryByText('Todavía no hay clientes.')).not.toBeInTheDocument()
@@ -220,7 +221,7 @@ describe('CustomersScreen', () => {
     })
 
     const user = userEvent.setup()
-    render(<CustomersScreen />)
+    render(<MemoryRouter><CustomersScreen /></MemoryRouter>)
 
     await screen.findByText('Jane Doe')
     await user.click(screen.getByRole('button', { name: /emitir acceso para pedidos/i }))
@@ -233,7 +234,7 @@ describe('CustomersScreen', () => {
   })
 
   it('uses the full width the shell gives it, with no centered narrow column', async () => {
-    const { container } = render(<CustomersScreen />)
+    const { container } = render(<MemoryRouter><CustomersScreen /></MemoryRouter>)
 
     await screen.findByText('Jane Doe')
     expect(container.querySelector('.max-w-3xl')).toBeNull()
@@ -242,7 +243,7 @@ describe('CustomersScreen', () => {
 
   it('renders the real customer columns for each listed record', async () => {
     customers = [wholesaleCustomer]
-    render(<CustomersScreen />)
+    render(<MemoryRouter><CustomersScreen /></MemoryRouter>)
 
     const row = within(await screen.findByRole('table')).getAllByRole('row')[1]
     expect(within(row).getByText('Acme Supplies')).toBeInTheDocument()
@@ -256,7 +257,7 @@ describe('CustomersScreen', () => {
 
   it('shows the primary contact (first and last name) in the contact column', async () => {
     customers = [listedCustomer]
-    render(<CustomersScreen />)
+    render(<MemoryRouter><CustomersScreen /></MemoryRouter>)
 
     const row = within(await screen.findByRole('table')).getAllByRole('row')[1]
     expect(within(row).getByText('Juana Pérez')).toBeInTheDocument()
@@ -265,7 +266,7 @@ describe('CustomersScreen', () => {
 
   it('shows a placeholder when the customer has no contacts', async () => {
     customers = [{ ...listedCustomer, contacts: [] }]
-    render(<CustomersScreen />)
+    render(<MemoryRouter><CustomersScreen /></MemoryRouter>)
 
     const row = within(await screen.findByRole('table')).getAllByRole('row')[1]
     expect(within(row).getAllByText('—').length).toBeGreaterThan(0)
@@ -282,7 +283,7 @@ describe('CustomersScreen', () => {
       return json(customers)
     })
     const user = userEvent.setup()
-    render(<CustomersScreen />)
+    render(<MemoryRouter><CustomersScreen /></MemoryRouter>)
 
     await screen.findByText('Jane Doe')
     await user.click(screen.getByRole('button', { name: /^editar$/i }))
@@ -295,7 +296,7 @@ describe('CustomersScreen', () => {
 
   it('searches on the server, debounced, instead of filtering client-side', async () => {
     const user = userEvent.setup()
-    render(<CustomersScreen />)
+    render(<MemoryRouter><CustomersScreen /></MemoryRouter>)
     await screen.findByText('Jane Doe')
 
     customers = [wholesaleCustomer]
@@ -311,7 +312,7 @@ describe('CustomersScreen', () => {
 
   it('filters by city and by business type on the server', async () => {
     const user = userEvent.setup()
-    render(<CustomersScreen />)
+    render(<MemoryRouter><CustomersScreen /></MemoryRouter>)
     await screen.findByText('Jane Doe')
 
     customers = [wholesaleCustomer]
@@ -327,7 +328,7 @@ describe('CustomersScreen', () => {
   })
 
   it('does not load the whole city catalog to offer the city filter', async () => {
-    render(<CustomersScreen />)
+    render(<MemoryRouter><CustomersScreen /></MemoryRouter>)
     await screen.findByText('Jane Doe')
 
     expect(fetchMock.mock.calls.some((call) => (call[0] as string).startsWith('/geo/cities'))).toBe(false)
@@ -335,7 +336,7 @@ describe('CustomersScreen', () => {
 
   it('shows a helpful empty state when the filter matches nothing', async () => {
     const user = userEvent.setup()
-    render(<CustomersScreen />)
+    render(<MemoryRouter><CustomersScreen /></MemoryRouter>)
     await screen.findByText('Jane Doe')
 
     customers = []
@@ -350,7 +351,7 @@ describe('CustomersScreen', () => {
     customers = [listedCustomer, wholesaleCustomer]
 
     const user = userEvent.setup()
-    const first = render(<CustomersScreen />)
+    const first = render(<MemoryRouter><CustomersScreen /></MemoryRouter>)
 
     await screen.findByText('Jane Doe')
     expect(screen.getByRole('table')).toBeInTheDocument()
@@ -362,7 +363,7 @@ describe('CustomersScreen', () => {
     expect(window.localStorage.getItem('view:customers')).toBe('cards')
 
     first.unmount()
-    render(<CustomersScreen />)
+    render(<MemoryRouter><CustomersScreen /></MemoryRouter>)
 
     await screen.findByText('Jane Doe')
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
@@ -374,7 +375,7 @@ describe('CustomersScreen', () => {
     window.localStorage.setItem('view:customers', 'cards')
 
     const user = userEvent.setup()
-    render(<CustomersScreen />)
+    render(<MemoryRouter><CustomersScreen /></MemoryRouter>)
 
     await screen.findByText('Jane Doe')
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
@@ -424,7 +425,7 @@ describe('CustomersScreen price lists', () => {
 
   it('shows each customer list and filters the rows by list', async () => {
     const user = userEvent.setup()
-    render(<CustomersScreen />)
+    render(<MemoryRouter><CustomersScreen /></MemoryRouter>)
 
     const table = await screen.findByRole('table')
     const rows = () => within(table).getAllByRole('row').slice(1)
@@ -440,7 +441,7 @@ describe('CustomersScreen price lists', () => {
 
   it('opens the new customer form on the organization default list', async () => {
     const user = userEvent.setup()
-    render(<CustomersScreen />)
+    render(<MemoryRouter><CustomersScreen /></MemoryRouter>)
 
     await screen.findByRole('table')
     await user.click(screen.getByRole('button', { name: /nuevo cliente/i }))

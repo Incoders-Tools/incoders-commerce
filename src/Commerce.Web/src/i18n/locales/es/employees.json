@@ -1,0 +1,111 @@
+{
+  "title": "Personal",
+  "description": "Los empleados de cada sucursal: legajo, puesto, sueldo pactado, lo que se les debe (o deben) y la mercadería que llevaron. Los sueldos se liquidan en \"Sueldos\".",
+  "inactive": "Baja",
+  "empty": "Todavía no hay empleados cargados.",
+  "noGoods": "No lleva",
+  "owedToThem": "Le debemos {{amount}}",
+  "owesUs": "Nos debe {{amount}}",
+  "frequency": {
+    "Monthly": "Mensual",
+    "Biweekly": "Quincenal",
+    "Weekly": "Semanal"
+  },
+  "frequencyShort": {
+    "Monthly": "por mes",
+    "Biweekly": "por quincena",
+    "Weekly": "por semana"
+  },
+  "columns": {
+    "file": "Legajo",
+    "name": "Apellido y nombre",
+    "role": "Puesto",
+    "branch": "Sucursal",
+    "pay": "Sueldo pactado",
+    "balance": "Cuenta",
+    "balanceHint": "Lo que le debemos (sueldo pendiente) o nos debe (adelantos)",
+    "goods": "Mercadería a descontar"
+  },
+  "filters": {
+    "branch": "Sucursal",
+    "allBranches": "Todas",
+    "showInactive": "Mostrar los dados de baja"
+  },
+  "actions": {
+    "create": "Nuevo empleado",
+    "edit": "Editar",
+    "account": "Cuenta",
+    "advance": "Adelanto",
+    "deactivate": "Dar de baja",
+    "activate": "Reincorporar"
+  },
+  "status": {
+    "saved": "{{name}} guardado (legajo {{file}}).",
+    "advanced": "Adelanto de {{amount}} a {{name}} registrado: salió de la caja y se descuenta en la próxima liquidación.",
+    "deactivated": "{{name}} dado de baja.",
+    "activated": "{{name}} reincorporado."
+  },
+  "form": {
+    "createTitle": "Nuevo empleado",
+    "editTitle": "Editar a {{name}}",
+    "description": "Datos del legajo y lo que se le paga. No es la liquidación legal (aportes, recibo oficial): eso lo sigue haciendo el contador.",
+    "back": "Volver al personal",
+    "lastName": "Apellido",
+    "firstName": "Nombre",
+    "fileNumber": "Legajo",
+    "fileNumberPlaceholder": "Automático (el siguiente)",
+    "branch": "Sucursal",
+    "chooseBranch": "Elegí la sucursal",
+    "role": "Puesto",
+    "noRole": "Sin puesto",
+    "roleHint": "Los puestos se cargan en Tablas auxiliares → Puestos.",
+    "hireDate": "Fecha de ingreso",
+    "document": "DNI",
+    "cuil": "CUIL",
+    "phone": "Teléfono",
+    "email": "Correo",
+    "address": "Domicilio",
+    "payTitle": "Sueldo",
+    "frequency": "Se le paga",
+    "salary": "Sueldo pactado por período",
+    "salaryPlaceholder": "Ej.: 650000",
+    "payHint": "Es el importe base que se propone en cada liquidación de su frecuencia. En cada liquidación se pueden sumar horas extra, premios, aguinaldo, etc.",
+    "takesGoods": "Lleva mercadería (se le vende en el POS a cuenta y se descuenta del sueldo)",
+    "takesGoodsHint": "Se crea un cliente \"Apellido, Nombre (personal)\" para venderle en el POS a cuenta corriente. Al liquidar, lo que debe se descuenta del sueldo con el % de bonificación que decidas en ese momento.",
+    "notes": "Observaciones",
+    "save": "Guardar",
+    "saving": "Guardando…",
+    "cancel": "Cancelar",
+    "errors": {
+      "name": "Escribí apellido y nombre.",
+      "branch": "Elegí la sucursal.",
+      "salary": "El sueldo es un importe con hasta dos decimales (o vacío).",
+      "file": "El legajo es un número entero mayor que cero."
+    }
+  },
+  "advance": {
+    "title": "Adelanto a {{name}}",
+    "description": "El dinero sale de la cuenta de Tesorería que elijas y queda en la cuenta del empleado: la próxima liquidación lo descuenta.",
+    "amount": "Importe",
+    "account": "Sale de",
+    "date": "Fecha",
+    "concept": "Motivo (opcional)",
+    "conceptPlaceholder": "Ej.: a cuenta del sueldo de octubre",
+    "save": "Registrar adelanto",
+    "errors": {
+      "amount": "Escribí un importe mayor que cero, con hasta dos decimales.",
+      "account": "Elegí de qué cuenta sale el dinero."
+    }
+  },
+  "errors": {
+    "load": "No se pudo cargar el personal.",
+    "save": "No se pudo guardar. Probá de nuevo.",
+    "codes": {
+      "file-number-in-use": "Ese número de legajo ya lo tiene otro empleado.",
+      "role-not-found": "Ese puesto no existe.",
+      "branch-not-found": "Esa sucursal no existe.",
+      "account-not-found": "Esa cuenta de Tesorería no existe.",
+      "account-inactive": "Esa cuenta de Tesorería está inactiva."
+    }
+  }
+}

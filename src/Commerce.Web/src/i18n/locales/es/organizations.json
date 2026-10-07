@@ -73,6 +73,11 @@
     "country": {
       "label": "País",
       "hint": "Las provincias y ciudades de los formularios son las de este país."
+    },
+    "paymentTerms": {
+      "label": "Plazo general de pago (días)",
+      "hint": "Cuántos días tiene un cliente para pagar una venta a cuenta corriente. Se usa para todos los clientes que no tienen un plazo propio (se carga en la ficha del cliente). Con 0 la venta vence el mismo día. Con este plazo se calculan los vencimientos y los días de atraso.",
+      "invalid": "El plazo general de pago tiene que ser un número entero de 0 a 365 días."
     }
   }
 }

@@ -38,7 +38,7 @@
   "actions": {
     "managePrices": "Gestionar precios",
     "composition": "Composición",
-    "copy": "Copiar lista"
+    "copy": "Duplicar lista"
   },
   "editor": {
     "listLabel": "Lista de precios",
@@ -55,13 +55,21 @@
     "allCategories": "Todas las categorías",
     "effectiveFromLabel": "Vigente desde",
     "effectiveFromToday": "Hoy (día comercial)",
-    "effectiveFromHint": "Vacío: hoy (día comercial).",
+    "effectiveFromHint": "Vigente desde: vacío = hoy (día comercial). Los precios publicados rigen a partir de esa fecha.",
     "remark": {
       "label": "Remarcar %",
       "placeholder": "Ej: 10 o -5",
       "apply": "Aplicar",
-      "hint": "Se aplica sobre el precio base de las filas seleccionadas o, si no hay ninguna, de todas las filas visibles. Revisá la vista previa antes de publicar.",
-      "invalid": "Ingresá un porcentaje mayor que -100."
+      "hint": "Se aplica sobre el precio base. Los productos sin precio no se remarcan. Revisá la vista previa antes de publicar.",
+      "invalid": "Ingresá un porcentaje mayor que -100.",
+      "scope": {
+        "selected_one": "Se aplica a {{count}} producto seleccionado.",
+        "selected_other": "Se aplica a los {{count}} productos seleccionados.",
+        "filtered_one": "Se aplica a {{count}} producto: el que muestra el filtro.",
+        "filtered_other": "Se aplica a los {{count}} productos que muestra el filtro (los ocultos no cambian).",
+        "all_one": "Se aplica a {{count}} producto de la lista.",
+        "all_other": "Se aplica a los {{count}} productos de la lista."
+      }
     },
     "columns": {
       "product": "Producto",
@@ -102,7 +110,22 @@
       "message_other": "Tenés {{count}} cambios sin publicar. ¿Descartarlos?",
       "confirm": "Descartar",
       "keepEditing": "Seguir editando"
-    }
+    },
+    "composition": {
+      "label": "Composición:",
+      "loading": "Cargando la composición…",
+      "edit": "Editar composición",
+      "publishFirst": "Publicá o deshacé los cambios antes de editar la composición."
+    },
+    "priceFilter": {
+      "label": "Precio en la lista",
+      "all": "Todos",
+      "missing_one": "Sin precio ({{count}})",
+      "missing_other": "Sin precio ({{count}})",
+      "priced": "Con precio"
+    },
+    "newFinal": "Final: {{price}}",
+    "finalChange": "Final: {{from}} → {{to}}"
   },
   "suppliersPlaceholder": "Los mapeos de proveedores (mapeo de columnas para importaciones de Excel) llegarán en una futura versión; la tabla `supplier_price_mappings` todavía no existe.",
   "history": {
@@ -169,7 +192,7 @@
     "historyTitle": "Historial de composiciones",
     "historyEmpty": "Todavía no hay versiones anteriores.",
     "historyLine": "Desde {{date}}: {{summary}}",
-    "copied": "Lista creada. Precios copiados: {{count}}.",
+    "copied": "Lista duplicada. Precios incluidos: {{count}}.",
     "columns": {
       "code": "Código",
       "product": "Producto",
@@ -217,22 +240,22 @@
     }
   },
   "copyForm": {
-    "title": "Copiar {{name}}",
+    "title": "Duplicar {{name}}",
     "description": "Crea una lista nueva con los precios base de esta y su composición con otra remarcación. La lista de origen no cambia.",
     "name": "Nombre de la nueva lista",
     "markup": "Remarcación %",
-    "markupHint": "Reemplaza la remarcación de la composición copiada.",
+    "markupHint": "Reemplaza la remarcación de la composición duplicada.",
     "effectiveFrom": "Vigente desde",
     "floor": "Piso de la nueva lista",
     "floorKeep": "Mantener el piso de la lista de origen",
     "floorNone": "Sin piso",
-    "submit": "Crear copia",
-    "submitting": "Copiando…",
+    "submit": "Duplicar lista",
+    "submitting": "Duplicando…",
     "cancel": "Cancelar",
     "errors": {
       "nameTaken": "Ya existe una lista con ese nombre.",
       "invalid": "Revisá el nombre y la remarcación.",
-      "unexpected": "Error inesperado al copiar la lista."
+      "unexpected": "Error inesperado al duplicar la lista."
     }
   },
   "violations": {

@@ -10,14 +10,23 @@ import { Select } from '@/components/ui/select'
 import { formatMoney } from '@/dashboard/format'
 import { todayIso } from '@/lib/isoDate'
 import { parseAmount } from '@/lib/quantity'
-import { applyPercent, differencePercent, hasAtMostTwoDecimals, round2 } from '@/lib/priceEditing'
+import { applyPercent, composeFinal, differencePercent, hasAtMostTwoDecimals, round2 } from '@/lib/priceEditing'
 import { useNumberFormat } from '@/organization/NumberFormatContext'
 import { ApiError } from '@/api/client'
 import { listProducts } from '@/api/catalog'
 import { listCategories } from '@/api/categories'
-import { floorViolationsOf, getBreakdown, publishEntriesBatch } from '@/api/pricing'
-import type { BreakdownItem, CategoryRecord, FloorViolation, PresentationRecord, PriceListRecord, ProductRecord } from '@/api/types'
+import { floorViolationsOf, getBreakdown, getComposition, publishEntriesBatch } from '@/api/pricing'
+import type {
+  BreakdownItem,
+  CategoryRecord,
+  FloorViolation,
+  PresentationRecord,
+  PriceListRecord,
+  ProductRecord,
+  RateComponent,
+} from '@/api/types'
 import { PriceHistory } from './PriceHistory'
+import { summarizeComponents } from './compositionSummary'
 
 interface PriceEditorTabProps {
   priceLists: PriceListRecord[]
@@ -27,6 +36,8 @@ interface PriceEditorTabProps {
   onPriceListChange: (priceListId: string) => void
   /** How many rows hold an unpublished edit, so the screen can ask before leaving the tab. */
   onDirtyChange?: (count: number) => void
+  /** Opens the composition of the list (IVA, IB, flete, remarcación) to change it. */
+  onEditComposition?: (priceListId: string) => void
 }
 
 /** One presentation of the edited list, as the grid shows it. */
@@ -46,6 +57,9 @@ interface EditorRow {
 }
 
 type RowEdit = { status: 'unchanged' } | { status: 'invalid' } | { status: 'changed'; value: number }
+
+/** Which rows the grid shows by their price in the list: all, only the priced ones, or only those still without a price. */
+type PriceFilter = 'all' | 'priced' | 'missing'
 
 const normalize = (text: string) =>
   text
@@ -67,6 +81,7 @@ export function PriceEditorTab({
   priceListId,
   onPriceListChange,
   onDirtyChange,
+  onEditComposition,
 }: PriceEditorTabProps) {
   const { t } = useTranslation('priceLists')
   const [products, setProducts] = useState<ProductRecord[]>([])
@@ -146,6 +161,7 @@ export function PriceEditorTab({
           products={products}
           categories={categories}
           onDirtyChange={setDirtyCount}
+          onEditComposition={onEditComposition ? () => onEditComposition(priceList.id) : undefined}
         />
       )}
 
@@ -194,12 +210,14 @@ function PriceEditorGrid({
   products,
   categories,
   onDirtyChange,
+  onEditComposition,
 }: {
   priceList: PriceListRecord
   presentations: PresentationRecord[]
   products: ProductRecord[]
   categories: CategoryRecord[]
   onDirtyChange: (count: number) => void
+  onEditComposition?: () => void
 }) {
   const { t } = useTranslation('priceLists')
   const { t: tCommon } = useTranslation('common')
@@ -215,6 +233,9 @@ function PriceEditorGrid({
   const [dateError, setDateError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [categoryId, setCategoryId] = useState('')
+  const [priceFilter, setPriceFilter] = useState<PriceFilter>('all')
+  // The composition the published bases will get on the chosen date: it turns a new base into its new final price.
+  const [components, setComponents] = useState<RateComponent[] | null>(null)
   const [edits, setEdits] = useState<Record<string, string>>({})
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
   const [percentText, setPercentText] = useState('')
@@ -249,6 +270,22 @@ function PriceEditorGrid({
     }
   }, [priceList.id, effectiveFrom, reloadToken, t])
 
+  useEffect(() => {
+    let cancelled = false
+    setComponents(null)
+    getComposition(priceList.id, effectiveFrom === '' ? undefined : effectiveFrom).then(
+      (composition) => {
+        if (!cancelled) setComponents(composition.components)
+      },
+      () => {
+        if (!cancelled) setComponents(null)
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [priceList.id, effectiveFrom, reloadToken])
+
   const rows = useMemo(
     () => buildRows(presentations, products, categories, items),
     [presentations, products, categories, items],
@@ -258,10 +295,12 @@ function PriceEditorGrid({
     const term = normalize(search.trim())
     return rows.filter((row) => {
       if (categoryId !== '' && row.categoryId !== categoryId) return false
+      if (priceFilter === 'missing' && row.base !== null) return false
+      if (priceFilter === 'priced' && row.base === null) return false
       if (term === '') return true
       return [row.productName, row.presentationName, row.code ?? ''].some((value) => normalize(value).includes(term))
     })
-  }, [rows, search, categoryId])
+  }, [rows, search, categoryId, priceFilter])
 
   const editOf = (row: EditorRow): RowEdit => {
     const text = edits[row.presentationId]?.trim() ?? ''
@@ -290,6 +329,13 @@ function PriceEditorGrid({
   useEffect(() => () => onDirtyChange(0), [onDirtyChange])
 
   const allVisibleSelected = visibleRows.length > 0 && visibleRows.every((row) => selected.has(row.presentationId))
+
+  // The remark applies to the selected rows among those shown or, with none selected, to every row the filters show:
+  // never to rows the filters hide. Rows without a base have nothing to remark.
+  const selectedVisible = visibleRows.filter((row) => selected.has(row.presentationId))
+  const remarkScope = selectedVisible.length > 0 ? 'selected' : visibleRows.length < rows.length ? 'filtered' : 'all'
+  const remarkTargets = (selectedVisible.length > 0 ? selectedVisible : visibleRows).filter((row) => row.base !== null)
+  const missingCount = rows.filter((row) => row.base === null).length
 
   const setEdit = (presentationId: string, text: string) => {
     setEdits((current) => ({ ...current, [presentationId]: text }))
@@ -327,11 +373,9 @@ function PriceEditorGrid({
     }
     setPercentError(null)
     setNotice(null)
-    const selectedVisible = visibleRows.filter((row) => selected.has(row.presentationId))
-    const targets = (selectedVisible.length > 0 ? selectedVisible : visibleRows).filter((row) => row.base !== null)
     setEdits((current) => {
       const next = { ...current }
-      for (const row of targets) next[row.presentationId] = toInputText(applyPercent(row.base!, percent))
+      for (const row of remarkTargets) next[row.presentationId] = toInputText(applyPercent(row.base!, percent))
       return next
     })
   }
@@ -343,6 +387,7 @@ function PriceEditorGrid({
     flushSync(() => {
       setSearch('')
       setCategoryId('')
+      setPriceFilter('all')
     })
     const input = gridRef.current?.querySelector<HTMLInputElement>(
       `input[data-presentation-id="${first.row.presentationId}"]`,
@@ -406,8 +451,28 @@ function PriceEditorGrid({
 
   return (
     <div className="flex flex-col gap-4">
+      {/* The composition the bases get (IVA, IB, flete, remarcación): a new base shows its new final with it. */}
+      <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm">
+        <span className="font-medium">{t('editor.composition.label')}</span>
+        <span className="min-w-0 flex-1 text-muted-foreground">
+          {components === null ? t('editor.composition.loading') : summarizeComponents(components, t)}
+        </span>
+        {onEditComposition && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={dirtyCount > 0}
+            title={dirtyCount > 0 ? t('editor.composition.publishFirst') : undefined}
+            onClick={onEditComposition}
+          >
+            {t('editor.composition.edit')}
+          </Button>
+        )}
+      </div>
+
       <div className="flex flex-wrap items-end gap-3">
-        <div className="flex min-w-48 flex-1 flex-col gap-1.5">
+        <div className="flex min-w-48 flex-1 flex-col gap-1.5 sm:max-w-sm">
           <Label htmlFor="price-editor-search">{t('editor.search.label')}</Label>
           <Input
             id="price-editor-search"
@@ -417,7 +482,7 @@ function PriceEditorGrid({
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        <div className="flex w-full flex-col gap-1.5 sm:w-48">
+        <div className="flex w-full flex-col gap-1.5 sm:w-44">
           <Label htmlFor="price-editor-category">{t('editor.categoryLabel')}</Label>
           <Select id="price-editor-category" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
             <option value="">{t('editor.allCategories')}</option>
@@ -428,7 +493,15 @@ function PriceEditorGrid({
             ))}
           </Select>
         </div>
-        <div className="flex flex-col gap-1.5">
+        <div className="flex w-full flex-col gap-1.5 sm:w-44">
+          <Label htmlFor="price-editor-price-filter">{t('editor.priceFilter.label')}</Label>
+          <Select id="price-editor-price-filter" value={priceFilter} onChange={(e) => setPriceFilter(e.target.value as PriceFilter)}>
+            <option value="all">{t('editor.priceFilter.all')}</option>
+            <option value="missing">{t('editor.priceFilter.missing', { count: missingCount })}</option>
+            <option value="priced">{t('editor.priceFilter.priced')}</option>
+          </Select>
+        </div>
+        <div className="flex w-full flex-col gap-1.5 sm:w-44">
           <Label htmlFor="price-editor-effective-from">{t('editor.effectiveFromLabel')}</Label>
           <Input
             id="price-editor-effective-from"
@@ -448,6 +521,9 @@ function PriceEditorGrid({
               setDateError(null)
             }}
           />
+        </div>
+        {/* The date's hint and error sit under the row, so every field of the row lines up. */}
+        <div className="w-full">
           <p id="price-editor-effective-from-hint" className="text-xs text-muted-foreground">
             {t('editor.effectiveFromHint')}
           </p>
@@ -480,11 +556,16 @@ function PriceEditorGrid({
           type="button"
           variant="outline"
           onClick={applyRemark}
-          disabled={publishing || baselineStale || percentText.trim() === ''}
+          disabled={publishing || baselineStale || percentText.trim() === '' || remarkTargets.length === 0}
         >
           {t('editor.remark.apply')}
         </Button>
-        <p className="min-w-0 flex-1 basis-60 text-xs text-muted-foreground">{t('editor.remark.hint')}</p>
+        <div className="min-w-0 flex-1 basis-60 text-xs">
+          <p className="font-medium" role="status">
+            {t(`editor.remark.scope.${remarkScope}`, { count: remarkTargets.length })}
+          </p>
+          <p className="text-muted-foreground">{t('editor.remark.hint')}</p>
+        </div>
         {percentError && <p className="w-full text-xs text-destructive">{percentError}</p>}
       </div>
 
@@ -553,6 +634,7 @@ function PriceEditorGrid({
                   serverError={rowErrors[row.presentationId] ?? null}
                   selected={selected.has(row.presentationId)}
                   baselineStale={baselineStale}
+                  newFinal={(base) => (components === null ? null : composeFinal(base, components))}
                   locked={publishing}
                   formatPercent={(value) => `${numberFormat.formatSigned(Math.round(value * 10) / 10)} %`}
                   onToggle={() => toggleRow(row.presentationId)}
@@ -610,6 +692,7 @@ function EditorGridRow({
   serverError,
   selected,
   baselineStale,
+  newFinal,
   locked,
   formatPercent,
   onToggle,
@@ -623,6 +706,8 @@ function EditorGridRow({
   selected: boolean
   /** The row's current prices belong to another date: they are not shown, nor compared against. */
   baselineStale: boolean
+  /** The final price a base gets under the list's composition; null while the composition is unknown. */
+  newFinal: (base: number) => number | null
   /** While a publish is in flight nothing the batch reads can change. */
   locked: boolean
   formatPercent: (value: number) => string
@@ -685,6 +770,13 @@ function EditorGridRow({
                 {row.base !== null && (
                   <span className="font-medium tabular-nums">{formatPercent(differencePercent(row.base, edit.value))}</span>
                 )}
+              </span>
+            )}
+            {edit.status === 'changed' && !baselineStale && newFinal(edit.value) !== null && (
+              <span className="tabular-nums text-foreground">
+                {row.final === null
+                  ? t('editor.newFinal', { price: formatMoney(newFinal(edit.value)!) })
+                  : t('editor.finalChange', { from: formatMoney(row.final), to: formatMoney(newFinal(edit.value)!) })}
               </span>
             )}
             {edit.status === 'invalid' && <span className="text-destructive">{t('editor.errors.invalidPrice')}</span>}

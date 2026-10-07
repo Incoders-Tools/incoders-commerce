@@ -64,7 +64,8 @@ public static class CategoryEndpoints
             try
             {
                 var created = await categoryStore.CreateAsync(
-                    scope, new NewCategory(Guid.NewGuid(), request.Name.Trim(), request.IconKey), "org-user", caller.Id, ct);
+                    scope, new NewCategory(Guid.NewGuid(), request.Name.Trim(), request.IconKey, request.ShowInPos ?? true, request.PosSortOrder ?? 0),
+                    "org-user", caller.Id, ct);
                 return Results.Created($"/catalog/categories/{created.Id}", created);
             }
             catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UniqueViolation)
@@ -97,7 +98,7 @@ public static class CategoryEndpoints
             try
             {
                 var updated = await categoryStore.UpdateAsync(
-                    scope, categoryId, request.Name.Trim(), request.IconKey, "org-user", caller.Id, ct);
+                    scope, categoryId, request.Name.Trim(), request.IconKey, "org-user", caller.Id, ct, request.ShowInPos, request.PosSortOrder);
                 return updated is null ? Results.NotFound() : Results.Ok(updated);
             }
             catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UniqueViolation)
@@ -149,6 +150,11 @@ public static class CategoryEndpoints
             errors["iconKey"] = [$"iconKey must be one of: {string.Join(", ", CategoryIcons.Keys)}."];
         }
 
+        if (request.PosSortOrder is < 0 or > 9999)
+        {
+            errors["posSortOrder"] = ["posSortOrder is between 0 and 9999."];
+        }
+
         return errors.Count == 0 ? null : Results.ValidationProblem(errors);
     }
 
@@ -181,4 +187,8 @@ public static class CategoryEndpoints
     }
 }
 
-public sealed record CategoryRequest(string Name, string IconKey);
+/// <summary>
+/// A category. ShowInPos: whether the POS category rail offers it as a filter; PosSortOrder: its place there (then by
+/// name). Both optional: a new category is shown, at 0; an update without them keeps the stored values.
+/// </summary>
+public sealed record CategoryRequest(string Name, string IconKey, bool? ShowInPos = null, int? PosSortOrder = null);

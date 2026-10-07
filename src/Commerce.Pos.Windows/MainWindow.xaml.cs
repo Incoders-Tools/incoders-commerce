@@ -397,6 +397,42 @@ public partial class MainWindow : Window
     /// and returns to the "Abrir caja" state. A sale still being built must be
     /// completed or cleared first.
     /// </summary>
+    /// <summary>
+    /// "Movimiento de caja": money taken out of the drawer (to the safe, to the bank, to pay an expense; needs the branch
+    /// PIN) or put into it, outside a sale. It changes the expected cash of the session and reaches the treasury on sync.
+    /// </summary>
+    private void CashMovementButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_branchNodeService.GetOpenCashSession() is not { } session)
+        {
+            RefreshCashSession();
+            return;
+        }
+
+        var operatorId = _currentOperator.ResolveActorId(_installationId);
+        var expected = _branchNodeService.GetCashSessionSummary(session.SessionId)!.ExpectedCash;
+        var window = new CashMovementWindow(_discountAuthorizer, operatorId, expected) { Owner = this };
+        if (window.ShowDialog() != true)
+        {
+            FocusSearchBox();
+            return;
+        }
+
+        var result = _branchNodeService.RecordCashMovement(
+            _pairing.OrganizationId, _pairing.BranchId, operatorId, window.Kind, window.Counterpart, window.Amount, window.Reason,
+            window.Authorization, Guid.NewGuid());
+        if (result.Outcome == CashMovementOutcome.NoOpenCashSession)
+        {
+            ReportNoOpenCashSession();
+            return;
+        }
+
+        ShowResultText(CashMovementInput.ResultText(result, _branchNodeService.GetCashSessionSummary(session.SessionId)?.ExpectedCash));
+        RefreshCashSession();
+        FocusSearchBox();
+        _ = RunSyncAsync(SyncTrigger.PostSale);
+    }
+
     private void CloseCashButton_Click(object sender, RoutedEventArgs e)
     {
         var session = _branchNodeService.GetOpenCashSession();
@@ -467,8 +503,9 @@ public partial class MainWindow : Window
     {
         var status = _branchNodeService.GetStatus(_pairing.BranchId, isOffline: true);
         return
-            $"Operaciones pendientes: {status.PendingOperationCount}\n" +
-            $"Última confirmación: {(status.LastAcknowledgedUtc?.ToString("O") ?? "nunca")}";
+            $"Operaciones por enviar: {status.PendingOperationCount}\n" +
+            $"Último envío confirmado: {status.LastAcknowledgedUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "nunca"}\n" +
+            $"Última descarga de datos: {status.LastDownloadedUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "nunca"}";
     }
 
     private void RefreshStatus()
@@ -516,8 +553,9 @@ public partial class MainWindow : Window
     private string BuildCompactSyncStatus()
     {
         var status = _branchNodeService.GetStatus(_pairing.BranchId, isOffline: true);
-        var lastAck = status.LastAcknowledgedUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "nunca";
-        return $"Sincronización: {status.PendingOperationCount} pendientes - Última confirmación: {lastAck} - {_lastSyncResult}";
+        var lastSent = status.LastAcknowledgedUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "nunca";
+        var lastDownloaded = status.LastDownloadedUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "nunca";
+        return $"Sincronización: {status.PendingOperationCount} por enviar - Último envío: {lastSent} - Última descarga: {lastDownloaded} - {_lastSyncResult}";
     }
 
     private string BuildVersionStatus() => $"Versión {_localVersion} · {ReleaseDiscovery.FormatCompactStatus(_updateCheckResult)}";
@@ -613,7 +651,19 @@ public partial class MainWindow : Window
     /// </summary>
     private SaleTender? CollectTender(string method, decimal total)
     {
-        var window = new TenderWindow(method, total) { Owner = this };
+        if (method == SaleTender.Account && _cart.CustomerId is null)
+        {
+            ScanMessageText.Text = "Elegí un cliente para vender a cuenta corriente.";
+            return null;
+        }
+
+        var customerName = _buyer.Items.FirstOrDefault(item => item.CustomerId == _cart.CustomerId)?.Label;
+        // A sale on current account says when it is due before the cashier confirms it.
+        var dueText = method == SaleTender.Account && _cart.CustomerId is { } customer
+            ? CustomerPaymentInput.DueText(
+                _branchNodeService.GetCustomerAccountView(customer).Terms, Commerce.Application.Time.BusinessClock.System.Today)
+            : null;
+        var window = new TenderWindow(method, total, customerName, dueText) { Owner = this };
         return window.ShowDialog() == true ? window.Tender : null;
     }
 
@@ -637,20 +687,12 @@ public partial class MainWindow : Window
     /// <summary>The picker, the message and the list label follow the buyer the cart holds (never the other way round).</summary>
     private void ApplyBuyerToPicker()
     {
-        _customerPickerUpdating = true;
-        try
+        if (!ReferenceEquals(CustomerPicker.Items, _buyer.Items))
         {
-            if (!ReferenceEquals(CustomerPickerComboBox.ItemsSource, _buyer.Items))
-            {
-                CustomerPickerComboBox.ItemsSource = _buyer.Items;
-            }
+            CustomerPicker.Items = _buyer.Items;
+        }
 
-            CustomerPickerComboBox.SelectedIndex = _buyer.SelectedIndex;
-        }
-        finally
-        {
-            _customerPickerUpdating = false;
-        }
+        CustomerPicker.SelectedCustomerId = _cart.CustomerId;
 
         if (_buyer.Message != _shownBuyerMessage)
         {
@@ -658,19 +700,59 @@ public partial class MainWindow : Window
             ScanMessageText.Text = _buyer.Message ?? string.Empty;
         }
 
-        PriceListText.Text = _cart.PriceListLabel ?? string.Empty;
+        ApplyPricingInfo();
     }
 
-    private bool _customerPickerUpdating;
-
-    private async void CustomerPickerComboBox_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    /// <summary>The list pricing the sale and, when the buyer has one, the badge explaining its own discount.</summary>
+    private void ApplyPricingInfo()
     {
-        if (_customerPickerUpdating || CustomerPickerComboBox.SelectedItem is not SaleCustomerPickerItem chosen)
+        PriceListText.Text = _cart.PriceListLabel ?? string.Empty;
+        CustomerDiscountBadgeText.Text = _cart.CustomerDiscountShortText ?? string.Empty;
+        CustomerDiscountBadge.ToolTip = _cart.CustomerDiscountNote;
+        System.Windows.Automation.AutomationProperties.SetName(CustomerDiscountBadge, _cart.CustomerDiscountNote ?? string.Empty);
+        CustomerDiscountBadge.Visibility = _cart.CustomerDiscountPercent is null ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    /// <summary>
+    /// "Cobrar cuenta": the chosen customer pays part or all of its current account debt at the counter. The payment is
+    /// recorded in the open cash session (cash adds to the expected cash), credited on the customer's account and put in
+    /// the branch treasury when it syncs.
+    /// </summary>
+    private void CollectPaymentButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_cart.CustomerId is not { } customerId)
         {
             return;
         }
 
+        var name = _buyer.Items.FirstOrDefault(item => item.CustomerId == customerId)?.Label ?? "Cliente";
+        var window = new CustomerPaymentWindow(name, _branchNodeService.GetCustomerAccountView(customerId)) { Owner = this };
+        if (window.ShowDialog() != true || window.Tender is not { } tender)
+        {
+            FocusSearchBox();
+            return;
+        }
+
+        var result = _branchNodeService.ReceiveCustomerPayment(
+            _pairing.OrganizationId, _pairing.BranchId, _currentOperator.ResolveActorId(_installationId), customerId, window.Amount, tender,
+            window.Note, Guid.NewGuid());
+        if (result.Outcome == CustomerPaymentOutcome.NoOpenCashSession)
+        {
+            ReportNoOpenCashSession();
+            return;
+        }
+
+        var change = tender.ChangeGiven is { } given && given > 0m ? $" Vuelto: {given.ToString("C", CultureInfo.CurrentCulture)}." : string.Empty;
+        ShowResultText($"Cobro registrado: {name}, {window.Amount.ToString("C", CultureInfo.CurrentCulture)} ({TenderInput.Label(tender.Method)}).{change}");
+        RefreshCashSession();
+        FocusSearchBox();
+        _ = RunSyncAsync(SyncTrigger.PostSale);
+    }
+
+    private async void CustomerPicker_CustomerChosen(object? sender, SaleCustomerPickerItem chosen)
+    {
         await ChangeSaleCustomerAsync(chosen.CustomerId);
+        FocusSearchBox();
     }
 
     /// <summary>
@@ -759,7 +841,9 @@ public partial class MainWindow : Window
 
         var hasFilter = !string.IsNullOrWhiteSpace(ScanCodeTextBox.Text) || _selectedCategoryId is not null;
         CatalogEmptyText.Text = hasFilter
-            ? "Ningún producto coincide con la búsqueda."
+            ? string.IsNullOrWhiteSpace(ScanCodeTextBox.Text) && CategoryRailControl.SelectedCategory is { } category
+                ? $"Todavía no hay productos en {category.Name}."
+                : "Ningún producto coincide con la búsqueda."
             : "No hay productos en el catálogo de esta terminal. Sincronice para descargarlos.";
         CatalogEmptyText.Visibility = _catalogCards.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         CatalogTruncatedText.Visibility = result.Truncated ? Visibility.Visible : Visibility.Collapsed;
@@ -776,7 +860,9 @@ public partial class MainWindow : Window
         _railRefreshing = true;
         try
         {
-            CategoryRailControl.Categories = CategoryRailItem.Build(_store.ListCatalogCategories(_pairing.OrganizationId));
+            // From the local replica: no network at startup; a sync that brings changed categories refreshes it.
+            var (categories, configured) = _store.ListPosRailCategories(_pairing.OrganizationId);
+            CategoryRailControl.Categories = CategoryRailItem.Build(categories, configured);
             _selectedCategoryId = Guid.TryParse(CategoryRailControl.SelectedCategory?.Key, out var id) ? id : null;
         }
         finally
@@ -1032,7 +1118,12 @@ public partial class MainWindow : Window
 
     private void RefreshScannedTotal()
     {
-        PriceListText.Text = _cart.PriceListLabel ?? string.Empty;
+        ApplyPricingInfo();
+        TotalsPanelControl.AccountAvailable = _cart.CustomerId is not null;
+        CollectPaymentButton.IsEnabled = _cart.CustomerId is not null;
+        CollectPaymentButton.ToolTip = _cart.CustomerId is null
+            ? "Elegí un cliente para cobrarle su cuenta corriente"
+            : "Registrar un pago del cliente a su cuenta corriente";
         TotalsPanelControl.Subtotal = _cart.Subtotal;
         TotalsPanelControl.DiscountTotal = _cart.DiscountTotal;
         TotalsPanelControl.Total = _cart.Total;
@@ -1255,6 +1346,46 @@ public partial class MainWindow : Window
 
     private void SaleNavButton_Click(object sender, RoutedEventArgs e) => ShowSection(ShellSection.Sale);
 
+    /// <summary>"Ventas": the sales of this terminal, newest first, with their detail and the void of an open-session sale.</summary>
+    private void SalesNavButton_Click(object sender, RoutedEventArgs e) => ShowSection(ShellSection.Sales);
+
+    /// <summary>
+    /// Voids a sale from the history: asks for the reason and the branch PIN (the discount authorizer, same lockout),
+    /// voids it in the branch database with its <c>sale.voided</c> envelope, refreshes the cash session (the sale no
+    /// longer counts) and nudges a sync. Null when the operator cancelled.
+    /// </summary>
+    private SaleVoidOutcome? VoidSaleFromHistory(IHistoryRow row)
+    {
+        var operatorId = _currentOperator.ResolveActorId(_installationId);
+        var isPayment = row is PaymentHistoryRow;
+        var window = new VoidSaleWindow(
+            _discountAuthorizer, operatorId,
+            isPayment
+                ? $"Cobro de cuenta corriente · {row.CustomerText} · {row.TotalText}"
+                : $"Venta {row.NumberText} · {row.CustomerText} · {row.TotalText}",
+            isPayment ? "Anular cobro" : "Anular venta")
+        {
+            Owner = this
+        };
+        if (window.ShowDialog() != true || window.Authorization is not { } authorization)
+        {
+            return null;
+        }
+
+        var result = isPayment
+            ? _branchNodeService.VoidCustomerPayment(
+                _pairing.OrganizationId, _pairing.BranchId, operatorId, row.Id, authorization, window.Reason, Guid.NewGuid())
+            : _branchNodeService.VoidSale(
+                _pairing.OrganizationId, _pairing.BranchId, operatorId, row.Id, authorization, window.Reason, Guid.NewGuid());
+        RefreshCashSession();
+        if (result.Outcome == SaleVoidOutcome.Voided)
+        {
+            _ = RunSyncAsync(SyncTrigger.PostSale);
+        }
+
+        return result.Outcome;
+    }
+
     /// <summary>
     /// Shows Clientes inside the shell over the shared <see cref="ManagementConnection"/>
     /// (admin-console-field-fixes T5): the device credential plus the current operator, no
@@ -1302,7 +1433,13 @@ public partial class MainWindow : Window
         SectionHost.Content = null;
 
         var section = _shell.Current;
-        if (section == ShellSection.Customers)
+        if (section == ShellSection.Sales)
+        {
+            var view = new SalesView(_branchNodeService, () => _branchNodeService.GetOpenCashSession()?.SessionId, VoidSaleFromHistory);
+            _sections.Show(view);
+            SectionHost.Content = view;
+        }
+        else if (section == ShellSection.Customers)
         {
             var view = new CustomersView(_management.Customers);
             _sections.Show(view);

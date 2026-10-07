@@ -285,15 +285,26 @@ describe('App route table', () => {
   })
 
   // staff-order-taking: taking orders is a seller's main area.
-  it('lands a seller on the take order screen and links it from the sidebar', async () => {
+  it('lands a seller on the orders of the branch, one click from taking a new one, and links orders and runs', async () => {
     renderAppAt(
       '/app',
       buildUser({ permissions: Permission.ViewSales | Permission.TakeOrders, selectableBranches: [{ id: 'b-1', name: 'Centro', code: 1 }] }),
     )
 
-    expect(await screen.findByRole('heading', { name: 'Tomar pedido' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Pedidos' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Tomar pedido' })).toHaveAttribute('href', '/app/orders/new')
     const nav = within(screen.getByRole('navigation', { name: 'Principal' }))
     expect(nav.getByRole('link', { name: 'Pedidos' })).toHaveAttribute('href', '/app/orders')
+    expect(nav.getByRole('link', { name: 'Repartos' })).toHaveAttribute('href', '/app/deliveries')
+  })
+
+  it('takes a new order at /app/orders/new', async () => {
+    renderAppAt(
+      '/app/orders/new',
+      buildUser({ permissions: Permission.ViewSales | Permission.TakeOrders, selectableBranches: [{ id: 'b-1', name: 'Centro', code: 1 }] }),
+    )
+
+    expect(await screen.findByRole('heading', { name: 'Tomar pedido' })).toBeInTheDocument()
   })
 
   it('keeps landing a business admin who may also take orders on the dashboard', async () => {

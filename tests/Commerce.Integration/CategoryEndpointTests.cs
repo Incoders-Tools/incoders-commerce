@@ -146,6 +146,18 @@ public sealed class CategoryEndpointTests : IClassFixture<WebApplicationFactory<
         Assert.Equal("Carnes rojas", updated.Name);
         Assert.Equal("charcoal", updated.IconKey);
 
+        Assert.True(updated.ShowInPos); // shown on the POS unless said otherwise
+
+        // Hidden from the POS rail with its place; an update that does not say keeps both.
+        var hidden = (await (await admin.PutAsJsonAsync($"/catalog/categories/{created.Id}",
+            new { name = "Carnes rojas", iconKey = "charcoal", showInPos = false, posSortOrder = 5 })).Content.ReadFromJsonAsync<CategoryRecord>())!;
+        Assert.Equal((false, 5), (hidden.ShowInPos, hidden.PosSortOrder));
+        var kept = (await (await admin.PutAsJsonAsync($"/catalog/categories/{created.Id}",
+            new { name = "Carnes", iconKey = "meat" })).Content.ReadFromJsonAsync<CategoryRecord>())!;
+        Assert.Equal((false, 5), (kept.ShowInPos, kept.PosSortOrder));
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PutAsJsonAsync($"/catalog/categories/{created.Id}",
+            new { name = "Carnes", iconKey = "meat", posSortOrder = -1 })).StatusCode);
+
         var list = await admin.GetFromJsonAsync<List<CategoryRecord>>("/catalog/categories");
         Assert.Single(list!);
 

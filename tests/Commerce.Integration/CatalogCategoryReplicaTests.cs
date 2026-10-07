@@ -162,6 +162,49 @@ public sealed class CatalogCategoryReplicaTests : IDisposable
         Assert.Empty(store.SearchCatalog(_organizationId, "costilla", categoryId: Wine).Items);
     }
 
+    [Fact]
+    public void TheRail_FollowsTheCategoriesPosSetting_OnceASyncBroughtIt_AndStaysLocalUntilTheNextOne()
+    {
+        using var store = Seed(
+            Item("Bife", "2", Meat, "Carnes", "meat"),
+            Item("Vino tinto", "1", Wine, "Vinos", "wine"));
+        var grocery = Guid.NewGuid();
+        var offal = Guid.NewGuid();
+
+        // Before any snapshot with categories: the local catalog's categories, the default applies.
+        var (legacy, configured) = store.ListPosRailCategories(_organizationId);
+        Assert.False(configured);
+        Assert.Equal(["Carnes", "Vinos"], legacy.Select(c => c.Name));
+
+        void Sync(IReadOnlyList<CategoryReplica>? categories) => store.ApplyPriceListsSync(
+            new PriceListsReplicaSnapshot(_organizationId, [], [], [], [], null, Categories: categories), DateTimeOffset.UtcNow);
+
+        Sync(
+        [
+            new CategoryReplica(Wine, "Vinos", "wine", true, 20),
+            new CategoryReplica(grocery, "Almacén", "grocery", true, 10), // no product yet: still offered
+            new CategoryReplica(Meat, "Carnes", "meat", true, 10),
+            new CategoryReplica(offal, "Achuras", "meat", false, 0),
+        ]);
+        var (rail, fromSetting) = store.ListPosRailCategories(_organizationId);
+        Assert.True(fromSetting);
+        Assert.Equal(["Almacén", "Carnes", "Vinos"], rail.Select(c => c.Name)); // by order, then name; hidden ones out
+        Assert.Equal(["Todos", "Almacén", "Carnes", "Vinos"], CategoryRailItem.Build(rail, fromSetting).Select(i => i.Name));
+
+        // A server that sends no categories leaves the last ones in place.
+        Sync(null);
+        Assert.Equal(3, store.ListPosRailCategories(_organizationId).Categories.Count);
+    }
+
+    [Fact]
+    public void TheRailDefault_HidesEmbutidosAndAchuras_OnlyUntilTheSettingArrives()
+    {
+        CatalogCategory[] categories = [new(Meat, "Achuras", "meat"), new(Wine, "Embutidos", "meat"), new(Guid.NewGuid(), "Vacuno", "meat")];
+
+        Assert.Equal(["Todos", "Vacuno"], CategoryRailItem.Build(categories).Select(i => i.Name));
+        Assert.Equal(["Todos", "Achuras", "Embutidos", "Vacuno"], CategoryRailItem.Build(categories, configured: true).Select(i => i.Name));
+    }
+
     // --- Rail items (POS view model) -------------------------------------------
 
     [Fact]

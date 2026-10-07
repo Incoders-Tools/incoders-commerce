@@ -2,6 +2,9 @@ using Commerce.Cloud.Api.Ordering;
 using Commerce.Cloud.Api.Tenancy;
 using Commerce.Domain.Ordering;
 
+using Commerce.Cloud.Api.Persistence;
+using Commerce.Domain.Identity;
+
 namespace Commerce.Cloud.Api.Endpoints;
 
 /// <summary>
@@ -29,10 +32,15 @@ public static class OrderingEndpoints
         group.MapPost("/", async (
             SubmitOrderRequest request,
             HttpContext httpContext,
+            PostgresUserAccountStore userStore,
             CloudOrderSubmissionService service,
             CancellationToken ct) =>
         {
-            var scope = TenantScopeEndpointFilter.GetScope(httpContext);
+            // Security review: the actor is the signed-in caller, never a request field (the request has none).
+            var (denied, caller) = await StaffAuthorization.AuthorizeAsync(
+                httpContext, userStore, ct, Permission.TakeOrders, Permission.ManageUsers);
+            if (denied is not null) return denied;
+            var scope = caller!.Scope;
 
             // commerce-customer-identity security fix: no CustomerOrderingAccess
             // is ever built from request data here. The request carries only
@@ -46,7 +54,7 @@ public static class OrderingEndpoints
                 request.AccessCredential,
                 request.OrderId,
                 request.DestinationBranchId,
-                request.ActorId,
+                caller.Id,
                 request.Lines,
                 request.CorrelationId,
                 destination: null,
@@ -58,10 +66,14 @@ public static class OrderingEndpoints
                 : Results.Json(outcome, statusCode: StatusCodes.Status403Forbidden);
         });
 
-        group.MapGet("/{orderId:guid}", async (Guid orderId, HttpContext httpContext, IOrderStore store, CancellationToken ct) =>
+        // Security review: reading orders needs the staff who take or manage them (not any signed-in user).
+        group.MapGet("/{orderId:guid}", async (
+            Guid orderId, HttpContext httpContext, PostgresUserAccountStore userStore, IOrderStore store, CancellationToken ct) =>
         {
-            var scope = TenantScopeEndpointFilter.GetScope(httpContext);
-            var order = await store.FindAsync(scope, orderId, ct);
+            var (denied, caller) = await StaffAuthorization.AuthorizeAsync(
+                httpContext, userStore, ct, Permission.TakeOrders, Permission.ManageUsers);
+            if (denied is not null) return denied;
+            var order = await store.FindAsync(caller!.Scope, orderId, ct);
             return order is null ? Results.NotFound() : Results.Ok(order);
         });
 
@@ -72,10 +84,13 @@ public static class OrderingEndpoints
         // SubmittedAtUtc"). Registered-customer orders (rank 0) sort before
         // guest orders (rank 1) regardless of submission order; ties break
         // by submission time.
-        group.MapGet("/pending", async (HttpContext httpContext, IOrderStore store, CancellationToken ct) =>
+        group.MapGet("/pending", async (
+            HttpContext httpContext, PostgresUserAccountStore userStore, IOrderStore store, CancellationToken ct) =>
         {
-            var scope = TenantScopeEndpointFilter.GetScope(httpContext);
-            return Results.Ok(await store.ListPendingAsync(scope, ct: ct));
+            var (denied, caller) = await StaffAuthorization.AuthorizeAsync(
+                httpContext, userStore, ct, Permission.TakeOrders, Permission.ManageUsers);
+            if (denied is not null) return denied;
+            return Results.Ok(await store.ListPendingAsync(caller!.Scope, ct: ct));
         });
 
         return group;
@@ -98,6 +113,5 @@ public sealed record SubmitOrderRequest(
     Guid CustomerId,
     Guid AccessCredential,
     Guid DestinationBranchId,
-    Guid ActorId,
     IReadOnlyList<SubmitOrderLine> Lines,
     Guid CorrelationId);

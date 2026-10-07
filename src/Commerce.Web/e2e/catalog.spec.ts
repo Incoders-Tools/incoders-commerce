@@ -108,7 +108,7 @@ test.describe('catalog screen', () => {
     await expect(page.getByText('E2E Presentation')).toBeVisible()
     await expect(page.getByText('Sin código')).toBeVisible()
 
-    await page.getByRole('button', { name: /editar código/i }).click()
+    await page.getByRole('button', { name: /^editar$/i }).click()
     await page.getByLabel(/código de identificación/i).fill('7791234567890')
     await page.getByRole('button', { name: /^guardar$/i }).click()
 

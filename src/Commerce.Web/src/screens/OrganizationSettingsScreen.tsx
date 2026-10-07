@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
+import { OrganizationDocumentsForm } from './OrganizationDocumentsForm'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -32,6 +33,8 @@ function countryName(code: string, language: string): string {
  * cities the forms offer) is shown read-only: Argentina is the only one loaded today.
  */
 export function OrganizationSettingsScreen() {
+  const { t: tDocuments } = useTranslation('fulfillment')
+  const [tab, setTab] = useState<'general' | 'documents'>('general')
   const { t, i18n } = useTranslation('organizations')
   const { reload } = useNumberFormat()
   const [separator, setSeparator] = useState<Separator>('Comma')
@@ -40,6 +43,8 @@ export function OrganizationSettingsScreen() {
   const [loadedDefaultListId, setLoadedDefaultListId] = useState('')
   const [priceLists, setPriceLists] = useState<PriceListRecord[]>([])
   const [countryCode, setCountryCode] = useState(DEFAULT_COUNTRY_CODE)
+  const [termsDays, setTermsDays] = useState('30')
+  const [loadedTermsDays, setLoadedTermsDays] = useState('30')
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [reloadToken, setReloadToken] = useState(0)
@@ -60,6 +65,9 @@ export function OrganizationSettingsScreen() {
         setDefaultListId(settings.defaultCustomerPriceListId ?? '')
         setLoadedDefaultListId(settings.defaultCustomerPriceListId ?? '')
         setCountryCode(settings.countryCode || DEFAULT_COUNTRY_CODE)
+        const days = String(settings.defaultCustomerPaymentTermsDays ?? 30)
+        setTermsDays(days)
+        setLoadedTermsDays(days)
       })
       .catch(() => {
         if (!cancelled) setLoadError(t('settings.unableToLoad'))
@@ -83,6 +91,11 @@ export function OrganizationSettingsScreen() {
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     if (loadError) return
+    const parsedTerms = Number(termsDays)
+    if (termsDays.trim() === '' || !Number.isInteger(parsedTerms) || parsedTerms < 0 || parsedTerms > 365) {
+      setSubmitError(t('settings.paymentTerms.invalid'))
+      return
+    }
     setSubmitError(null)
     setSaved(false)
     setSubmitting(true)
@@ -96,12 +109,14 @@ export function OrganizationSettingsScreen() {
             ? { clearDefaultCustomerPriceList: true }
             : { defaultCustomerPriceListId: defaultListId }
           : {}),
+        ...(termsDays !== loadedTermsDays ? { defaultCustomerPaymentTermsDays: parsedTerms } : {}),
       }
       await updateOwnOrganizationSettings(
         Object.keys(request).length > 0 ? request : { quantityDecimalSeparator: separator },
       )
       setLoadedSeparator(separator)
       setLoadedDefaultListId(defaultListId)
+      setLoadedTermsDays(termsDays)
       setSaved(true)
       reload()
     } catch (err) {
@@ -114,6 +129,27 @@ export function OrganizationSettingsScreen() {
   return (
     <section className="flex w-full flex-col gap-6">
       <PageHeader title={t('settings.title')} description={t('settings.description')} />
+      <div role="tablist" aria-label={t('settings.title')} className="flex gap-1 border-b border-border">
+        {(['general', 'documents'] as const).map((value) => (
+          <button
+            key={value}
+            type="button"
+            role="tab"
+            aria-selected={tab === value}
+            onClick={() => setTab(value)}
+            className={
+              tab === value
+                ? '-mb-px border-b-2 border-primary px-3 py-2 text-sm font-medium text-foreground'
+                : 'px-3 py-2 text-sm text-muted-foreground hover:text-foreground'
+            }
+          >
+            {value === 'general' ? tDocuments('documents.generalTab') : tDocuments('documents.tab')}
+          </button>
+        ))}
+      </div>
+      {tab === 'documents' ? (
+        <OrganizationDocumentsForm />
+      ) : (
       <form onSubmit={(event) => void submit(event)} className="flex max-w-md flex-col gap-6">
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="organizationCountry">{t('settings.country.label')}</Label>
@@ -166,6 +202,28 @@ export function OrganizationSettingsScreen() {
           <p className="text-xs text-muted-foreground">{t('settings.defaultCustomerPriceList.hint')}</p>
         </div>
 
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="defaultCustomerPaymentTermsDays">{t('settings.paymentTerms.label')}</Label>
+          <Input
+            id="defaultCustomerPaymentTermsDays"
+            type="number"
+            inputMode="numeric"
+            min={0}
+            max={365}
+            step={1}
+            value={termsDays}
+            disabled={loading}
+            aria-describedby="defaultCustomerPaymentTermsDays-hint"
+            onChange={(event) => {
+              setTermsDays(event.target.value)
+              setSaved(false)
+            }}
+          />
+          <p id="defaultCustomerPaymentTermsDays-hint" className="text-xs text-muted-foreground">
+            {t('settings.paymentTerms.hint')}
+          </p>
+        </div>
+
         {loadError && (
           <div
             role="alert"
@@ -194,6 +252,7 @@ export function OrganizationSettingsScreen() {
           </Button>
         </div>
       </form>
+      )}
     </section>
   )
 }

@@ -1,13 +1,15 @@
 {
   "title": "Catálogo",
-  "description": "Presentaciones disponibles para vender, y sus códigos de identificación.",
+  "description": "Productos y presentaciones de la sucursal: alta, edición, códigos y categorías.",
+  "readOnlyDescription": "Productos y presentaciones de la sucursal, con sus códigos. Solo lectura.",
   "branchRequired": "Elegí una sucursal en la barra superior para ver el catálogo.",
   "columns": {
     "name": "Nombre",
     "identificationCode": "Código de identificación",
     "noCode": "Sin código",
     "quantityBehavior": "Comportamiento de cantidad",
-    "lastUpdated": "Última actualización"
+    "lastUpdated": "Última actualización",
+    "category": "Categoría"
   },
   "quantityBehaviorOptions": {
     "fixedQuantity": "Cantidad fija",
@@ -24,7 +26,7 @@
     "none": "Todavía no hay presentaciones.",
     "noMatch": "Ninguna presentación coincide con esta búsqueda."
   },
-  "editCode": "Editar código",
+  "edit": "Editar",
   "status": {
     "filterLabel": "Estado",
     "active": "Activos",
@@ -47,7 +49,7 @@
   },
   "form": {
     "title": "Editar presentación",
-    "description": "Código de identificación y categoría de \"{{name}}\".",
+    "description": "Nombre, categoría, presentación y código de \"{{name}}\".",
     "backLabel": "Volver al catálogo",
     "label": "Código de identificación",
     "category": "Categoría",
@@ -81,6 +83,50 @@
       "noPriceList": "No se copió ninguna lista de precios.",
       "skipped": "Presentaciones omitidas: {{count}}",
       "skippedNote": "Su código de identificación ya existe en la sucursal de destino:"
+    }
+  },
+  "filters": {
+    "categoryLabel": "Categoría",
+    "allCategories": "Todas las categorías"
+  },
+  "sort": {
+    "label": "Ordenar por",
+    "options": {
+      "name-asc": "Nombre (A-Z)",
+      "name-desc": "Nombre (Z-A)",
+      "code": "Código",
+      "category": "Categoría",
+      "updated-desc": "Últimos actualizados"
+    }
+  },
+  "productForm": {
+    "newAction": "Nuevo producto",
+    "createTitle": "Nuevo producto",
+    "createDescription": "Producto, categoría y la presentación con la que se vende.",
+    "create": "Crear producto",
+    "productName": "Nombre del producto",
+    "presentationName": "Presentación",
+    "quantityBehaviorHint": "Pesable: se vende por kilo. Cantidad fija: por unidad.",
+    "codeHint": "El código que se escanea o se tipea en el POS. Opcional y único en la sucursal.",
+    "priceNote": "El producto se crea sin precio: cargalo en Listas de precios para venderlo.",
+    "defaultPresentation": {
+      "weighted": "Por kg",
+      "fixedQuantity": "Unidad",
+      "bulk": "A granel"
+    },
+    "errors": {
+      "nameRequired": "Ingresá el nombre del producto.",
+      "presentationRequired": "Ingresá el nombre de la presentación.",
+      "codeInUse": "Ese código ya lo usa otro producto de esta sucursal.",
+      "productInactive": "El producto está inactivo: reactivalo para editarlo.",
+      "renameDenied": "No se pudo cambiar el nombre del producto.",
+      "unexpectedCreate": "Error inesperado al crear el producto."
+    },
+    "codeSuggestion": {
+      "proposed": "Último código cargado: {{last}}. Te proponemos el siguiente, {{next}}; podés cambiarlo.",
+      "last": "Último código cargado: {{last}} (el siguiente libre es {{next}}).",
+      "use": "Usar {{next}}",
+      "placeholder": "Ej.: {{next}}"
     }
   }
 }

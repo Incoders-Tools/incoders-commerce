@@ -324,6 +324,28 @@ public sealed class CatalogEndpointTests : IClassFixture<WebApplicationFactory<P
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
+    /// <summary>
+    /// A seller (ViewSales | TakeOrders, no ManageCatalog) reads the catalog to take orders but cannot change it. The
+    /// denial is a plain 403, never the cookie handler's 302 to /Account/AccessDenied: the SPA's fetch followed that
+    /// redirect off the HTTPS port and reported "Commerce.Cloud.Api no está disponible".
+    /// </summary>
+    [Fact]
+    public async Task ASeller_ReadsTheCatalog_ButChangingItIsAPlain403()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var (adminClient, organizationId, _) = await SignedInClientAsync(Permission.ManageCatalog);
+        await CreateProductAsync(adminClient);
+        var (seller, _, _) = await SignedInClientAsync(Permission.ViewSales | Permission.TakeOrders, organizationId: organizationId);
+
+        Assert.Equal(HttpStatusCode.OK, (await seller.GetAsync("/catalog/products")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await seller.GetAsync("/catalog/presentations")).StatusCode);
+
+        var create = await seller.PostAsJsonAsync("/catalog/products", new { name = "Nope", defaultUnitId = Guid.NewGuid() });
+        Assert.Equal(HttpStatusCode.Forbidden, create.StatusCode);
+        Assert.Null(create.Headers.Location);
+    }
+
     // --- B7 U4: branch-owned catalog -----------------------------------------
 
     [Fact]

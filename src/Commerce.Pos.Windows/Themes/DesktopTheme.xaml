@@ -546,6 +546,8 @@
     <sys:String x:Key="IconRegister">&#xE7E8;</sys:String>
     <sys:String x:Key="IconOperator">&#xE748;</sys:String>
     <sys:String x:Key="IconEmptyCart">&#xE7BF;</sys:String>
+    <sys:String x:Key="IconInfo">&#xE946;</sys:String>
+    <sys:String x:Key="IconReceipt">&#xE81C;</sys:String>
 
     <Style x:Key="IconTextBlock" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
         <Setter Property="FontFamily" Value="{StaticResource IconFontFamily}" />

@@ -131,6 +131,15 @@ describe('PriceListsScreen "Editar precios" tab', () => {
       if (url.startsWith('/catalog/products')) return json(products)
       if (url.startsWith('/catalog/categories')) return json(categories)
       if (url.endsWith('/entries/batch')) return batchHandler(url, init) ?? json({}, 500)
+      // Every list composes with IVA 21 % on the base: 1000 -> 1210.
+      if (/^\/pricing\/price-lists\/[^/]+\/composition/.test(url)) {
+        return json({
+          source: 'list',
+          effectiveFrom: '2026-09-01',
+          components: [{ code: 'IVA', label: 'IVA', percentage: 21, calculationBase: 'Base', order: 1 }],
+          history: [],
+        })
+      }
       const breakdown = url.match(/^\/pricing\/price-lists\/([^/]+)\/breakdown/)
       if (breakdown) {
         const owner = breakdown[1] === mayorista.id ? mayorista : minorista
@@ -462,7 +471,7 @@ describe('PriceListsScreen "Editar precios" tab', () => {
     const user = await openEditor()
 
     expect(screen.getByLabelText('Vigente desde')).toHaveValue('')
-    expect(screen.getByText('Vacío: hoy (día comercial).')).toBeInTheDocument()
+    expect(screen.getByText(/vacío = hoy \(día comercial\)/i)).toBeInTheDocument()
     // The current prices keep loading without a date.
     expect(breakdownCalls(minorista.id)[0][0]).toBe(`/pricing/price-lists/${minorista.id}/breakdown`)
 
@@ -536,7 +545,7 @@ describe('PriceListsScreen "Editar precios" tab', () => {
     const user = await openEditor()
 
     await user.type(screen.getByLabelText('Nueva base de Lengua'), '1100')
-    await user.click(screen.getByRole('button', { name: 'Importar' }))
+    await user.click(screen.getByRole('button', { name: 'Precios' }))
 
     const dialog = await screen.findByRole('dialog')
     expect(dialog).toHaveTextContent('Tenés 1 cambio sin publicar. ¿Descartarlo?')
@@ -560,9 +569,9 @@ describe('PriceListsScreen "Editar precios" tab', () => {
     // Nothing is pending any more: leaving again does not ask.
     await user.click(screen.getByRole('button', { name: /^editar precios$/i }))
     await screen.findByText('Lengua')
-    await user.click(screen.getByRole('button', { name: 'Importar' }))
+    await user.click(screen.getByRole('button', { name: 'Precios' }))
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Importar' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Precios' })).toHaveAttribute('aria-pressed', 'true')
   })
 
   it('switching tab without pending edits does not ask', async () => {
@@ -817,5 +826,39 @@ describe('PriceListsScreen "Editar precios" tab', () => {
     expect(unload()).toBe(true)
     await user.click(screen.getByRole('button', { name: 'Deshacer cambios' }))
     expect(unload()).toBe(false)
+  })
+
+  it('shows the composition and simulates the new final of a new base', async () => {
+    const user = await openEditor()
+
+    expect(await screen.findByText('IVA 21 % sobre base')).toBeInTheDocument()
+    await user.type(screen.getByLabelText('Nueva base de Lengua'), '1100')
+
+    const row = rowOf('Lengua')
+    expect(within(row).getByText('$ 1.000,00 → $ 1.100,00')).toBeInTheDocument()
+    expect(within(row).getByText(/Final: .*1\.210,00 → .*1\.331,00/)).toBeInTheDocument()
+  })
+
+  it('filters the products without a price in the list, to give them one', async () => {
+    const user = await openEditor()
+
+    await user.selectOptions(screen.getByLabelText('Precio en la lista'), 'missing')
+
+    expect(screen.getByRole('option', { name: 'Sin precio (1)' })).toBeInTheDocument()
+    expect(rowOf('Horma')).toBeInTheDocument()
+    expect(within(screen.getByTestId('price-editor-grid')).queryByText('Lengua')).not.toBeInTheDocument()
+  })
+
+  it('remarks only the rows the filter shows', async () => {
+    const user = await openEditor()
+
+    await user.type(screen.getByLabelText('Buscar productos'), 'Lengua')
+    expect(screen.getByText('Se aplica a 1 producto: el que muestra el filtro.')).toBeInTheDocument()
+    await user.type(screen.getByLabelText('Remarcar %'), '10')
+    await user.click(screen.getByRole('button', { name: 'Aplicar' }))
+    await user.clear(screen.getByLabelText('Buscar productos'))
+
+    expect(screen.getByLabelText('Nueva base de Lengua')).toHaveValue('1100,00')
+    expect(screen.getByLabelText('Nueva base de Vacío')).toHaveValue('')
   })
 })

@@ -71,7 +71,7 @@ describe('CategoriesScreen', () => {
     const [url, init] = fetchMock.mock.calls[1]
     expect(url).toBe('/catalog/categories')
     expect(init.method).toBe('POST')
-    expect(JSON.parse(init.body as string)).toEqual({ name: 'Vinos', iconKey: 'wine' })
+    expect(JSON.parse(init.body as string)).toEqual({ name: 'Vinos', iconKey: 'wine', showInPos: true, posSortOrder: 0 })
     expect(await screen.findByText('Vinos')).toBeInTheDocument()
   })
 
@@ -111,8 +111,29 @@ describe('CategoriesScreen', () => {
     const [url, init] = fetchMock.mock.calls[1]
     expect(url).toBe('/catalog/categories/cat-1')
     expect(init.method).toBe('PUT')
-    expect(JSON.parse(init.body as string)).toEqual({ name: 'Carnes rojas', iconKey: 'charcoal' })
+    expect(JSON.parse(init.body as string)).toEqual({ name: 'Carnes rojas', iconKey: 'charcoal', showInPos: true, posSortOrder: 0 })
     expect(await screen.findByText('Carnes rojas')).toBeInTheDocument()
+  })
+
+  it('hides a category from the POS rail, or sets its place there', async () => {
+    fetchMock
+      .mockResolvedValueOnce(json([meat]))
+      .mockResolvedValueOnce(json({ ...meat, showInPos: false }))
+      .mockResolvedValueOnce(json([{ ...meat, showInPos: false }]))
+
+    const user = userEvent.setup()
+    render(<CategoriesScreen />)
+
+    expect(await screen.findByText('Se muestra (orden 0)')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /^editar$/i }))
+    await user.click(screen.getByLabelText('Mostrar como filtro en el POS'))
+    expect(screen.getByLabelText('Orden en el POS')).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: /^guardar$/i }))
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
+    const [, init] = fetchMock.mock.calls[1]
+    expect(JSON.parse(init.body as string)).toEqual({ name: 'Carnes', iconKey: 'meat', showInPos: false, posSortOrder: 0 })
+    expect(await screen.findByText('No se muestra')).toBeInTheDocument()
   })
 
   it('explains a duplicate name instead of a raw error', async () => {

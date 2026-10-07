@@ -31,8 +31,9 @@ public sealed class ProductCardViewModelTests
 
         Assert.Equal(0m, card.Quantity);
         Assert.Equal(100m.ToString("C", CultureInfo.CurrentCulture), card.UnitPriceText);
-        Assert.Equal(0m.ToString("C", CultureInfo.CurrentCulture), card.LineTotalText);
+        Assert.Equal(string.Empty, card.LineTotalText); // no bold "$ 0,00" that reads as a zero price
         Assert.True(card.HasPrice);
+        Assert.Null(card.NoPriceExplanation);
         Assert.False(card.IsInSale);
     }
 
@@ -43,6 +44,8 @@ public sealed class ProductCardViewModelTests
 
         Assert.False(card.HasPrice);
         Assert.Equal("Sin precio", card.UnitPriceText);
+        Assert.Equal(string.Empty, card.LineTotalText);
+        Assert.Contains("Listas de precios", card.NoPriceExplanation);
     }
 
     [Fact]

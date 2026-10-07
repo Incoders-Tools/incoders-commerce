@@ -4,19 +4,17 @@
   "loading": "Loading the current account…",
   "errors": {
     "unexpectedLoad": "The current account could not be loaded.",
-    "supplierNotFound": "The supplier was not found.",
     "rangeInvalid": "The start date cannot be after the end date.",
     "unexpectedRegister": "The movement could not be registered.",
     "unexpectedReverse": "The movement could not be reversed.",
     "alreadyReversed": "This movement was already reversed.",
-    "notReversible": "This movement cannot be reversed."
+    "notReversible": "This movement cannot be reversed.",
+    "partyNotFound": "The supplier was not found."
   },
   "summary": {
     "balance": "Balance",
     "overdue": "Overdue",
     "current": "Not yet due",
-    "weOwe": "We owe them",
-    "inOurFavour": "Balance in our favour",
     "settled": "Settled",
     "overdueHint": "Debt whose due date has already passed",
     "currentHint": "Debt that is not due yet or has no due date",
@@ -26,7 +24,9 @@
       "d31_60": "31 to 60 days",
       "d61_90": "61 to 90 days",
       "d90plus": "Over 90 days"
-    }
+    },
+    "owed": "We owe them",
+    "inFavour": "Balance in our favour"
   },
   "filters": {
     "from": "From",

@@ -1,0 +1,56 @@
+{
+  "title": "Tipos de cuenta",
+  "description": "Las clases de dinero de la empresa (efectivo, bancos, tarjetas de crédito, billeteras virtuales…). Cada cuenta de Tesorería tiene un tipo, y la Tesorería muestra el total del negocio separado por tipo. Un tipo que ya no se usa se desactiva: las cuentas que lo tienen lo conservan.",
+  "columns": {
+    "name": "Nombre",
+    "key": "Clave",
+    "sortOrder": "Orden",
+    "status": "Estado",
+    "createdAt": "Creación",
+    "updatedAt": "Última modificación"
+  },
+  "status": {
+    "active": "Activo",
+    "inactive": "Inactivo",
+    "all": "Todos",
+    "filterLabel": "Estado"
+  },
+  "actions": {
+    "create": "Nuevo tipo",
+    "edit": "Editar",
+    "deactivate": "Desactivar",
+    "activate": "Activar"
+  },
+  "search": {
+    "label": "Buscar tipos de cuenta",
+    "placeholder": "Buscar por nombre o clave…"
+  },
+  "empty": {
+    "none": "Todavía no hay tipos de cuenta. Se crean solos al entrar a Tesorería, o cargá los tuyos con \"Nuevo tipo\".",
+    "noMatch": "Ningún tipo coincide con esta búsqueda.",
+    "loadError": "No se pudieron cargar los tipos de cuenta."
+  },
+  "form": {
+    "createTitle": "Nuevo tipo de cuenta",
+    "editTitle": "Editar tipo de cuenta",
+    "description": "Nombre (por ejemplo \"Tarjetas de crédito\"), clave y orden en el que aparece en Tesorería.",
+    "backLabel": "Volver a los tipos de cuenta",
+    "name": "Nombre",
+    "key": "Clave",
+    "keyHint": "Identificador corto; si se deja vacío se genera a partir del nombre.",
+    "sortOrder": "Orden",
+    "isActive": "Activo",
+    "createdAt": "Creado: {{date}}",
+    "updatedAt": "Actualizado: {{date}}",
+    "save": "Guardar",
+    "saving": "Guardando…",
+    "cancel": "Cancelar"
+  },
+  "errors": {
+    "unableToLoad": "No se pudieron cargar los tipos de cuenta.",
+    "unableToSave": "No se pudo guardar el tipo de cuenta.",
+    "unableToUpdate": "No se pudo actualizar el estado.",
+    "nameInUse": "Ya existe un tipo de cuenta con ese nombre.",
+    "keyInUse": "Ya existe un tipo de cuenta con esa clave."
+  }
+}

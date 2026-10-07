@@ -17,7 +17,13 @@
     "branches": "Sucursales",
     "priceLists": "Listas de precios",
     "organizations": "Organizaciones",
-    "settings": "Configuración"
+    "settings": "Configuración",
+    "deliveries": "Repartos",
+    "treasury": "Tesorería",
+    "treasuryAccountTypes": "Tipos de cuenta",
+    "employees": "Personal",
+    "payroll": "Sueldos",
+    "employeeRoles": "Puestos"
   },
   "sections": {
     "operations": "Operación",

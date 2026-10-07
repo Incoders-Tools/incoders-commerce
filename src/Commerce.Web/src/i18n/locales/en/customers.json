@@ -28,7 +28,9 @@
     "noValue": "—",
     "kind": "Kind",
     "status": "Status",
-    "priceList": "Price list"
+    "priceList": "Price list",
+    "balance": "Balance",
+    "balanceHint": "What the customer owes on current account"
   },
   "kindOptions": {
     "retail": "Retail",
@@ -40,7 +42,8 @@
   },
   "actions": {
     "edit": "Edit",
-    "issueAccess": "Issue ordering access"
+    "issueAccess": "Issue ordering access",
+    "account": "Current account"
   },
   "form": {
     "titleNew": "New customer",
@@ -73,13 +76,14 @@
       "postalCode": "Postal code",
       "deliveryNotes": "Delivery notes",
       "discountPercentage": "Discount percentage",
-      "paymentTerms": "Payment terms",
+      "paymentTerms": "Payment conditions note",
       "notes": "Notes",
       "enabled": "Enabled",
       "city": "City",
       "businessType": "Business type",
       "dni": "DNI",
-      "priceList": "Price list"
+      "priceList": "Price list",
+      "paymentTermsDays": "Payment term (days)"
     },
     "taxIdTypeOptions": {
       "none": "None",
@@ -124,7 +128,17 @@
       "company": "Company"
     },
     "provincePlaceholder": "Choose a province",
-    "cityNeedsProvince": "Choose the province first"
+    "cityNeedsProvince": "Choose the province first",
+    "paymentTermsDays": {
+      "placeholder": "Empty = general term ({{days}} days)",
+      "placeholderUnknown": "Empty = the organization's general term",
+      "hint": "Days the customer has to pay a sale on current account. Due dates and days overdue are computed from it. Leave it empty to use the general term (Settings). 0 = due the same day.",
+      "invalid": "The payment term must be a whole number from 0 to 365 days, or empty."
+    },
+    "paymentTermsNote": {
+      "placeholder": "E.g.: pays on Fridays, by transfer",
+      "hint": "Informational only: it does not change the due date."
+    }
   },
   "filters": {
     "city": "City",
@@ -133,5 +147,9 @@
     "allBusinessTypes": "All business types",
     "priceList": "Price list",
     "allPriceLists": "All lists"
+  },
+  "balance": {
+    "inFavour": "In their favour: {{amount}}",
+    "overdue": "Overdue: {{amount}}"
   }
 }

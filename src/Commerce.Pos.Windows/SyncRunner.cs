@@ -199,7 +199,7 @@ public sealed class SyncRunner
     /// </summary>
     /// <summary>
     /// customer-price-lists T4: replaces the price list replica with the cloud snapshot (every list's prices and rate
-    /// components, the lists, each customer's list). A failed pull leaves the replica and cursor as they were, so a
+    /// components, the lists, each customer's list and discount). A failed pull leaves the replica and cursor as they were, so a
     /// stale replica keeps pricing offline.
     /// </summary>
     private async Task PullPriceListsAsync(DevicePairing pairing)
@@ -218,7 +218,8 @@ public sealed class SyncRunner
         _store.ApplyPriceListsSync(
             new PriceListsReplicaSnapshot(
                 pairing.OrganizationId, snapshot.Lists, snapshot.Entries, snapshot.RateSets, snapshot.CustomerPriceLists,
-                snapshot.OrganizationDefaultCustomerPriceListId),
+                snapshot.OrganizationDefaultCustomerPriceListId, snapshot.CustomerDiscounts, snapshot.CustomerBalances,
+                snapshot.CustomerPaymentTerms, snapshot.DefaultCustomerPaymentTermsDays, snapshot.Categories),
             snapshot.ServerTimeUtc);
     }
 

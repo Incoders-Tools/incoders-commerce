@@ -20,6 +20,7 @@
 
         <controls:PosNavBar x:Name="NavBar" Grid.Row="0"
                             SaleRequested="SaleNavButton_Click"
+                            SalesRequested="SalesNavButton_Click"
                             CustomersRequested="ManageCustomersButton_Click"
                             StaffRequested="ManageStaffButton_Click"
                             SyncRequested="SyncButton_Click"
@@ -27,7 +28,8 @@
                             OperatorMenuRequested="OperatorMenuButton_Click"
                             SwitchOperatorRequested="SwitchOperatorButton_Click"
                             SignOutRequested="OperatorSignOutMenu_Click"
-                            CloseCashRequested="CloseCashButton_Click" />
+                            CloseCashRequested="CloseCashButton_Click"
+                            CashMovementRequested="CashMovementButton_Click" />
 
         <Grid x:Name="SaleScreen" Grid.Row="1" Margin="16,12,16,8">
             <Grid.RowDefinitions>
@@ -49,13 +51,13 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <Grid>
-                    <TextBox x:Name="ScanCodeTextBox" FontSize="20" MinHeight="52" Padding="46,8,12,8" VerticalContentAlignment="Center"
+                    <TextBox x:Name="ScanCodeTextBox" FontSize="20" MinHeight="52" Padding="38,8,12,8" VerticalContentAlignment="Center"
                              KeyDown="ScanCodeTextBox_KeyDown" TextChanged="ScanCodeTextBox_TextChanged" AutomationProperties.Name="Escanear o buscar producto" />
                     <TextBlock Text="{StaticResource IconSearch}" Style="{StaticResource IconTextBlock}" FontSize="18" Foreground="{DynamicResource AccentTextBrush}"
-                               HorizontalAlignment="Left" Margin="16,0,0,0" IsHitTestVisible="False" />
+                               HorizontalAlignment="Left" Margin="13,0,0,0" IsHitTestVisible="False" />
                     <!-- The placeholder is a TextBox laid over the search box with the same template, padding and font, so its text
                          starts exactly where the search text and the caret start. Transparent and inert: the caret shows through. -->
-                    <TextBox x:Name="ScanPlaceholderTextBox" Text="Escanear o buscar producto…" FontSize="20" MinHeight="52" Padding="46,8,12,8" VerticalContentAlignment="Center"
+                    <TextBox x:Name="ScanPlaceholderTextBox" Text="Escanear o buscar producto…" FontSize="20" MinHeight="52" Padding="38,8,12,8" VerticalContentAlignment="Center"
                              IsHitTestVisible="False" Focusable="False" IsTabStop="False" IsReadOnly="True"
                              Background="Transparent" BorderBrush="Transparent" Foreground="{DynamicResource MutedTextBrush}">
                         <TextBox.Style>
@@ -121,7 +123,7 @@
                         <ItemsControl x:Name="CatalogCardsItemsControl">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
-                                    <WrapPanel />
+                                    <controls:UniformWrapPanel MinItemWidth="190" Spacing="10" Margin="0,0,4,0" />
                                 </ItemsPanelTemplate>
                             </ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate>
@@ -145,6 +147,10 @@
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
                     <Grid Margin="0,0,0,10">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
@@ -152,8 +158,33 @@
                         <TextBlock Text="Venta actual" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" />
                         <StackPanel Grid.Column="1" Orientation="Horizontal">
                             <TextBlock Text="Cliente" Style="{StaticResource MutedTextBlock}" VerticalAlignment="Center" Margin="0,0,8,0" />
-                            <ComboBox x:Name="CustomerPickerComboBox" DisplayMemberPath="Label" MinWidth="190" MaxWidth="240" SelectionChanged="CustomerPickerComboBox_SelectionChanged" />
-                            <TextBlock x:Name="PriceListText" Style="{StaticResource MutedTextBlock}" VerticalAlignment="Center" Margin="10,0,0,0" MaxWidth="260" TextTrimming="CharacterEllipsis" />
+                            <controls:CustomerSearchPicker x:Name="CustomerPicker" Width="260" CustomerChosen="CustomerPicker_CustomerChosen" />
+                            <!-- Collect a current account payment of the chosen customer (a "cobro"), with or without a sale in progress. -->
+                            <Button x:Name="CollectPaymentButton" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" Padding="12,0" MinHeight="38"
+                                    IsEnabled="False" Click="CollectPaymentButton_Click" ToolTipService.ShowOnDisabled="True"
+                                    ToolTip="Elegí un cliente para cobrarle su cuenta corriente" AutomationProperties.Name="Cobrar cuenta corriente">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="{StaticResource IconReceipt}" Style="{StaticResource IconTextBlock}" Margin="0,0,6,0"
+                                               Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+                                    <TextBlock Text="Cobrar cuenta" FontWeight="SemiBold" VerticalAlignment="Center"
+                                               Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+
+                        <!-- How the sale is priced: the buyer's list and, when the customer has one, its own discount (already in every price). -->
+                        <StackPanel Grid.Row="1" Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,6,0,0">
+                            <TextBlock x:Name="PriceListText" Style="{StaticResource MutedTextBlock}" VerticalAlignment="Center" MaxWidth="420" TextTrimming="CharacterEllipsis" />
+                            <Border x:Name="CustomerDiscountBadge" Visibility="Collapsed" Margin="10,0,0,0" Padding="8,3" CornerRadius="8"
+                                    Background="{DynamicResource SurfaceSoftBrush}" BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1"
+                                    ToolTipService.InitialShowDelay="150" ToolTipService.ShowDuration="20000">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="{StaticResource IconInfo}" Style="{StaticResource IconTextBlock}" FontSize="13"
+                                               Foreground="{DynamicResource AccentTextBrush}" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                    <TextBlock x:Name="CustomerDiscountBadgeText" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center"
+                                               Foreground="{DynamicResource AccentTextBrush}" />
+                                </StackPanel>
+                            </Border>
                         </StackPanel>
                     </Grid>
                     <controls:SaleLinesTable x:Name="SaleTable" Grid.Row="1" QuantityEdited="SaleTable_QuantityEdited" MeasuredQuantityEditRequested="SaleTable_MeasuredQuantityEditRequested"

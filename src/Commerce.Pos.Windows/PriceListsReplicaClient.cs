@@ -52,7 +52,12 @@ public sealed record PriceListsSyncResponseDto(
     IReadOnlyList<RateSetReplica> RateSets,
     IReadOnlyList<CustomerPriceListReplica> CustomerPriceLists,
     Guid? OrganizationDefaultCustomerPriceListId,
-    DateTimeOffset ServerTimeUtc);
+    DateTimeOffset ServerTimeUtc,
+    IReadOnlyList<CustomerDiscountReplica>? CustomerDiscounts = null,
+    IReadOnlyList<CustomerBalanceReplica>? CustomerBalances = null,
+    IReadOnlyList<CustomerTermsReplica>? CustomerPaymentTerms = null,
+    int? DefaultCustomerPaymentTermsDays = null,
+    IReadOnlyList<CategoryReplica>? Categories = null);
 
 /// <summary>A failure carries no data: the caller leaves the replica and cursor byte-identical.</summary>
 public sealed record PriceListsSyncOutcome(bool Success, PriceListsSyncResponseDto? Snapshot, DateTimeOffset? ServerTimeUtc, string? Error)

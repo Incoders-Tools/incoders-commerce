@@ -4,19 +4,17 @@
   "loading": "Cargando la cuenta corriente…",
   "errors": {
     "unexpectedLoad": "No se pudo cargar la cuenta corriente.",
-    "supplierNotFound": "No se encontró el proveedor.",
     "rangeInvalid": "La fecha inicial no puede ser posterior a la final.",
     "unexpectedRegister": "No se pudo registrar el movimiento.",
     "unexpectedReverse": "No se pudo anular el movimiento.",
     "alreadyReversed": "Este movimiento ya fue anulado.",
-    "notReversible": "Este movimiento no se puede anular."
+    "notReversible": "Este movimiento no se puede anular.",
+    "partyNotFound": "No se encontró el proveedor."
   },
   "summary": {
     "balance": "Saldo",
     "overdue": "Vencido",
     "current": "A vencer",
-    "weOwe": "Le debemos",
-    "inOurFavour": "Saldo a favor",
     "settled": "Sin deuda",
     "overdueHint": "Deuda con fecha de vencimiento ya pasada",
     "currentHint": "Deuda que todavía no venció o no tiene vencimiento",
@@ -26,7 +24,9 @@
       "d31_60": "31 a 60 días",
       "d61_90": "61 a 90 días",
       "d90plus": "Más de 90 días"
-    }
+    },
+    "owed": "Le debemos",
+    "inFavour": "Saldo a favor"
   },
   "filters": {
     "from": "Desde",

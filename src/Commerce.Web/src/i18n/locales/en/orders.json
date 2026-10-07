@@ -119,7 +119,8 @@
       "replay": "This order was already registered: it was not duplicated.",
       "customer": "Customer: {{name}}",
       "total": "Total: {{total}}",
-      "newOrder": "New order"
+      "newOrder": "New order",
+      "viewOrders": "View orders"
     }
   },
   "lineEditor": {

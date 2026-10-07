@@ -165,7 +165,7 @@ public sealed class GuestOrderingTests : IDisposable
         var priceListStore = new PostgresPriceListStore(_dataSource!);
         await priceListStore.AppendEntryAsync(
             scope,
-            new NewPriceListEntry(Guid.NewGuid(), priceListId, presentationId, unitPrice, effectiveFrom ?? DateOnly.FromDateTime(DateTime.UtcNow), "Manual", ImportBatchId: null, actorId),
+            new NewPriceListEntry(Guid.NewGuid(), priceListId, presentationId, unitPrice, effectiveFrom ?? Commerce.Application.Time.BusinessClock.System.Today, "Manual", ImportBatchId: null, actorId),
             "org-user", actorId, CancellationToken.None);
     }
 

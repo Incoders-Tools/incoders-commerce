@@ -17,7 +17,7 @@ public partial class TenderWindow : Window
     private readonly string _method;
     private readonly decimal _total;
 
-    public TenderWindow(string method, decimal total)
+    public TenderWindow(string method, decimal total, string? customerName = null, string? dueText = null)
     {
         InitializeComponent();
 
@@ -31,6 +31,17 @@ public partial class TenderWindow : Window
             ConfirmButton.Content = "Confirmar cobro";
             ConfirmButton.IsEnabled = false;
             Loaded += (_, _) => AmountReceivedTextBox.Focus();
+        }
+        else if (method == SaleTender.Account)
+        {
+            Title = HeadingText.Text = "Venta a cuenta corriente";
+            CashPanel.Visibility = Visibility.Collapsed;
+            InstructionText.Visibility = Visibility.Visible;
+            InstructionText.Text =
+                $"No se cobra ahora: el total se carga a la cuenta corriente de {customerName ?? "el cliente"} y queda pendiente de pago. " +
+                "No entra en el efectivo de la caja." + (dueText is null ? string.Empty : $" {dueText}");
+            ConfirmButton.Content = "Confirmar venta a cuenta";
+            Loaded += (_, _) => ConfirmButton.Focus();
         }
         else
         {
@@ -92,7 +103,12 @@ public partial class TenderWindow : Window
         }
         else
         {
-            Tender = _method == SaleTender.Card ? SaleTenderRules.Card() : SaleTenderRules.Qr();
+            Tender = _method switch
+            {
+                SaleTender.Card => SaleTenderRules.Card(),
+                SaleTender.Account => SaleTenderRules.Account(),
+                _ => SaleTenderRules.Qr(),
+            };
         }
 
         DialogResult = true;

@@ -73,6 +73,11 @@
     "country": {
       "label": "Country",
       "hint": "The provinces and cities offered in forms are this country's."
+    },
+    "paymentTerms": {
+      "label": "General payment term (days)",
+      "hint": "How many days a customer has to pay a sale on current account. It applies to every customer without a term of their own (set on the customer form). With 0 the sale is due the same day. Due dates and days overdue are computed from it.",
+      "invalid": "The general payment term must be a whole number from 0 to 365 days."
     }
   }
 }

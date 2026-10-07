@@ -100,8 +100,30 @@ Stock is cloud-authoritative and derived (`SUM(stock_movements.quantity)`). When
 - a line whose presentation the branch catalog does not know, or whose quantity is not positive, is skipped with a
   logged warning; the other lines and the sale itself are still ingested. Any failure of the stock projection is
   contained by the savepoint and never blocks ingestion (same rule as the sale number);
-- there is no sale void/return payload kind today, so no compensating movement exists. When one is added, it
-  writes `PosSaleVoid` movements (a `Reversal` of the sale movement) idempotently on the same key scheme.
+- a voided sale arrives as its own `sale.voided` envelope (`SaleVoidedPayloadV1`; the terminal voids only sales of
+  its open cash session, authorized with the branch PIN). `PosSaleVoidProjection` records it in the append-only
+  `pos_sale_voids` (0044), audits `sale.voided`, and writes one `Reversal` movement of source `PosSaleVoid` per
+  original `PosSale` movement, on the same line key, so a redelivery is a no-op. A void ingested before its sale
+  (the sale's push failed and was retried) reverses nothing, and the sale then moves no stock at all;
+- the terminal pushes its outbox in the order it was written (`occurred_at_utc`, then insertion), so a sale normally
+  travels before its void.
+
+### Money envelopes (branch -> cloud)
+
+Besides the sale, the terminal pushes what moves money outside the sale itself. Each is projected into the company
+treasury (`treasury_accounts` / `treasury_movements`, 0046-0047) in the inbox transaction, keyed by its own id so a
+redelivery is a no-op, inside a savepoint that never blocks ingestion:
+
+- `customer-payment.received` / `customer-payment.voided` (`CustomerPaymentProjection`): a customer pays current
+  account debt at the counter. Credit on the customer's account, money In the branch account of its method; the void
+  reverses both.
+- `cash-movement.recorded` (`CashMovementRecordedPayloadV1`, `CashDrawerProjection`): money taken out of the drawer (a
+  withdrawal, authorized with the branch PIN) or put into it, outside a sale. To or from the branch safe it is a
+  `Transfer` between the branch Cash and Safe accounts; otherwise a `CashWithdrawal` Out or `CashDeposit` In of the Cash
+  account. Audited as `cash-movement.recorded`. Not voidable: a mistake is corrected with the opposite movement.
+- `cash-session.closed` with a non-zero `Difference`: a `CashCountDifference` movement of the branch Cash account (the
+  surplus In, the shortage Out), so the treasury follows the cash actually counted. The payload also carries
+  `CashWithdrawn` / `CashDeposited`, part of `ExpectedCash`.
 
 
 ### Stock replica channel (cloud -> branch)
@@ -163,6 +185,12 @@ Branch (same RunSyncAsync sweep): ONE tx REPLACE price_lists_replica, price_list
   catalog and removes the need for removal bookkeeping; if it grows, add a version token and answer 304.
 - Offline: a failed pull (unreachable, non-2xx, empty body) leaves everything as it was and the stale replica still prices.
   A branch that never synced this channel has no lists and the POS prices from the single `price_replica` list, as before.
+- The snapshot also carries what the counter needs beyond prices, all complete every time: `customerDiscounts`,
+  `customerBalances` / `customerPaymentTerms` / `defaultCustomerPaymentTermsDays` (collecting and due dates at the POS),
+  and `categories` (`{ id, name, iconKey, showInPos, posSortOrder }`, 0049). The POS keeps the categories in
+  `categories_replica` and builds its category rail from it at startup (no network): the ones with `showInPos`, by
+  `posSortOrder` then name, with or without products. A server that sends no `categories` leaves the replica as it was; a
+  terminal that never received them falls back to the local catalog's categories.
 - POS resolution runs the SAME compiled code as the cloud: `BuyerPriceListSelector` picks the list (walk-in -> branch default
   list; customer -> its list, else the organization default customer list, else the branch default; a list absent from the
   replica is skipped) and `PricingResolutionService` runs over per-list ports (`ReplicaListPriceSource`,

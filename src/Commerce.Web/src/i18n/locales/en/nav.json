@@ -17,7 +17,13 @@
     "branches": "Branches",
     "priceLists": "Price lists",
     "organizations": "Organizations",
-    "settings": "Settings"
+    "settings": "Settings",
+    "deliveries": "Delivery runs",
+    "treasury": "Treasury",
+    "treasuryAccountTypes": "Account types",
+    "employees": "Staff",
+    "payroll": "Payroll",
+    "employeeRoles": "Positions"
   },
   "sections": {
     "operations": "Operations",

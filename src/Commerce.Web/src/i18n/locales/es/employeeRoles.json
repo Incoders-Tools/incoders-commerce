@@ -1,0 +1,56 @@
+{
+  "title": "Puestos",
+  "description": "Los puestos del personal (carnicero, cajero, repartidor…). Se eligen en la ficha de cada empleado.",
+  "columns": {
+    "name": "Nombre",
+    "key": "Clave",
+    "sortOrder": "Orden",
+    "status": "Estado",
+    "createdAt": "Creación",
+    "updatedAt": "Última modificación"
+  },
+  "status": {
+    "active": "Activo",
+    "inactive": "Inactivo",
+    "all": "Todos",
+    "filterLabel": "Estado"
+  },
+  "actions": {
+    "create": "Nuevo puesto",
+    "edit": "Editar",
+    "deactivate": "Desactivar",
+    "activate": "Activar"
+  },
+  "search": {
+    "label": "Buscar puestos",
+    "placeholder": "Buscar por nombre o clave…"
+  },
+  "empty": {
+    "none": "Todavía no hay puestos.",
+    "noMatch": "Ningún puesto coincide con esta búsqueda.",
+    "loadError": "No se pudieron cargar los puestos."
+  },
+  "form": {
+    "createTitle": "Nuevo puesto",
+    "editTitle": "Editar puesto",
+    "description": "Nombre, clave y orden con el que aparece en las listas.",
+    "backLabel": "Volver a los puestos",
+    "name": "Nombre",
+    "key": "Clave",
+    "keyHint": "Identificador corto; si se deja vacío se genera a partir del nombre.",
+    "sortOrder": "Orden",
+    "isActive": "Activo",
+    "createdAt": "Creado: {{date}}",
+    "updatedAt": "Actualizado: {{date}}",
+    "save": "Guardar",
+    "saving": "Guardando…",
+    "cancel": "Cancelar"
+  },
+  "errors": {
+    "unableToLoad": "No se pudieron cargar los puestos.",
+    "unableToSave": "No se pudo guardar el puesto.",
+    "unableToUpdate": "No se pudo actualizar el estado.",
+    "nameInUse": "Ya existe un puesto con ese nombre.",
+    "keyInUse": "Ya existe un puesto con esa clave."
+  }
+}

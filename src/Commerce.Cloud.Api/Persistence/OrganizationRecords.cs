@@ -46,7 +46,15 @@ public sealed record OrganizationBranding(string? LogoUrl, string? PrimaryColor)
 /// The third is the organization's country (`countries.code`, admin-console-field-fixes; Argentina by default): the
 /// customer form lists its provinces.
 /// </summary>
-public sealed record OrganizationSettings(string QuantityDecimalSeparator, Guid? DefaultCustomerPriceListId = null, string CountryCode = OrganizationSettings.DefaultCountryCode)
+/// <remarks>
+/// <c>DefaultCustomerPaymentTermsDays</c>: the days a customer without payment terms of its own has to pay a sale or
+/// delivery on current account (<see cref="Commerce.Domain.CurrentAccounts.PaymentTerms"/>), 0 to 365.
+/// </remarks>
+public sealed record OrganizationSettings(
+    string QuantityDecimalSeparator,
+    Guid? DefaultCustomerPriceListId = null,
+    string CountryCode = OrganizationSettings.DefaultCountryCode,
+    int DefaultCustomerPaymentTermsDays = Commerce.Domain.CurrentAccounts.PaymentTerms.DefaultDays)
 {
     public const string Comma = "Comma";
     public const string Dot = "Dot";

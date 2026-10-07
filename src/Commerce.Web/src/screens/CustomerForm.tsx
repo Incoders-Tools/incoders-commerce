@@ -40,6 +40,8 @@ interface CustomerFormProps {
   provinces?: GeoProvince[]
   /** The organization's default customer list: preselected for a new customer. */
   defaultPriceListId?: string | null
+  /** The organization's general payment term in days, shown as the fallback of an empty customer term. */
+  defaultPaymentTermsDays?: number | null
   onSaved: () => void
   onCancel: () => void
   /** Called with the freshly read customer after a modification conflict; the parent re-renders the form with it. */
@@ -81,6 +83,7 @@ export function CustomerForm({
   priceLists = [],
   provinces = [],
   defaultPriceListId = null,
+  defaultPaymentTermsDays = null,
   onSaved,
   onCancel,
   onReload,
@@ -145,6 +148,10 @@ export function CustomerForm({
       : '',
   )
   const [paymentTerms, setPaymentTerms] = useState(customer?.paymentTerms ?? '')
+  const [paymentTermsDaysError, setPaymentTermsDaysError] = useState<string | null>(null)
+  const [paymentTermsDays, setPaymentTermsDays] = useState(
+    customer?.paymentTermsDays !== null && customer?.paymentTermsDays !== undefined ? String(customer.paymentTermsDays) : '',
+  )
   const [notes, setNotes] = useState(customer?.notes ?? '')
   const [isEnabled, setIsEnabled] = useState(customer?.isEnabled ?? true)
   const [error, setError] = useState<string | null>(null)
@@ -198,6 +205,13 @@ export function CustomerForm({
       return
     }
     setTaxIdError(null)
+    const termsText = paymentTermsDays.trim()
+    const terms = Number(termsText)
+    if (termsText !== '' && (!Number.isInteger(terms) || terms < 0 || terms > 365)) {
+      setPaymentTermsDaysError(t('form.paymentTermsDays.invalid'))
+      return
+    }
+    setPaymentTermsDaysError(null)
     setSubmitting(true)
     try {
       const shared = {
@@ -224,6 +238,12 @@ export function CustomerForm({
         deliveryNotes: deliveryNotes || null,
         discountPercentage: discountPercentage === '' ? null : Number(discountPercentage),
         paymentTerms: paymentTerms || null,
+        // Empty = the organization's general term: on PUT that is the -1 sentinel, on create the value is left out.
+        ...(paymentTermsDays.trim() !== ''
+          ? { paymentTermsDays: Number(paymentTermsDays) }
+          : isEdit
+            ? { paymentTermsDays: -1 }
+            : {}),
         notes: notes || null,
       }
 
@@ -487,7 +507,30 @@ export function CustomerForm({
             onChange={setDiscountPercentage}
             type="number"
           />
-          <Field id="paymentTerms" label={t('form.fields.paymentTerms')} value={paymentTerms} onChange={setPaymentTerms} />
+          <Field
+            id="paymentTermsDays"
+            label={t('form.fields.paymentTermsDays')}
+            value={paymentTermsDays}
+            onChange={setPaymentTermsDays}
+            type="number"
+            step="1"
+            inputMode="numeric"
+            placeholder={
+              defaultPaymentTermsDays === null
+                ? t('form.paymentTermsDays.placeholderUnknown')
+                : t('form.paymentTermsDays.placeholder', { days: defaultPaymentTermsDays })
+            }
+            hint={t('form.paymentTermsDays.hint')}
+            error={paymentTermsDaysError}
+          />
+          <Field
+            id="paymentTerms"
+            label={t('form.fields.paymentTerms')}
+            value={paymentTerms}
+            onChange={setPaymentTerms}
+            placeholder={t('form.paymentTermsNote.placeholder')}
+            hint={t('form.paymentTermsNote.hint')}
+          />
 
           {isEdit && (
             <div className="flex items-center gap-2">

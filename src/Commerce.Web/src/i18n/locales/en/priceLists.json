@@ -38,7 +38,7 @@
   "actions": {
     "managePrices": "Manage prices",
     "composition": "Composition",
-    "copy": "Copy list"
+    "copy": "Duplicate list"
   },
   "editor": {
     "listLabel": "Price list",
@@ -55,13 +55,21 @@
     "allCategories": "All categories",
     "effectiveFromLabel": "Effective from",
     "effectiveFromToday": "Today (business day)",
-    "effectiveFromHint": "Empty: today (business day).",
+    "effectiveFromHint": "Effective from: empty = today (business day). Published prices apply from that date.",
     "remark": {
       "label": "Remark %",
       "placeholder": "E.g. 10 or -5",
       "apply": "Apply",
-      "hint": "Applies to the base price of the selected rows or, when none is selected, of every visible row. Review the preview before publishing.",
-      "invalid": "Enter a percentage greater than -100."
+      "hint": "Applies to the base price. Products without a price are not remarked. Check the preview before publishing.",
+      "invalid": "Enter a percentage greater than -100.",
+      "scope": {
+        "selected_one": "Applies to {{count}} selected product.",
+        "selected_other": "Applies to the {{count}} selected products.",
+        "filtered_one": "Applies to {{count}} product: the one the filter shows.",
+        "filtered_other": "Applies to the {{count}} products the filter shows (hidden ones do not change).",
+        "all_one": "Applies to {{count}} product of the list.",
+        "all_other": "Applies to the {{count}} products of the list."
+      }
     },
     "columns": {
       "product": "Product",
@@ -102,7 +110,22 @@
       "message_other": "You have {{count}} unpublished changes. Discard them?",
       "confirm": "Discard",
       "keepEditing": "Keep editing"
-    }
+    },
+    "composition": {
+      "label": "Composition:",
+      "loading": "Loading the composition…",
+      "edit": "Edit composition",
+      "publishFirst": "Publish or undo the changes before editing the composition."
+    },
+    "priceFilter": {
+      "label": "Price in the list",
+      "all": "All",
+      "missing_one": "Without price ({{count}})",
+      "missing_other": "Without price ({{count}})",
+      "priced": "With price"
+    },
+    "newFinal": "Final: {{price}}",
+    "finalChange": "Final: {{from}} → {{to}}"
   },
   "suppliersPlaceholder": "Supplier mappings (column mapping for Excel imports) land here in a future release — the `supplier_price_mappings` table does not exist yet.",
   "history": {
@@ -169,7 +192,7 @@
     "historyTitle": "Composition history",
     "historyEmpty": "There are no earlier versions yet.",
     "historyLine": "From {{date}}: {{summary}}",
-    "copied": "List created. Prices copied: {{count}}.",
+    "copied": "List duplicated. Prices included: {{count}}.",
     "columns": {
       "code": "Code",
       "product": "Product",
@@ -217,17 +240,17 @@
     }
   },
   "copyForm": {
-    "title": "Copy {{name}}",
+    "title": "Duplicate {{name}}",
     "description": "Creates a new list with this list's base prices and its composition with a different markup. The source list does not change.",
     "name": "New list name",
     "markup": "Markup %",
-    "markupHint": "Replaces the markup of the copied composition.",
+    "markupHint": "Replaces the markup of the duplicated composition.",
     "effectiveFrom": "Effective from",
     "floor": "Floor of the new list",
     "floorKeep": "Keep the source list's floor",
     "floorNone": "No floor",
-    "submit": "Create copy",
-    "submitting": "Copying…",
+    "submit": "Duplicate list",
+    "submitting": "Duplicating…",
     "cancel": "Cancel",
     "errors": {
       "nameTaken": "A list with that name already exists.",

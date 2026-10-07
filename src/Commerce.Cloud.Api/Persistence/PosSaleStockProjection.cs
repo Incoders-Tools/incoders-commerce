@@ -21,8 +21,8 @@ namespace Commerce.Cloud.Api.Persistence;
 /// NOTHING here may block ingestion (same rule as the sale number): the whole projection runs in its own savepoint and a
 /// failure is logged and contained. A line whose presentation the branch catalog does not know, or whose quantity is not
 /// positive, is skipped with a warning (it cannot satisfy the ledger's foreign key / sign rule) while the other lines
-/// still move stock. Sale cancellations/voids have no sync payload today, so there is no compensating movement here
-/// (`PosSaleVoid` is reserved for when they exist).
+/// still move stock. A voided sale's stock is put back by <see cref="PosSaleVoidProjection"/> (source `PosSaleVoid`), and a
+/// sale whose void was ingested first moves no stock here.
 /// </para>
 /// </summary>
 internal static class PosSaleStockProjection
@@ -77,6 +77,13 @@ internal static class PosSaleStockProjection
     {
         // The stock ledger is branch-scoped (RLS on app.current_branch_id): the envelope names its branch.
         await TenantScopeSql.ApplyAsync(connection, tx, envelope.OrganizationId, envelope.BranchId, ct);
+
+        // The void arrived first (this sale's push had failed and was retried): the sale never moves stock at all.
+        if (await PosSaleVoidProjection.IsVoidedAsync(connection, tx, payload.SaleId, ct))
+        {
+            logger?.LogInformation("Sale {SaleId} is already voided: no stock movements written", payload.SaleId);
+            return;
+        }
 
         foreach (var line in payload.Lines)
         {

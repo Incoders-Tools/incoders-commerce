@@ -15,8 +15,9 @@ const OPTIONS: { value: Theme; labelKey: 'light' | 'dark' | 'custom'; Icon: Comp
 ]
 
 /**
- * Vercel-style 3-option segmented theme switcher. Mounted in AppLayout's
- * header for now (T3 will move it into an account dropdown menu).
+ * 3-option segmented theme switcher, mounted in the account menu. Three equal
+ * columns over the menu's full width, icon above label, so the longest label
+ * ("Personalizado") fits instead of being clipped by the menu's edge.
  */
 export function ThemeSwitcher() {
   const { t } = useTranslation('theme')
@@ -28,7 +29,7 @@ export function ThemeSwitcher() {
     <div
       role="radiogroup"
       aria-label={t('label')}
-      className="inline-flex items-center gap-0.5 rounded-md border border-border bg-muted p-0.5"
+      className="grid w-full grid-cols-3 gap-0.5 rounded-md border border-border bg-muted p-0.5"
     >
       {OPTIONS.map(({ value, labelKey, Icon }) => {
         const selected = theme === value
@@ -48,14 +49,14 @@ export function ThemeSwitcher() {
             title={disabled ? t('noCustomColorExplanation') : undefined}
             onClick={() => setTheme(value)}
             className={cn(
-              'inline-flex h-7 items-center gap-1.5 rounded-sm px-2.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+              'flex min-w-0 flex-col items-center justify-center gap-1 rounded-sm px-1 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50',
               selected
                 ? 'bg-background text-foreground shadow-sm'
                 : 'text-muted-foreground hover:text-foreground',
             )}
           >
             <Icon aria-hidden="true" className="size-3.5 shrink-0" />
-            <span>{label}</span>
+            <span className="max-w-full truncate">{label}</span>
           </button>
         )
       })}

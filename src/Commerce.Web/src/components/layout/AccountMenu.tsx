@@ -65,7 +65,7 @@ export function AccountMenu() {
         <div
           role="menu"
           aria-label={t('account.label')}
-          className="absolute right-0 top-full z-50 mt-2 w-60 overflow-hidden rounded-md border border-border bg-card text-card-foreground shadow-md"
+          className="absolute right-0 top-full z-50 mt-2 w-72 overflow-hidden rounded-md border border-border bg-card text-card-foreground shadow-md"
         >
           <div className="border-b border-border px-3 py-2">
             <p className="truncate text-sm font-medium text-foreground">{user!.displayName}</p>

@@ -37,7 +37,8 @@ public sealed record NewCustomer(
     Guid? BusinessTypeId = null,
     IReadOnlyList<CustomerContactInput>? Contacts = null,
     Guid? PriceListId = null,
-    PartyType? PartyType = null);
+    PartyType? PartyType = null,
+    int? PaymentTermsDays = null);
 
 /// <summary>
 /// One contact person of a customer as written by create/update. `Id` is null for
@@ -103,7 +104,8 @@ public sealed record UpdateCustomer(
     IReadOnlyList<CustomerContactInput>? Contacts = null,
     DateTimeOffset? ExpectedUpdatedAtUtc = null,
     ColumnChange<Guid?>? PriceList = null,
-    PartyType? PartyType = null);
+    PartyType? PartyType = null,
+    ColumnChange<int?>? PaymentTermsDays = null);
 
 /// <summary>
 /// Thrown by <see cref="PostgresCustomerStore.UpdateAsync"/> when the update
@@ -159,7 +161,8 @@ public sealed record CustomerRecord(
     string? ProvinceName = null,
     Guid? PriceListId = null,
     string? PriceListName = null,
-    [property: JsonConverter(typeof(JsonStringEnumConverter))] PartyType PartyType = PartyType.Person)
+    [property: JsonConverter(typeof(JsonStringEnumConverter))] PartyType PartyType = PartyType.Person,
+    int? PaymentTermsDays = null)
 {
     /// <summary>The customer's contact people (never null), primary first by flag, ordered by `sortOrder`.</summary>
     public IReadOnlyList<CustomerContactRecord> Contacts { get; init; } = [];
@@ -171,8 +174,9 @@ public sealed record CustomerListFilter(string? Search = null, Guid? CityId = nu
 /// <summary>
 /// Minimum viable pull projection for `GET /device/customers/sync` (Unit 6;
 /// design.md "BranchNode cloud->local customer replication"). Deliberately a
-/// PROJECTION, not the full aggregate — `Notes`/`DiscountPercentage`/
-/// `PaymentTerms` never leave the server.
+/// PROJECTION, not the full aggregate — `Notes`/`PaymentTerms` never leave
+/// the server. `DiscountPercentage` is a pricing input, so it travels with the
+/// `price-lists` snapshot (<see cref="CustomerDiscountAssignment"/>), not here.
 /// </summary>
 public sealed record CustomerReplicaRow(
     Guid CustomerId,
@@ -185,3 +189,9 @@ public sealed record CustomerReplicaRow(
 
 /// <summary>One customer and the price list it is priced from (`price-lists` replica snapshot).</summary>
 public sealed record CustomerPriceListAssignment(Guid CustomerId, Guid PriceListId);
+
+/// <summary>One customer and its own payment terms in days (`price-lists` replica snapshot).</summary>
+public sealed record CustomerTermsAssignment(Guid CustomerId, int Days);
+
+/// <summary>One customer and its own discount percentage, applied after the list composition (`price-lists` replica snapshot).</summary>
+public sealed record CustomerDiscountAssignment(Guid CustomerId, decimal DiscountPercentage);

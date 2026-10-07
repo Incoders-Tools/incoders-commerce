@@ -37,7 +37,8 @@ public sealed record PaymentOutboxRow(
 /// One row of the minimum-viable cloud->local customer replica (Unit 6;
 /// commerce-customer-identity design.md "BranchNode cloud->local customer
 /// replication"). A projection, not the full aggregate — `Notes`/
-/// `DiscountPercentage`/`PaymentTerms` never leave the server.
+/// `PaymentTerms` never leave the server; `DiscountPercentage` arrives with the
+/// `price-lists` snapshot (<see cref="CustomerDiscountReplica"/>).
 /// `OrganizationId` is stamped by the caller (the terminal's own paired
 /// organization), not carried on the wire DTO.
 /// </summary>
@@ -258,6 +259,10 @@ public sealed partial class BranchSyncStore : IDisposable
         EnsureTenderStorageExists();
         EnsureCashSessionStorageExists();
         EnsureOrganizationSettingsReplicaExists();
+        EnsureSaleHistoryStorageExists();
+        EnsureCustomerPaymentStorageExists();
+        EnsureCashMovementStorageExists();
+        EnsureCategoryStorageExists();
     }
 
     /// <summary>
@@ -730,7 +735,8 @@ public sealed partial class BranchSyncStore : IDisposable
                 SELECT operation_id, branch_id, organization_id, aggregate_id, aggregate_version,
                        actor_id, correlation_id, occurred_at_utc, payload_kind, payload
                 FROM sync_outbox
-                WHERE branch_id = $branchId AND status = 'Pending';
+                WHERE branch_id = $branchId AND status = 'Pending'
+                ORDER BY occurred_at_utc, rowid;
                 """;
             command.Parameters.AddWithValue("$branchId", branchId.ToString());
 
@@ -866,7 +872,17 @@ public sealed partial class BranchSyncStore : IDisposable
             ? null
             : DateTimeOffset.Parse((string)lastAckRaw);
 
-        return new SyncStatusSnapshot(branchId, lastAcknowledgedUtc, pendingCount, isOffline);
+        // The last time the cloud snapshot was applied locally (the pull side of a sync), which a sync with nothing to
+        // send still moves.
+        using var downloadCommand = _connection.CreateCommand();
+        downloadCommand.CommandText = "SELECT last_synced_utc FROM sync_cursors WHERE channel = $channel;";
+        downloadCommand.Parameters.AddWithValue("$channel", "price-lists-applied-local");
+        DateTimeOffset? lastDownloadedUtc = downloadCommand.ExecuteScalar() is string downloaded
+            && DateTimeOffset.TryParse(downloaded, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var parsed)
+                ? parsed
+                : null;
+
+        return new SyncStatusSnapshot(branchId, lastAcknowledgedUtc, pendingCount, isOffline, lastDownloadedUtc);
     }
 
     // --- Minimum-viable cloud->local customer replica (Unit 6) --------------
@@ -1149,7 +1165,7 @@ public sealed partial class BranchSyncStore : IDisposable
     }
 
     /// <summary>Lower-cases and strips diacritics so "Café" and "CAFE" compare equal.</summary>
-    internal static string FoldText(string? value)
+    public static string FoldText(string? value)
     {
         if (string.IsNullOrEmpty(value))
         {

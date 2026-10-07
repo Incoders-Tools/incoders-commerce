@@ -88,13 +88,24 @@ public sealed class SaleCart : INotifyPropertyChanged
     /// <summary>"Lista: Mostrador" (with a note when the customer's own list is not available here), or null.</summary>
     public string? PriceListLabel => _pricing.Label;
 
+    /// <summary>The buyer's own discount percentage, already inside every price of the sale; null when it has none.</summary>
+    public decimal? CustomerDiscountPercent => _pricing.CustomerDiscountPercent;
+
+    /// <summary>The explanation of the customer's discount for the operator, or null.</summary>
+    public string? CustomerDiscountNote => _pricing.CustomerDiscountNote;
+
+    /// <summary>"Desc. cliente 10 %", or null.</summary>
+    public string? CustomerDiscountShortText => _pricing.CustomerDiscountShortText;
+
     /// <summary>
-    /// The unit price the current buyer's list gives <paramref name="presentationId"/> for one unit (no discount), for the
-    /// catalog cards; null when that list has no price for it. Never a zero.
+    /// The unit price the current buyer gets for <paramref name="presentationId"/> for one unit, for the catalog cards: the
+    /// buyer's list price after the customer's own discount (no line or sale discount); null when that list has no price
+    /// for it. Never a zero.
     /// </summary>
     public async Task<decimal?> QuoteUnitPriceAsync(Guid presentationId)
     {
-        var outcome = await _pricing.Service.ResolveAsync(presentationId, 1m, discountPercentage: null, _today(), CancellationToken.None);
+        var outcome = await _pricing.Service.ResolveAsync(
+            presentationId, 1m, _pricing.CustomerDiscountPercent, _today(), CancellationToken.None);
         return outcome is PriceResolutionOutcome.Resolved resolved ? resolved.UnitNetPrice : null;
     }
 
@@ -104,7 +115,9 @@ public sealed class SaleCart : INotifyPropertyChanged
     /// percentages) and their amounts are recomputed over the new totals. If the new list has no price for some line the
     /// change is refused with the names of those products and nothing changes: no line is ever left at a zero or at the
     /// price of the other list. customer-price-lists T6: "no price in the new list" means no price in it AND in the
-    /// default list; a line only the default list (Mostrador) prices is re-priced from it and noted as such.
+    /// default list; a line only the default list (Mostrador) prices is re-priced from it and noted as such. The new buyer's
+    /// own discount (or its absence) replaces the previous one's in every line: it is part of the price, not a discount the
+    /// operator authorized.
     /// </summary>
     public async Task<SaleCartResult> SetCustomerAsync(Guid? customerId)
     {
@@ -114,7 +127,8 @@ public sealed class SaleCart : INotifyPropertyChanged
         var unpriced = new List<string>();
         foreach (var line in Lines.ToList())
         {
-            var outcome = await pricing.Service.ResolveAsync(line.PresentationId, line.Quantity, discountPercentage: null, effectiveOn, CancellationToken.None);
+            var outcome = await pricing.Service.ResolveAsync(
+                line.PresentationId, line.Quantity, pricing.CustomerDiscountPercent, effectiveOn, CancellationToken.None);
             if (outcome is not PriceResolutionOutcome.Resolved resolved)
             {
                 unpriced.Add($"{line.ProductName} — {line.PresentationName}");
@@ -376,7 +390,8 @@ public sealed class SaleCart : INotifyPropertyChanged
         Guid presentationId, string? code, string productName, string presentationName, string quantityBehavior, decimal quantity)
     {
         var effectiveOn = _today();
-        var outcome = await _pricing.Service.ResolveAsync(presentationId, quantity, discountPercentage: null, effectiveOn, CancellationToken.None);
+        var outcome = await _pricing.Service.ResolveAsync(
+            presentationId, quantity, _pricing.CustomerDiscountPercent, effectiveOn, CancellationToken.None);
         if (outcome is not PriceResolutionOutcome.Resolved resolved)
         {
             return SaleCartResult.Fail(
@@ -422,7 +437,7 @@ public sealed class SaleCart : INotifyPropertyChanged
 
     private void RaiseChanged()
     {
-        foreach (var name in new[] { nameof(Total), nameof(Subtotal), nameof(DiscountTotal), nameof(HasDiscount), nameof(IsEmpty), nameof(PriceListLabel), nameof(CustomerId) })
+        foreach (var name in new[] { nameof(Total), nameof(Subtotal), nameof(DiscountTotal), nameof(HasDiscount), nameof(IsEmpty), nameof(PriceListLabel), nameof(CustomerId), nameof(CustomerDiscountPercent), nameof(CustomerDiscountNote), nameof(CustomerDiscountShortText) })
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
         }

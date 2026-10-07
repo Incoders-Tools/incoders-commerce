@@ -51,7 +51,7 @@ export function FormPage({ title, description, onBack, backLabel, children, foot
         </div>
       </div>
 
-      <div className="w-full">{children}</div>
+      <div className="flex w-full flex-col gap-4">{children}</div>
 
       {footer && <div className="flex items-center gap-2 border-t border-border pt-4">{footer}</div>}
     </section>

@@ -21,6 +21,9 @@
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
                     <TextBlock Grid.Row="0" Text="Cantidad de ventas" Style="{StaticResource MutedTextBlock}" Margin="0,0,0,6" />
                     <TextBlock x:Name="SaleCountText" Grid.Row="0" Grid.Column="1" Text="0" FontWeight="SemiBold" Margin="0,0,0,6" />
@@ -28,8 +31,17 @@
                     <TextBlock x:Name="CardTotalText" Grid.Row="1" Grid.Column="1" Text="$0.00" FontWeight="SemiBold" Margin="0,0,0,6" />
                     <TextBlock Grid.Row="2" Text="Total con QR" Style="{StaticResource MutedTextBlock}" Margin="0,0,0,6" />
                     <TextBlock x:Name="QrTotalText" Grid.Row="2" Grid.Column="1" Text="$0.00" FontWeight="SemiBold" Margin="0,0,0,6" />
-                    <TextBlock Grid.Row="3" Text="Efectivo esperado" FontSize="16" FontWeight="SemiBold" Style="{StaticResource MutedTextBlock}" VerticalAlignment="Center" />
-                    <TextBlock x:Name="ExpectedCashText" Grid.Row="3" Grid.Column="1" Text="$0.00" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource AccentTextBrush}" />
+                    <TextBlock Grid.Row="3" Text="Total a cuenta corriente" Style="{StaticResource MutedTextBlock}" Margin="0,0,0,6"
+                               ToolTip="Ventas cargadas a la cuenta corriente de clientes: no entran en la caja" />
+                    <TextBlock x:Name="AccountTotalText" Grid.Row="3" Grid.Column="1" Text="$0.00" FontWeight="SemiBold" Margin="0,0,0,6" />
+                    <TextBlock Grid.Row="4" Text="Cobros de cuenta corriente" Style="{StaticResource MutedTextBlock}" Margin="0,0,0,6"
+                               ToolTip="Pagos de clientes a su cuenta corriente: los de efectivo suman al efectivo esperado" />
+                    <TextBlock x:Name="CollectionsText" Grid.Row="4" Grid.Column="1" Text="$0.00" FontWeight="SemiBold" Margin="0,0,0,6" />
+                    <TextBlock Grid.Row="5" Text="Movimientos de caja" Style="{StaticResource MutedTextBlock}" Margin="0,0,0,6"
+                               ToolTip="Retiros (a la caja fuerte, al banco, gastos) e ingresos de efectivo fuera de una venta" />
+                    <TextBlock x:Name="CashMovementsText" Grid.Row="5" Grid.Column="1" Text="—" FontWeight="SemiBold" Margin="0,0,0,6" />
+                    <TextBlock Grid.Row="6" Text="Efectivo esperado" FontSize="16" FontWeight="SemiBold" Style="{StaticResource MutedTextBlock}" VerticalAlignment="Center" />
+                    <TextBlock x:Name="ExpectedCashText" Grid.Row="6" Grid.Column="1" Text="$0.00" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource AccentTextBrush}" />
                 </Grid>
                 <TextBlock x:Name="ExpectedBreakdownText" Style="{StaticResource MutedTextBlock}" FontSize="12" Margin="0,2,0,14" TextWrapping="Wrap" />
 

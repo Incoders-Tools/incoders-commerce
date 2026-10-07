@@ -168,7 +168,7 @@ public sealed class CatalogPriceSyncTests : IClassFixture<WebApplicationFactory<
         await priceListStore.AppendEntryAsync(
             tenantScope,
             new NewPriceListEntry(
-                Guid.NewGuid(), priceListId, presentationId, unitPrice, DateOnly.FromDateTime(DateTime.UtcNow),
+                Guid.NewGuid(), priceListId, presentationId, unitPrice, Commerce.Application.Time.BusinessClock.System.Today,
                 "Manual", ImportBatchId: null, actorId),
             "org-user", actorId, CancellationToken.None);
     }

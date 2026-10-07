@@ -51,7 +51,7 @@ public static class CatalogEndpoints
                 return branchFailure;
             }
 
-            var auth = await AuthorizeCallerAsync(httpContext, userStore, ct);
+            var auth = await AuthorizeCallerAsync(httpContext, userStore, ct, requireManage: false);
             if (auth is null)
             {
                 return Results.Forbid();
@@ -74,7 +74,7 @@ public static class CatalogEndpoints
                 return branchFailure;
             }
 
-            var auth = await AuthorizeCallerAsync(httpContext, userStore, ct);
+            var auth = await AuthorizeCallerAsync(httpContext, userStore, ct, requireManage: false);
             if (auth is null)
             {
                 return Results.Forbid();
@@ -261,7 +261,7 @@ public static class CatalogEndpoints
                 return branchFailure;
             }
 
-            var auth = await AuthorizeCallerAsync(httpContext, userStore, ct);
+            var auth = await AuthorizeCallerAsync(httpContext, userStore, ct, requireManage: false);
             if (auth is null)
             {
                 return Results.Forbid();
@@ -493,12 +493,12 @@ public static class CatalogEndpoints
     /// The <c>CustomerEndpoints.AuthorizeCallerAsync</c> shape, reused
     /// verbatim for this file's routes: caller id from the NameIdentifier
     /// claim, loaded through the store (never trusted from a claim alone),
-    /// not revoked, and holding <see cref="Permission.ManageCatalog"/>.
-    /// Returns <see langword="null"/> on ANY failure so every call site maps
+    /// not revoked, and holding <see cref="Permission.ManageCatalog"/> (a read
+    /// passes <c>requireManage: false</c>: any staff permission). Returns <see langword="null"/> on ANY failure so every call site maps
     /// uniformly to <see cref="Results.Forbid()"/>.
     /// </summary>
     private static async Task<(CloudTenantScope Scope, UserAccount Caller)?> AuthorizeCallerAsync(
-        HttpContext httpContext, PostgresUserAccountStore userStore, CancellationToken ct)
+        HttpContext httpContext, PostgresUserAccountStore userStore, CancellationToken ct, bool requireManage = true)
     {
         var scope = TenantScopeEndpointFilter.GetScope(httpContext);
 
@@ -509,7 +509,15 @@ public static class CatalogEndpoints
         }
 
         var caller = await userStore.LoadActorAsync(scope.IdentityScope, callerId, ct);
-        if (caller is null || caller.IsRevoked || !ActingPermissions.For(caller, scope).HasFlag(Permission.ManageCatalog))
+        if (caller is null || caller.IsRevoked)
+        {
+            return null;
+        }
+
+        // Reading the catalog is open to any staff role of the organization (a seller looks products up to take
+        // orders); creating, editing, deactivating or copying it needs ManageCatalog.
+        var permissions = ActingPermissions.For(caller, scope);
+        if (requireManage ? !permissions.HasFlag(Permission.ManageCatalog) : permissions == Permission.None)
         {
             return null;
         }

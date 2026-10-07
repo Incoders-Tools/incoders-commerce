@@ -33,6 +33,12 @@
                         <TextBlock Text="Venta" Style="{StaticResource NavLabel}" />
                     </StackPanel>
                 </Button>
+                <Button x:Name="SalesHistoryButton" Style="{StaticResource NavEntry}" Click="SalesButton_Click" AutomationProperties.Name="Ventas realizadas">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{StaticResource IconReceipt}" Style="{StaticResource NavIcon}" />
+                        <TextBlock Text="Ventas" Style="{StaticResource NavLabel}" />
+                    </StackPanel>
+                </Button>
                 <Button Style="{StaticResource NavEntry}" IsEnabled="False" ToolTip="Próximamente" ToolTipService.ShowOnDisabled="True" AutomationProperties.Name="Productos">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="{StaticResource IconProducts}" Style="{StaticResource NavIcon}" />
@@ -67,6 +73,13 @@
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="{StaticResource IconSettings}" Style="{StaticResource NavIcon}" />
                         <TextBlock Text="Configuración" Style="{StaticResource NavLabel}" />
+                    </StackPanel>
+                </Button>
+                <Button x:Name="CashMovementButton" Style="{StaticResource NavEntry}" Click="CashMovementButton_Click"
+                        ToolTip="Retirar dinero de la caja (a la caja fuerte, al banco, para un gasto) o ingresar dinero" AutomationProperties.Name="Movimiento de caja">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{StaticResource IconSync}" Style="{StaticResource NavIcon}" />
+                        <TextBlock Text="Movimiento de caja" Style="{StaticResource NavLabel}" />
                     </StackPanel>
                 </Button>
                 <Button x:Name="CloseCashButton" Style="{StaticResource NavEntry}" Click="CloseCashButton_Click" ToolTip="Contar el efectivo y cerrar la caja" AutomationProperties.Name="Cerrar Caja">

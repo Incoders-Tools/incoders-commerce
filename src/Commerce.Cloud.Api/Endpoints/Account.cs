@@ -502,7 +502,10 @@ public static class AccountEndpoints
         {
             var scope = TenantScopeEndpointFilter.GetScope(httpContext);
             var settings = await organizationStore.GetSettingsAsync(scope.OrganizationId, ct);
-            return settings is null ? Results.NotFound() : Results.Ok(new OrganizationSettingsResponse(settings.QuantityDecimalSeparator, settings.DefaultCustomerPriceListId, settings.CountryCode));
+            return settings is null
+                ? Results.NotFound()
+                : Results.Ok(new OrganizationSettingsResponse(
+                    settings.QuantityDecimalSeparator, settings.DefaultCustomerPriceListId, settings.CountryCode, settings.DefaultCustomerPaymentTermsDays));
         });
 
         ownOrganizationGroup.MapPut("/settings", async (UpdateOrganizationSettingsRequest request, HttpContext httpContext, PostgresUserAccountStore userStore, PostgresOrganizationStore organizationStore, CancellationToken ct) =>
@@ -519,7 +522,8 @@ public static class AccountEndpoints
             // The number format is required unless the call only changes other settings (the default customer price
             // list, the country).
             var changesOnlyOtherSettings = request.QuantityDecimalSeparator is null
-                && (request.DefaultCustomerPriceListId is not null || request.ClearDefaultCustomerPriceList || request.CountryCode is not null);
+                && (request.DefaultCustomerPriceListId is not null || request.ClearDefaultCustomerPriceList || request.CountryCode is not null
+                    || request.DefaultCustomerPaymentTermsDays is not null);
             if (!changesOnlyOtherSettings && !OrganizationSettings.IsValidQuantityDecimalSeparator(request.QuantityDecimalSeparator))
             {
                 return Results.ValidationProblem(new Dictionary<string, string[]> { ["quantityDecimalSeparator"] = ["quantityDecimalSeparator must be Comma or Dot."] });
@@ -540,10 +544,28 @@ public static class AccountEndpoints
             // customer-price-lists: the default list for customers. Absent = unchanged; a list id = set it;
             // clearDefaultCustomerPriceList = true = no default. The list must belong to this organization (foreign key).
             var priceListId = request.ClearDefaultCustomerPriceList ? null : request.DefaultCustomerPriceListId ?? current.DefaultCustomerPriceListId;
-            var settings = new OrganizationSettings(request.QuantityDecimalSeparator ?? current.QuantityDecimalSeparator, priceListId, countryCode ?? current.CountryCode);
+
+            // The default payment terms of customers: absent = unchanged, otherwise 0 to 365 days.
+            if (request.DefaultCustomerPaymentTermsDays is { } termsDays && !Commerce.Domain.CurrentAccounts.PaymentTerms.IsValidDays(termsDays))
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["defaultCustomerPaymentTermsDays"] = ["defaultCustomerPaymentTermsDays is between 0 and 365 days."],
+                });
+            }
+
+            var settings = new OrganizationSettings(
+                request.QuantityDecimalSeparator ?? current.QuantityDecimalSeparator, priceListId, countryCode ?? current.CountryCode,
+                request.DefaultCustomerPaymentTermsDays ?? current.DefaultCustomerPaymentTermsDays);
             var audit = new UserManagementAuditEntry(
                 "org-user", callerId, scope.OrganizationId, "organization", scope.OrganizationId, "organization.settings_updated", null,
-                JsonSerializer.Serialize(new { quantityDecimalSeparator = settings.QuantityDecimalSeparator, defaultCustomerPriceListId = settings.DefaultCustomerPriceListId, countryCode = settings.CountryCode }));
+                JsonSerializer.Serialize(new
+                {
+                    quantityDecimalSeparator = settings.QuantityDecimalSeparator,
+                    defaultCustomerPriceListId = settings.DefaultCustomerPriceListId,
+                    countryCode = settings.CountryCode,
+                    defaultCustomerPaymentTermsDays = settings.DefaultCustomerPaymentTermsDays,
+                }));
             try
             {
                 return await organizationStore.UpdateSettingsAsync(scope.OrganizationId, settings, audit, ct) ? Results.NoContent() : Results.NotFound();
@@ -1214,8 +1236,12 @@ public sealed record CreateOrganizationRequest(string OrganizationName, string? 
 public sealed record CreateOrganizationResponse(Guid OrganizationId, Guid BranchId, Guid UserId);
 public sealed record OrganizationBrandingResponse(string? LogoUrl, string? PrimaryColor);
 public sealed record UpdateOrganizationBrandingRequest(string? LogoUrl, string? PrimaryColor);
-public sealed record OrganizationSettingsResponse(string QuantityDecimalSeparator, Guid? DefaultCustomerPriceListId = null, string CountryCode = OrganizationSettings.DefaultCountryCode);
-public sealed record UpdateOrganizationSettingsRequest(string? QuantityDecimalSeparator, Guid? DefaultCustomerPriceListId = null, bool ClearDefaultCustomerPriceList = false, string? CountryCode = null);
+public sealed record OrganizationSettingsResponse(
+    string QuantityDecimalSeparator, Guid? DefaultCustomerPriceListId = null, string CountryCode = OrganizationSettings.DefaultCountryCode,
+    int DefaultCustomerPaymentTermsDays = Commerce.Domain.CurrentAccounts.PaymentTerms.DefaultDays);
+public sealed record UpdateOrganizationSettingsRequest(
+    string? QuantityDecimalSeparator, Guid? DefaultCustomerPriceListId = null, bool ClearDefaultCustomerPriceList = false, string? CountryCode = null,
+    int? DefaultCustomerPaymentTermsDays = null);
 
 public sealed record AssignRolesRequest(string[] RoleNames);
 public sealed record ReplaceBranchesRequest(Guid[] BranchIds);

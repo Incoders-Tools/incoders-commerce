@@ -118,6 +118,38 @@ public sealed class BusinessDayPricingTests : IClassFixture<WebApplicationFactor
     }
 
     [Fact]
+    public async Task TheReplica_SendsTheEnabledCustomersOwnDiscounts_AndNoZeroOrNullOne()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+        var w = await NewWorldAsync(); // its customer has no discount
+        var discounted = Guid.NewGuid();
+        await new PostgresCustomerStore(_dataSource!).CreateAsync(w.Scope,
+            new NewCustomer(discounted, CustomerKind.Wholesale, "Con descuento", null, TaxIdType.None, null, TaxCondition.ConsumidorFinal, null, null,
+                null, null, null, null, null, null, null, 12.5m, null, null, w.Actor),
+            "org-user", w.Actor, CancellationToken.None);
+        using var credentials = _factory.Services.CreateScope();
+        var issued = await credentials.ServiceProvider.GetRequiredService<PostgresDeviceCredentialStore>()
+            .IssueAsync(new CloudTenantScope(w.Org), Guid.NewGuid(), w.Branch, Guid.NewGuid(), CancellationToken.None);
+        var request = new HttpRequestMessage(HttpMethod.Get, "/device/pricelists/sync");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", issued.PlaintextToken);
+
+        var response = await _factory.CreateClient().SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = (await response.Content.ReadFromJsonAsync<PriceListsSyncResponse>())!;
+        var discount = Assert.Single(body.CustomerDiscounts!);
+        Assert.Equal((discounted, 12.5m), (discount.CustomerId, discount.DiscountPercentage));
+
+        // The terms of sales on account: the customers with their own, and the organization's default for the rest.
+        Assert.Empty(body.CustomerPaymentTerms!);
+        // The categories travel too, with whether the POS rail offers each one.
+        Assert.NotNull(body.Categories);
+        Assert.All(body.Categories!, category => Assert.True(category.ShowInPos));
+        Assert.Equal(30, body.DefaultCustomerPaymentTermsDays);
+        Assert.Empty(body.CustomerBalances!); // nobody owes anything yet
+    }
+
+    [Fact]
     public async Task TheBreakdownWithoutADate_At2230InArgentina_ShowsTodaysBase_NotTomorrows()
     {
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }

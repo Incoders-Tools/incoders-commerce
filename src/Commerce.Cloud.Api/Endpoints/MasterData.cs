@@ -28,17 +28,22 @@ public static class MasterDataEndpoints
     {
         MapCatalog<PostgresBusinessTypeStore>(app, "/customers/business-types", "business-type");
         MapCatalog<PostgresSupplierCategoryStore>(app, "/suppliers/categories", "supplier-category");
+        // The kinds of money of the treasury ("Efectivo", "Bancos", "Tarjetas de crédito"...): every account has one.
+        MapCatalog<PostgresTreasuryAccountTypeStore>(app, "/treasury/account-types", "treasury-account-type");
+        // The positions of the staff ("puestos": carnicero, cajero, repartidor...).
+        MapCatalog<PostgresEmployeeRoleStore>(app, "/employees/roles", "employee-role", posCanRead: true);
         return app;
     }
 
-    private static void MapCatalog<TStore>(IEndpointRouteBuilder app, string route, string errorPrefix)
+    /// <param name="posCanRead">The POS also reads the list (device credential + operator), e.g. to pick a position.</param>
+    private static void MapCatalog<TStore>(IEndpointRouteBuilder app, string route, string errorPrefix, bool posCanRead = false)
         where TStore : PostgresMasterDataStore
     {
         var group = app.MapGroup(route)
             .RequireAuthorization()
             .AddEndpointFilter<TenantScopeEndpointFilter>();
 
-        group.MapGet("", async (
+        var list = group.MapGet("", async (
             bool? includeInactive,
             HttpContext httpContext,
             PostgresUserAccountStore userStore,
@@ -53,6 +58,10 @@ public static class MasterDataEndpoints
 
             return Results.Ok(await store.ListAsync(auth.Value.Scope, includeInactive ?? false, ct));
         });
+        if (posCanRead)
+        {
+            list.AllowDeviceOperator();
+        }
 
         group.MapPost("", async (
             MasterDataRequest request,

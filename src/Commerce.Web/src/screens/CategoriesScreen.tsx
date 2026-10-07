@@ -110,6 +110,14 @@ export function CategoriesScreen() {
       cell: (category) => (isCategoryIconKey(category.iconKey) ? t(`icons.${category.iconKey}`) : category.iconKey),
       hideOnMobile: true,
     },
+    {
+      key: 'pos',
+      header: t('columns.pos'),
+      cell: (category) =>
+        category.showInPos === false
+          ? t('pos.hidden')
+          : t('pos.shown', { order: category.posSortOrder ?? 0 }),
+    },
   ]
 
   return (
@@ -193,15 +201,22 @@ function CategoryForm({
   const [iconKey, setIconKey] = useState<string>(
     category && isCategoryIconKey(category.iconKey) ? category.iconKey : DEFAULT_CATEGORY_ICON_KEY,
   )
+  const [showInPos, setShowInPos] = useState(category?.showInPos ?? true)
+  const [posSortOrder, setPosSortOrder] = useState(String(category?.posSortOrder ?? 0))
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault()
     setError(null)
+    const order = Number(posSortOrder.trim() === '' ? '0' : posSortOrder)
+    if (!Number.isInteger(order) || order < 0 || order > 9999) {
+      setError(t('errors.posSortOrder'))
+      return
+    }
     setSubmitting(true)
     try {
-      const request = { name: name.trim(), iconKey }
+      const request = { name: name.trim(), iconKey, showInPos, posSortOrder: order }
       if (category) {
         await updateCategory(category.id, request)
       } else {
@@ -257,6 +272,29 @@ function CategoryForm({
             )
           })}
         </div>
+
+        <fieldset className="flex flex-col gap-3 rounded-md border border-border p-4">
+          <legend className="px-1 text-sm font-medium">{t('form.pos.title')}</legend>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={showInPos} onChange={(e) => setShowInPos(e.target.checked)} />
+            {t('form.pos.show')}
+          </label>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="categoryPosSortOrder">{t('form.pos.order')}</Label>
+            <Input
+              id="categoryPosSortOrder"
+              type="number"
+              min={0}
+              max={9999}
+              step={1}
+              className="w-28"
+              value={posSortOrder}
+              disabled={!showInPos}
+              onChange={(e) => setPosSortOrder(e.target.value)}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">{t('form.pos.hint')}</p>
+        </fieldset>
 
         {error && (
           <p role="alert" className="text-sm text-destructive">

@@ -1,7 +1,8 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 import { CircleCheck } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { Link } from 'react-router'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { PageHeader } from '@/components/data/PageHeader'
@@ -339,9 +340,14 @@ function OrderConfirmation({ confirmation, onNewOrder }: { confirmation: Confirm
         <p>{t('staffOrder.confirmation.customer', { name: confirmation.customerName })}</p>
         {confirmation.total !== null && <p>{t('staffOrder.confirmation.total', { total: formatMoney(confirmation.total) })}</p>}
       </div>
-      <Button className="h-12 w-full text-base sm:w-auto" onClick={onNewOrder}>
-        {t('staffOrder.confirmation.newOrder')}
-      </Button>
+      <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+        <Button className="h-12 w-full text-base sm:w-auto" onClick={onNewOrder}>
+          {t('staffOrder.confirmation.newOrder')}
+        </Button>
+        <Link to="/app/orders" className={buttonVariants({ variant: 'outline', className: 'h-12 w-full text-base sm:w-auto' })}>
+          {t('staffOrder.confirmation.viewOrders')}
+        </Link>
+      </div>
     </div>
   )
 }

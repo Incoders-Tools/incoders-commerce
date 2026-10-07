@@ -530,4 +530,115 @@ public sealed class StaffOrderTakingTests : IClassFixture<WebApplicationFactory<
         Exec("UPDATE products SET is_active = false WHERE id = (SELECT product_id FROM presentations WHERE id = $1)", w.Lengua);
         Assert.Empty((await JsonAsync(await seller.GetAsync("/orders/staff/presentations?search=lengua"))).EnumerateArray());
     }
+
+    // --- order-fulfillment-and-delivery: tracking, runs, remitos, settlement over HTTP ------------
+
+    [Fact]
+    public async Task ASeller_FollowsAnOrderFromTakingItToItsDelivery_AndACashierCannot()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+        var w = await NewWorldAsync();
+        var (_, seller) = await NewStaffAsync(w, RoleCatalog.Seller);
+        var (_, cashier) = await NewStaffAsync(w, RoleCatalog.Cashier);
+        var customer = await NewCustomerAsync(w.Scope, w.AdminId, w.Reparto, name: "Parrilla Don Julio");
+        var orderId = Guid.NewGuid();
+        Assert.Equal(HttpStatusCode.OK, (await seller.PostAsJsonAsync("/orders/staff",
+            new { orderId, customerId = customer, lines = new[] { Line(w.BolaDeLomo, 2m) } })).StatusCode);
+
+        Assert.Equal(HttpStatusCode.Forbidden, (await cashier.GetAsync("/orders/tracking")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await cashier.GetAsync("/deliveries/runs")).StatusCode);
+
+        var listed = await JsonAsync(await seller.GetAsync("/orders/tracking?status=Active&search=don%20julio"));
+        var summary = Assert.Single(listed.EnumerateArray());
+        Assert.Equal(("Confirmed", 33_060m), (summary.GetProperty("status").GetString(), summary.GetProperty("total").GetDecimal()));
+
+        Assert.Equal(HttpStatusCode.NoContent,
+            (await seller.PostAsJsonAsync($"/orders/tracking/{orderId}/status", new { status = "InPreparation" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict,
+            (await seller.PostAsJsonAsync($"/orders/tracking/{orderId}/status", new { status = "Delivered" })).StatusCode);
+
+        var created = await seller.PostAsJsonAsync("/deliveries/runs",
+            new { runDate = DateOnly.FromDateTime(DateTime.Today), driverName = "Juan", vehicle = "Kangoo", orderIds = new[] { orderId } });
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var runId = (await JsonAsync(created)).GetProperty("runId").GetGuid();
+        Assert.Equal(HttpStatusCode.NoContent, (await seller.PostAsync($"/deliveries/runs/{runId}/dispatch", null)).StatusCode);
+
+        var remitos = await JsonAsync(await seller.PostAsJsonAsync("/orders/tracking/remitos", new { orderIds = new[] { orderId } }));
+        var remito = Assert.Single(remitos.EnumerateArray());
+        Assert.StartsWith("R", remito.GetProperty("remitoNumber").GetString());
+        Assert.Equal("Parrilla Don Julio", remito.GetProperty("customer").GetProperty("displayName").GetString());
+
+        var settle = await seller.PostAsJsonAsync($"/deliveries/runs/{runId}/settle", new
+        {
+            orders = new[] { new { orderId, delivered = true, settlement = "CurrentAccount", lines = new[] { new { lineNo = 1, deliveredQuantity = 2.1m } } } },
+        });
+        Assert.Equal(HttpStatusCode.NoContent, settle.StatusCode);
+
+        var detail = await JsonAsync(await seller.GetAsync($"/orders/tracking/{orderId}"));
+        Assert.Equal("Delivered", detail.GetProperty("summary").GetProperty("status").GetString());
+        Assert.Equal(34_713m, detail.GetProperty("summary").GetProperty("deliveredTotal").GetDecimal()); // 16.530 x 2,1
+        Assert.Equal(34_713m, Scalar<decimal>(
+            "SELECT amount FROM current_account_movements WHERE customer_id = $1 AND source_id = $2", customer, orderId));
+    }
+
+    [Fact]
+    public async Task TheDocumentData_IsReadByStaff_ButOnlyWhoManagesTheBranchSettingsChangesIt()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+        var w = await NewWorldAsync();
+        var (_, seller) = await NewStaffAsync(w, RoleCatalog.Seller);
+        var body = new { legalName = "Distribuidora Arrecifes S.R.L.", taxId = "30-71234567-1", taxCondition = "ResponsableInscripto", primaryColor = "#2f7d32" };
+
+        Assert.Equal(HttpStatusCode.Forbidden, (await seller.PutAsJsonAsync("/account/organization/document-profile", body)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await w.Admin.PutAsJsonAsync("/account/organization/document-profile", body with { taxId = "123" })).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await w.Admin.PutAsJsonAsync("/account/organization/document-profile", body)).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await w.Admin.PutAsJsonAsync($"/account/branch-profiles/{w.BranchId}",
+            new { address = "Frascheri 626", locality = "Arrecifes", warehouseAddress = "Depósito Ruta 51" })).StatusCode);
+
+        var profile = await JsonAsync(await seller.GetAsync("/account/organization/document-profile"));
+        Assert.Equal(("Distribuidora Arrecifes S.R.L.", "30712345671"),
+            (profile.GetProperty("legalName").GetString(), profile.GetProperty("taxId").GetString()));
+        var branch = Assert.Single((await JsonAsync(await seller.GetAsync("/account/branch-profiles"))).EnumerateArray());
+        Assert.Equal("Depósito Ruta 51", branch.GetProperty("warehouseAddress").GetString());
+    }
+
+    // --- customer current account over HTTP ------------------------------------------------------
+
+    [Fact]
+    public async Task TheCustomerAccount_ChargesADeliveryOnAccount_TakesAPayment_AndOnlyAdminsManageIt()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+        var w = await NewWorldAsync();
+        var (_, seller) = await NewStaffAsync(w, RoleCatalog.Seller);
+        var customer = await NewCustomerAsync(w.Scope, w.AdminId, w.Reparto, name: "Parrilla Don Julio");
+        var opening = await w.Admin.PostAsJsonAsync($"/customers/{customer}/account/movements",
+            new { kind = "OpeningBalance", amount = 50_000m, concept = "Saldo anterior" });
+        Assert.Equal(HttpStatusCode.Created, opening.StatusCode);
+        var openingBody = await JsonAsync(opening);
+        Assert.Equal("Debit", openingBody.GetProperty("direction").GetString());
+        Assert.Equal(customer, openingBody.GetProperty("customerId").GetGuid());
+
+        var payment = await w.Admin.PostAsJsonAsync($"/customers/{customer}/account/movements",
+            new { kind = "Payment", amount = 20_000m, concept = "Cobro en efectivo", documentReference = "Recibo 1" });
+        Assert.Equal(HttpStatusCode.Created, payment.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await w.Admin.PostAsJsonAsync($"/customers/{customer}/account/movements",
+            new { kind = "Invoice", amount = 1m, concept = "x", direction = "Credit" })).StatusCode);
+
+        var summary = await JsonAsync(await w.Admin.GetAsync($"/customers/{customer}/account/summary"));
+        Assert.Equal(30_000m, summary.GetProperty("balance").GetDecimal()); // what the customer owes
+
+        var statement = await JsonAsync(await w.Admin.GetAsync($"/customers/{customer}/account/statement"));
+        Assert.Equal([50_000m, 30_000m],
+            statement.GetProperty("movements").EnumerateArray().Select(m => m.GetProperty("runningBalance").GetDecimal()));
+
+        var paymentId = (await JsonAsync(payment)).GetProperty("id").GetGuid();
+        Assert.Equal(HttpStatusCode.Created,
+            (await w.Admin.PostAsJsonAsync($"/customers/{customer}/account/movements/{paymentId}/reverse", new { })).StatusCode);
+        var balances = await JsonAsync(await w.Admin.GetAsync("/customers/account/balances"));
+        var row = Assert.Single(balances.EnumerateArray());
+        Assert.Equal((customer, 50_000m), (row.GetProperty("customerId").GetGuid(), row.GetProperty("balance").GetDecimal()));
+
+        Assert.Equal(HttpStatusCode.Forbidden, (await seller.GetAsync($"/customers/{customer}/account/summary")).StatusCode);
+    }
 }

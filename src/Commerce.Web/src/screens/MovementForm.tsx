@@ -5,7 +5,7 @@ import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
 import { FormPage } from '@/components/layout/FormPage'
 import { Field, FormSection } from '@/components/form/FormParts'
-import { registerMovement } from '@/api/supplierAccount'
+import { DEBT_DIRECTION, registerMovement, type AccountPartyKind } from '@/api/currentAccount'
 import { ApiError } from '@/api/client'
 import { MovementKind, type MovementDirection, type RegisterMovementRequest } from '@/api/types'
 import { todayIso } from '@/lib/isoDate'
@@ -20,12 +20,13 @@ const KINDS: MovementKind[] = [
   MovementKind.Adjustment,
 ]
 
-/** Kinds that increase the debt (Credit on the supplier's account); only those can have a due date. */
+/** Kinds that increase the debt (Credit on a supplier's account, Debit on a customer's); only those can have a due date. */
 const INCREASES_DEBT: MovementKind[] = [MovementKind.OpeningBalance, MovementKind.Invoice, MovementKind.DebitNote]
 
 interface MovementFormProps {
-  supplierId: string
-  supplierName: string
+  party: AccountPartyKind
+  partyId: string
+  partyName: string
   /** Used to tell the operator when an empty due date defaults on an invoice. */
   paymentTermsDays: number | null
   onSaved: () => void
@@ -42,8 +43,10 @@ const isValidAmount = (value: string) => /^\d+(\.\d{1,2})?$/.test(value.trim()) 
  * words ("Aumenta deuda" / "Disminuye deuda"). Movements are append-only, so
  * the page says up front that a mistake is fixed by reversing, not editing.
  */
-export function MovementForm({ supplierId, supplierName, paymentTermsDays, onSaved, onCancel }: MovementFormProps) {
-  const { t } = useTranslation('supplierAccount')
+export function MovementForm({ party, partyId, partyName, paymentTermsDays, onSaved, onCancel }: MovementFormProps) {
+  const { t } = useTranslation(`${party}Account`)
+  const debt = DEBT_DIRECTION[party]
+  const relief: MovementDirection = debt === 'Credit' ? 'Debit' : 'Credit'
   const [kind, setKind] = useState<MovementKind>(MovementKind.Invoice)
   // No preselected effect: a wrong default would silently book an adjustment the other way.
   const [direction, setDirection] = useState<MovementDirection | ''>('')
@@ -57,7 +60,7 @@ export function MovementForm({ supplierId, supplierName, paymentTermsDays, onSav
   const [submitting, setSubmitting] = useState(false)
 
   const isAdjustment = kind === MovementKind.Adjustment
-  const canHaveDueDate = INCREASES_DEBT.includes(kind) || (isAdjustment && direction === 'Credit')
+  const canHaveDueDate = INCREASES_DEBT.includes(kind) || (isAdjustment && direction === debt)
   const dueHint =
     kind === MovementKind.Invoice && paymentTermsDays !== null
       ? t('form.hints.dueOn', { days: paymentTermsDays })
@@ -87,7 +90,7 @@ export function MovementForm({ supplierId, supplierName, paymentTermsDays, onSav
     }
     setSubmitting(true)
     try {
-      await registerMovement(supplierId, request)
+      await registerMovement(party, partyId, request)
       onSaved()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : t('errors.unexpectedRegister'))
@@ -98,7 +101,7 @@ export function MovementForm({ supplierId, supplierName, paymentTermsDays, onSav
   return (
     <FormPage
       title={t('form.title')}
-      description={t('form.description', { name: supplierName })}
+      description={t('form.description', { name: partyName })}
       onBack={onCancel}
       backLabel={t('form.backLabel')}
     >
@@ -136,8 +139,8 @@ export function MovementForm({ supplierId, supplierName, paymentTermsDays, onSav
                 <option value="" disabled>
                   {t('form.directions.placeholder')}
                 </option>
-                <option value="Credit">{t('form.directions.Credit')}</option>
-                <option value="Debit">{t('form.directions.Debit')}</option>
+                <option value={debt}>{t(`form.directions.${debt}`)}</option>
+                <option value={relief}>{t(`form.directions.${relief}`)}</option>
               </Select>
               {errors.direction && (
                 <p id="movementDirection-error" className="text-xs text-destructive">

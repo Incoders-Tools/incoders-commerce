@@ -131,6 +131,14 @@ public sealed class PostgresCloudInboxStore : ICloudInboxStore
         // is verified, in this same transaction. Never blocks ingestion (savepoint inside).
         await PosSaleProjection.ProjectAsync(connection, tx, envelope, installationId, _logger, ct, _projectionFault);
         await PosSaleStockProjection.ProjectAsync(connection, tx, envelope, _logger, ct);
+        // A sale on current account is charged to its customer (savepoint inside, never blocks).
+        await PosSaleAccountProjection.ProjectAsync(connection, tx, envelope, _logger, ct);
+        // A payment a customer made at the POS (or its void): its account credit, its money and its audit.
+        await CustomerPaymentProjection.ProjectAsync(connection, tx, envelope, _logger, ct);
+        // A `sale.voided` envelope is recorded, audited and puts the sale's stock back (savepoint inside, never blocks).
+        await PosSaleVoidProjection.ProjectAsync(connection, tx, envelope, _logger, ct);
+        // The drawer outside a sale: withdrawals/deposits and the cash count difference at close, into the treasury.
+        await CashDrawerProjection.ProjectAsync(connection, tx, envelope, _logger, ct);
 
         await tx.CommitAsync(ct);
         return new InboundApplyResult(InboundApplyOutcome.Applied, envelope.OperationId);

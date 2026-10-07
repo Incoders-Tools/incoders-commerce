@@ -204,7 +204,7 @@ public sealed class PaymentEndpointTests : IClassFixture<WebApplicationFactory<P
             return;
         }
 
-        var (client, organizationId) = await SignedInClientAsync(_factory);
+        var (client, organizationId) = await SignedInClientAsync(_factory, Permission.ManageUsers);
 
         var response = await client.PostAsJsonAsync("/payments/", new
         {
@@ -228,12 +228,11 @@ public sealed class PaymentEndpointTests : IClassFixture<WebApplicationFactory<P
     }
 
     /// <summary>
-    /// Also covers task 4.13: the signed-in actor holds NO special
-    /// permission (<see cref="Permission.None"/> — the same authorization
-    /// level `OrderingEndpoints`' <c>.RequireAuthorization()</c> requires for
-    /// order management) and can both record AND reverse without a second
-    /// approver (answered product question (c)). The unauthenticated half of
-    /// 4.13 is <see cref="PostPayments_Unauthenticated_Returns401"/>.
+    /// Also covers task 4.13: an administrator (<see cref="Permission.ManageUsers"/>,
+    /// security review: money is administration) can both record AND reverse
+    /// without a second approver (answered product question (c)). The
+    /// unauthenticated half of 4.13 is <see cref="PostPayments_Unauthenticated_Returns401"/>;
+    /// a caller without the permission is <see cref="Payments_WithoutManageUsers_AreA403_AndTheActorIsAlwaysTheCaller"/>.
     /// </summary>
     [Fact]
     public async Task PostPayments_HappyPath_InsertsEntry_AndReversal_NeverDeletes()
@@ -250,7 +249,7 @@ public sealed class PaymentEndpointTests : IClassFixture<WebApplicationFactory<P
             builder.UseSetting("Payments:ManuallyRecordedApprovalEnabled", "true");
         });
 
-        var (client, _) = await SignedInClientAsync(approvedFactory);
+        var (client, _) = await SignedInClientAsync(approvedFactory, Permission.ManageUsers);
         var entryId = Guid.NewGuid();
         var subjectId = Guid.NewGuid();
 
@@ -301,7 +300,7 @@ public sealed class PaymentEndpointTests : IClassFixture<WebApplicationFactory<P
             builder.UseSetting("Payments:ManuallyRecordedApprovalEnabled", "true");
         });
 
-        var (client, _) = await SignedInClientAsync(approvedFactory);
+        var (client, _) = await SignedInClientAsync(approvedFactory, Permission.ManageUsers);
         var unsettledOrderId = Guid.NewGuid();
         var unrelatedOrderId = Guid.NewGuid();
 
@@ -326,5 +325,45 @@ public sealed class PaymentEndpointTests : IClassFixture<WebApplicationFactory<P
         var unrelated = await unrelatedResponse.Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal(0m, unrelated.GetProperty("settled").GetDecimal());
         Assert.Equal(50m, unrelated.GetProperty("outstanding").GetDecimal());
+    }
+
+    [Fact]
+    public async Task Payments_WithoutManageUsers_AreA403_AndTheActorIsAlwaysTheCaller()
+    {
+        if (!_postgresAvailable)
+        {
+            Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml.");
+            return;
+        }
+
+        using var approvedFactory = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.UseSetting("ConnectionStrings:Commerce", PostgresTestFixture.DirectConnectionString);
+            builder.UseSetting("Payments:ManuallyRecordedApprovalEnabled", "true");
+        });
+
+        var (seller, _) = await SignedInClientAsync(approvedFactory, Permission.TakeOrders);
+        var body = new { entryId = Guid.NewGuid(), subjectKind = "Order", subjectId = Guid.NewGuid(), method = "Cash", amount = 10m };
+        Assert.Equal(HttpStatusCode.Forbidden, (await seller.PostAsJsonAsync("/payments/", body)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await seller.GetAsync($"/payments/orders/{Guid.NewGuid()}/settlement?target=1")).StatusCode);
+
+        var (admin, _) = await SignedInClientAsync(approvedFactory, Permission.ManageUsers);
+        var forged = Guid.NewGuid();
+        var entryId = Guid.NewGuid();
+        var recorded = await admin.PostAsJsonAsync("/payments/", new
+        {
+            entryId, subjectKind = "Order", subjectId = Guid.NewGuid(), method = "Cash", amount = 10m, actorId = forged,
+        });
+        Assert.Equal(HttpStatusCode.OK, recorded.StatusCode);
+
+        using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        owner.Open();
+        using var actorCmd = new NpgsqlCommand("SELECT actor_id FROM payment_entries WHERE entry_id = $1", owner);
+        actorCmd.Parameters.AddWithValue(entryId);
+        var actor = (Guid)actorCmd.ExecuteScalar()!;
+        Assert.NotEqual(forged, actor); // the forged actor in the body is never used
+        using var userCmd = new NpgsqlCommand("SELECT count(*) FROM users WHERE id = $1", owner);
+        userCmd.Parameters.AddWithValue(actor);
+        Assert.Equal(1L, (long)userCmd.ExecuteScalar()!); // it is the signed-in administrator
     }
 }

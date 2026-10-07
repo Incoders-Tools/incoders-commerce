@@ -15,7 +15,7 @@ namespace Commerce.Cloud.Api.Persistence;
 /// </summary>
 public sealed class PostgresCategoryStore
 {
-    private const string Columns = "id, organization_id, name, icon_key, created_at_utc, updated_at_utc";
+    private const string Columns = "id, organization_id, name, icon_key, created_at_utc, updated_at_utc, show_in_pos, pos_sort_order";
 
     private readonly NpgsqlDataSource _dataSource;
 
@@ -27,7 +27,9 @@ public sealed class PostgresCategoryStore
         Name: reader.GetString(2),
         IconKey: reader.GetString(3),
         CreatedAtUtc: reader.GetFieldValue<DateTimeOffset>(4),
-        UpdatedAtUtc: reader.GetFieldValue<DateTimeOffset>(5));
+        UpdatedAtUtc: reader.GetFieldValue<DateTimeOffset>(5),
+        ShowInPos: reader.GetBoolean(6),
+        PosSortOrder: reader.GetInt32(7));
 
     public async Task<IReadOnlyList<CategoryRecord>> ListAsync(CloudTenantScope scope, CancellationToken ct)
     {
@@ -80,8 +82,8 @@ public sealed class PostgresCategoryStore
         CategoryRecord record;
         await using (var cmd = new NpgsqlCommand(
             $"""
-            INSERT INTO categories (id, organization_id, name, icon_key)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO categories (id, organization_id, name, icon_key, show_in_pos, pos_sort_order)
+            VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING {Columns}
             """, connection, tx))
         {
@@ -89,6 +91,8 @@ public sealed class PostgresCategoryStore
             cmd.Parameters.AddWithValue(scope.OrganizationId);
             cmd.Parameters.AddWithValue(category.Name);
             cmd.Parameters.AddWithValue(category.IconKey);
+            cmd.Parameters.AddWithValue(category.ShowInPos);
+            cmd.Parameters.AddWithValue(category.PosSortOrder);
             await using var reader = await cmd.ExecuteReaderAsync(ct);
             await reader.ReadAsync(ct);
             record = Read(reader);
@@ -105,9 +109,13 @@ public sealed class PostgresCategoryStore
         return record;
     }
 
-    /// <summary>Renames and/or changes the icon. Null when the id is not visible in the scope's organization.</summary>
+    /// <summary>
+    /// Renames, changes the icon and, when given, whether and where the POS rail shows it (null keeps the stored value).
+    /// Null when the id is not visible in the scope's organization.
+    /// </summary>
     public async Task<CategoryRecord?> UpdateAsync(
-        CloudTenantScope scope, Guid categoryId, string name, string iconKey, string actorKind, Guid actorId, CancellationToken ct)
+        CloudTenantScope scope, Guid categoryId, string name, string iconKey, string actorKind, Guid actorId, CancellationToken ct,
+        bool? showInPos = null, int? posSortOrder = null)
     {
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
@@ -116,7 +124,8 @@ public sealed class PostgresCategoryStore
         CategoryRecord? updated = null;
         await using (var cmd = new NpgsqlCommand(
             $"""
-            UPDATE categories SET name = $1, icon_key = $2, updated_at_utc = now()
+            UPDATE categories SET name = $1, icon_key = $2, updated_at_utc = now(),
+                show_in_pos = COALESCE($4, show_in_pos), pos_sort_order = COALESCE($5, pos_sort_order)
             WHERE id = $3
             RETURNING {Columns}
             """, connection, tx))
@@ -124,6 +133,8 @@ public sealed class PostgresCategoryStore
             cmd.Parameters.AddWithValue(name);
             cmd.Parameters.AddWithValue(iconKey);
             cmd.Parameters.AddWithValue(categoryId);
+            cmd.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Boolean, (object?)showInPos ?? DBNull.Value);
+            cmd.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Integer, (object?)posSortOrder ?? DBNull.Value);
             await using var reader = await cmd.ExecuteReaderAsync(ct);
             if (await reader.ReadAsync(ct))
             {

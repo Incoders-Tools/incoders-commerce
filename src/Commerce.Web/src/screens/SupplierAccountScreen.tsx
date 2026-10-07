@@ -9,9 +9,11 @@ import { ViewSwitch } from '@/components/data/ViewSwitch'
 import { useViewPreference } from '@/components/data/useViewPreference'
 import { FormPage } from '@/components/layout/FormPage'
 import { ApiError } from '@/api/client'
+import { getCustomer } from '@/api/customers'
+import { getEmployee } from '@/api/employees'
 import { getSupplier } from '@/api/suppliers'
-import { getStatement, getSummary, reverseMovement } from '@/api/supplierAccount'
-import type { AccountStatement, AccountSummary, StatementLine, SupplierRecord } from '@/api/types'
+import { DEBT_DIRECTION, getStatement, getSummary, reverseMovement, type AccountPartyKind } from '@/api/currentAccount'
+import type { AccountStatement, AccountSummary, StatementLine } from '@/api/types'
 import { formatIsoDate, formatMoney } from '@/dashboard/format'
 import { daysAgoIso, todayIso } from '@/lib/isoDate'
 import { cn } from '@/lib/utils'
@@ -24,22 +26,69 @@ const AGING_KEYS = ['d0_30', 'd31_60', 'd61_90', 'd90plus'] as const
 
 const isPhone = () => typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 767px)').matches
 
-/**
- * Supplier current account (`/app/suppliers/:id/account`): summary cards
- * (balance, overdue, not yet due), the aging of what is overdue, and the
- * statement for a date range with opening, running and closing balance.
- * Registering a movement opens a full-page form; a movement is never edited
- * or deleted, only reversed (the original stays visible as "Anulado").
- *
- * Sign convention, worded for the operator: a positive balance is what the
- * business owes the supplier ("Le debemos"); a negative one is credit in the
- * business's favour ("Saldo a favor").
- */
+/** The account holder as the screen needs it. */
+interface AccountHolder {
+  id: string
+  name: string
+  paymentTermsDays: number | null
+}
+
+const PARTY = {
+  supplier: {
+    namespace: 'supplierAccount',
+    back: '/app/suppliers',
+    load: async (id: string): Promise<AccountHolder> => {
+      const supplier = await getSupplier(id)
+      return { id: supplier.id, name: supplier.displayName, paymentTermsDays: supplier.paymentTermsDays }
+    },
+  },
+  customer: {
+    namespace: 'customerAccount',
+    back: '/app/customers',
+    load: async (id: string): Promise<AccountHolder> => {
+      const customer = await getCustomer(id)
+      return { id: customer.id, name: customer.displayName, paymentTermsDays: null }
+    },
+  },
+  employee: {
+    namespace: 'employeeAccount',
+    back: '/app/employees',
+    load: async (id: string): Promise<AccountHolder> => {
+      const employee = await getEmployee(id)
+      return { id: employee.id, name: `${employee.fullName} (legajo ${employee.fileNumber})`, paymentTermsDays: null }
+    },
+  },
+} as const
+
+/** Supplier current account (`/app/suppliers/:id/account`). */
 export function SupplierAccountScreen() {
-  const { t } = useTranslation('supplierAccount')
+  return <CurrentAccountScreen party="supplier" />
+}
+
+/** Customer current account (`/app/customers/:id/account`): sales and deliveries on account, payments received. */
+export function CustomerAccountScreen() {
+  return <CurrentAccountScreen party="customer" />
+}
+
+/** Employee current account (`/app/employees/:id/account`): salaries owed, advances, goods and deductions, salaries paid. */
+export function EmployeeAccountScreen() {
+  return <CurrentAccountScreen party="employee" />
+}
+
+/**
+ * A current account: summary cards (balance, overdue, not yet due), the aging of what is overdue, and the statement
+ * for a date range with opening, running and closing balance. Registering a movement opens a full-page form; a
+ * movement is never edited or deleted, only reversed (the original stays visible as "Anulado").
+ *
+ * Sign convention, worded for the operator and per party: a positive balance is what is owed (to the supplier: "Le
+ * debemos"; by the customer: "Nos debe"); a negative one is credit in the other side's favour. The debt-increasing
+ * direction is Credit for a supplier and Debit for a customer (`DEBT_DIRECTION`).
+ */
+function CurrentAccountScreen({ party }: { party: AccountPartyKind }) {
+  const { t } = useTranslation(PARTY[party].namespace)
   const { id = '' } = useParams()
   const navigate = useNavigate()
-  const [supplier, setSupplier] = useState<SupplierRecord | null>(null)
+  const [holder, setHolder] = useState<AccountHolder | null>(null)
   const [summary, setSummary] = useState<AccountSummary | null>(null)
   const [statement, setStatement] = useState<AccountStatement | null>(null)
   const [loading, setLoading] = useState(true)
@@ -49,7 +98,7 @@ export function SupplierAccountScreen() {
   const [rangeError, setRangeError] = useState<string | null>(null)
   const [registering, setRegistering] = useState(false)
   const [reversing, setReversing] = useState<StatementLine | null>(null)
-  const [view, setView] = useViewPreference('supplierAccount', isPhone() ? 'cards' : 'table')
+  const [view, setView] = useViewPreference(PARTY[party].namespace, isPhone() ? 'cards' : 'table')
   /** Only the latest request may write state. */
   const latestRequest = useRef(0)
 
@@ -58,32 +107,32 @@ export function SupplierAccountScreen() {
     setLoading(true)
     setLoadError(null)
     try {
-      const [supplierRecord, summaryResult, statementResult] = await Promise.all([
-        getSupplier(id),
-        getSummary(id),
-        getStatement(id, range),
+      const [holderRecord, summaryResult, statementResult] = await Promise.all([
+        PARTY[party].load(id),
+        getSummary(party, id),
+        getStatement(party, id, range),
       ])
       if (request === latestRequest.current) {
-        setSupplier(supplierRecord)
+        setHolder(holderRecord)
         setSummary(summaryResult)
         setStatement(statementResult)
       }
     } catch (err) {
       if (request === latestRequest.current) {
         setLoadError(
-          err instanceof ApiError && err.status === 404 ? t('errors.supplierNotFound') : t('errors.unexpectedLoad'),
+          err instanceof ApiError && err.status === 404 ? t('errors.partyNotFound') : t('errors.unexpectedLoad'),
         )
       }
     } finally {
       if (request === latestRequest.current) setLoading(false)
     }
-  }, [t, id, range])
+  }, [t, id, range, party])
 
   useEffect(() => {
     void refresh()
   }, [refresh])
 
-  const backToSuppliers = () => navigate('/app/suppliers')
+  const backToList = () => navigate(PARTY[party].back)
 
   const applyRange = (event: FormEvent) => {
     event.preventDefault()
@@ -95,12 +144,13 @@ export function SupplierAccountScreen() {
     setRange(draftRange)
   }
 
-  if (registering && supplier) {
+  if (registering && holder) {
     return (
       <MovementForm
-        supplierId={supplier.id}
-        supplierName={supplier.displayName}
-        paymentTermsDays={supplier.paymentTermsDays}
+        party={party}
+        partyId={holder.id}
+        partyName={holder.name}
+        paymentTermsDays={holder.paymentTermsDays}
         onCancel={() => setRegistering(false)}
         onSaved={() => {
           setRegistering(false)
@@ -164,7 +214,7 @@ export function SupplierAccountScreen() {
       key: 'amount',
       header: t('statement.columns.amount'),
       cell: (line) => {
-        const increases = line.direction === 'Credit'
+        const increases = line.direction === DEBT_DIRECTION[party]
         return (
           <span className="flex flex-col">
             <span className={cn(line.reversed && 'text-muted-foreground line-through')}>
@@ -188,8 +238,8 @@ export function SupplierAccountScreen() {
 
   return (
     <FormPage
-      title={t('title', { name: supplier?.displayName ?? '' })}
-      onBack={backToSuppliers}
+      title={t('title', { name: holder?.name ?? '' })}
+      onBack={backToList}
       backLabel={t('backLabel')}
     >
       <div className="flex flex-col gap-6">
@@ -205,11 +255,12 @@ export function SupplierAccountScreen() {
           </p>
         )}
 
-        {summary && <SummaryCards summary={summary} />}
+        {summary && <SummaryCards party={party} summary={summary} />}
 
         {reversing && (
           <ReversePanel
-            supplierId={id}
+            party={party}
+            partyId={id}
             movement={reversing}
             onCancel={() => setReversing(null)}
             onReversed={() => {
@@ -227,7 +278,7 @@ export function SupplierAccountScreen() {
               </h2>
               <div className="flex flex-wrap items-center gap-2">
                 <ViewSwitch value={view} onChange={setView} />
-                <Button onClick={() => setRegistering(true)} disabled={!supplier}>
+                <Button onClick={() => setRegistering(true)} disabled={!holder}>
                   {t('statement.register')}
                 </Button>
               </div>
@@ -296,10 +347,10 @@ export function SupplierAccountScreen() {
   )
 }
 
-function SummaryCards({ summary }: { summary: AccountSummary }) {
-  const { t } = useTranslation('supplierAccount')
+function SummaryCards({ party, summary }: { party: AccountPartyKind; summary: AccountSummary }) {
+  const { t } = useTranslation(PARTY[party].namespace)
   const caption =
-    summary.balance > 0 ? t('summary.weOwe') : summary.balance < 0 ? t('summary.inOurFavour') : t('summary.settled')
+    summary.balance > 0 ? t('summary.owed') : summary.balance < 0 ? t('summary.inFavour') : t('summary.settled')
   return (
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -355,17 +406,19 @@ function Card({
 
 /** Inline confirmation before reversing: the optional concept and date go to the compensating movement. */
 function ReversePanel({
-  supplierId,
+  party,
+  partyId,
   movement,
   onCancel,
   onReversed,
 }: {
-  supplierId: string
+  party: AccountPartyKind
+  partyId: string
   movement: StatementLine
   onCancel: () => void
   onReversed: () => void
 }) {
-  const { t } = useTranslation('supplierAccount')
+  const { t } = useTranslation(PARTY[party].namespace)
   const [concept, setConcept] = useState('')
   const [occurredOn, setOccurredOn] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -376,7 +429,7 @@ function ReversePanel({
     setError(null)
     setSubmitting(true)
     try {
-      await reverseMovement(supplierId, movement.id, {
+      await reverseMovement(party, partyId, movement.id, {
         ...(concept.trim() !== '' ? { concept: concept.trim() } : {}),
         ...(occurredOn !== '' ? { occurredOn } : {}),
       })

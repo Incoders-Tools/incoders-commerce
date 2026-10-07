@@ -11,6 +11,7 @@ namespace Commerce.Pos.Windows.Controls;
 public partial class PosNavBar : UserControl
 {
     public static readonly RoutedEvent SaleRequestedEvent = Register(nameof(SaleRequested));
+    public static readonly RoutedEvent SalesRequestedEvent = Register(nameof(SalesRequested));
     public static readonly RoutedEvent CustomersRequestedEvent = Register(nameof(CustomersRequested));
     public static readonly RoutedEvent StaffRequestedEvent = Register(nameof(StaffRequested));
     public static readonly RoutedEvent SyncRequestedEvent = Register(nameof(SyncRequested));
@@ -21,9 +22,13 @@ public partial class PosNavBar : UserControl
     public static readonly RoutedEvent SignOutRequestedEvent = Register(nameof(SignOutRequested));
     public static readonly RoutedEvent CloseCashRequestedEvent = Register(nameof(CloseCashRequested));
 
+    public static readonly RoutedEvent CashMovementRequestedEvent = Register(nameof(CashMovementRequested));
+
     public PosNavBar() => InitializeComponent();
 
     public event RoutedEventHandler SaleRequested { add => AddHandler(SaleRequestedEvent, value); remove => RemoveHandler(SaleRequestedEvent, value); }
+
+    public event RoutedEventHandler SalesRequested { add => AddHandler(SalesRequestedEvent, value); remove => RemoveHandler(SalesRequestedEvent, value); }
 
     public event RoutedEventHandler CustomersRequested { add => AddHandler(CustomersRequestedEvent, value); remove => RemoveHandler(CustomersRequestedEvent, value); }
 
@@ -44,6 +49,9 @@ public partial class PosNavBar : UserControl
 
     public event RoutedEventHandler CloseCashRequested { add => AddHandler(CloseCashRequestedEvent, value); remove => RemoveHandler(CloseCashRequestedEvent, value); }
 
+    /// <summary>"Movimiento de caja": money out of or into the drawer outside a sale.</summary>
+    public event RoutedEventHandler CashMovementRequested { add => AddHandler(CashMovementRequestedEvent, value); remove => RemoveHandler(CashMovementRequestedEvent, value); }
+
     public string OperatorLabel
     {
         get => OperatorDisplayText.Text;
@@ -62,6 +70,7 @@ public partial class PosNavBar : UserControl
     {
         CashSessionStatusText.Text = statusText;
         CloseCashButton.IsEnabled = isOpen;
+        CashMovementButton.IsEnabled = isOpen;
         CashSessionDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, isOpen ? "AccentBrush" : "MutedTextBrush");
     }
 
@@ -91,6 +100,7 @@ public partial class PosNavBar : UserControl
     public void SetActiveSection(ShellSection section)
     {
         NewSaleButton.Tag = section == ShellSection.Sale ? "Active" : null;
+        SalesHistoryButton.Tag = section == ShellSection.Sales ? "Active" : null;
         ManageCustomersButton.Tag = section == ShellSection.Customers ? "Active" : null;
         ManageStaffButton.Tag = section == ShellSection.Staff ? "Active" : null;
     }
@@ -103,6 +113,8 @@ public partial class PosNavBar : UserControl
         EventManager.RegisterRoutedEvent(name, RoutingStrategy.Bubble, typeof(RoutedEventHandler), typeof(PosNavBar));
 
     private void SaleButton_Click(object sender, RoutedEventArgs e) => RaiseEvent(new RoutedEventArgs(SaleRequestedEvent, this));
+
+    private void SalesButton_Click(object sender, RoutedEventArgs e) => RaiseEvent(new RoutedEventArgs(SalesRequestedEvent, this));
 
     private void CustomersButton_Click(object sender, RoutedEventArgs e) => RaiseEvent(new RoutedEventArgs(CustomersRequestedEvent, this));
 
@@ -139,4 +151,6 @@ public partial class PosNavBar : UserControl
     }
 
     private void CloseCashButton_Click(object sender, RoutedEventArgs e) => RaiseEvent(new RoutedEventArgs(CloseCashRequestedEvent, this));
+
+    private void CashMovementButton_Click(object sender, RoutedEventArgs e) => RaiseEvent(new RoutedEventArgs(CashMovementRequestedEvent, this));
 }

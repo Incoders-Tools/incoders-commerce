@@ -25,9 +25,21 @@ public partial class CloseCashWindow : Window
         SaleCountText.Text = summary.SaleCount.ToString(CultureInfo.CurrentCulture);
         CardTotalText.Text = summary.CardTotal.ToString("C", CultureInfo.CurrentCulture);
         QrTotalText.Text = summary.QrTotal.ToString("C", CultureInfo.CurrentCulture);
+        AccountTotalText.Text = summary.AccountTotal.ToString("C", CultureInfo.CurrentCulture);
+        CashMovementsText.Text = summary.CashMovementCount == 0
+            ? "—"
+            : $"retiros −{summary.CashWithdrawn.ToString("C", CultureInfo.CurrentCulture)} · ingresos +{summary.CashDeposited.ToString("C", CultureInfo.CurrentCulture)}";
+        var collected = summary.CollectedCash + summary.CollectedCard + summary.CollectedQr;
+        CollectionsText.Text = summary.CollectionCount == 0
+            ? collected.ToString("C", CultureInfo.CurrentCulture)
+            : $"{collected.ToString("C", CultureInfo.CurrentCulture)} ({summary.CollectionCount}: efectivo {summary.CollectedCash.ToString("C", CultureInfo.CurrentCulture)})";
         ExpectedCashText.Text = _expectedCash.ToString("C", CultureInfo.CurrentCulture);
         ExpectedBreakdownText.Text =
-            $"Iniciales {summary.OpeningFloat.ToString("C", CultureInfo.CurrentCulture)} + efectivo cobrado {summary.CashKept.ToString("C", CultureInfo.CurrentCulture)} (ya descontado el vuelto).";
+            $"Iniciales {summary.OpeningFloat.ToString("C", CultureInfo.CurrentCulture)} + efectivo de ventas {summary.CashKept.ToString("C", CultureInfo.CurrentCulture)}" +
+            (summary.CollectedCash > 0m ? $" + cobros en efectivo {summary.CollectedCash.ToString("C", CultureInfo.CurrentCulture)}" : string.Empty) +
+            (summary.CashDeposited > 0m ? $" + ingresos {summary.CashDeposited.ToString("C", CultureInfo.CurrentCulture)}" : string.Empty) +
+            (summary.CashWithdrawn > 0m ? $" − retiros {summary.CashWithdrawn.ToString("C", CultureInfo.CurrentCulture)}" : string.Empty) +
+            " (ya descontado el vuelto). Las ventas a cuenta corriente no suman: no entró dinero.";
         ConfirmButton.IsEnabled = false;
         Loaded += (_, _) => CountedCashTextBox.Focus();
     }

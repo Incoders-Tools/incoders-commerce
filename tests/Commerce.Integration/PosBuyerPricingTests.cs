@@ -304,8 +304,10 @@ public sealed class PosBuyerPricingTests : IDisposable
         var code = File.ReadAllText(Path.Combine(dir.FullName, "src", "Commerce.Pos.Windows", "MainWindow.xaml.cs"));
 
         Assert.Contains("x:Name=\"PriceListText\"", xaml);
-        Assert.Contains("SelectionChanged=\"CustomerPickerComboBox_SelectionChanged\"", xaml);
+        Assert.Contains("CustomerChosen=\"CustomerPicker_CustomerChosen\"", xaml); // the searchable picker
         Assert.Contains("_buyer.ChooseAsync(", code); // the cart owns the buyer, the picker reflects it (SaleBuyerSelection)
+        Assert.Contains("CustomerPicker.SelectedCustomerId = _cart.CustomerId", code);
+        Assert.Contains("x:Name=\"CustomerDiscountBadge\"", xaml); // the customer's own discount is explained, not silent
         Assert.Contains("PriceListText.Text = _cart.PriceListLabel", code);
         Assert.Contains("new BuyerPricingFactory(", code);
         Assert.Contains("{Binding PriceNote}", File.ReadAllText(Path.Combine(dir.FullName, "src", "Commerce.Pos.Windows", "Controls", "SaleLinesTable.xaml")));

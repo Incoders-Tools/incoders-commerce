@@ -8117,3 +8117,1038 @@ BEGIN;
 GRANT UPDATE (unit_price, created_at_utc, created_by_user_id) ON price_list_entries TO app_runtime;
 
 COMMIT;
+
+-- pos-sales-history-and-void: 0044_pos_sale_voids.sql, appended verbatim per the hand-kept mirror convention.
+
+-- Repo-owned, transactional, idempotent, forward-only migration.
+--
+-- POS sale voids: a terminal can void (annul) a sale of its open cash session,
+-- authorized with the branch PIN. The sale itself is never rewritten (`pos_sales`
+-- is append-only): the void arrives as its own `sale.voided` envelope and is
+-- projected here, one row per voided sale, next to an audit row `sale.voided`.
+-- The stock the sale took out is put back with `Reversal` movements of source
+-- `PosSaleVoid` (reserved since 0033), one per original `PosSale` movement.
+-- APPLIED AFTER: 0043_price_entry_same_day_correction.sql.
+--
+--   sale_id        the voided sale. No foreign key to pos_sales: the void may be
+--                  ingested before its sale (the terminal pushes in order, but a
+--                  failed push of the sale does not stop the next one).
+--   reason         required, what the operator typed (at most 200 characters on
+--                  the terminal; plain text here so ingestion never fails on it).
+--   authorized_by  the operator whose PIN authorized the void, and the PIN
+--                  version, as for a discount.
+--
+-- Append-only like `pos_sales` (0023): app_runtime gets SELECT, INSERT, no UPDATE
+-- or DELETE; a void is never undone. FORCE ROW LEVEL SECURITY with the symmetric
+-- tenant-isolation policy (NULLIF pooler-safety hardening from 0001 - never regress
+-- it). The composite foreign key to branches follows 0014/0016/0023.
+--
+-- Deploy order: apply this BEFORE the API version that projects voids. An API
+-- deployed ahead of it still ingests every void (the projection runs in a savepoint
+-- and is skipped with a log line); the envelope stays in `sync_inbox`.
+--
+-- INVERSE (rollback), shipped as a comment - NOT executed by this file:
+--   BEGIN;
+--   DROP TABLE IF EXISTS pos_sale_voids;
+--   COMMIT;
+
+BEGIN;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'branches_org_scoped_uk') THEN
+        ALTER TABLE branches ADD CONSTRAINT branches_org_scoped_uk UNIQUE (organization_id, id);
+    END IF;
+END $$;
+
+CREATE TABLE IF NOT EXISTS pos_sale_voids (
+    organization_id       uuid        NOT NULL,
+    branch_id             uuid        NOT NULL,
+    sale_id               uuid        NOT NULL,
+    operation_id          uuid        NOT NULL,
+    voided_at_utc         timestamptz NOT NULL,
+    voided_by_operator_id uuid        NOT NULL,
+    authorized_by         uuid        NOT NULL,
+    pin_version           bigint      NOT NULL,
+    reason                text        NOT NULL,
+    total_amount          numeric     NOT NULL,
+    cash_session_id       uuid        NULL,
+    recorded_at           timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT pos_sale_voids_pk PRIMARY KEY (organization_id, sale_id),
+    CONSTRAINT pos_sale_voids_branch_fk
+        FOREIGN KEY (organization_id, branch_id) REFERENCES branches (organization_id, id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS pos_sale_voids_branch_time_idx
+    ON pos_sale_voids (organization_id, branch_id, voided_at_utc);
+
+ALTER TABLE pos_sale_voids ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pos_sale_voids FORCE ROW LEVEL SECURITY;
+REVOKE ALL ON pos_sale_voids FROM PUBLIC;
+GRANT SELECT, INSERT ON pos_sale_voids TO app_runtime;   -- no UPDATE, no DELETE: append-only
+
+DROP POLICY IF EXISTS pos_sale_voids_tenant_isolation ON pos_sale_voids;
+CREATE POLICY pos_sale_voids_tenant_isolation ON pos_sale_voids
+    USING      (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid)
+    WITH CHECK (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid);
+
+COMMIT;
+
+-- order-fulfillment-and-delivery: 0045_order_fulfillment_and_delivery.sql, appended verbatim per the hand-kept mirror convention.
+
+-- Repo-owned, transactional, idempotent, forward-only migration.
+--
+-- Order fulfillment, delivery runs and remitos (delivery notes).
+-- APPLIED AFTER: 0044_pos_sale_voids.sql.
+--
+-- 1. ORDERS get an operational status, separate from the ADR-003 sync status
+--    (`status`/`pending_reason`, untouched):
+--      fulfillment_status  Confirmed -> InPreparation -> ReadyToDispatch -> OutForDelivery
+--                          -> Delivered | PartiallyDelivered; Cancelled before dispatch.
+--                          Existing orders start as Confirmed.
+--      remito_sequence     the order's remito number within its branch (R01-00000042),
+--                          assigned once, the first time the remito is printed or the
+--                          order is dispatched; `remito_counters` hands them out.
+--      settlement          how a delivered order was settled: on the customer's current
+--                          account, or paid on delivery (also every guest order).
+--      delivered_total     what was delivered, at the order's net prices.
+--    The new columns get a column-level UPDATE grant; order_lines stay frozen.
+--
+-- 2. DELIVERY RUNS (repartos): a date, a driver and a vehicle, and the ordered list of
+--    the orders the truck takes (`delivery_run_orders`, an order is in at most one run).
+--    Planned -> OutForDelivery (dispatch) -> Completed (settled on return).
+--    `order_line_deliveries` keeps what was really delivered per line (kilos may differ
+--    from the order).
+--
+-- 3. CURRENT ACCOUNTS for CUSTOMERS: `current_account_movements` (0031, supplier-only)
+--    accepts party_kind 'Customer' with its `customer_id`. For a customer the balance is
+--    what the CUSTOMER owes: a delivery is a Debit, a payment a Credit. `source_type` /
+--    `source_id` make a posting idempotent (one movement per delivered order).
+--
+-- 4. DOCUMENT DATA of the organization (legal name, CUIT, tax condition, gross income
+--    number, activity start, fiscal address, footer) and of each branch (address,
+--    locality, phone, e-mail, warehouse) printed on remitos. All nullable: existing
+--    rows simply have none yet. Covered by the tables' existing grants and policies.
+--
+-- RLS: every new table is org-scoped with FORCE ROW LEVEL SECURITY and the symmetric
+-- tenant-isolation policy (NULLIF pooler-safety hardening from 0001 - never regress it),
+-- like `orders` (0025). Composite foreign keys keep every reference inside the tenant.
+--
+-- INVERSE (rollback), shipped as a comment - NOT executed by this file:
+--   BEGIN;
+--   DROP TABLE IF EXISTS order_line_deliveries, delivery_run_orders, delivery_runs, remito_counters;
+--   ALTER TABLE orders DROP COLUMN IF EXISTS fulfillment_status, DROP COLUMN IF EXISTS fulfillment_updated_at,
+--       DROP COLUMN IF EXISTS cancel_reason, DROP COLUMN IF EXISTS remito_sequence, DROP COLUMN IF EXISTS settlement,
+--       DROP COLUMN IF EXISTS delivered_total, DROP COLUMN IF EXISTS delivered_at;
+--   DROP INDEX IF EXISTS current_account_movements_source_uk, current_account_movements_customer_idx;
+--   ALTER TABLE current_account_movements DROP CONSTRAINT IF EXISTS current_account_movements_party_customer,
+--       DROP CONSTRAINT IF EXISTS current_account_movements_customer_fk,
+--       DROP CONSTRAINT IF EXISTS current_account_movements_party_kind_ck,
+--       DROP COLUMN IF EXISTS customer_id, DROP COLUMN IF EXISTS source_type, DROP COLUMN IF EXISTS source_id;
+--   ALTER TABLE current_account_movements ADD CONSTRAINT current_account_movements_party_kind_check
+--       CHECK (party_kind IN ('Supplier'));   -- only when no Customer movement exists
+--   ALTER TABLE organizations DROP COLUMN IF EXISTS legal_name, DROP COLUMN IF EXISTS tax_id,
+--       DROP COLUMN IF EXISTS tax_condition, DROP COLUMN IF EXISTS gross_income_number,
+--       DROP COLUMN IF EXISTS activity_start_date, DROP COLUMN IF EXISTS fiscal_address,
+--       DROP COLUMN IF EXISTS document_footer;
+--   ALTER TABLE branches DROP COLUMN IF EXISTS address, DROP COLUMN IF EXISTS locality,
+--       DROP COLUMN IF EXISTS phone, DROP COLUMN IF EXISTS email, DROP COLUMN IF EXISTS warehouse_address;
+--   COMMIT;
+
+BEGIN;
+
+-- ---- 1. orders -------------------------------------------------------------------------
+
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS fulfillment_status     text          NOT NULL DEFAULT 'Confirmed';
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS fulfillment_updated_at timestamptz   NULL;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS cancel_reason          text          NULL;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS remito_sequence        integer       NULL;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS settlement             text          NULL;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivered_total        numeric(18,2) NULL;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivered_at           timestamptz   NULL;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'orders_fulfillment_status_ck') THEN
+        ALTER TABLE orders ADD CONSTRAINT orders_fulfillment_status_ck CHECK (fulfillment_status IN (
+            'Confirmed', 'InPreparation', 'ReadyToDispatch', 'OutForDelivery', 'Delivered', 'PartiallyDelivered', 'Cancelled'));
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'orders_settlement_ck') THEN
+        ALTER TABLE orders ADD CONSTRAINT orders_settlement_ck
+            CHECK (settlement IS NULL OR settlement IN ('CurrentAccount', 'PaidOnDelivery'));
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'orders_cancel_reason_ck') THEN
+        ALTER TABLE orders ADD CONSTRAINT orders_cancel_reason_ck
+            CHECK (cancel_reason IS NULL OR char_length(cancel_reason) <= 200);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'orders_remito_sequence_ck') THEN
+        ALTER TABLE orders ADD CONSTRAINT orders_remito_sequence_ck CHECK (remito_sequence IS NULL OR remito_sequence >= 1);
+    END IF;
+END $$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS orders_remito_number_uk
+    ON orders (organization_id, destination_branch_id, remito_sequence) WHERE remito_sequence IS NOT NULL;
+CREATE INDEX IF NOT EXISTS orders_fulfillment_idx
+    ON orders (organization_id, destination_branch_id, fulfillment_status, submitted_at_utc);
+
+GRANT UPDATE (fulfillment_status, fulfillment_updated_at, cancel_reason, remito_sequence, settlement, delivered_total, delivered_at)
+    ON orders TO app_runtime;
+
+CREATE TABLE IF NOT EXISTS remito_counters (
+    organization_id uuid    NOT NULL,
+    branch_id       uuid    NOT NULL,
+    last_sequence   integer NOT NULL CHECK (last_sequence >= 0),
+    CONSTRAINT remito_counters_pk PRIMARY KEY (organization_id, branch_id),
+    CONSTRAINT remito_counters_branch_fk
+        FOREIGN KEY (organization_id, branch_id) REFERENCES branches (organization_id, id) ON DELETE CASCADE
+);
+
+ALTER TABLE remito_counters ENABLE ROW LEVEL SECURITY;
+ALTER TABLE remito_counters FORCE ROW LEVEL SECURITY;
+REVOKE ALL ON remito_counters FROM PUBLIC;
+GRANT SELECT, INSERT, UPDATE ON remito_counters TO app_runtime;
+DROP POLICY IF EXISTS remito_counters_tenant_isolation ON remito_counters;
+CREATE POLICY remito_counters_tenant_isolation ON remito_counters
+    USING      (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid)
+    WITH CHECK (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid);
+
+-- ---- 2. delivery runs ------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS delivery_runs (
+    organization_id    uuid        NOT NULL,
+    id                 uuid        NOT NULL,
+    branch_id          uuid        NOT NULL,
+    run_number         integer     NOT NULL CHECK (run_number >= 1),
+    run_date           date        NOT NULL,
+    driver_name        text        NULL CHECK (driver_name IS NULL OR char_length(driver_name) <= 120),
+    vehicle            text        NULL CHECK (vehicle IS NULL OR char_length(vehicle) <= 120),
+    notes              text        NULL CHECK (notes IS NULL OR char_length(notes) <= 500),
+    status             text        NOT NULL DEFAULT 'Planned' CHECK (status IN ('Planned', 'OutForDelivery', 'Completed')),
+    created_at         timestamptz NOT NULL DEFAULT now(),
+    created_by_user_id uuid        NOT NULL,
+    dispatched_at      timestamptz NULL,
+    completed_at       timestamptz NULL,
+    CONSTRAINT delivery_runs_pk PRIMARY KEY (organization_id, id),
+    CONSTRAINT delivery_runs_number_uk UNIQUE (organization_id, branch_id, run_number),
+    CONSTRAINT delivery_runs_branch_fk
+        FOREIGN KEY (organization_id, branch_id) REFERENCES branches (organization_id, id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS delivery_runs_branch_date_idx ON delivery_runs (organization_id, branch_id, run_date);
+
+ALTER TABLE delivery_runs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE delivery_runs FORCE ROW LEVEL SECURITY;
+REVOKE ALL ON delivery_runs FROM PUBLIC;
+GRANT SELECT, INSERT ON delivery_runs TO app_runtime;
+GRANT UPDATE (run_date, driver_name, vehicle, notes, status, dispatched_at, completed_at) ON delivery_runs TO app_runtime;
+DROP POLICY IF EXISTS delivery_runs_tenant_isolation ON delivery_runs;
+CREATE POLICY delivery_runs_tenant_isolation ON delivery_runs
+    USING      (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid)
+    WITH CHECK (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid);
+
+CREATE TABLE IF NOT EXISTS delivery_run_orders (
+    organization_id uuid    NOT NULL,
+    run_id          uuid    NOT NULL,
+    order_id        uuid    NOT NULL,
+    stop_no         integer NOT NULL CHECK (stop_no >= 1),
+    CONSTRAINT delivery_run_orders_pk PRIMARY KEY (organization_id, run_id, order_id),
+    CONSTRAINT delivery_run_orders_one_run_uk UNIQUE (organization_id, order_id),
+    CONSTRAINT delivery_run_orders_run_fk
+        FOREIGN KEY (organization_id, run_id) REFERENCES delivery_runs (organization_id, id) ON DELETE CASCADE,
+    CONSTRAINT delivery_run_orders_order_fk
+        FOREIGN KEY (organization_id, order_id) REFERENCES orders (organization_id, order_id) ON DELETE CASCADE
+);
+
+ALTER TABLE delivery_run_orders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE delivery_run_orders FORCE ROW LEVEL SECURITY;
+REVOKE ALL ON delivery_run_orders FROM PUBLIC;
+GRANT SELECT, INSERT, DELETE ON delivery_run_orders TO app_runtime;
+GRANT UPDATE (stop_no) ON delivery_run_orders TO app_runtime;
+DROP POLICY IF EXISTS delivery_run_orders_tenant_isolation ON delivery_run_orders;
+CREATE POLICY delivery_run_orders_tenant_isolation ON delivery_run_orders
+    USING      (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid)
+    WITH CHECK (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid);
+
+CREATE TABLE IF NOT EXISTS order_line_deliveries (
+    organization_id    uuid          NOT NULL,
+    order_id           uuid          NOT NULL,
+    line_no            integer       NOT NULL,
+    delivered_quantity numeric(18,3) NOT NULL CHECK (delivered_quantity >= 0),
+    recorded_at        timestamptz   NOT NULL DEFAULT now(),
+    CONSTRAINT order_line_deliveries_pk PRIMARY KEY (organization_id, order_id, line_no),
+    CONSTRAINT order_line_deliveries_line_fk
+        FOREIGN KEY (organization_id, order_id, line_no) REFERENCES order_lines (organization_id, order_id, line_no) ON DELETE CASCADE
+);
+
+ALTER TABLE order_line_deliveries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE order_line_deliveries FORCE ROW LEVEL SECURITY;
+REVOKE ALL ON order_line_deliveries FROM PUBLIC;
+GRANT SELECT, INSERT ON order_line_deliveries TO app_runtime;   -- written once, at settlement
+DROP POLICY IF EXISTS order_line_deliveries_tenant_isolation ON order_line_deliveries;
+CREATE POLICY order_line_deliveries_tenant_isolation ON order_line_deliveries
+    USING      (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid)
+    WITH CHECK (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid);
+
+-- ---- 3. customer current accounts -----------------------------------------------------
+
+ALTER TABLE current_account_movements ADD COLUMN IF NOT EXISTS customer_id uuid NULL;
+ALTER TABLE current_account_movements ADD COLUMN IF NOT EXISTS source_type text NULL;
+ALTER TABLE current_account_movements ADD COLUMN IF NOT EXISTS source_id   uuid NULL;
+
+-- 0031 declared the party kind inline, so Postgres named it current_account_movements_party_kind_check; it is
+-- replaced by a named one that also admits customers.
+ALTER TABLE current_account_movements DROP CONSTRAINT IF EXISTS current_account_movements_party_kind_check;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'current_account_movements_party_kind_ck') THEN
+        ALTER TABLE current_account_movements ADD CONSTRAINT current_account_movements_party_kind_ck
+            CHECK (party_kind IN ('Supplier', 'Customer'));
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'current_account_movements_party_customer') THEN
+        ALTER TABLE current_account_movements ADD CONSTRAINT current_account_movements_party_customer
+            CHECK (party_kind <> 'Customer' OR customer_id = party_id);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'customers_org_scoped_uk') THEN
+        ALTER TABLE customers ADD CONSTRAINT customers_org_scoped_uk UNIQUE (organization_id, id);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'current_account_movements_customer_fk') THEN
+        ALTER TABLE current_account_movements ADD CONSTRAINT current_account_movements_customer_fk
+            FOREIGN KEY (organization_id, customer_id) REFERENCES customers (organization_id, id);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'current_account_movements_source_ck') THEN
+        ALTER TABLE current_account_movements ADD CONSTRAINT current_account_movements_source_ck
+            CHECK ((source_type IS NULL) = (source_id IS NULL));
+    END IF;
+END $$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS current_account_movements_source_uk
+    ON current_account_movements (organization_id, party_id, source_type, source_id) WHERE source_type IS NOT NULL;
+CREATE INDEX IF NOT EXISTS current_account_movements_customer_idx
+    ON current_account_movements (organization_id, customer_id, occurred_on, created_at_utc) WHERE customer_id IS NOT NULL;
+
+-- ---- 4. document data -----------------------------------------------------------------
+
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS legal_name          text NULL;
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS tax_id              text NULL;
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS tax_condition       text NULL;
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS gross_income_number text NULL;
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS activity_start_date date NULL;
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS fiscal_address      text NULL;
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS document_footer     text NULL;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'organizations_document_data_ck') THEN
+        ALTER TABLE organizations ADD CONSTRAINT organizations_document_data_ck CHECK (
+            (legal_name IS NULL OR char_length(legal_name) <= 200)
+            AND (tax_id IS NULL OR tax_id ~ '^[0-9]{11}$')
+            AND (tax_condition IS NULL OR tax_condition IN ('ResponsableInscripto', 'Monotributo', 'Exento', 'ConsumidorFinal', 'NoAplica'))
+            AND (gross_income_number IS NULL OR char_length(gross_income_number) <= 40)
+            AND (fiscal_address IS NULL OR char_length(fiscal_address) <= 200)
+            AND (document_footer IS NULL OR char_length(document_footer) <= 300));
+    END IF;
+END $$;
+
+ALTER TABLE branches ADD COLUMN IF NOT EXISTS address           text NULL;
+ALTER TABLE branches ADD COLUMN IF NOT EXISTS locality          text NULL;
+ALTER TABLE branches ADD COLUMN IF NOT EXISTS phone             text NULL;
+ALTER TABLE branches ADD COLUMN IF NOT EXISTS email             text NULL;
+ALTER TABLE branches ADD COLUMN IF NOT EXISTS warehouse_address text NULL;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'branches_document_data_ck') THEN
+        ALTER TABLE branches ADD CONSTRAINT branches_document_data_ck CHECK (
+            (address IS NULL OR char_length(address) <= 200)
+            AND (locality IS NULL OR char_length(locality) <= 120)
+            AND (phone IS NULL OR char_length(phone) <= 60)
+            AND (email IS NULL OR char_length(email) <= 200)
+            AND (warehouse_address IS NULL OR char_length(warehouse_address) <= 200));
+    END IF;
+END $$;
+
+COMMIT;
+
+-- payment-terms-and-treasury: 0046_payment_terms_and_treasury.sql, appended verbatim per the hand-kept mirror convention.
+
+-- Repo-owned, transactional, idempotent, forward-only migration.
+--
+-- Payment terms of customers and the company's treasury.
+-- APPLIED AFTER: 0045_order_fulfillment_and_delivery.sql.
+--
+-- 1. PAYMENT TERMS. A sale or delivery on a customer's current account is due after the customer's own payment terms
+--    (`customers.payment_terms_days`) or, when the customer has none, after the organization's default
+--    (`organizations.default_customer_payment_terms_days`, 30 days unless changed). 0 means due the same day. The
+--    free-text `customers.payment_terms` stays as a note; the days are what due dates are computed from.
+--
+-- 2. TREASURY (tesorería): the company's money accounts, one per branch and payment method (Cash = the drawer, Card,
+--    Qr), created on first use, and their append-only movements. Every POS sale paid at the counter, every payment a
+--    customer makes at the POS, and every delivery paid on delivery puts money In; a void takes it back Out with a
+--    Reversal (never an update or a delete). `source_type` + `source_id` make each posting idempotent (a retried
+--    projection never counts money twice); a movement is reversed at most once.
+--
+-- RLS: both tables are org-scoped with FORCE ROW LEVEL SECURITY and the symmetric tenant-isolation policy (NULLIF
+-- pooler-safety hardening from 0001 - never regress it). SELECT and INSERT only: money is never rewritten.
+--
+-- INVERSE (rollback), shipped as a comment - NOT executed by this file:
+--   BEGIN;
+--   DROP TABLE IF EXISTS treasury_movements, treasury_accounts;
+--   ALTER TABLE customers DROP COLUMN IF EXISTS payment_terms_days;
+--   ALTER TABLE organizations DROP COLUMN IF EXISTS default_customer_payment_terms_days;
+--   COMMIT;
+
+BEGIN;
+
+-- ---- 1. payment terms ------------------------------------------------------------------
+
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS payment_terms_days smallint NULL;
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS default_customer_payment_terms_days smallint NOT NULL DEFAULT 30;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'customers_payment_terms_days_ck') THEN
+        ALTER TABLE customers ADD CONSTRAINT customers_payment_terms_days_ck
+            CHECK (payment_terms_days IS NULL OR payment_terms_days BETWEEN 0 AND 365);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'organizations_default_payment_terms_ck') THEN
+        ALTER TABLE organizations ADD CONSTRAINT organizations_default_payment_terms_ck
+            CHECK (default_customer_payment_terms_days BETWEEN 0 AND 365);
+    END IF;
+END $$;
+
+-- ---- 2. treasury -----------------------------------------------------------------------
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'branches_org_scoped_uk') THEN
+        ALTER TABLE branches ADD CONSTRAINT branches_org_scoped_uk UNIQUE (organization_id, id);
+    END IF;
+END $$;
+
+CREATE TABLE IF NOT EXISTS treasury_accounts (
+    organization_id uuid        NOT NULL,
+    id              uuid        NOT NULL,
+    branch_id       uuid        NOT NULL,
+    kind            text        NOT NULL CHECK (kind IN ('Cash', 'Card', 'Qr')),
+    name            text        NOT NULL CHECK (btrim(name) <> '' AND char_length(name) <= 120),
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT treasury_accounts_pk PRIMARY KEY (organization_id, id),
+    CONSTRAINT treasury_accounts_branch_kind_uk UNIQUE (organization_id, branch_id, kind),
+    CONSTRAINT treasury_accounts_branch_fk
+        FOREIGN KEY (organization_id, branch_id) REFERENCES branches (organization_id, id) ON DELETE CASCADE
+);
+
+ALTER TABLE treasury_accounts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE treasury_accounts FORCE ROW LEVEL SECURITY;
+REVOKE ALL ON treasury_accounts FROM PUBLIC;
+GRANT SELECT, INSERT ON treasury_accounts TO app_runtime;
+DROP POLICY IF EXISTS treasury_accounts_tenant_isolation ON treasury_accounts;
+CREATE POLICY treasury_accounts_tenant_isolation ON treasury_accounts
+    USING      (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid)
+    WITH CHECK (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid);
+
+CREATE TABLE IF NOT EXISTS treasury_movements (
+    organization_id      uuid          NOT NULL,
+    id                   uuid          NOT NULL,
+    account_id           uuid          NOT NULL,
+    kind                 text          NOT NULL CHECK (kind IN ('Sale', 'CustomerPayment', 'DeliveryPayment', 'Reversal')),
+    direction            text          NOT NULL CHECK (direction IN ('In', 'Out')),
+    amount               numeric(18,2) NOT NULL CHECK (amount > 0),
+    occurred_at_utc      timestamptz   NOT NULL,
+    business_date        date          NOT NULL,
+    concept              text          NOT NULL CHECK (btrim(concept) <> ''),
+    document_reference   text          NULL,
+    customer_id          uuid          NULL,
+    source_type          text          NULL,
+    source_id            uuid          NULL,
+    reverses_movement_id uuid          NULL,
+    created_by_user_id   uuid          NOT NULL,
+    created_at           timestamptz   NOT NULL DEFAULT now(),
+    CONSTRAINT treasury_movements_pk PRIMARY KEY (organization_id, id),
+    CONSTRAINT treasury_movements_account_fk
+        FOREIGN KEY (organization_id, account_id) REFERENCES treasury_accounts (organization_id, id),
+    CONSTRAINT treasury_movements_reversal_link CHECK ((kind = 'Reversal') = (reverses_movement_id IS NOT NULL)),
+    CONSTRAINT treasury_movements_source_ck CHECK ((source_type IS NULL) = (source_id IS NULL))
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS treasury_movements_source_uk
+    ON treasury_movements (organization_id, source_type, source_id) WHERE source_type IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS treasury_movements_one_reversal_uk
+    ON treasury_movements (organization_id, reverses_movement_id) WHERE reverses_movement_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS treasury_movements_account_date_idx
+    ON treasury_movements (organization_id, account_id, business_date, created_at);
+
+ALTER TABLE treasury_movements ENABLE ROW LEVEL SECURITY;
+ALTER TABLE treasury_movements FORCE ROW LEVEL SECURITY;
+REVOKE ALL ON treasury_movements FROM PUBLIC;
+GRANT SELECT, INSERT ON treasury_movements TO app_runtime;   -- append-only: money is never rewritten
+DROP POLICY IF EXISTS treasury_movements_tenant_isolation ON treasury_movements;
+CREATE POLICY treasury_movements_tenant_isolation ON treasury_movements
+    USING      (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid)
+    WITH CHECK (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid);
+
+COMMIT;
+
+-- treasury-accounts-and-cash-movements: 0047_treasury_accounts_and_cash_movements.sql, appended verbatim per the hand-kept mirror convention.
+
+-- Repo-owned, transactional, idempotent, forward-only migration.
+--
+-- Treasury accounts entered by the administration, manual movements and transfers, cash drawer movements of the POS
+-- and the cash count difference of a closed cash session.
+-- APPLIED AFTER: 0046_payment_terms_and_treasury.sql.
+--
+-- 1. ACCOUNTS. Besides the automatic accounts of each branch (Cash = the drawer, Card, Qr), the administration creates
+--    Bank accounts and Other accounts (company-wide: `branch_id` NULL, or of one branch), and each branch has one Safe
+--    (caja fuerte), created by the administration or on the first POS withdrawal into it. Cash, Card, Qr and Safe stay
+--    one per branch (partial unique index); Bank and Other may repeat.
+--
+-- 2. MOVEMENTS. New kinds, all append-only like the rest (a mistake is a Reversal, never an edit):
+--    - CashCountDifference: the surplus (In) or shortage (Out) a cash session closed with, on the branch Cash account.
+--    - CashWithdrawal / CashDeposit: money taken out of / put into the drawer at the POS outside a sale (an expense paid
+--      from the drawer, change brought in...).
+--    - Transfer: money moved between two accounts (drawer to safe, safe to bank...): an Out and an In sharing
+--      `transfer_id`.
+--    - ManualIn / ManualOut: money the administration records by hand (a bank deposit slip, an expense paid by the bank,
+--      the initial change fund...).
+--    A Reversal now flips the direction of what it reverses (an Out reversed is an In).
+--
+-- RLS: unchanged (org-scoped, FORCE, SELECT and INSERT only).
+--
+-- INVERSE (rollback), shipped as a comment - NOT executed by this file (only possible while no new-kind row exists):
+--   BEGIN;
+--   DELETE FROM treasury_movements WHERE kind IN ('CashCountDifference','CashWithdrawal','CashDeposit','Transfer','ManualIn','ManualOut');
+--   DELETE FROM treasury_accounts WHERE kind IN ('Safe','Bank','Other');
+--   ALTER TABLE treasury_movements DROP COLUMN IF EXISTS transfer_id;
+--   ALTER TABLE treasury_accounts DROP COLUMN IF EXISTS description;
+--   ALTER TABLE treasury_accounts ALTER COLUMN branch_id SET NOT NULL;
+--   COMMIT;
+
+BEGIN;
+
+-- ---- 1. accounts -----------------------------------------------------------------------
+
+ALTER TABLE treasury_accounts ALTER COLUMN branch_id DROP NOT NULL;
+ALTER TABLE treasury_accounts ADD COLUMN IF NOT EXISTS description text NULL;
+
+ALTER TABLE treasury_accounts DROP CONSTRAINT IF EXISTS treasury_accounts_kind_check;
+ALTER TABLE treasury_accounts DROP CONSTRAINT IF EXISTS treasury_accounts_kind_ck;
+ALTER TABLE treasury_accounts ADD CONSTRAINT treasury_accounts_kind_ck
+    CHECK (kind IN ('Cash', 'Card', 'Qr', 'Safe', 'Bank', 'Other'));
+
+ALTER TABLE treasury_accounts DROP CONSTRAINT IF EXISTS treasury_accounts_branch_scope_ck;
+ALTER TABLE treasury_accounts ADD CONSTRAINT treasury_accounts_branch_scope_ck
+    CHECK (kind IN ('Bank', 'Other') OR branch_id IS NOT NULL);
+
+ALTER TABLE treasury_accounts DROP CONSTRAINT IF EXISTS treasury_accounts_description_ck;
+ALTER TABLE treasury_accounts ADD CONSTRAINT treasury_accounts_description_ck
+    CHECK (description IS NULL OR char_length(description) <= 200);
+
+ALTER TABLE treasury_accounts DROP CONSTRAINT IF EXISTS treasury_accounts_branch_kind_uk;
+CREATE UNIQUE INDEX IF NOT EXISTS treasury_accounts_branch_kind_uk
+    ON treasury_accounts (organization_id, branch_id, kind) WHERE kind IN ('Cash', 'Card', 'Qr', 'Safe');
+
+-- ---- 2. movements ----------------------------------------------------------------------
+
+ALTER TABLE treasury_movements ADD COLUMN IF NOT EXISTS transfer_id uuid NULL;
+
+-- Widened only when it does not admit these kinds yet: re-running this file never narrows what a later migration widened.
+ALTER TABLE treasury_movements DROP CONSTRAINT IF EXISTS treasury_movements_kind_check;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'treasury_movements_kind_ck'
+                   AND pg_get_constraintdef(oid) LIKE '%CashCountDifference%') THEN
+        ALTER TABLE treasury_movements DROP CONSTRAINT IF EXISTS treasury_movements_kind_ck;
+        ALTER TABLE treasury_movements ADD CONSTRAINT treasury_movements_kind_ck
+            CHECK (kind IN ('Sale', 'CustomerPayment', 'DeliveryPayment', 'Reversal', 'CashCountDifference', 'CashWithdrawal',
+                            'CashDeposit', 'Transfer', 'ManualIn', 'ManualOut'));
+    END IF;
+END $$;
+
+ALTER TABLE treasury_movements DROP CONSTRAINT IF EXISTS treasury_movements_transfer_ck;
+ALTER TABLE treasury_movements ADD CONSTRAINT treasury_movements_transfer_ck
+    CHECK (kind <> 'Transfer' OR transfer_id IS NOT NULL);
+
+CREATE INDEX IF NOT EXISTS treasury_movements_transfer_idx
+    ON treasury_movements (organization_id, transfer_id) WHERE transfer_id IS NOT NULL;
+
+COMMIT;
+
+-- treasury-account-types-and-voids: 0048_treasury_account_types_and_voids.sql, appended verbatim per the hand-kept mirror convention.
+
+-- Repo-owned, transactional, idempotent, forward-only migration.
+--
+-- Treasury account types (an organization-owned catalog), account management (edit, activate/deactivate) and voided
+-- or edited treasury movements.
+-- APPLIED AFTER: 0047_treasury_accounts_and_cash_movements.sql.
+--
+-- 1. ACCOUNT TYPES (`treasury_account_types`): the organization's own catalog of kinds of money ("Efectivo", "Bancos",
+--    "Tarjetas de crédito", "Billeteras virtuales"...), the same shape and rules as the other catalogs
+--    (`supplier_categories`, 0030): name + key unique per organization, sort order, active/inactive, never deleted.
+--    Every organization that already has treasury accounts gets the default types; an organization without types gets
+--    them when its first account is created. Each account points at one type (`account_type_id`), so the owner sees the
+--    company total split by type and by branch. The technical `kind` of an account stays: it is what the POS posts to
+--    (the drawer = Cash, Card, Qr, and the branch Safe); the type is how the business groups its money.
+--
+-- 2. ACCOUNTS can be renamed, re-typed, described, and deactivated (`is_active`). UPDATE is granted on those columns
+--    only.
+--
+-- 3. VOIDED MOVEMENTS (`treasury_movement_voids`): an administrator voids a movement (it stays, marked voided with who,
+--    when and why, and stops counting in every balance) or edits it (the original is voided and points at its
+--    replacement, which carries `corrects_movement_id`). Append-only like the movements: nothing is ever deleted or
+--    rewritten, so the history and its audit stay complete.
+--
+-- RLS: org-scoped, FORCE, the symmetric tenant-isolation policy (NULLIF pooler-safety hardening from 0001).
+--
+-- INVERSE (rollback), shipped as a comment - NOT executed by this file:
+--   BEGIN;
+--   DROP TABLE IF EXISTS treasury_movement_voids;
+--   ALTER TABLE treasury_movements DROP COLUMN IF EXISTS corrects_movement_id;
+--   ALTER TABLE treasury_accounts DROP COLUMN IF EXISTS account_type_id, DROP COLUMN IF EXISTS is_active,
+--       DROP COLUMN IF EXISTS updated_at;
+--   DROP TABLE IF EXISTS treasury_account_types;
+--   COMMIT;
+
+BEGIN;
+
+-- ---- 1. account types --------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS treasury_account_types (
+    id              uuid PRIMARY KEY,
+    organization_id uuid NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+    name            text NOT NULL CHECK (btrim(name) <> ''),
+    key             text NOT NULL CHECK (btrim(key) <> ''),
+    sort_order      integer NOT NULL DEFAULT 0,
+    is_active       boolean NOT NULL DEFAULT true,
+    created_at_utc  timestamptz NOT NULL DEFAULT now(),
+    updated_at_utc  timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT treasury_account_types_org_scoped_uk UNIQUE (organization_id, id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS treasury_account_types_org_name_uk
+    ON treasury_account_types (organization_id, lower(btrim(name)));
+CREATE UNIQUE INDEX IF NOT EXISTS treasury_account_types_org_key_uk
+    ON treasury_account_types (organization_id, key);
+
+ALTER TABLE treasury_account_types ENABLE ROW LEVEL SECURITY;
+ALTER TABLE treasury_account_types FORCE  ROW LEVEL SECURITY;
+REVOKE ALL ON treasury_account_types FROM PUBLIC;
+GRANT SELECT, INSERT, UPDATE ON treasury_account_types TO app_runtime;
+DROP POLICY IF EXISTS treasury_account_types_tenant_isolation ON treasury_account_types;
+CREATE POLICY treasury_account_types_tenant_isolation ON treasury_account_types
+    USING      (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid)
+    WITH CHECK (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid);
+
+-- The default types of every organization that already has treasury accounts (the others get them with their first
+-- account). Same keys the API seeds.
+INSERT INTO treasury_account_types (id, organization_id, name, key, sort_order)
+SELECT gen_random_uuid(), owners.organization_id, defaults.name, defaults.key, defaults.sort_order
+FROM (SELECT DISTINCT organization_id FROM treasury_accounts) AS owners
+CROSS JOIN (VALUES
+    ('Efectivo', 'efectivo', 10),
+    ('Tarjetas', 'tarjetas', 20),
+    ('Billeteras virtuales / QR', 'billeteras', 30),
+    ('Bancos', 'bancos', 40),
+    ('Otras', 'otras', 50)
+) AS defaults (name, key, sort_order)
+WHERE NOT EXISTS (SELECT 1 FROM treasury_account_types t WHERE t.organization_id = owners.organization_id);
+
+-- ---- 2. accounts -------------------------------------------------------------------------
+
+ALTER TABLE treasury_accounts ADD COLUMN IF NOT EXISTS account_type_id uuid NULL;
+ALTER TABLE treasury_accounts ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true;
+ALTER TABLE treasury_accounts ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'treasury_accounts_type_fk') THEN
+        ALTER TABLE treasury_accounts ADD CONSTRAINT treasury_accounts_type_fk
+            FOREIGN KEY (organization_id, account_type_id) REFERENCES treasury_account_types (organization_id, id);
+    END IF;
+END $$;
+
+UPDATE treasury_accounts a
+SET account_type_id = t.id
+FROM treasury_account_types t
+WHERE t.organization_id = a.organization_id
+  AND a.account_type_id IS NULL
+  AND t.key = CASE a.kind
+      WHEN 'Cash' THEN 'efectivo' WHEN 'Safe' THEN 'efectivo' WHEN 'Card' THEN 'tarjetas'
+      WHEN 'Qr' THEN 'billeteras' WHEN 'Bank' THEN 'bancos' ELSE 'otras' END;
+
+GRANT UPDATE (name, description, account_type_id, is_active, updated_at) ON treasury_accounts TO app_runtime;
+
+-- ---- 3. voided and edited movements ------------------------------------------------------
+
+ALTER TABLE treasury_movements ADD COLUMN IF NOT EXISTS corrects_movement_id uuid NULL;
+
+CREATE TABLE IF NOT EXISTS treasury_movement_voids (
+    organization_id         uuid        NOT NULL,
+    movement_id             uuid        NOT NULL,
+    voided_at_utc           timestamptz NOT NULL DEFAULT now(),
+    voided_by_user_id       uuid        NOT NULL,
+    reason                  text        NOT NULL CHECK (btrim(reason) <> '' AND char_length(reason) <= 200),
+    replacement_movement_id uuid        NULL,
+    CONSTRAINT treasury_movement_voids_pk PRIMARY KEY (organization_id, movement_id),
+    CONSTRAINT treasury_movement_voids_movement_fk
+        FOREIGN KEY (organization_id, movement_id) REFERENCES treasury_movements (organization_id, id)
+);
+
+ALTER TABLE treasury_movement_voids ENABLE ROW LEVEL SECURITY;
+ALTER TABLE treasury_movement_voids FORCE ROW LEVEL SECURITY;
+REVOKE ALL ON treasury_movement_voids FROM PUBLIC;
+GRANT SELECT, INSERT ON treasury_movement_voids TO app_runtime;   -- append-only: a void is never undone or rewritten
+DROP POLICY IF EXISTS treasury_movement_voids_tenant_isolation ON treasury_movement_voids;
+CREATE POLICY treasury_movement_voids_tenant_isolation ON treasury_movement_voids
+    USING      (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid)
+    WITH CHECK (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid);
+
+COMMIT;
+
+-- category-pos-rail-and-run-discard: 0049_category_pos_rail_and_run_discard.sql, appended verbatim per the hand-kept mirror convention.
+
+-- Repo-owned, transactional, idempotent, forward-only migration.
+--
+-- Which categories the POS offers as filters, and discarding a delivery run that was planned wrong.
+-- APPLIED AFTER: 0048_treasury_account_types_and_voids.sql.
+--
+-- 1. CATEGORIES ON THE POS. `categories.show_in_pos` says whether the POS category rail offers the category as a filter
+--    (its products are still sold, scanned, searched and listed under "Todos" either way) and `pos_sort_order` the order
+--    the rail shows it in (then by name). Every category is shown by default; "Embutidos" and "Achuras", which the POS
+--    used to hide with a hard-coded list, start hidden so nothing changes for the cashier. The POS receives the
+--    categories with its `price-lists` snapshot (a full snapshot on every sync) and keeps them locally.
+--
+-- 2. DISCARDING A PLANNED RUN. A delivery run still Planned (nothing dispatched: no remito numbered, no stock or money
+--    moved) can be deleted; its stops go with it (ON DELETE CASCADE) and its orders are free again for another run. The
+--    API refuses any other status and audits the deletion with the run's content. DELETE is granted for that.
+--
+-- INVERSE (rollback), shipped as a comment - NOT executed by this file:
+--   BEGIN;
+--   REVOKE DELETE ON delivery_runs FROM app_runtime;
+--   ALTER TABLE categories DROP COLUMN IF EXISTS show_in_pos, DROP COLUMN IF EXISTS pos_sort_order;
+--   COMMIT;
+
+BEGIN;
+
+-- The categories the POS hid by name until now (case and accents ignored) start hidden by the setting. Only when the
+-- column is created: re-running this file never overwrites an administrator's later choice.
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_schema = 'public' AND table_name = 'categories' AND column_name = 'show_in_pos') THEN
+        ALTER TABLE categories ADD COLUMN show_in_pos boolean NOT NULL DEFAULT true;
+        UPDATE categories SET show_in_pos = false
+        WHERE translate(lower(btrim(name)), 'áéíóú', 'aeiou') IN ('embutidos', 'achuras');
+    END IF;
+END $$;
+
+ALTER TABLE categories ADD COLUMN IF NOT EXISTS pos_sort_order integer NOT NULL DEFAULT 0;
+
+GRANT DELETE ON delivery_runs TO app_runtime;
+
+COMMIT;
+
+-- employees-and-payroll: 0050_employees_and_payroll.sql, appended verbatim per the hand-kept mirror convention.
+
+-- Repo-owned, transactional, idempotent, forward-only migration.
+--
+-- Staff (personal) and the internal payroll (liquidación de sueldos) of each branch.
+-- APPLIED AFTER: 0049_category_pos_rail_and_run_discard.sql.
+--
+-- SCOPE (PRD 9.19): the staff file (legajo, contact, position, branch, status), each employee's current account
+-- (advances, purchases, deductions, salary owed and paid) and the INTERNAL payroll: what the owner pays each employee
+-- for a period. It is NOT a legal payroll: no social security contributions, union dues or legal payslips (the
+-- accountant keeps doing those; PRD 9.19 leaves them out until a legal and accounting analysis).
+--
+-- 1. POSITIONS (`employee_roles`, "puestos": carnicero, cajero, repartidor...): an organization catalog with the shape and
+--    rules of the other catalogs (`supplier_categories`, 0030): name + key unique, order, active/inactive, never deleted.
+--
+-- 2. EMPLOYEES (`employees`): one per person, of one branch, with a file number (`file_number`, legajo) unique in the
+--    organization, the agreed pay (`base_salary` per `pay_frequency`: Monthly, Biweekly, Weekly), and dates. An employee
+--    who buys goods at the counter has a linked customer (`customer_id`): the POS sells to it on current account as to any
+--    customer (stock, sale, its account), and the payroll deducts that debt from the salary. Never deleted: an employee
+--    who leaves is deactivated (`is_active`, `termination_date`) so the history stays readable.
+--
+-- 3. THE EMPLOYEE'S CURRENT ACCOUNT: `current_account_movements` admits party_kind 'Employee' with its `employee_id`. It
+--    reads like a supplier's: the balance is what the business OWES the employee. The salary of a period is an Invoice
+--    (Credit, the business owes it), an advance a Payment made beforehand (Debit), the goods bought and other deductions an
+--    Adjustment (Debit), and the salary paid a Payment (Debit). A negative balance is what the employee owes.
+--
+-- 4. PAYROLL (`payroll_runs`, `payslips`, `payslip_lines`): a run is one branch and one period, numbered per branch. It is
+--    prepared as a Draft (one payslip per active employee, with their base salary, their pending advances and their
+--    purchases to deduct; earnings and deductions can be added and the purchases discount percentage set), and then
+--    Paid in one step: each payslip posts its salary, deductions and payment on the employee's account, settles the
+--    purchases on the linked customer's account (what is deducted as a payment, the discount the owner grants as a credit
+--    note) and takes the net pay out of the chosen treasury account. A Draft can be discarded; a Paid run is final.
+--
+-- 5. TREASURY: movement kinds `SalaryPayment` (net pay) and `EmployeeAdvance` (an advance handed out).
+--
+-- RLS: every table is org-scoped with FORCE ROW LEVEL SECURITY and the symmetric tenant-isolation policy (NULLIF
+-- pooler-safety hardening from 0001).
+--
+-- INVERSE (rollback), shipped as a comment - NOT executed by this file (only while no employee movement exists):
+--   BEGIN;
+--   DROP TABLE IF EXISTS payslip_lines, payslips, payroll_runs;
+--   ALTER TABLE current_account_movements DROP CONSTRAINT IF EXISTS current_account_movements_employee_fk,
+--       DROP CONSTRAINT IF EXISTS current_account_movements_party_employee, DROP COLUMN IF EXISTS employee_id;
+--   DROP TABLE IF EXISTS employees, employee_roles;
+--   COMMIT;
+
+BEGIN;
+
+-- ---- 1. positions --------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS employee_roles (
+    id              uuid PRIMARY KEY,
+    organization_id uuid NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+    name            text NOT NULL CHECK (btrim(name) <> ''),
+    key             text NOT NULL CHECK (btrim(key) <> ''),
+    sort_order      integer NOT NULL DEFAULT 0,
+    is_active       boolean NOT NULL DEFAULT true,
+    created_at_utc  timestamptz NOT NULL DEFAULT now(),
+    updated_at_utc  timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT employee_roles_org_scoped_uk UNIQUE (organization_id, id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS employee_roles_org_name_uk ON employee_roles (organization_id, lower(btrim(name)));
+CREATE UNIQUE INDEX IF NOT EXISTS employee_roles_org_key_uk ON employee_roles (organization_id, key);
+
+ALTER TABLE employee_roles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE employee_roles FORCE  ROW LEVEL SECURITY;
+REVOKE ALL ON employee_roles FROM PUBLIC;
+GRANT SELECT, INSERT, UPDATE ON employee_roles TO app_runtime;
+DROP POLICY IF EXISTS employee_roles_tenant_isolation ON employee_roles;
+CREATE POLICY employee_roles_tenant_isolation ON employee_roles
+    USING      (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid)
+    WITH CHECK (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid);
+
+-- ---- 2. employees --------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS employees (
+    organization_id  uuid          NOT NULL,
+    id               uuid          NOT NULL,
+    branch_id        uuid          NOT NULL,
+    file_number      integer       NOT NULL CHECK (file_number > 0),
+    first_name       text          NOT NULL CHECK (btrim(first_name) <> '' AND char_length(first_name) <= 100),
+    last_name        text          NOT NULL CHECK (btrim(last_name) <> '' AND char_length(last_name) <= 100),
+    document_number  text          NULL CHECK (document_number IS NULL OR document_number ~ '^[0-9]{6,11}$'),
+    cuil             text          NULL CHECK (cuil IS NULL OR cuil ~ '^[0-9]{11}$'),
+    role_id          uuid          NULL,
+    phone            text          NULL CHECK (phone IS NULL OR char_length(phone) <= 40),
+    email            text          NULL CHECK (email IS NULL OR char_length(email) <= 200),
+    address          text          NULL CHECK (address IS NULL OR char_length(address) <= 200),
+    hire_date        date          NULL,
+    termination_date date          NULL,
+    pay_frequency    text          NOT NULL DEFAULT 'Monthly' CHECK (pay_frequency IN ('Monthly', 'Biweekly', 'Weekly')),
+    base_salary      numeric(18,2) NOT NULL DEFAULT 0 CHECK (base_salary >= 0),
+    customer_id      uuid          NULL,
+    notes            text          NULL CHECK (notes IS NULL OR char_length(notes) <= 1000),
+    is_active        boolean       NOT NULL DEFAULT true,
+    created_at_utc   timestamptz   NOT NULL DEFAULT now(),
+    updated_at_utc   timestamptz   NOT NULL DEFAULT now(),
+    CONSTRAINT employees_pk PRIMARY KEY (organization_id, id),
+    CONSTRAINT employees_id_uk UNIQUE (id),
+    CONSTRAINT employees_file_number_uk UNIQUE (organization_id, file_number),
+    CONSTRAINT employees_customer_uk UNIQUE (organization_id, customer_id),
+    CONSTRAINT employees_branch_fk FOREIGN KEY (organization_id, branch_id) REFERENCES branches (organization_id, id),
+    CONSTRAINT employees_role_fk FOREIGN KEY (organization_id, role_id) REFERENCES employee_roles (organization_id, id),
+    CONSTRAINT employees_customer_fk FOREIGN KEY (organization_id, customer_id) REFERENCES customers (organization_id, id),
+    CONSTRAINT employees_dates_ck CHECK (termination_date IS NULL OR hire_date IS NULL OR termination_date >= hire_date)
+);
+CREATE INDEX IF NOT EXISTS employees_branch_idx ON employees (organization_id, branch_id, is_active);
+
+ALTER TABLE employees ENABLE ROW LEVEL SECURITY;
+ALTER TABLE employees FORCE  ROW LEVEL SECURITY;
+REVOKE ALL ON employees FROM PUBLIC;
+GRANT SELECT, INSERT, UPDATE ON employees TO app_runtime;   -- never deleted: deactivated
+DROP POLICY IF EXISTS employees_tenant_isolation ON employees;
+CREATE POLICY employees_tenant_isolation ON employees
+    USING      (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid)
+    WITH CHECK (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid);
+
+-- ---- 3. the employee's current account ------------------------------------------------------
+
+ALTER TABLE current_account_movements ADD COLUMN IF NOT EXISTS employee_id uuid NULL;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'current_account_movements_party_kind_ck'
+                   AND pg_get_constraintdef(oid) LIKE '%Employee%') THEN
+        ALTER TABLE current_account_movements DROP CONSTRAINT IF EXISTS current_account_movements_party_kind_ck;
+        ALTER TABLE current_account_movements ADD CONSTRAINT current_account_movements_party_kind_ck
+            CHECK (party_kind IN ('Supplier', 'Customer', 'Employee'));
+    END IF;
+END $$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'current_account_movements_party_employee') THEN
+        ALTER TABLE current_account_movements ADD CONSTRAINT current_account_movements_party_employee
+            CHECK (party_kind <> 'Employee' OR employee_id = party_id);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'current_account_movements_employee_fk') THEN
+        ALTER TABLE current_account_movements ADD CONSTRAINT current_account_movements_employee_fk
+            FOREIGN KEY (organization_id, employee_id) REFERENCES employees (organization_id, id);
+    END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS current_account_movements_employee_idx
+    ON current_account_movements (organization_id, employee_id, occurred_on, created_at_utc) WHERE employee_id IS NOT NULL;
+
+-- ---- 4. payroll ----------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS payroll_runs (
+    organization_id    uuid        NOT NULL,
+    id                 uuid        NOT NULL,
+    branch_id          uuid        NOT NULL,
+    run_number         integer     NOT NULL CHECK (run_number > 0),
+    period_from        date        NOT NULL,
+    period_to          date        NOT NULL,
+    pay_frequency      text        NULL CHECK (pay_frequency IS NULL OR pay_frequency IN ('Monthly', 'Biweekly', 'Weekly')),
+    status             text        NOT NULL DEFAULT 'Draft' CHECK (status IN ('Draft', 'Paid')),
+    notes              text        NULL CHECK (notes IS NULL OR char_length(notes) <= 500),
+    paid_on            date        NULL,
+    paid_at_utc        timestamptz NULL,
+    payment_account_id uuid        NULL,
+    created_by_user_id uuid        NOT NULL,
+    created_at_utc     timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT payroll_runs_pk PRIMARY KEY (organization_id, id),
+    CONSTRAINT payroll_runs_id_uk UNIQUE (id),
+    CONSTRAINT payroll_runs_number_uk UNIQUE (organization_id, branch_id, run_number),
+    CONSTRAINT payroll_runs_period_ck CHECK (period_to >= period_from),
+    CONSTRAINT payroll_runs_paid_ck CHECK ((status = 'Paid') = (paid_at_utc IS NOT NULL)),
+    CONSTRAINT payroll_runs_branch_fk FOREIGN KEY (organization_id, branch_id) REFERENCES branches (organization_id, id),
+    CONSTRAINT payroll_runs_account_fk FOREIGN KEY (organization_id, payment_account_id) REFERENCES treasury_accounts (organization_id, id)
+);
+
+CREATE TABLE IF NOT EXISTS payslips (
+    organization_id            uuid          NOT NULL,
+    id                         uuid          NOT NULL,
+    run_id                     uuid          NOT NULL,
+    employee_id                uuid          NOT NULL,
+    purchases_amount           numeric(18,2) NOT NULL DEFAULT 0 CHECK (purchases_amount >= 0),
+    purchases_discount_percent numeric(5,2)  NOT NULL DEFAULT 0 CHECK (purchases_discount_percent BETWEEN 0 AND 100),
+    CONSTRAINT payslips_pk PRIMARY KEY (organization_id, id),
+    CONSTRAINT payslips_id_uk UNIQUE (id),
+    CONSTRAINT payslips_employee_uk UNIQUE (organization_id, run_id, employee_id),
+    CONSTRAINT payslips_run_fk FOREIGN KEY (organization_id, run_id) REFERENCES payroll_runs (organization_id, id) ON DELETE CASCADE,
+    CONSTRAINT payslips_employee_fk FOREIGN KEY (organization_id, employee_id) REFERENCES employees (organization_id, id)
+);
+
+CREATE TABLE IF NOT EXISTS payslip_lines (
+    organization_id uuid          NOT NULL,
+    payslip_id      uuid          NOT NULL,
+    line_no         integer       NOT NULL CHECK (line_no > 0),
+    kind            text          NOT NULL CHECK (kind IN ('Earning', 'Deduction')),
+    source          text          NOT NULL CHECK (source IN ('BaseSalary', 'Advances', 'Manual')),
+    concept         text          NOT NULL CHECK (btrim(concept) <> '' AND char_length(concept) <= 200),
+    amount          numeric(18,2) NOT NULL CHECK (amount > 0),
+    CONSTRAINT payslip_lines_pk PRIMARY KEY (organization_id, payslip_id, line_no),
+    CONSTRAINT payslip_lines_payslip_fk FOREIGN KEY (organization_id, payslip_id) REFERENCES payslips (organization_id, id) ON DELETE CASCADE
+);
+
+DO $$
+DECLARE t text;
+BEGIN
+    FOREACH t IN ARRAY ARRAY['payroll_runs', 'payslips', 'payslip_lines'] LOOP
+        EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
+        EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY', t);
+        EXECUTE format('REVOKE ALL ON %I FROM PUBLIC', t);
+        EXECUTE format('DROP POLICY IF EXISTS %I ON %I', t || '_tenant_isolation', t);
+        EXECUTE format(
+            'CREATE POLICY %I ON %I USING (organization_id = NULLIF(current_setting(''app.current_org_id'', true), '''')::uuid) '
+            || 'WITH CHECK (organization_id = NULLIF(current_setting(''app.current_org_id'', true), '''')::uuid)',
+            t || '_tenant_isolation', t);
+    END LOOP;
+END $$;
+-- A Draft is edited (its payslips and lines replaced) and can be discarded; Paid is final.
+GRANT SELECT, INSERT, UPDATE, DELETE ON payroll_runs, payslips, payslip_lines TO app_runtime;
+
+-- ---- 5. treasury kinds -----------------------------------------------------------------------
+
+-- Widened only when it does not admit these kinds yet: re-running this file never narrows what a later migration widened.
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'treasury_movements_kind_ck'
+                   AND pg_get_constraintdef(oid) LIKE '%SalaryPayment%') THEN
+        ALTER TABLE treasury_movements DROP CONSTRAINT IF EXISTS treasury_movements_kind_ck;
+        ALTER TABLE treasury_movements ADD CONSTRAINT treasury_movements_kind_ck
+            CHECK (kind IN ('Sale', 'CustomerPayment', 'DeliveryPayment', 'Reversal', 'CashCountDifference', 'CashWithdrawal',
+                            'CashDeposit', 'Transfer', 'ManualIn', 'ManualOut', 'SalaryPayment', 'EmployeeAdvance'));
+    END IF;
+END $$;
+
+COMMIT;
+
+-- treasury-recurrences: 0051_treasury_recurrences.sql, appended verbatim per the hand-kept mirror convention.
+
+-- Repo-owned, transactional, idempotent, forward-only migration.
+--
+-- Recurring treasury movements: fixed expenses (electricity, gas, internet, phone, rent...) and recurring income, recorded
+-- automatically on their dates.
+-- APPLIED AFTER: 0050_employees_and_payroll.sql.
+--
+-- A recurrence (`treasury_recurrences`) says: money In or Out of an account, an amount and a concept, every N weeks,
+-- months or years from a start date (the weekday, day of the month or date of the year come from it; a day the month
+-- does not have becomes its last day), and when it ends: never, on a date, or after a number of occurrences. It can be
+-- paused. Editing its amount, concept or account changes what comes next; what was already recorded stays. Only dates
+-- from `generate_from` on are recorded: the creation day unless the past dates since the start were asked for, and the
+-- day it is resumed after a pause (the dates while paused are not recorded).
+--
+-- Its occurrences are ordinary treasury movements (ManualIn / ManualOut) that point at it (`recurrence_id`) and carry the
+-- source `TreasuryRecurrence` with an id derived from the recurrence and the date, so each date is recorded ONCE no
+-- matter how often the generation runs (when the treasury is opened, and by the daily job). Like any manual movement an
+-- occurrence can be edited or voided; a voided one is not recorded again.
+--
+-- RLS: org-scoped with FORCE ROW LEVEL SECURITY and the symmetric tenant-isolation policy (NULLIF pooler-safety
+-- hardening from 0001). Recurrences are deactivated, never deleted.
+--
+-- INVERSE (rollback), shipped as a comment - NOT executed by this file:
+--   BEGIN;
+--   ALTER TABLE treasury_movements DROP COLUMN IF EXISTS recurrence_id;
+--   DROP TABLE IF EXISTS treasury_recurrences;
+--   COMMIT;
+
+BEGIN;
+
+CREATE TABLE IF NOT EXISTS treasury_recurrences (
+    organization_id      uuid          NOT NULL,
+    id                   uuid          NOT NULL,
+    account_id           uuid          NOT NULL,
+    direction            text          NOT NULL CHECK (direction IN ('In', 'Out')),
+    amount               numeric(18,2) NOT NULL CHECK (amount > 0),
+    concept              text          NOT NULL CHECK (btrim(concept) <> '' AND char_length(concept) <= 200),
+    document_reference   text          NULL CHECK (document_reference IS NULL OR char_length(document_reference) <= 60),
+    frequency            text          NOT NULL CHECK (frequency IN ('Weekly', 'Monthly', 'Yearly')),
+    interval_count       integer       NOT NULL DEFAULT 1 CHECK (interval_count BETWEEN 1 AND 24),
+    start_date           date          NOT NULL,
+    end_mode             text          NOT NULL DEFAULT 'Never' CHECK (end_mode IN ('Never', 'OnDate', 'AfterCount')),
+    end_date             date          NULL,
+    max_occurrences      integer       NULL CHECK (max_occurrences IS NULL OR max_occurrences BETWEEN 1 AND 1000),
+    is_active            boolean       NOT NULL DEFAULT true,
+    generate_from        date          NOT NULL,
+    created_by_user_id   uuid          NOT NULL,
+    created_at_utc       timestamptz   NOT NULL DEFAULT now(),
+    updated_at_utc       timestamptz   NOT NULL DEFAULT now(),
+    CONSTRAINT treasury_recurrences_pk PRIMARY KEY (organization_id, id),
+    CONSTRAINT treasury_recurrences_account_fk FOREIGN KEY (organization_id, account_id) REFERENCES treasury_accounts (organization_id, id),
+    CONSTRAINT treasury_recurrences_end_ck CHECK (
+        (end_mode = 'Never' AND end_date IS NULL AND max_occurrences IS NULL)
+        OR (end_mode = 'OnDate' AND end_date IS NOT NULL AND end_date >= start_date AND max_occurrences IS NULL)
+        OR (end_mode = 'AfterCount' AND max_occurrences IS NOT NULL AND end_date IS NULL))
+);
+
+ALTER TABLE treasury_recurrences ADD COLUMN IF NOT EXISTS generate_from date NOT NULL DEFAULT CURRENT_DATE;
+
+ALTER TABLE treasury_recurrences ENABLE ROW LEVEL SECURITY;
+ALTER TABLE treasury_recurrences FORCE  ROW LEVEL SECURITY;
+REVOKE ALL ON treasury_recurrences FROM PUBLIC;
+GRANT SELECT, INSERT, UPDATE ON treasury_recurrences TO app_runtime;
+DROP POLICY IF EXISTS treasury_recurrences_tenant_isolation ON treasury_recurrences;
+CREATE POLICY treasury_recurrences_tenant_isolation ON treasury_recurrences
+    USING      (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid)
+    WITH CHECK (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid);
+
+ALTER TABLE treasury_movements ADD COLUMN IF NOT EXISTS recurrence_id uuid NULL;
+CREATE INDEX IF NOT EXISTS treasury_movements_recurrence_idx
+    ON treasury_movements (organization_id, recurrence_id, business_date) WHERE recurrence_id IS NOT NULL;
+
+COMMIT;

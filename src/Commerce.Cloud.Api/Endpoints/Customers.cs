@@ -7,6 +7,8 @@ using Commerce.Domain.Validation;
 using Microsoft.AspNetCore.Mvc;
 using Npgsql;
 
+using Commerce.Domain.CurrentAccounts;
+
 namespace Commerce.Cloud.Api.Endpoints;
 
 /// <summary>
@@ -135,6 +137,11 @@ public static class CustomerEndpoints
                 return contactsProblem!;
             }
 
+            if (InvalidPaymentTermsDays(request.PaymentTermsDays) is { } termsProblem)
+            {
+                return termsProblem;
+            }
+
             // The name is always `displayName` (a person's full name or a company's legal name, per `partyType`);
             // legal name, locality and province are no longer written.
             var customerId = Guid.NewGuid();
@@ -144,7 +151,7 @@ public static class CustomerEndpoints
                 request.Neighborhood, Locality: null, Province: null, request.PostalCode, request.DeliveryNotes,
                 request.DiscountPercentage, request.PaymentTerms, request.Notes, caller.Id,
                 NullIfEmpty(request.CityId), NullIfEmpty(request.BusinessTypeId), contacts, NullIfEmpty(request.PriceListId),
-                partyType ?? PartyTypeRules.DefaultFor(taxIdType));
+                partyType ?? PartyTypeRules.DefaultFor(taxIdType), PaymentTermsDays: request.PaymentTermsDays == ClearPaymentTermsDays ? null : request.PaymentTermsDays);
 
             CustomerRecord created;
             try
@@ -233,6 +240,11 @@ public static class CustomerEndpoints
                 return contactsProblem!;
             }
 
+            if (InvalidPaymentTermsDays(request.PaymentTermsDays) is { } termsProblem)
+            {
+                return termsProblem;
+            }
+
             // Master data on update: an omitted property keeps the stored value
             // (so the POS, which predates these fields, never wipes them);
             // Guid.Empty / "" clears it. An omitted partyType keeps the stored one.
@@ -246,7 +258,9 @@ public static class CustomerEndpoints
                 contacts,
                 request.ExpectedUpdatedAtUtc,
                 request.PriceListId is { } priceList ? new ColumnChange<Guid?>(NullIfEmpty(priceList)) : null,
-                partyType);
+                partyType,
+                // Omitted keeps the stored terms; -1 clears them (the customer uses the organization's default).
+                request.PaymentTermsDays is { } days ? new ColumnChange<int?>(days == ClearPaymentTermsDays ? null : days) : null);
 
             CustomerRecord? updated;
             try
@@ -490,6 +504,21 @@ public static class CustomerEndpoints
     /// Returns <see langword="null"/> on ANY failure so every call site maps
     /// to the same <c>Results.Forbid()</c>.
     /// </summary>
+    /// <summary>On an update, this value of <c>paymentTermsDays</c> clears the customer's own terms.</summary>
+    internal const int ClearPaymentTermsDays = -1;
+
+    /// <summary>
+    /// The customer's payment terms in days: 0 to 365 (0 = due the same day); on an update also -1 (clear: the
+    /// organization's default applies). Null (omitted) is always fine.
+    /// </summary>
+    private static IResult? InvalidPaymentTermsDays(int? days) =>
+        days is null || days == ClearPaymentTermsDays || PaymentTerms.IsValidDays(days.Value)
+            ? null
+            : Results.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["paymentTermsDays"] = [$"paymentTermsDays is between {PaymentTerms.MinDays} and {PaymentTerms.MaxDays} days (or -1 to use the organization's default)."],
+            });
+
     internal static async Task<(CloudTenantScope Scope, UserAccount Caller)?> AuthorizeCallerAsync(
         HttpContext httpContext, PostgresUserAccountStore userStore, CancellationToken ct)
     {
@@ -523,7 +552,7 @@ public sealed record CreateCustomerRequest(
     string? AddressStreet, string? AddressNumber, string? Neighborhood, string? PostalCode,
     string? DeliveryNotes, decimal? DiscountPercentage, string? PaymentTerms, string? Notes,
     Guid? CityId = null, Guid? BusinessTypeId = null, ContactRequest[]? Contacts = null, Guid? PriceListId = null,
-    string? PartyType = null);
+    string? PartyType = null, int? PaymentTermsDays = null);
 
 /// <summary>
 /// <see cref="CreateCustomerRequest"/> minus <c>CustomerKind</c> (read-only at
@@ -538,7 +567,8 @@ public sealed record UpdateCustomerRequest(
     string? DeliveryNotes, decimal? DiscountPercentage, string? PaymentTerms, string? Notes,
     bool IsEnabled,
     Guid? CityId = null, Guid? BusinessTypeId = null, ContactRequest[]? Contacts = null,
-    DateTimeOffset? ExpectedUpdatedAtUtc = null, Guid? PriceListId = null, string? PartyType = null);
+    DateTimeOffset? ExpectedUpdatedAtUtc = null, Guid? PriceListId = null, string? PartyType = null,
+    int? PaymentTermsDays = null);
 
 /// <summary>
 /// One contact person in a customer create/update body. `Id` is optional: a sent id is kept (it updates the

@@ -2,7 +2,8 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              Foreground="{DynamicResource TextBrush}">
-    <Border x:Name="CardChrome" Width="164" Margin="0,0,10,10" MouseLeftButtonUp="CardChrome_MouseLeftButtonUp">
+    <!-- No fixed width: the cards grid (UniformWrapPanel) stretches every card to share the column, spacing included. -->
+    <Border x:Name="CardChrome" MouseLeftButtonUp="CardChrome_MouseLeftButtonUp">
         <Border.Style>
             <Style TargetType="Border" BasedOn="{StaticResource ProductCardBorder}">
                 <Style.Triggers>
@@ -38,26 +39,46 @@
                            HorizontalAlignment="Center" VerticalAlignment="Center" />
             </Border>
 
-            <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,8">
-                <Button x:Name="DecrementButton" Style="{StaticResource StepperButton}" Click="DecrementButton_Click"
+            <!-- Stepper: the buttons sit at the card edges and the quantity ("1,250 kg") gets the middle, never touching them. -->
+            <Grid Grid.Row="2" Margin="0,0,0,8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Button x:Name="DecrementButton" Style="{StaticResource StepperButton}" Width="36" Height="36" Click="DecrementButton_Click"
                         IsEnabled="{Binding IsInSale}" AutomationProperties.Name="Quitar una unidad">
-                    <TextBlock Text="{StaticResource IconRemove}" Style="{StaticResource IconTextBlock}" FontSize="12"
+                    <TextBlock Text="{StaticResource IconRemove}" Style="{StaticResource IconTextBlock}" FontSize="13"
                                Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
                 </Button>
-                <TextBlock Text="{Binding QuantityText}" FontSize="16" FontWeight="SemiBold" MinWidth="34" TextAlignment="Center" VerticalAlignment="Center" />
-                <Button x:Name="IncrementButton" Style="{StaticResource StepperButton}" Click="IncrementButton_Click"
+                <TextBlock Grid.Column="1" Text="{Binding QuantityText}" FontSize="16" FontWeight="SemiBold" TextAlignment="Center" VerticalAlignment="Center"
+                           Margin="10,0" TextTrimming="CharacterEllipsis" ToolTip="{Binding QuantityText}" />
+                <Button x:Name="IncrementButton" Grid.Column="2" Style="{StaticResource StepperButton}" Width="36" Height="36" Click="IncrementButton_Click"
                         IsEnabled="{Binding HasPrice}" AutomationProperties.Name="Agregar una unidad">
-                    <TextBlock Text="{StaticResource IconAdd}" Style="{StaticResource IconTextBlock}" FontSize="12"
+                    <TextBlock Text="{StaticResource IconAdd}" Style="{StaticResource IconTextBlock}" FontSize="13"
                                Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
                 </Button>
-            </StackPanel>
+            </Grid>
 
             <Grid Grid.Row="3">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-                <TextBlock Text="{Binding UnitPriceText}" Style="{StaticResource MutedTextBlock}" FontSize="13" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                <TextBlock Text="{Binding UnitPriceText}" FontSize="13" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                           ToolTip="{Binding NoPriceExplanation}">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock" BasedOn="{StaticResource MutedTextBlock}">
+                            <Style.Triggers>
+                                <!-- No price for this buyer: it stands out (and its tooltip says why) instead of reading as "$ 0". -->
+                                <DataTrigger Binding="{Binding HasPrice}" Value="False">
+                                    <Setter Property="Foreground" Value="{DynamicResource WarningTextBrush}" />
+                                    <Setter Property="FontWeight" Value="SemiBold" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
                 <TextBlock Grid.Column="1" Text="{Binding LineTotalText}" FontWeight="Bold" FontSize="15" VerticalAlignment="Center" Margin="6,0,0,0" />
             </Grid>
 

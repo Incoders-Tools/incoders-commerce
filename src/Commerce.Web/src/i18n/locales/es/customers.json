@@ -28,7 +28,9 @@
     "noValue": "—",
     "kind": "Tipo",
     "status": "Estado",
-    "priceList": "Lista de precios"
+    "priceList": "Lista de precios",
+    "balance": "Saldo",
+    "balanceHint": "Lo que el cliente debe en cuenta corriente"
   },
   "kindOptions": {
     "retail": "Minorista",
@@ -40,7 +42,8 @@
   },
   "actions": {
     "edit": "Editar",
-    "issueAccess": "Emitir acceso para pedidos"
+    "issueAccess": "Emitir acceso para pedidos",
+    "account": "Cuenta corriente"
   },
   "form": {
     "titleNew": "Nuevo cliente",
@@ -73,13 +76,14 @@
       "postalCode": "Código postal",
       "deliveryNotes": "Notas de entrega",
       "discountPercentage": "Porcentaje de descuento",
-      "paymentTerms": "Condiciones de pago",
+      "paymentTerms": "Nota sobre condiciones de pago",
       "notes": "Observaciones",
       "enabled": "Habilitado",
       "city": "Ciudad",
       "businessType": "Tipo de negocio",
       "dni": "DNI",
-      "priceList": "Lista de precios"
+      "priceList": "Lista de precios",
+      "paymentTermsDays": "Plazo de pago (días)"
     },
     "taxIdTypeOptions": {
       "none": "Ninguno",
@@ -124,7 +128,17 @@
       "company": "Empresa"
     },
     "provincePlaceholder": "Elegí una provincia",
-    "cityNeedsProvince": "Primero elegí la provincia"
+    "cityNeedsProvince": "Primero elegí la provincia",
+    "paymentTermsDays": {
+      "placeholder": "Vacío = plazo general ({{days}} días)",
+      "placeholderUnknown": "Vacío = plazo general de la organización",
+      "hint": "Días que tiene el cliente para pagar una venta a cuenta corriente. Con esto se calculan el vencimiento y los días de atraso. Dejalo vacío para usar el plazo general (Configuración). 0 = vence el mismo día.",
+      "invalid": "El plazo de pago tiene que ser un número entero de 0 a 365 días, o vacío."
+    },
+    "paymentTermsNote": {
+      "placeholder": "Ej.: paga los viernes, con transferencia",
+      "hint": "Solo informativo: no cambia el vencimiento."
+    }
   },
   "filters": {
     "city": "Ciudad",
@@ -133,5 +147,9 @@
     "allBusinessTypes": "Todos los tipos de negocio",
     "priceList": "Lista de precios",
     "allPriceLists": "Todas las listas"
+  },
+  "balance": {
+    "inFavour": "A favor: {{amount}}",
+    "overdue": "Vencido: {{amount}}"
   }
 }

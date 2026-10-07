@@ -19,7 +19,9 @@ public sealed partial class BranchSyncStore
 {
     private const string CashSessionColumns = """
         session_id, organization_id, branch_id, opened_by_operator_id, opened_at_utc, opening_float,
-        closed_at_utc, closed_by_operator_id, sale_count, cash_kept, card_total, qr_total, untendered_total, counted_cash
+        closed_at_utc, closed_by_operator_id, sale_count, cash_kept, card_total, qr_total, untendered_total, counted_cash,
+        account_total, collected_cash, collected_card, collected_qr, collection_count, cash_withdrawn, cash_deposited,
+        cash_movement_count
         """;
 
     private void EnsureCashSessionStorageExists()
@@ -50,6 +52,8 @@ public sealed partial class BranchSyncStore
         }
 
         EnsureColumns("sale_effects", "cash_session_id");
+        // Sales on customers' current accounts: their own total, never part of the cash expected in the drawer.
+        EnsureColumns("cash_sessions", "account_total");
 
         using var index = _connection.CreateCommand();
         index.CommandText = "CREATE INDEX IF NOT EXISTS ix_sale_effects_cash_session ON sale_effects (cash_session_id);";
@@ -63,8 +67,9 @@ public sealed partial class BranchSyncStore
 
     /// <summary>
     /// Totals of a session computed from its sales' recorded tenders (null when
-    /// the session is unknown). Sales freeze once the session closes, so the
-    /// same computation serves the live close dialog and the recorded close.
+    /// the session is unknown). Voided sales do not count. Sales freeze once the
+    /// session closes, so the same computation serves the live close dialog and
+    /// the recorded close.
     /// </summary>
     public CashSessionSummary? GetCashSessionSummary(Guid sessionId) => SummarizeCashSession(sessionId, transaction: null);
 
@@ -161,7 +166,10 @@ public sealed partial class BranchSyncStore
                     UPDATE cash_sessions
                     SET closed_at_utc = $closedAt, closed_by_operator_id = $operatorId, sale_count = $saleCount,
                         cash_kept = $cashKept, card_total = $cardTotal, qr_total = $qrTotal,
-                        untendered_total = $untendered, counted_cash = $counted
+                        untendered_total = $untendered, counted_cash = $counted, account_total = $account,
+                        collected_cash = $collectedCash, collected_card = $collectedCard, collected_qr = $collectedQr,
+                        collection_count = $collectionCount, cash_withdrawn = $withdrawn, cash_deposited = $deposited,
+                        cash_movement_count = $movementCount
                     WHERE session_id = $id AND closed_at_utc IS NULL;
                     """;
                 update.Parameters.AddWithValue("$id", sessionId.ToString());
@@ -173,6 +181,14 @@ public sealed partial class BranchSyncStore
                 update.Parameters.AddWithValue("$qrTotal", summary.QrTotal.ToString(CultureInfo.InvariantCulture));
                 update.Parameters.AddWithValue("$untendered", summary.UntenderedTotal.ToString(CultureInfo.InvariantCulture));
                 update.Parameters.AddWithValue("$counted", countedCash.ToString(CultureInfo.InvariantCulture));
+                update.Parameters.AddWithValue("$account", summary.AccountTotal.ToString(CultureInfo.InvariantCulture));
+                update.Parameters.AddWithValue("$collectedCash", summary.CollectedCash.ToString(CultureInfo.InvariantCulture));
+                update.Parameters.AddWithValue("$collectedCard", summary.CollectedCard.ToString(CultureInfo.InvariantCulture));
+                update.Parameters.AddWithValue("$collectedQr", summary.CollectedQr.ToString(CultureInfo.InvariantCulture));
+                update.Parameters.AddWithValue("$collectionCount", summary.CollectionCount.ToString(CultureInfo.InvariantCulture));
+                update.Parameters.AddWithValue("$withdrawn", summary.CashWithdrawn.ToString(CultureInfo.InvariantCulture));
+                update.Parameters.AddWithValue("$deposited", summary.CashDeposited.ToString(CultureInfo.InvariantCulture));
+                update.Parameters.AddWithValue("$movementCount", summary.CashMovementCount.ToString(CultureInfo.InvariantCulture));
                 update.ExecuteNonQuery();
             }
 
@@ -201,7 +217,8 @@ public sealed partial class BranchSyncStore
         command.Transaction = transaction;
         command.CommandText = """
             SELECT total_amount, tender_method, tender_amount_received, tender_change
-            FROM sale_effects WHERE cash_session_id = $id;
+            FROM sale_effects
+            WHERE cash_session_id = $id AND sale_id NOT IN (SELECT sale_id FROM sale_voids);
             """;
         command.Parameters.AddWithValue("$id", sessionId.ToString());
 
@@ -215,7 +232,11 @@ public sealed partial class BranchSyncStore
             sales.Add(new CashSessionSale(decimal.Parse(reader.GetString(0), CultureInfo.InvariantCulture), tender));
         }
 
-        return CashSessionMath.Summarize(decimal.Parse(openingFloat, CultureInfo.InvariantCulture), sales);
+        var collections = ReadSessionCollections(sessionId, transaction)
+            .Select(row => new CashSessionCollection(row.Amount, new SaleTender(row.Method)));
+        return CashSessionMath.Summarize(
+            decimal.Parse(openingFloat, CultureInfo.InvariantCulture), sales, collections,
+            ReadSessionCashMovements(sessionId, transaction));
     }
 
     private CashSession? ReadCashSession(string where, Guid? id, SqliteTransaction? transaction)
@@ -244,7 +265,15 @@ public sealed partial class BranchSyncStore
                 decimal.Parse(reader.GetString(9), CultureInfo.InvariantCulture),
                 decimal.Parse(reader.GetString(10), CultureInfo.InvariantCulture),
                 decimal.Parse(reader.GetString(11), CultureInfo.InvariantCulture),
-                decimal.Parse(reader.GetString(12), CultureInfo.InvariantCulture));
+                decimal.Parse(reader.GetString(12), CultureInfo.InvariantCulture),
+                reader.IsDBNull(14) ? 0m : decimal.Parse(reader.GetString(14), CultureInfo.InvariantCulture),
+                reader.IsDBNull(15) ? 0m : decimal.Parse(reader.GetString(15), CultureInfo.InvariantCulture),
+                reader.IsDBNull(16) ? 0m : decimal.Parse(reader.GetString(16), CultureInfo.InvariantCulture),
+                reader.IsDBNull(17) ? 0m : decimal.Parse(reader.GetString(17), CultureInfo.InvariantCulture),
+                reader.IsDBNull(18) ? 0 : int.Parse(reader.GetString(18), CultureInfo.InvariantCulture),
+                reader.IsDBNull(19) ? 0m : decimal.Parse(reader.GetString(19), CultureInfo.InvariantCulture),
+                reader.IsDBNull(20) ? 0m : decimal.Parse(reader.GetString(20), CultureInfo.InvariantCulture),
+                reader.IsDBNull(21) ? 0 : int.Parse(reader.GetString(21), CultureInfo.InvariantCulture));
             closure = new CashSessionClosure(
                 Guid.Parse(reader.GetString(7)),
                 DateTimeOffset.Parse(reader.GetString(6), CultureInfo.InvariantCulture),

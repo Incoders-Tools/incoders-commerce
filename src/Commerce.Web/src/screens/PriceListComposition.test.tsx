@@ -195,12 +195,12 @@ describe('price list composition screens', () => {
   it('copies a list with a new markup and opens the new list', async () => {
     routes[`POST /pricing/price-lists/${MOSTRADOR}/copy`] = () =>
       json({ priceList: list(COPY_ID, 'Mostrador 40', { floorPriceListId: REPARTO }), entriesCopied: 1, composition }, 201)
-    const user = await openRow('Copiar lista')
+    const user = await openRow('Duplicar lista')
 
-    expect(await screen.findByRole('heading', { name: 'Copiar Mostrador' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Duplicar Mostrador' })).toBeInTheDocument()
     await user.type(screen.getByLabelText('Nombre de la nueva lista'), 'Mostrador 40')
     await user.type(screen.getByLabelText('Remarcación %'), '40')
-    await user.click(screen.getByRole('button', { name: 'Crear copia' }))
+    await user.click(screen.getByRole('button', { name: 'Duplicar lista' }))
 
     expect(await screen.findByRole('heading', { name: 'Composición de Mostrador 40' })).toBeInTheDocument()
     const [, init] = callsTo(`POST /pricing/price-lists/${MOSTRADOR}/copy`)[0]
@@ -213,15 +213,15 @@ describe('price list composition screens', () => {
 
   it('says when the copy name is taken and shows floor violations', async () => {
     routes[`POST /pricing/price-lists/${MOSTRADOR}/copy`] = () => json({ error: 'price-list-name-taken' }, 409)
-    const user = await openRow('Copiar lista')
+    const user = await openRow('Duplicar lista')
     await user.type(await screen.findByLabelText('Nombre de la nueva lista'), 'Reparto')
     await user.type(screen.getByLabelText('Remarcación %'), '10')
-    await user.click(screen.getByRole('button', { name: 'Crear copia' }))
+    await user.click(screen.getByRole('button', { name: 'Duplicar lista' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('Ya existe una lista con ese nombre')
 
     routes[`POST /pricing/price-lists/${MOSTRADOR}/copy`] = () =>
       json({ error: 'price-below-floor', violations: [violation] }, 409)
-    await user.click(screen.getByRole('button', { name: 'Crear copia' }))
+    await user.click(screen.getByRole('button', { name: 'Duplicar lista' }))
     expect(await screen.findByText('Estos productos quedarían por debajo de Reparto')).toBeInTheDocument()
   })
 

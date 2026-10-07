@@ -149,7 +149,7 @@ public sealed class PublicRateLimitTests : IDisposable
             scope,
             new NewPriceListEntry(
                 Guid.NewGuid(), priceList.Id, presentation.Id, unitPrice,
-                DateOnly.FromDateTime(DateTime.UtcNow), "Manual", ImportBatchId: null, actorId),
+                Commerce.Application.Time.BusinessClock.System.Today, "Manual", ImportBatchId: null, actorId),
             "org-user", actorId, CancellationToken.None);
 
         return presentation.Id;

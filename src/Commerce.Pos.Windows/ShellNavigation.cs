@@ -6,6 +6,9 @@ namespace Commerce.Pos.Windows;
 public enum ShellSection
 {
     Sale,
+
+    /// <summary>"Ventas": the sales committed at this terminal, with their detail and void (PIN-authorized).</summary>
+    Sales,
     Customers,
     Staff,
 }
@@ -32,11 +35,14 @@ public sealed class ShellNavigation
 
     public ShellSection Current { get; private set; } = ShellSection.Sale;
 
-    /// <summary>The sale is always reachable; Clientes and Personal need ManageUsers.</summary>
+    /// <summary>
+    /// The sale and the sales history are always reachable (voiding a sale asks for the branch PIN, not a permission);
+    /// Clientes and Personal need ManageUsers.
+    /// </summary>
     public static IReadOnlyList<ShellSection> Allowed(int? permissions) =>
         permissions is { } granted && ((Permission)granted).HasFlag(Permission.ManageUsers)
-            ? [ShellSection.Sale, ShellSection.Customers, ShellSection.Staff]
-            : [ShellSection.Sale];
+            ? [ShellSection.Sale, ShellSection.Sales, ShellSection.Customers, ShellSection.Staff]
+            : [ShellSection.Sale, ShellSection.Sales];
 
     /// <summary>Switches to <paramref name="target"/>; false when it is not allowed, already current, or the old section is still being torn down
     /// (<see cref="TeardownPending"/>; a teardown that outlives the timeout no longer blocks).</summary>

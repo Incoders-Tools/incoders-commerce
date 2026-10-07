@@ -12,6 +12,26 @@ export function applyPercent(base: number, percent: number): number {
   return round2((base * (100 + percent)) / 100)
 }
 
+/** One component of a list's composition, as the final price needs it. */
+export interface ComposableComponent {
+  percentage: number
+  calculationBase: 'Base' | 'Subtotal'
+  order: number
+}
+
+/**
+ * The final price of a base under a composition: the server's `RateComponentSet.Compose` (each component in order, on
+ * the base or on the running subtotal), to the cent. With no components the final is the base.
+ */
+export function composeFinal(base: number, components: readonly ComposableComponent[]): number {
+  let subtotal = base
+  for (const component of [...components].sort((a, b) => a.order - b.order)) {
+    const operand = component.calculationBase === 'Subtotal' ? subtotal : base
+    subtotal += (operand * component.percentage) / 100
+  }
+  return round2(subtotal)
+}
+
 /** How much `next` differs from `previous`, in percent of `previous`. */
 export function differencePercent(previous: number, next: number): number {
   return ((next - previous) / previous) * 100

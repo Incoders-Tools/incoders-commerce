@@ -117,13 +117,13 @@ export interface SubmitOrderLine {
 
 // commerce-customer-identity security fix: no caller-supplied enabled flag —
 // there is deliberately no `accessEnabled` member here. Cloud.Api resolves
-// enabled/binding state from the persisted store, never from the request.
+// enabled/binding state from the persisted store, never from the request. Nor an actor: the server takes the
+// signed-in caller.
 export interface SubmitOrderRequest {
   orderId: string
   customerId: string
   accessCredential: string
   destinationBranchId: string
-  actorId: string
   lines: SubmitOrderLine[]
   correlationId: string
 }
@@ -241,6 +241,8 @@ export interface CustomerRecord {
   deliveryNotes: string | null
   discountPercentage: number | null
   paymentTerms: string | null
+  /** Days a sale on current account has to be paid; null = the organization's general term. */
+  paymentTermsDays?: number | null
   notes: string | null
   isEnabled: boolean
   /** The price list this customer is priced from; `priceListName` is null when the list is not visible in the branch. */
@@ -284,6 +286,9 @@ export interface CreateCustomerRequest {
   deliveryNotes: string | null
   discountPercentage: number | null
   paymentTerms: string | null
+  // Days to pay a sale on current account. Omitted on create = use the organization's general term; on PUT omitted
+  // keeps the stored value and -1 clears it (back to the general term).
+  paymentTermsDays?: number
   notes: string | null
 }
 
@@ -358,11 +363,18 @@ export interface CategoryRecord {
   iconKey: string
   createdAtUtc: string
   updatedAtUtc: string
+  /** Whether the POS category rail offers it as a filter (its products are sold either way). */
+  showInPos?: boolean
+  /** Its place in the POS rail (then by name). */
+  posSortOrder?: number
 }
 
 export interface CategoryRequest {
   name: string
   iconKey: string
+  /** Omitted on update: keeps the stored value; on create: shown. */
+  showInPos?: boolean
+  posSortOrder?: number
 }
 
 // Endpoints/Catalog.cs `PresentationRecord` / `CreatePresentationRequest` /
@@ -625,6 +637,8 @@ export interface OrganizationSettings {
   defaultCustomerPriceListId?: string | null
   /** ISO 3166-1 alpha-2 (default "AR"): its provinces are the ones `/geo/provinces` offers. */
   countryCode?: string
+  /** Days to pay a sale on current account for customers without their own term (0 to 365, default 30). */
+  defaultCustomerPaymentTermsDays?: number
 }
 // Every field is optional on the wire: an omitted one is left unchanged.
 export interface UpdateOrganizationSettingsRequest {
@@ -632,6 +646,7 @@ export interface UpdateOrganizationSettingsRequest {
   defaultCustomerPriceListId?: string
   clearDefaultCustomerPriceList?: boolean
   countryCode?: string
+  defaultCustomerPaymentTermsDays?: number
 }
 export interface UpdateOrganizationBrandingRequest { logoUrl: string | null; primaryColor: string | null }
 // branch-discount-pin: whether a branch has a discount PIN and when it last changed; the PIN itself is never returned.
@@ -799,7 +814,9 @@ export type MovementDirection = 'Debit' | 'Credit'
 
 export interface AccountMovement {
   id: string
-  supplierId: string
+  /** The party the movement belongs to: a supplier or a customer (the other one is null). */
+  supplierId: string | null
+  customerId?: string | null
   kind: MovementKind
   direction: MovementDirection
   amount: number

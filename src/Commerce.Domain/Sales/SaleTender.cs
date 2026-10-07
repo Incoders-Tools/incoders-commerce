@@ -10,14 +10,17 @@ namespace Commerce.Domain.Sales;
 /// which types order payment attempts (persisted with a database CHECK and served
 /// by cloud endpoints); a sale tender is a POS record carried in the sale payload.
 /// <see cref="AmountReceived"/> and <see cref="ChangeGiven"/> exist only for cash.
+/// <see cref="Account"/> is a sale on the customer's current account: nothing is collected at the counter, the cloud
+/// charges the sale to the customer (a sale on account always names its customer).
 /// </summary>
 public sealed record SaleTender(string Method, decimal? AmountReceived = null, decimal? ChangeGiven = null)
 {
     public const string Cash = "cash";
     public const string Card = "card";
     public const string Qr = "qr";
+    public const string Account = "account";
 
-    public static bool IsKnownMethod(string? method) => method is Cash or Card or Qr;
+    public static bool IsKnownMethod(string? method) => method is Cash or Card or Qr or Account;
 }
 
 /// <summary>Builds the tender of a sale and enforces the cash rules.</summary>
@@ -42,4 +45,7 @@ public static class SaleTenderRules
     public static SaleTender Card() => new(SaleTender.Card);
 
     public static SaleTender Qr() => new(SaleTender.Qr);
+
+    /// <summary>On the customer's current account: nothing is collected now.</summary>
+    public static SaleTender Account() => new(SaleTender.Account);
 }

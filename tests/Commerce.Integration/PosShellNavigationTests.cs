@@ -22,15 +22,15 @@ public sealed class PosShellNavigationTests
     [Theory]
     [InlineData(null)]
     [InlineData(Cashier)]
-    public void WithoutManageUsers_OnlyTheSaleIsAllowed(int? permissions)
+    public void WithoutManageUsers_OnlyTheSaleAndTheSalesHistoryAreAllowed(int? permissions)
     {
-        Assert.Equal([ShellSection.Sale], ShellNavigation.Allowed(permissions));
+        Assert.Equal([ShellSection.Sale, ShellSection.Sales], ShellNavigation.Allowed(permissions));
     }
 
     [Fact]
     public void WithManageUsers_CustomersAndStaffAreAllowedToo()
     {
-        Assert.Equal([ShellSection.Sale, ShellSection.Customers, ShellSection.Staff], ShellNavigation.Allowed(Admin));
+        Assert.Equal([ShellSection.Sale, ShellSection.Sales, ShellSection.Customers, ShellSection.Staff], ShellNavigation.Allowed(Admin));
     }
 
     [Fact]

@@ -23,11 +23,25 @@ import { CategoriesScreen } from '@/screens/CategoriesScreen'
 import { CitiesScreen } from '@/screens/CitiesScreen'
 import { OrderScreen } from '@/screens/OrderScreen'
 import { StaffOrderScreen } from '@/screens/StaffOrderScreen'
+import { OrdersScreen } from '@/screens/OrdersScreen'
+import { OrderTrackingScreen } from '@/screens/OrderTrackingScreen'
+import { DeliveriesScreen } from '@/screens/DeliveriesScreen'
+import { DeliveryRunFormScreen } from '@/screens/DeliveryRunFormScreen'
+import { DeliveryRunScreen } from '@/screens/DeliveryRunScreen'
+import { DeliveryRunSettleScreen } from '@/screens/DeliveryRunSettleScreen'
+import { RemitoPrintScreen } from '@/screens/RemitoPrintScreen'
 import { RenewPasswordScreen } from '@/screens/RenewPasswordScreen'
 import { CustomersScreen } from '@/screens/CustomersScreen'
 import { SuppliersScreen } from '@/screens/SuppliersScreen'
-import { SupplierAccountScreen } from '@/screens/SupplierAccountScreen'
+import { CustomerAccountScreen, SupplierAccountScreen } from '@/screens/SupplierAccountScreen'
 import { SupplierCategoriesScreen } from '@/screens/SupplierCategoriesScreen'
+import { TreasuryAccountTypesScreen } from '@/screens/TreasuryAccountTypesScreen'
+import { EmployeesScreen } from '@/screens/EmployeesScreen'
+import { EmployeeRolesScreen } from '@/screens/EmployeeRolesScreen'
+import { EmployeeAccountScreen } from '@/screens/SupplierAccountScreen'
+import { PayrollScreen } from '@/screens/PayrollScreen'
+import { PayrollRunScreen } from '@/screens/PayrollRunScreen'
+import { PayslipsPrintScreen } from '@/screens/PayslipsPrintScreen'
 import { ReceptionsScreen } from '@/screens/ReceptionsScreen'
 import { ReceptionScreen } from '@/screens/ReceptionScreen'
 import { StockScreen } from '@/screens/StockScreen'
@@ -37,6 +51,7 @@ import { BranchesScreen } from '@/screens/BranchesScreen'
 import { PriceListsScreen } from '@/screens/PriceListsScreen'
 import { OrganizationsScreen } from '@/screens/OrganizationsScreen'
 import { DashboardScreen } from '@/screens/DashboardScreen'
+import { TreasuryScreen } from '@/screens/TreasuryScreen'
 
 /**
  * `/app` landing. A system administrator with no real org permissions and no
@@ -45,7 +60,8 @@ import { DashboardScreen } from '@/screens/DashboardScreen'
  * would be a hidden, 403-answering page for them: they land on Organizations.
  * A business admin (or a sysadmin acting on an organization) lands on the
  * dashboard, the same population `RequireAdmin` lets in. A seller (may take
- * orders, no administration) lands on the take order screen, their main area;
+ * orders, no administration) lands on the orders of the branch, their main area
+ * (taking a new one is one click away);
  * everyone else keeps the catalog.
  */
 function AppIndexRedirect() {
@@ -105,22 +121,46 @@ function App() {
                   yet. */}
               <Route path="/order" element={<OrderScreen />} />
               <Route element={<RequireAuth />}>
+                {/* Printable remitos: outside the app shell so only the documents print. */}
+                <Route element={<RequireTakeOrders />}>
+                  <Route path="/print/remitos" element={<RemitoPrintScreen />} />
+                </Route>
+                {/* Payslip receipts of a paid payroll: outside the app shell, administration only. */}
+                <Route element={<RequireAdmin />}>
+                  <Route path="/print/payslips/:id" element={<PayslipsPrintScreen />} />
+                </Route>
                 <Route path="/app" element={<AppLayout />}>
                   <Route index element={<AppIndexRedirect />} />
                   <Route path="catalog" element={<CatalogScreen />} />
-                  {/* staff-order-taking: the "Take order" screen. Not a redirect
-                      guard: without TakeOrders it shows a "no access" state. */}
+                  {/* staff-order-taking + order-fulfillment-and-delivery: the orders of the branch (tracking list,
+                      one order, taking a new one) and its delivery runs. Not a redirect guard: without TakeOrders
+                      it shows a "no access" state. */}
                   <Route element={<RequireTakeOrders />}>
-                    <Route path="orders" element={<StaffOrderScreen />} />
+                    <Route path="orders" element={<OrdersScreen />} />
+                    <Route path="orders/new" element={<StaffOrderScreen />} />
+                    <Route path="orders/:id" element={<OrderTrackingScreen />} />
+                    <Route path="deliveries" element={<DeliveriesScreen />} />
+                    <Route path="deliveries/new" element={<DeliveryRunFormScreen />} />
+                    <Route path="deliveries/:id" element={<DeliveryRunScreen />} />
+                    <Route path="deliveries/:id/edit" element={<DeliveryRunFormScreen />} />
+                    <Route path="deliveries/:id/settle" element={<DeliveryRunSettleScreen />} />
                   </Route>
                   <Route path="password" element={<RenewPasswordScreen />} />
                   <Route element={<RequireAdmin />}>
                     <Route path="dashboard" element={<DashboardScreen />} />
                     <Route path="customers" element={<CustomersScreen />} />
+                    <Route path="customers/:id/account" element={<CustomerAccountScreen />} />
+                    <Route path="treasury" element={<TreasuryScreen />} />
                     <Route path="business-types" element={<BusinessTypesScreen />} />
                     <Route path="suppliers" element={<SuppliersScreen />} />
                     <Route path="suppliers/:id/account" element={<SupplierAccountScreen />} />
                     <Route path="supplier-categories" element={<SupplierCategoriesScreen />} />
+                    <Route path="treasury-account-types" element={<TreasuryAccountTypesScreen />} />
+                    <Route path="employees" element={<EmployeesScreen />} />
+                    <Route path="employees/:id/account" element={<EmployeeAccountScreen />} />
+                    <Route path="employee-roles" element={<EmployeeRolesScreen />} />
+                    <Route path="payroll" element={<PayrollScreen />} />
+                    <Route path="payroll/:id" element={<PayrollRunScreen />} />
                     <Route path="receptions" element={<ReceptionsScreen />} />
                     <Route path="receptions/new" element={<ReceptionScreen />} />
                     <Route path="receptions/:id" element={<ReceptionScreen />} />
