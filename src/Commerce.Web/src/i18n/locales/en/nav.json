@@ -1,6 +1,8 @@
 {
   "primary": "Primary",
   "toggleNavigation": "Toggle navigation",
+  "collapseNavigation": "Collapse menu",
+  "expandNavigation": "Expand menu",
   "items": {
     "dashboard": "Dashboard",
     "catalog": "Catalog",

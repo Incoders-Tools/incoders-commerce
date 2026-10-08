@@ -1,4 +1,4 @@
-import { useState, type ComponentType, type ReactNode } from 'react'
+import { createContext, useContext, useState, type ComponentType, type ReactNode } from 'react'
 import { NavLink, Outlet } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import {
@@ -13,6 +13,8 @@ import {
   LayoutGrid,
   MapPin,
   Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
   Package,
   PackageCheck,
   Route as RouteIcon,
@@ -49,12 +51,40 @@ import { useOptionalOrganizationContext } from '@/organization/OrganizationConte
  * flat nav bar into `AccountMenu`; the theme switcher moved there too (was
  * mounted directly in the header as a T2 placeholder).
  */
+/** Where the desktop sidebar remembers whether it is collapsed to icons. */
+export const NAV_COLLAPSED_STORAGE_KEY = 'commerce.nav.collapsed'
+
+/** The desktop sidebar shows icons only (the mobile off-canvas menu is always full). */
+const NavCollapsedContext = createContext(false)
+
+function readCollapsed(): boolean {
+  try {
+    return localStorage.getItem(NAV_COLLAPSED_STORAGE_KEY) === 'true'
+  } catch {
+    return false
+  }
+}
+
 export function AppLayout() {
   const { t } = useTranslation('nav')
   const { user } = useAuth()
   const organizationContext = useOptionalOrganizationContext()
   const branchContext = useOptionalBranchContext()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [collapsed, setCollapsed] = useState(readCollapsed)
+
+  const toggleCollapsed = () =>
+    setCollapsed((current) => {
+      const next = !current
+      try {
+        localStorage.setItem(NAV_COLLAPSED_STORAGE_KEY, String(next))
+      } catch {
+        // A private window may refuse storage: the menu still collapses for this visit.
+      }
+      return next
+    })
+  // On a phone the off-canvas menu is always full; the icons-only rail is a desktop affordance.
+  const railOnly = collapsed && !mobileOpen
 
   const closeMobileNav = () => setMobileOpen(false)
 
@@ -120,11 +150,29 @@ export function AppLayout() {
 
           <aside
             className={cn(
-              'fixed inset-y-14 left-0 z-40 flex w-64 flex-col border-r border-border bg-card transition-transform duration-200 ease-in-out md:static md:w-64 md:shrink-0 md:translate-x-0',
+              'fixed inset-y-14 left-0 z-40 flex w-64 flex-col border-r border-border bg-card transition-[transform,width] duration-200 ease-in-out md:static md:shrink-0 md:translate-x-0',
+              railOnly ? 'md:w-[4.75rem]' : 'md:w-64',
               mobileOpen ? 'translate-x-0' : '-translate-x-full',
             )}
           >
-            <nav aria-label={t('primary')} className="flex flex-1 flex-col gap-1 overflow-y-auto p-3">
+            <div className={cn('hidden border-b border-border p-3 md:flex', railOnly ? 'justify-center' : 'justify-end')}>
+              <button
+                type="button"
+                onClick={toggleCollapsed}
+                aria-label={collapsed ? t('expandNavigation') : t('collapseNavigation')}
+                title={collapsed ? t('expandNavigation') : t('collapseNavigation')}
+                aria-expanded={!collapsed}
+                className="flex size-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+              >
+                {collapsed ? (
+                  <PanelLeftOpen aria-hidden="true" className="size-5" />
+                ) : (
+                  <PanelLeftClose aria-hidden="true" className="size-5" />
+                )}
+              </button>
+            </div>
+            <NavCollapsedContext.Provider value={railOnly}>
+            <nav aria-label={t('primary')} className={cn('flex flex-1 flex-col gap-1 overflow-y-auto', railOnly ? 'items-center px-2 py-3' : 'p-3')}>
               {/* Home of a business admin: first in the sidebar, outside any section.
                   UI-only gate, like its siblings; RequireAdmin guards the route. */}
               {showTenantNav && (
@@ -189,6 +237,7 @@ export function AppLayout() {
                 </NavSection>
               )}
             </nav>
+            </NavCollapsedContext.Provider>
           </aside>
 
           <main className="w-full min-w-0 flex-1 p-4 md:p-6">
@@ -208,6 +257,18 @@ export function AppLayout() {
  * queries are unaffected.
  */
 function NavSection({ title, children }: { title: string; children: ReactNode }) {
+  const collapsed = useContext(NavCollapsedContext)
+  if (collapsed) {
+    // Icons only: a thin rule separates the sections; the title stays for screen readers.
+    return (
+      <div className="flex flex-col items-center gap-1.5 pt-3 first:pt-0">
+        <p data-nav-section-title className="sr-only">{title}</p>
+        <span aria-hidden="true" className="mb-1.5 h-px w-8 bg-border" />
+        {children}
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-col gap-1 pt-4 first:pt-0">
       <p data-nav-section-title className="px-3 pb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</p>
@@ -256,6 +317,7 @@ function NavItem({
   onNavigate?: () => void
 }) {
   const guardedClick = useGuardedLinkClick()(to)
+  const collapsed = useContext(NavCollapsedContext)
   return (
     <NavLink
       to={to}
@@ -263,17 +325,20 @@ function NavItem({
         onNavigate?.()
         guardedClick(event)
       }}
+      // Collapsed, the label is the tooltip and the accessible name (kept in an sr-only span).
+      title={collapsed && typeof children === 'string' ? children : undefined}
       className={({ isActive }) =>
         cn(
-          'flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+          'flex items-center rounded-md text-sm font-medium transition-colors',
+          collapsed ? 'size-11 justify-center border' : 'gap-2.5 px-3 py-2',
           isActive
-            ? 'bg-accent text-accent-foreground'
-            : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+            ? cn('bg-accent text-accent-foreground', collapsed && 'border-primary/40')
+            : cn('text-muted-foreground hover:bg-accent hover:text-accent-foreground', collapsed && 'border-border'),
         )
       }
     >
-      <Icon aria-hidden="true" className="size-4 shrink-0" />
-      {children}
+      <Icon aria-hidden="true" className={cn('shrink-0', collapsed ? 'size-5' : 'size-4')} />
+      {collapsed ? <span className="sr-only">{children}</span> : children}
     </NavLink>
   )
 }

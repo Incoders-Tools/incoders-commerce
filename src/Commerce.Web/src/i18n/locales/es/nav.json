@@ -1,6 +1,8 @@
 {
   "primary": "Principal",
   "toggleNavigation": "Alternar navegación",
+  "collapseNavigation": "Contraer menú",
+  "expandNavigation": "Expandir menú",
   "items": {
     "dashboard": "Tablero",
     "catalog": "Catálogo",

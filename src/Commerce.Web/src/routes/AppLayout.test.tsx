@@ -11,7 +11,7 @@ import { OrganizationBrandingContext } from '@/theme/OrganizationBrandingProvide
 import { ThemeProvider } from '@/theme/ThemeProvider'
 import { Permission, type SignedInResponse } from '@/api/types'
 import type { OrganizationBranding } from '@/api/types'
-import { AppLayout } from './AppLayout'
+import { AppLayout, NAV_COLLAPSED_STORAGE_KEY } from './AppLayout'
 
 function buildUser(overrides: Partial<SignedInResponse> = {}): SignedInResponse {
   return {
@@ -561,6 +561,31 @@ describe('AppLayout', () => {
 
       expect(await screen.findByText('Customers content')).toBeInTheDocument()
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('collapsible sidebar', () => {
+    beforeEach(() => localStorage.removeItem(NAV_COLLAPSED_STORAGE_KEY))
+
+    it('collapses to icons keeping every link reachable by name, and remembers it', async () => {
+      const user = userEvent.setup()
+      renderLayout(buildUser({ permissions: Permission.ManageUsers | Permission.TakeOrders }))
+      const nav = screen.getByRole('navigation')
+
+      await user.click(screen.getByRole('button', { name: 'Contraer menú' }))
+
+      const customers = within(nav).getByRole('link', { name: 'Clientes' })
+      expect(customers).toHaveAttribute('title', 'Clientes')
+      expect(customers.className).toContain('size-11')
+      expect(localStorage.getItem(NAV_COLLAPSED_STORAGE_KEY)).toBe('true')
+
+      cleanup()
+      renderLayout(buildUser({ permissions: Permission.ManageUsers | Permission.TakeOrders }))
+      expect(screen.getByRole('button', { name: 'Expandir menú' })).toBeInTheDocument()
+
+      await user.click(screen.getByRole('button', { name: 'Expandir menú' }))
+      expect(within(screen.getByRole('navigation')).getByRole('link', { name: 'Clientes' })).not.toHaveAttribute('title')
+      expect(localStorage.getItem(NAV_COLLAPSED_STORAGE_KEY)).toBe('false')
     })
   })
 })
