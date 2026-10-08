@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using Commerce.Cloud.Api.Auditing;
 using Commerce.Cloud.Api.Endpoints;
 using Commerce.Cloud.Api.Persistence;
 using Commerce.Cloud.Api.Tenancy;
@@ -31,6 +32,8 @@ public sealed class DeviceEndpointTests : IClassFixture<WebApplicationFactory<Pr
         _factory = factory.WithWebHostBuilder(builder =>
         {
             builder.UseSetting("ConnectionStrings:Commerce", PostgresTestFixture.DirectConnectionString);
+            // This class shares one client IP across many pairings; the limiter has its own test class.
+            builder.UseSetting("RateLimits:DevicePairPermitLimit", "100000");
         });
 
         if (_postgresAvailable)
@@ -71,9 +74,13 @@ public sealed class DeviceEndpointTests : IClassFixture<WebApplicationFactory<Pr
 
         var orgsSql = File.ReadAllText(Path.Combine(repoRoot, "deploy", "db", "migrations", "0003_organizations_branches.sql"));
         using (var cmd = new NpgsqlCommand(orgsSql, owner)) cmd.ExecuteNonQuery();
+        PostgresTestFixture.ApplyMigration(owner, "0021_branch_codes.sql");
 
         var deviceSql = File.ReadAllText(Path.Combine(repoRoot, "deploy", "db", "migrations", "0004_device_credentials.sql"));
         using (var cmd = new NpgsqlCommand(deviceSql, owner)) cmd.ExecuteNonQuery();
+        PostgresTestFixture.ApplyMigration(owner, "0022_terminal_registers.sql");
+        PostgresTestFixture.ApplyMigration(owner, "0024_terminal_registers_assign_result.sql");
+        PostgresTestFixture.ApplyMigration(owner, "0023_pos_sales.sql");
 
         var recoverySql = File.ReadAllText(Path.Combine(repoRoot, "deploy", "db", "migrations", "0005_password_recovery.sql"));
         using (var cmd = new NpgsqlCommand(recoverySql, owner)) cmd.ExecuteNonQuery();
@@ -102,7 +109,7 @@ public sealed class DeviceEndpointTests : IClassFixture<WebApplicationFactory<Pr
             new CloudTenantScope(orgId),
             new NewOrganization(orgId, "Single Branch Co"),
             new NewBranch(branchId, "Main"),
-            new NewUserAccount(userId, email, passwordHash, [branchId], [new RoleDto("cashier", Permission.ViewSales)]),
+            new NewUserAccount(userId, email, passwordHash, [branchId], [new RoleDto("cashier", Permission.OperatePos)]),
             CancellationToken.None);
         Assert.Equal(BootstrapOutcome.Created, outcome);
 
@@ -126,7 +133,7 @@ public sealed class DeviceEndpointTests : IClassFixture<WebApplicationFactory<Pr
             new CloudTenantScope(orgId),
             new NewOrganization(orgId, "Multi Branch Co"),
             new NewBranch(branchAId, "Downtown"),
-            new NewUserAccount(userId, email, passwordHash, [branchAId, branchBId], [new RoleDto("cashier", Permission.ViewSales)]),
+            new NewUserAccount(userId, email, passwordHash, [branchAId, branchBId], [new RoleDto("cashier", Permission.OperatePos)]),
             CancellationToken.None);
         Assert.Equal(BootstrapOutcome.Created, outcome);
 
@@ -163,11 +170,58 @@ public sealed class DeviceEndpointTests : IClassFixture<WebApplicationFactory<Pr
 
         var created = await userStore.TryCreateAsync(
             new CloudTenantScope(orgId),
-            new NewUserAccount(userId, email, passwordHash, [], [new RoleDto("cashier", Permission.ViewSales)]),
+            new NewUserAccount(userId, email, passwordHash, [], [new RoleDto("cashier", Permission.OperatePos)]),
             CancellationToken.None);
         Assert.True(created);
 
         return (orgId, userId);
+    }
+
+    private async Task SeedSellerAsync(string email, string password)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var orgStore = scope.ServiceProvider.GetRequiredService<PostgresOrganizationStore>();
+        var hasher = scope.ServiceProvider.GetRequiredService<PasswordHasher<UserAccount>>();
+        var orgId = Guid.NewGuid();
+        var branchId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        Assert.True(RoleCatalog.TryResolve(RoleCatalog.Seller, out var seller));
+        var outcome = await orgStore.TryCreateBootstrapAsync(
+            new CloudTenantScope(orgId),
+            new NewOrganization(orgId, "Seller Co"),
+            new NewBranch(branchId, "Main"),
+            new NewUserAccount(userId, email, hasher.HashPassword(new UserAccount(userId, orgId, [], []), password), [branchId], [new RoleDto(seller!.Name, seller.Permissions)]),
+            CancellationToken.None);
+        Assert.Equal(BootstrapOutcome.Created, outcome);
+    }
+
+    [Fact]
+    public async Task Pair_Seller_Returns403_OperatorNotPermitted_AndIssuesNoCredential()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        await SeedSellerAsync("seller-pair@example.com", "correct-password");
+
+        var response = await _factory.CreateClient().PostAsJsonAsync("/device/pair",
+            new DevicePairRequest("seller-pair@example.com", "correct-password", Guid.NewGuid(), null));
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<DevicePairResponse>();
+        Assert.Equal("operator-not-permitted", body!.Status);
+        Assert.Null(body.DeviceToken);
+    }
+
+    [Fact]
+    public async Task Pair_SellerWrongPassword_Returns401_NotTheRoleVerdict()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        await SeedSellerAsync("seller-pair-wp@example.com", "correct-password");
+
+        var response = await _factory.CreateClient().PostAsJsonAsync("/device/pair",
+            new DevicePairRequest("seller-pair-wp@example.com", "incorrect-password", Guid.NewGuid(), null));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
     [Fact]
@@ -229,8 +283,109 @@ public sealed class DeviceEndpointTests : IClassFixture<WebApplicationFactory<Pr
         Assert.Equal("paired", body!.Status);
         Assert.Equal(orgId, body.OrganizationId);
         Assert.Equal(branchId, body.BranchId);
+        Assert.Equal(1, body.BranchCode);
         Assert.Equal(installationId, body.InstallationId);
         Assert.False(string.IsNullOrEmpty(body.DeviceToken));
+    }
+
+    [Fact]
+    public async Task Pair_ReturnsTheRegisterNumber_TheNextOneForANewInstallation_AndTheSameOneOnRepair()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        await SeedSingleBranchOperatorAsync("register-pair@example.com", "some-password");
+        var (first, second) = (Guid.NewGuid(), Guid.NewGuid());
+        var client = _factory.CreateClient();
+
+        async Task<DevicePairResponse> PairAsync(Guid installationId) =>
+            (await (await client.PostAsJsonAsync("/device/pair",
+                new DevicePairRequest("register-pair@example.com", "some-password", installationId, null)))
+                .Content.ReadFromJsonAsync<DevicePairResponse>())!;
+
+        Assert.Equal(1, (await PairAsync(first)).RegisterNumber);
+        Assert.Equal(2, (await PairAsync(second)).RegisterNumber);
+        Assert.Equal(1, (await PairAsync(first)).RegisterNumber);
+    }
+
+    private async Task<(string Token, Guid OrgId, Guid BranchId, Guid InstallationId)> PairTerminalAsync(string email)
+    {
+        var (orgId, branchId, _) = await SeedSingleBranchOperatorAsync(email, "some-password");
+        var installationId = Guid.NewGuid();
+        var response = await _factory.CreateClient().PostAsJsonAsync("/device/pair",
+            new DevicePairRequest(email, "some-password", installationId, null));
+        var body = await response.Content.ReadFromJsonAsync<DevicePairResponse>();
+        return (body!.DeviceToken!, orgId, branchId, installationId);
+    }
+
+    private Task<HttpResponseMessage> GetIdentityAsync(string? token)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, "/device/identity");
+        if (token is not null) request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        return _factory.CreateClient().SendAsync(request);
+    }
+
+    [Fact]
+    public async Task Identity_WithoutADeviceBearer_Returns401()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        Assert.Equal(HttpStatusCode.Unauthorized, (await GetIdentityAsync(null)).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await GetIdentityAsync("not-a-real-token")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Identity_ReturnsTheBranchCodeNameAndRegisterOfTheStoredCredential()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var (token, orgId, branchId, _) = await PairTerminalAsync("identity-ok@example.com");
+
+        var response = await GetIdentityAsync(token);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<DeviceIdentityResponse>();
+        Assert.Equal(new DeviceIdentityResponse(orgId, branchId, "Main", 1, 1), body);
+    }
+
+    [Fact]
+    public async Task Identity_AllocatesARegister_ForATerminalPairedBeforeRegistersExisted()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var (token, _, _, installationId) = await PairTerminalAsync("identity-legacy@example.com");
+        DeviceCredentialStoreTests.ForgetRegisters(installationId);
+
+        var body = await (await GetIdentityAsync(token)).Content.ReadFromJsonAsync<DeviceIdentityResponse>();
+        var again = await (await GetIdentityAsync(token)).Content.ReadFromJsonAsync<DeviceIdentityResponse>();
+
+        Assert.Equal(1, body!.RegisterNumber);
+        Assert.Equal(1, again!.RegisterNumber);
+    }
+
+    [Fact]
+    public async Task Identity_AuditsTheNumberItAllocated_AsTheDevice_AndOnlyOnce()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var (token, orgId, _, installationId) = await PairTerminalAsync("identity-audit@example.com");
+        DeviceCredentialStoreTests.ForgetRegisters(installationId);
+
+        await GetIdentityAsync(token);
+        await GetIdentityAsync(token);
+
+        using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        owner.Open();
+        using var cmd = new NpgsqlCommand(
+            "SELECT actor_kind, actor_id, organization_id FROM audit_log " +
+            "WHERE entity_type = 'terminal-register' AND entity_id = $1 AND action = $2 AND actor_kind = $3", owner);
+        cmd.Parameters.AddWithValue(installationId);
+        cmd.Parameters.AddWithValue(PostgresTerminalRegisterStore.AssignedAction);
+        cmd.Parameters.AddWithValue(AuditActorKinds.Device);
+        using var reader = cmd.ExecuteReader();
+        Assert.True(reader.Read(), "no audit row written by the device");
+        Assert.Equal(installationId, reader.GetGuid(1));
+        Assert.Equal(orgId, reader.GetGuid(2));
+        Assert.False(reader.Read(), "the second call must not audit again");
     }
 
     [Fact]
@@ -250,8 +405,8 @@ public sealed class DeviceEndpointTests : IClassFixture<WebApplicationFactory<Pr
         Assert.Null(body.DeviceToken);
         Assert.NotNull(body.Branches);
         Assert.Equal(2, body.Branches!.Count);
-        Assert.Contains(body.Branches, b => b.Id == branchAId);
-        Assert.Contains(body.Branches, b => b.Id == branchBId);
+        Assert.Contains(body.Branches, b => b.Id == branchAId && b.Code == 1);
+        Assert.Contains(body.Branches, b => b.Id == branchBId && b.Code == 2);
     }
 
     [Fact]
@@ -443,4 +598,103 @@ public sealed class DeviceEndpointTests : IClassFixture<WebApplicationFactory<Pr
         OccurredAtUtc: DateTimeOffset.UtcNow,
         PayloadKind: "sale",
         Payload: "{\"v\":1}");
+
+    /// <summary>Takes number 999 of the branch; the returned action removes it again (a re-applied 0022 would otherwise fail to number an unnumbered live terminal of a full branch).</summary>
+    private static Action FillRegisters(Guid orgId, Guid branchId)
+    {
+        using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        owner.Open();
+        using var set = new NpgsqlCommand("SELECT set_config('app.current_org_id', $1, false)", owner);
+        set.Parameters.AddWithValue(orgId.ToString());
+        set.ExecuteNonQuery();
+        using var top = new NpgsqlCommand(
+            "INSERT INTO terminal_registers (organization_id, branch_id, installation_id, register_number) VALUES ($1, $2, $3, 999)", owner);
+        var fillerInstallation = Guid.NewGuid();
+        top.Parameters.AddWithValue(orgId); top.Parameters.AddWithValue(branchId); top.Parameters.AddWithValue(fillerInstallation);
+        top.ExecuteNonQuery();
+        return () => DeviceCredentialStoreTests.ForgetRegisters(fillerInstallation);
+    }
+
+    [Fact]
+    public async Task Pair_WhenTheBranchRanOutOfRegisterNumbers_Returns409_WithTheTypedError()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var (orgId, branchId, _) = await SeedSingleBranchOperatorAsync("pair-exhausted@example.com", "some-password");
+        var unfill = FillRegisters(orgId, branchId);
+        try
+        {
+            var response = await _factory.CreateClient().PostAsJsonAsync("/device/pair",
+                new DevicePairRequest("pair-exhausted@example.com", "some-password", Guid.NewGuid(), null));
+
+            Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+            var body = await response.Content.ReadFromJsonAsync<RegisterNumbersExhaustedResponse>();
+            Assert.Equal("register-numbers-exhausted", body!.Error);
+            Assert.Equal("register-numbers-exhausted", body.Status);
+        }
+        finally { unfill(); }
+    }
+
+    [Fact]
+    public async Task Identity_WhenTheBranchRanOutOfRegisterNumbers_Returns409_WithTheSameTypedError()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var (token, orgId, branchId, installationId) = await PairTerminalAsync("identity-exhausted@example.com");
+        DeviceCredentialStoreTests.ForgetRegisters(installationId);
+        var unfill = FillRegisters(orgId, branchId);
+        try
+        {
+            var response = await GetIdentityAsync(token);
+
+            Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+            var body = await response.Content.ReadFromJsonAsync<RegisterNumbersExhaustedResponse>();
+            Assert.Equal("register-numbers-exhausted", body!.Error);
+        }
+        finally { unfill(); }
+    }
+
+    [Fact]
+    public async Task Sync_ANumberedSale_IsVerifiedAgainstTheInstallationOfTheDeviceCredential()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var (token, orgId, branchId, _) = await PairTerminalAsync("sync-number@example.com");
+        var identity = (await (await GetIdentityAsync(token)).Content.ReadFromJsonAsync<DeviceIdentityResponse>())!;
+
+        async Task<InboundApplyResult> SendSaleAsync(Guid saleId, int register, int sequence)
+        {
+            var payload = new Commerce.Domain.Sync.Payloads.SalePayloadV1(
+                saleId, 10m, "Manual", DateTimeOffset.UtcNow, [], BranchCode: identity.BranchCode, RegisterNumber: register, SaleSequence: sequence);
+            var envelope = SampleEnvelope(orgId, branchId) with { AggregateId = saleId, Payload = SyncPayloadCodec.Serialize(payload) };
+            var request = new HttpRequestMessage(HttpMethod.Post, "/sync/inbox") { Content = JsonContent.Create(envelope) };
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            var response = await _factory.CreateClient().SendAsync(request);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            return (await response.Content.ReadFromJsonAsync<InboundApplyResult>())!;
+        }
+
+        var own = Guid.NewGuid();
+        var foreign = Guid.NewGuid();
+        Assert.Equal(InboundApplyOutcome.Applied, (await SendSaleAsync(own, identity.RegisterNumber, 7)).Outcome);
+        // A register that belongs to nobody: the sale is still accepted, without a number.
+        Assert.Equal(InboundApplyOutcome.Applied, (await SendSaleAsync(foreign, identity.RegisterNumber + 1, 8)).Outcome);
+
+        using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        owner.Open();
+        using (var set = new NpgsqlCommand("SELECT set_config('app.current_org_id', $1, false)", owner))
+        {
+            set.Parameters.AddWithValue(orgId.ToString());
+            set.ExecuteNonQuery();
+        }
+        short? NumberedRegister(Guid saleId)
+        {
+            using var cmd = new NpgsqlCommand("SELECT register_number FROM pos_sales WHERE sale_id = $1", owner);
+            cmd.Parameters.AddWithValue(saleId);
+            var value = cmd.ExecuteScalar();
+            return value is DBNull ? null : (short?)value;
+        }
+        Assert.Equal((short?)identity.RegisterNumber, NumberedRegister(own));
+        Assert.Null(NumberedRegister(foreign));
+    }
 }

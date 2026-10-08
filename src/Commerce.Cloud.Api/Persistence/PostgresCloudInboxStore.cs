@@ -1,5 +1,8 @@
+using Commerce.Cloud.Api.Auditing;
 using Commerce.Cloud.Api.Tenancy;
 using Commerce.Domain.Sync;
+using Commerce.Domain.Sync.Payloads;
+using Microsoft.Extensions.Logging;
 using Npgsql;
 
 namespace Commerce.Cloud.Api.Persistence;
@@ -30,10 +33,19 @@ namespace Commerce.Cloud.Api.Persistence;
 public sealed class PostgresCloudInboxStore : ICloudInboxStore
 {
     private readonly NpgsqlDataSource _dataSource;
+    private readonly ILogger<PostgresCloudInboxStore>? _logger;
+    private readonly Func<SalePayloadV1, Task>? _projectionFault;
 
-    public PostgresCloudInboxStore(NpgsqlDataSource dataSource) => _dataSource = dataSource;
+    /// <param name="projectionFault">Test seam, null in production: runs inside the guarded sale projection so a test can make it fail.</param>
+    public PostgresCloudInboxStore(NpgsqlDataSource dataSource, ILogger<PostgresCloudInboxStore>? logger = null,
+        Func<SalePayloadV1, Task>? projectionFault = null)
+    {
+        _dataSource = dataSource;
+        _logger = logger;
+        _projectionFault = projectionFault;
+    }
 
-    public InboundApplyResult TryApplyInbound(CloudTenantScope scope, SyncEnvelope envelope)
+    public InboundApplyResult TryApplyInbound(CloudTenantScope scope, SyncEnvelope envelope, Guid? installationId = null)
     {
         if (scope.OrganizationId != envelope.OrganizationId)
         {
@@ -43,7 +55,7 @@ public sealed class PostgresCloudInboxStore : ICloudInboxStore
             return new InboundApplyResult(InboundApplyOutcome.Denied, envelope.OperationId);
         }
 
-        return TryApplyInboundAsync(scope, envelope, CancellationToken.None).GetAwaiter().GetResult();
+        return TryApplyInboundAsync(scope, envelope, CancellationToken.None, installationId).GetAwaiter().GetResult();
     }
 
     public bool Acknowledge(CloudTenantScope scope, Guid operationId) =>
@@ -55,7 +67,8 @@ public sealed class PostgresCloudInboxStore : ICloudInboxStore
     public IReadOnlyList<SyncEnvelope> GetInboxFor(CloudTenantScope scope) =>
         GetInboxForAsync(scope, CancellationToken.None).GetAwaiter().GetResult();
 
-    public async Task<InboundApplyResult> TryApplyInboundAsync(CloudTenantScope scope, SyncEnvelope envelope, CancellationToken ct)
+    public async Task<InboundApplyResult> TryApplyInboundAsync(
+        CloudTenantScope scope, SyncEnvelope envelope, CancellationToken ct, Guid? installationId = null)
     {
         if (scope.OrganizationId != envelope.OrganizationId)
         {
@@ -99,6 +112,33 @@ public sealed class PostgresCloudInboxStore : ICloudInboxStore
             insertCmd.Parameters.AddWithValue(envelope.Payload);
             await insertCmd.ExecuteNonQueryAsync(ct);
         }
+
+        // A discounted sale is audited in the SAME transaction as its inbox row;
+        // the duplicate check above returns first, so redelivery never repeats it.
+        if (SaleDiscountAudit.TryBuild(envelope) is { } discountAudit)
+        {
+            await AuditLogWriter.InsertAsync(connection, tx, discountAudit, ct);
+        }
+
+        // Same rule for a cash session event: one audit row per opened or closed
+        // session, in the inbox transaction, so redelivery never repeats it.
+        if (CashSessionAudit.TryBuild(envelope) is { } sessionAudit)
+        {
+            await AuditLogWriter.InsertAsync(connection, tx, sessionAudit, ct);
+        }
+
+        // Sale envelopes are also projected into `pos_sales`, and the human sale number they claim
+        // is verified, in this same transaction. Never blocks ingestion (savepoint inside).
+        await PosSaleProjection.ProjectAsync(connection, tx, envelope, installationId, _logger, ct, _projectionFault);
+        await PosSaleStockProjection.ProjectAsync(connection, tx, envelope, _logger, ct);
+        // A sale on current account is charged to its customer (savepoint inside, never blocks).
+        await PosSaleAccountProjection.ProjectAsync(connection, tx, envelope, _logger, ct);
+        // A payment a customer made at the POS (or its void): its account credit, its money and its audit.
+        await CustomerPaymentProjection.ProjectAsync(connection, tx, envelope, _logger, ct);
+        // A `sale.voided` envelope is recorded, audited and puts the sale's stock back (savepoint inside, never blocks).
+        await PosSaleVoidProjection.ProjectAsync(connection, tx, envelope, _logger, ct);
+        // The drawer outside a sale: withdrawals/deposits and the cash count difference at close, into the treasury.
+        await CashDrawerProjection.ProjectAsync(connection, tx, envelope, _logger, ct);
 
         await tx.CommitAsync(ct);
         return new InboundApplyResult(InboundApplyOutcome.Applied, envelope.OperationId);
@@ -192,9 +232,6 @@ public sealed class PostgresCloudInboxStore : ICloudInboxStore
     /// </summary>
     private static async Task SetTenantScopeAsync(NpgsqlConnection connection, NpgsqlTransaction tx, CloudTenantScope scope, CancellationToken ct)
     {
-        await using var scopeCmd = new NpgsqlCommand(
-            "SELECT set_config('app.current_org_id', $1, true)", connection, tx);
-        scopeCmd.Parameters.AddWithValue(scope.OrganizationId.ToString());
-        await scopeCmd.ExecuteNonQueryAsync(ct);
+        await TenantScopeSql.ApplyAsync(connection, tx, scope, ct);
     }
 }

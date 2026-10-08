@@ -1,6 +1,7 @@
 using Commerce.Cloud.Api.Persistence;
 using Commerce.Cloud.Api.Tenancy;
 using Commerce.Domain.Identity;
+using Commerce.Domain.Pricing;
 using Microsoft.AspNetCore.Identity;
 
 namespace Commerce.Cloud.Api.Endpoints;
@@ -89,6 +90,17 @@ public static class DeviceEndpoints
                 return Results.Unauthorized();
             }
 
+            // Only after the password is proven: a user without OperatePos (a
+            // seller) must never obtain a device credential. The verdict is
+            // typed so the terminal can explain it; it is safe to reveal here
+            // because the caller already holds the correct password.
+            if (!actor.EffectivePermissions.HasFlag(Permission.OperatePos))
+            {
+                return Results.Json(
+                    new DevicePairResponse("operator-not-permitted", null, null, null, null, null, null),
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+
             var branchScope = actor.BranchScope.ToArray();
             if (branchScope.Length == 0)
             {
@@ -105,7 +117,7 @@ public static class DeviceEndpoints
             {
                 return Results.Ok(new DevicePairResponse(
                     "branch-selection-required",
-                    branches.Select(b => new DeviceBranchOption(b.Id, b.Name)).ToList(),
+                    branches.Select(b => new DeviceBranchOption(b.Id, b.Name, b.Code)).ToList(),
                     null, null, null, null, null));
             }
 
@@ -122,7 +134,16 @@ public static class DeviceEndpoints
 
             // Step 11: issue the credential — identity claims will be read
             // exclusively from THIS row going forward, never from the request.
-            var issued = await credentialStore.IssueAsync(scope, request.InstallationId, selected.Id, credential.Id, ct);
+            IssuedDeviceCredential issued;
+            try
+            {
+                issued = await credentialStore.IssueAsync(scope, request.InstallationId, selected.Id, credential.Id, ct);
+            }
+            catch (Commerce.Domain.Tenancy.RegisterNumbersExhaustedException)
+            {
+                // The whole pairing rolled back; the terminal keeps whatever credential it had.
+                return Results.Json(new RegisterNumbersExhaustedResponse(), statusCode: StatusCodes.Status409Conflict);
+            }
 
             return Results.Ok(new DevicePairResponse(
                 "paired",
@@ -131,8 +152,50 @@ public static class DeviceEndpoints
                 selected.Id,
                 selected.Name,
                 request.InstallationId,
-                issued.PlaintextToken));
-        }).AllowAnonymous();
+                issued.PlaintextToken,
+                selected.Code,
+                issued.RegisterNumber));
+        }).AllowAnonymous().RequireRateLimiting(DeviceRateLimitPolicies.Pair);
+
+        // Identity of THIS terminal (pos-installation-identity "Register Number"):
+        // branch name/code and register number, read from the STORED credential
+        // row via the minted claims, never from the request. A terminal paired
+        // before registers existed gets its number allocated here.
+        var identityGroup = group.MapGroup("/identity")
+            .RequireAuthorization("DeviceBearer")
+            .AddEndpointFilter<TenantScopeEndpointFilter>();
+
+        identityGroup.MapGet("", async (
+            HttpContext httpContext,
+            PostgresTerminalRegisterStore registerStore,
+            CancellationToken ct) =>
+        {
+            var scope = TenantScopeEndpointFilter.GetScope(httpContext);
+            if (!DeviceIdentity.TryResolve(httpContext.User, out var deviceIdentity) || deviceIdentity is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            TerminalIdentity? identity;
+            try
+            {
+                identity = await registerStore.GetIdentityAsync(scope, deviceIdentity.BranchId, deviceIdentity.InstallationId, ct);
+            }
+            catch (Commerce.Domain.Tenancy.RegisterNumbersExhaustedException)
+            {
+                return Results.Json(new RegisterNumbersExhaustedResponse(), statusCode: StatusCodes.Status409Conflict);
+            }
+            catch (DeviceCredentialNotLiveException)
+            {
+                // The terminal re-paired while this call ran: the old credential is dead.
+                return Results.Unauthorized();
+            }
+
+            return identity is null
+                ? Results.NotFound()
+                : Results.Ok(new DeviceIdentityResponse(
+                    scope.OrganizationId, deviceIdentity.BranchId, identity.BranchName, identity.BranchCode, identity.RegisterNumber));
+        });
 
         // Operator provisioning/status (design.md "Provisioning endpoint" and
         // "Staleness TTL and reconciliation trigger"): both device-bearer
@@ -194,6 +257,16 @@ public static class DeviceEndpoints
                 return Results.Unauthorized();
             }
 
+            // Operating the till requires OperatePos (pos-operator-session
+            // "Operating The POS Requires OperatePos"); a seller is a web
+            // order-taker, not a cashier. Checked after credentials are proven.
+            if (!actor.EffectivePermissions.HasFlag(Permission.OperatePos))
+            {
+                return Results.Json(
+                    new OperatorVerifyResponse("operator-not-permitted", null, null, null, 0),
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+
             // Server-side assertion the design calls out: the operator's
             // BranchScope must contain THIS terminal's branch, read from the
             // stored device row via the claim, never the request body.
@@ -230,7 +303,10 @@ public static class DeviceEndpoints
             // the response is "inactive" — 200, never 404, so this route
             // cannot be used to probe cross-tenant account existence.
             var actor = await userStore.LoadActorAsync(scope, userId, ct);
-            var isActive = actor is not null && !actor.IsRevoked && actor.BranchScope.Contains(deviceIdentity.BranchId);
+            var isActive = actor is not null
+                && !actor.IsRevoked
+                && actor.EffectivePermissions.HasFlag(Permission.OperatePos)
+                && actor.BranchScope.Contains(deviceIdentity.BranchId);
 
             return Results.Ok(new OperatorStatusResponse(isActive ? "active" : "inactive"));
         });
@@ -292,7 +368,7 @@ public static class DeviceEndpoints
             // Captured BEFORE the reads so the next cursor never skips a row
             // that changed while this request was in flight.
             var serverTimeUtc = DateTimeOffset.UtcNow;
-            var today = DateOnly.FromDateTime(serverTimeUtc.UtcDateTime);
+            var today = httpContext.Today();
 
             var changedCatalog = await catalogStore.ListChangedSinceAsync(scope, since, ct);
             var defaultList = await priceListStore.FindDefaultPriceListAsync(scope, ct);
@@ -330,25 +406,241 @@ public static class DeviceEndpoints
                 items.Add(new CatalogReplicaRow(
                     catalogRow.PresentationId, catalogRow.ProductId, catalogRow.ProductName, catalogRow.PresentationName,
                     catalogRow.IdentificationCode, catalogRow.QuantityBehavior.ToString(), catalogRow.UnitId,
-                    priceEntry?.UnitPrice, priceEntry?.EffectiveFrom, catalogRow.UpdatedAtUtc));
+                    priceEntry?.UnitPrice, priceEntry?.EffectiveFrom, catalogRow.UpdatedAtUtc,
+                    catalogRow.CategoryId, catalogRow.CategoryName, catalogRow.CategoryIconKey));
             }
 
-            // No deactivation/delete capability exists for presentations yet
-            // (design.md "no DELETE grant"): removed ids are always empty
-            // rather than a fabricated signal.
-            return Results.Ok(new CatalogSyncResponse(items, RemovedPresentationIds: [], serverTimeUtc));
+            // Soft deletion (0036): presentations of a deactivated product are
+            // announced as removed so the branch drops them; reactivation sends
+            // them again as ordinary changed rows. Physical deletes still do not
+            // exist (design.md "no DELETE grant").
+            var removedIds = await catalogStore.ListDeactivatedSinceAsync(scope, since, ct);
+            return Results.Ok(new CatalogSyncResponse(items, removedIds, serverTimeUtc));
+        });
+
+        // customer-price-lists T4, channel `price-lists`: ONE snapshot of everything the branch needs to price a sale from
+        // any list. Device bearer; org AND branch come from the STORED device credential. A snapshot, not a delta: the
+        // branch replaces its price list tables with it in one transaction, so a list or a price removed in the cloud
+        // disappears from the replica without a tombstone, and a redelivery is idempotent.
+        var priceListsGroup = group.MapGroup("/pricelists")
+            .RequireAuthorization("DeviceBearer")
+            .AddEndpointFilter<TenantScopeEndpointFilter>();
+
+        priceListsGroup.MapGet("/sync", async (
+            HttpContext httpContext,
+            PostgresPriceListStore priceListStore,
+            PostgresRateComponentStore rateStore,
+            PostgresCustomerStore customerStore,
+            PostgresCurrentAccountStore accountStore,
+            PostgresOrganizationStore organizationStore,
+            PostgresCategoryStore categoryStore,
+            CancellationToken ct) =>
+        {
+            var scope = TenantScopeEndpointFilter.GetScope(httpContext);
+            if (!DeviceIdentity.TryResolve(httpContext.User, out var deviceIdentity) || deviceIdentity is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            // Captured BEFORE the reads, like every other replica channel.
+            var serverTimeUtc = DateTimeOffset.UtcNow;
+            var today = httpContext.Today();
+
+            var lists = await priceListStore.ListPriceListsAsync(scope, ct);
+            var entries = new List<PriceEntryReplicaRow>();
+            var rateSets = new List<RateSetReplicaRow>();
+            foreach (var list in lists)
+            {
+                foreach (var item in await priceListStore.ListItemsAsOfAsync(scope, list.Id, today, ct))
+                {
+                    entries.Add(new PriceEntryReplicaRow(list.Id, item.PresentationId, item.UnitPrice, item.EntryEffectiveFrom));
+                }
+
+                rateSets.AddRange(ReplicableSets(await rateStore.ListHistoryAsync(scope, list.Id, ct), today));
+            }
+
+            // The organization's inheritable default set: used by any list that declares none of its own.
+            rateSets.AddRange(ReplicableSets(await rateStore.ListHistoryAsync(scope, null, ct), today));
+
+            return Results.Ok(new PriceListsSyncResponse(
+                [.. lists.Select(l => new PriceListReplicaRow(l.Id, l.Name, l.IsDefault, l.FloorPriceListId))],
+                entries,
+                rateSets,
+                await customerStore.ListPriceListAssignmentsAsync(scope, ct),
+                await priceListStore.FindOrganizationDefaultCustomerPriceListIdAsync(scope, ct),
+                serverTimeUtc,
+                await customerStore.ListDiscountAssignmentsAsync(scope, ct),
+                // What each customer owes (for collecting at the counter) and the payment terms of its sales on account.
+                await accountStore.CustomerBalancesAsync(scope, today, ct),
+                await customerStore.ListPaymentTermsAsync(scope, ct),
+                (await organizationStore.GetSettingsAsync(scope.OrganizationId, ct))?.DefaultCustomerPaymentTermsDays
+                    ?? Commerce.Domain.CurrentAccounts.PaymentTerms.DefaultDays,
+                // The categories and which of them the POS rail offers (a handful of rows: the whole set every time).
+                [.. (await categoryStore.ListAsync(scope, ct)).Select(c => new CategoryReplicaRow(c.Id, c.Name, c.IconKey, c.ShowInPos, c.PosSortOrder))]));
+        });
+
+        // Cloud->local stock replica (purchases-receptions-and-stock T5, channel `stock`): device bearer; org AND branch come
+        // from the STORED device credential (the tenant filter reads the branch claim), never from the request. Items are
+        // absolute on-hand snapshots of the presentations that moved since `since`.
+        var stockGroup = group.MapGroup("/stock")
+            .RequireAuthorization("DeviceBearer")
+            .AddEndpointFilter<TenantScopeEndpointFilter>();
+
+        stockGroup.MapGet("/sync", async (
+            DateTimeOffset since,
+            HttpContext httpContext,
+            PostgresStockStore stockStore,
+            CancellationToken ct) =>
+        {
+            var scope = TenantScopeEndpointFilter.GetScope(httpContext);
+            if (!DeviceIdentity.TryResolve(httpContext.User, out var deviceIdentity) || deviceIdentity is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            // Captured BEFORE the read so the next cursor never skips a movement written while this request was in flight.
+            var serverTimeUtc = DateTimeOffset.UtcNow;
+            var items = await stockStore.ListOnHandChangedSinceAsync(scope, since, ct);
+            return Results.Ok(new StockSyncResponse(items, serverTimeUtc));
+        });
+
+        // Discount PIN verifier of THIS terminal branch (branch-discount-pin
+        // spec): the branch comes from the STORED device_credentials row via
+        // the minted claim, never from the request, so a terminal can only ever
+        // obtain its own branch verifier. Carries the salted hash and its
+        // parameters, never the PIN.
+        var branchGroup = group.MapGroup("/branch")
+            .RequireAuthorization("DeviceBearer")
+            .AddEndpointFilter<TenantScopeEndpointFilter>();
+
+        branchGroup.MapGet("/discount-pin", async (
+            HttpContext httpContext,
+            PostgresBranchDiscountPinStore pinStore,
+            CancellationToken ct) =>
+        {
+            var scope = TenantScopeEndpointFilter.GetScope(httpContext);
+            if (!DeviceIdentity.TryResolve(httpContext.User, out var deviceIdentity) || deviceIdentity is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            return Results.Ok(await pinStore.GetVerifierAsync(scope, deviceIdentity.BranchId, ct));
+        });
+
+        // operator-ux-adjustments T5: the settings of THIS terminal's organization a terminal needs offline (today the
+        // quantity decimal separator the web settings edit). The organization comes from the STORED device credential
+        // via the minted claims, never from the request. Read on every sync, so a change in the web reaches the
+        // terminal on its next sweep. Additive: no existing device route or payload changes.
+        var organizationGroup = group.MapGroup("/organization")
+            .RequireAuthorization("DeviceBearer")
+            .AddEndpointFilter<TenantScopeEndpointFilter>();
+
+        organizationGroup.MapGet("/settings", async (
+            HttpContext httpContext,
+            PostgresOrganizationStore organizationStore,
+            CancellationToken ct) =>
+        {
+            var scope = TenantScopeEndpointFilter.GetScope(httpContext);
+            if (!DeviceIdentity.TryResolve(httpContext.User, out var deviceIdentity) || deviceIdentity is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var settings = await organizationStore.GetSettingsAsync(scope.OrganizationId, ct);
+            return settings is null
+                ? Results.NotFound()
+                : Results.Ok(new DeviceOrganizationSettingsResponse(settings.QuantityDecimalSeparator));
         });
 
         return group;
     }
+
+    /// <summary>
+    /// The sets of one owner the branch needs: the one effective today (the latest published on or before it) and every
+    /// set already published for a LATER date, so the branch keeps pricing correctly across a date change while offline.
+    /// Older history stays in the cloud.
+    /// </summary>
+    private static IEnumerable<RateSetReplicaRow> ReplicableSets(IReadOnlyList<RateComponentSet> history, DateOnly today)
+    {
+        var effective = history.Where(s => s.EffectiveFrom <= today).OrderByDescending(s => s.EffectiveFrom).Take(1);
+        return effective.Concat(history.Where(s => s.EffectiveFrom > today)).Select(s => new RateSetReplicaRow(
+            s.Id, s.PriceListId, s.EffectiveFrom,
+            [.. s.Components.Select(c => new RateComponentReplicaRow(c.Code, c.Label, c.Percentage, c.CalculationBase.ToString(), c.Order))]));
+    }
+}
+
+/// <summary>
+/// `GET /device/pricelists/sync` response (customer-price-lists T4, channel `price-lists`): a SNAPSHOT of what the branch
+/// needs to price a sale from any list. `Entries` are the BASE prices effective today of every list visible to the
+/// branch, `RateSets` the rate component sets (list-specific, or `PriceListId` null for the organization default),
+/// `CustomerPriceLists` the customers that have a list of their own, `CustomerDiscounts` the customers that have a discount
+/// of their own (applied after the composition). Additive: no existing payload or channel changes, and a terminal that
+/// predates `CustomerDiscounts` ignores it.
+/// </summary>
+public sealed record PriceListsSyncResponse(
+    IReadOnlyList<PriceListReplicaRow> Lists,
+    IReadOnlyList<PriceEntryReplicaRow> Entries,
+    IReadOnlyList<RateSetReplicaRow> RateSets,
+    IReadOnlyList<CustomerPriceListAssignment> CustomerPriceLists,
+    Guid? OrganizationDefaultCustomerPriceListId,
+    DateTimeOffset ServerTimeUtc,
+    IReadOnlyList<CustomerDiscountAssignment>? CustomerDiscounts = null,
+    IReadOnlyList<CustomerAccountBalance>? CustomerBalances = null,
+    IReadOnlyList<CustomerTermsAssignment>? CustomerPaymentTerms = null,
+    int? DefaultCustomerPaymentTermsDays = null,
+    IReadOnlyList<CategoryReplicaRow>? Categories = null);
+
+/// <summary>A product category as the POS needs it: its rail shows the ones with <see cref="ShowInPos"/>, by <see cref="PosSortOrder"/> then name.</summary>
+public sealed record CategoryReplicaRow(Guid Id, string Name, string IconKey, bool ShowInPos, int PosSortOrder);
+
+/// <summary>
+/// `GET /device/organization/settings` response (operator-ux-adjustments T5): the organization's quantity decimal
+/// separator, `Comma` or `Dot` (<see cref="OrganizationSettings.Comma"/>, <see cref="OrganizationSettings.Dot"/>).
+/// </summary>
+public sealed record DeviceOrganizationSettingsResponse(string QuantityDecimalSeparator);
+
+public sealed record PriceListReplicaRow(Guid Id, string Name, bool IsDefault, Guid? FloorPriceListId);
+
+public sealed record PriceEntryReplicaRow(Guid PriceListId, Guid PresentationId, decimal UnitPrice, DateOnly EffectiveFrom);
+
+public sealed record RateSetReplicaRow(
+    Guid Id, Guid? PriceListId, DateOnly EffectiveFrom, IReadOnlyList<RateComponentReplicaRow> Components);
+
+public sealed record RateComponentReplicaRow(string Code, string Label, decimal Percentage, string CalculationBase, int Order);
+
+/// <summary>
+/// Rate-limit policy of `POST /device/pair` (see the registration in `Program.cs`).
+/// Pairing is anonymous, takes a client-chosen InstallationId and burns a register
+/// number per NEW installation (numbers are never reused), so unbounded pairing
+/// could exhaust a branch's 999 numbers. Residual risk: an attacker rotating IPs
+/// with valid operator credentials is not stopped by the limiter; each new
+/// allocation is audited (`terminal.register.assigned`) so it is visible.
+/// </summary>
+public static class DeviceRateLimitPolicies
+{
+    public const string Pair = "device-pair";
+    public const int DefaultPairPermitLimit = 30;
+    public static readonly TimeSpan PairWindow = TimeSpan.FromMinutes(15);
+}
+
+/// <summary>
+/// The ONE 409 body for "this branch has no register number left", returned by both
+/// `POST /device/pair` and `GET /device/identity`. `Error` is the typed code clients
+/// should read; `Status` repeats it because the pairing client dispatches on `status`.
+/// </summary>
+public sealed record RegisterNumbersExhaustedResponse(
+    string Error = RegisterNumbersExhaustedResponse.Code,
+    string Status = RegisterNumbersExhaustedResponse.Code)
+{
+    public const string Code = Commerce.Domain.Tenancy.RegisterNumbersExhaustedException.ErrorCode;
 }
 
 public sealed record DevicePairRequest(string Email, string Password, Guid InstallationId, Guid? BranchId);
 
-public sealed record DeviceBranchOption(Guid Id, string Name);
+public sealed record DeviceBranchOption(Guid Id, string Name, int Code);
 
 /// <summary>
-/// status: "paired" | "branch-selection-required" | "no-branches-assigned" | "branch-not-in-scope".
+/// status: "paired" | "branch-selection-required" | "no-branches-assigned" | "branch-not-in-scope" | "operator-not-permitted" | "register-numbers-exhausted" (409).
 /// `DeviceToken` is the plaintext secret, returned in exactly this one
 /// response and never again — the server never stores it.
 /// </summary>
@@ -359,12 +651,20 @@ public sealed record DevicePairResponse(
     Guid? BranchId,
     string? BranchName,
     Guid? InstallationId,
-    string? DeviceToken);
+    string? DeviceToken,
+    int? BranchCode = null,
+    int? RegisterNumber = null);
+
+/// <summary>
+/// `GET /device/identity` response: who this terminal is, in human terms
+/// (branch name + short code, register number). Never carries a secret.
+/// </summary>
+public sealed record DeviceIdentityResponse(Guid OrganizationId, Guid BranchId, string BranchName, int BranchCode, int RegisterNumber);
 
 public sealed record OperatorVerifyRequest(string Email, string Password);
 
 /// <summary>
-/// status: "verified" (200) | "branch-not-in-scope" (403); every credential
+/// status: "verified" (200) | "branch-not-in-scope" (403) | "operator-not-permitted" (403, no OperatePos); every credential
 /// failure is a bare 401 with no body shape of its own. `Permissions` is the
 /// server-derived `int` from `actor.EffectivePermissions` (commerce-customer-
 /// identity design.md "Desktop authorization for customer create/edit") —
@@ -401,9 +701,17 @@ public sealed record CustomerSyncResponse(
 public sealed record CatalogReplicaRow(
     Guid PresentationId, Guid ProductId, string ProductName, string PresentationName,
     string? IdentificationCode, string QuantityBehavior, Guid UnitId,
-    decimal? UnitPrice, DateOnly? EffectiveFrom, DateTimeOffset UpdatedAtUtc);
+    decimal? UnitPrice, DateOnly? EffectiveFrom, DateTimeOffset UpdatedAtUtc,
+    Guid? CategoryId = null, string? CategoryName = null, string? CategoryIconKey = null);
 
 public sealed record CatalogSyncResponse(
     IReadOnlyList<CatalogReplicaRow> Items,
     IReadOnlyList<Guid> RemovedPresentationIds,
     DateTimeOffset ServerTimeUtc);
+
+/// <summary>
+/// `GET /device/stock/sync` response (purchases-receptions-and-stock T5, cursor/replica channel `stock`). Each item is an
+/// ABSOLUTE on-hand snapshot of a presentation that had a movement since the cursor, never a delta, so redelivery and the
+/// server-side grace window are harmless. A presentation with no movement is simply absent (unknown to the replica).
+/// </summary>
+public sealed record StockSyncResponse(IReadOnlyList<StockReplicaRow> Items, DateTimeOffset ServerTimeUtc);

@@ -84,8 +84,14 @@ public sealed class PricingEndpointTests : IClassFixture<WebApplicationFactory<P
         Apply("0001_init_rls.sql", "__APP_RUNTIME_PASSWORD__", "dev-only-password");
         Apply("0002_users.sql");
         Apply("0003_organizations_branches.sql");
+        Apply("0021_branch_codes.sql");
         Apply("0004_device_credentials.sql");
+        Apply("0022_terminal_registers.sql");
+        Apply("0024_terminal_registers_assign_result.sql");
         Apply("0009_catalog_and_pricing.sql");
+        Apply("0016_catalog_branch_ownership.sql");
+        Apply("0036_product_soft_delete.sql");
+        Apply("0017_pricing_branch_ownership.sql");
 
         using var resetCmd = new NpgsqlCommand(
             "TRUNCATE TABLE price_list_entries, price_lists, presentations, products, " +
@@ -103,15 +109,28 @@ public sealed class PricingEndpointTests : IClassFixture<WebApplicationFactory<P
         await cmd.ExecuteNonQueryAsync();
     }
 
-    private async Task<Guid> SeedPresentationAsync(Guid organizationId)
+    /// <summary>B7 U4: catalog scopes now need a real branch row.</summary>
+    private async Task<Guid> SeedBranchAsync(Guid organizationId)
+    {
+        var branchId = Guid.NewGuid();
+        using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        await owner.OpenAsync();
+        using var cmd = new NpgsqlCommand("INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, 'Main')", owner);
+        cmd.Parameters.AddWithValue(branchId);
+        cmd.Parameters.AddWithValue(organizationId);
+        await cmd.ExecuteNonQueryAsync();
+        return branchId;
+    }
+
+    private async Task<Guid> SeedPresentationAsync(Guid organizationId, Guid branchId)
     {
         using var scope = _factory.Services.CreateScope();
         var catalogStore = scope.ServiceProvider.GetRequiredService<PostgresCatalogStore>();
-        var tenantScope = new CloudTenantScope(organizationId);
+        var tenantScope = new CloudTenantScope(organizationId, BranchId: branchId);
         var actorId = Guid.NewGuid();
 
         var product = await catalogStore.CreateProductAsync(
-            tenantScope, new NewProduct(Guid.NewGuid(), "Seed Product", Guid.NewGuid(), Guid.NewGuid(), actorId),
+            tenantScope, new NewProduct(Guid.NewGuid(), "Seed Product", CategoryFixture.Create(tenantScope), Guid.NewGuid(), actorId),
             "org-user", actorId, CancellationToken.None);
 
         var presentation = await catalogStore.CreatePresentationAsync(
@@ -127,18 +146,25 @@ public sealed class PricingEndpointTests : IClassFixture<WebApplicationFactory<P
     /// cookie-issuing sign-in so the endpoint's authorization decision is
     /// driven only by what is persisted for the user.
     /// </summary>
-    private async Task<(HttpClient client, Guid organizationId)> SignedInClientAsync(
+    private async Task<(HttpClient client, Guid organizationId, Guid branchId)> SignedInClientAsync(
         Permission permissions, Guid? organizationId = null)
     {
         var isNewOrganization = organizationId is null;
         organizationId ??= Guid.NewGuid();
-        var branchId = Guid.NewGuid();
         var userId = Guid.NewGuid();
 
         if (isNewOrganization)
         {
             await SeedOrganizationAsync(organizationId.Value);
         }
+
+        // B7 U5: every `/pricing/*` staff route now requires a selected
+        // branch (`BranchSelectionRequirement.Enforce`), and
+        // `TenantScopeEndpointFilter` only honors an `X-Branch-Id` header
+        // that names a branch that ACTUALLY EXISTS in the caller's
+        // organization and is contained in the caller's own `BranchScope` —
+        // a bare `Guid.NewGuid()` (the pre-U5 shape) satisfies neither.
+        var branchId = await SeedBranchAsync(organizationId.Value);
 
         using (var scope = _factory.Services.CreateScope())
         {
@@ -163,7 +189,9 @@ public sealed class PricingEndpointTests : IClassFixture<WebApplicationFactory<P
             }
         }
 
-        return (await SignInViaTestEndpointAsync(organizationId.Value, userId), organizationId.Value);
+        var client = await SignInViaTestEndpointAsync(organizationId.Value, userId);
+        client.DefaultRequestHeaders.Add(TenantScopeEndpointFilter.BranchSelectorHeader, branchId.ToString());
+        return (client, organizationId.Value, branchId);
     }
 
     private async Task<HttpClient> SignInViaTestEndpointAsync(Guid organizationId, Guid userId)
@@ -220,7 +248,7 @@ public sealed class PricingEndpointTests : IClassFixture<WebApplicationFactory<P
     {
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
 
-        var (client, _) = await SignedInClientAsync(Permission.ManageCatalog);
+        var (client, _, _) = await SignedInClientAsync(Permission.ManageCatalog);
 
         var response = await client.PostAsJsonAsync("/pricing/price-lists", new { name = "Default", isDefault = true });
 
@@ -232,7 +260,7 @@ public sealed class PricingEndpointTests : IClassFixture<WebApplicationFactory<P
     {
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
 
-        var (client, _) = await SignedInClientAsync(Permission.ManageUsers);
+        var (client, _, _) = await SignedInClientAsync(Permission.ManageUsers);
 
         var response = await client.PostAsJsonAsync("/pricing/price-lists", new { name = "Default", isDefault = true });
 
@@ -295,13 +323,13 @@ public sealed class PricingEndpointTests : IClassFixture<WebApplicationFactory<P
     {
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
 
-        var (ownerClient, ownerOrgId) = await SignedInClientAsync(Permission.ManageCatalog);
+        var (ownerClient, ownerOrgId, _) = await SignedInClientAsync(Permission.ManageCatalog);
         var createResponse = await ownerClient.PostAsJsonAsync("/pricing/price-lists", new { name = "Org A List", isDefault = true });
         Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
         var created = await createResponse.Content.ReadFromJsonAsync<JsonElement>();
         var priceListId = created.GetProperty("id").GetGuid();
 
-        var (otherOrgClient, _) = await SignedInClientAsync(Permission.ManageCatalog);
+        var (otherOrgClient, _, _) = await SignedInClientAsync(Permission.ManageCatalog);
 
         var crossOrgResponse = await otherOrgClient.GetAsync($"/pricing/price-lists/{priceListId}");
         var nonexistentResponse = await otherOrgClient.GetAsync($"/pricing/price-lists/{Guid.NewGuid()}");
@@ -315,8 +343,8 @@ public sealed class PricingEndpointTests : IClassFixture<WebApplicationFactory<P
     {
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
 
-        var (client, orgId) = await SignedInClientAsync(Permission.ManageCatalog);
-        var presentationId = await SeedPresentationAsync(orgId);
+        var (client, orgId, branchId) = await SignedInClientAsync(Permission.ManageCatalog);
+        var presentationId = await SeedPresentationAsync(orgId, branchId);
 
         var createResponse = await client.PostAsJsonAsync("/pricing/price-lists", new { name = "Default", isDefault = true });
         var priceList = await createResponse.Content.ReadFromJsonAsync<JsonElement>();

@@ -5,12 +5,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PriceListsScreen } from './PriceListsScreen'
 import { RequireAdmin } from '@/routes/RequireAdmin'
 import { AuthContext } from '@/auth/AuthContext'
+import { BranchContext } from '@/branch/BranchContext'
 import { Permission } from '@/api/types'
 import type { PresentationRecord, PriceListRecord } from '@/api/types'
 
 const defaultPriceList: PriceListRecord = {
   id: '11111111-1111-1111-1111-111111111111',
   organizationId: 'org-1',
+  branchId: 'branch-1',
   name: 'Default',
   isDefault: true,
   createdAtUtc: '2024-01-01T00:00:00Z',
@@ -20,6 +22,7 @@ const defaultPriceList: PriceListRecord = {
 const seasonalPriceList: PriceListRecord = {
   id: '99999999-9999-9999-9999-999999999999',
   organizationId: 'org-1',
+  branchId: 'branch-1',
   name: 'Seasonal',
   isDefault: false,
   createdAtUtc: '2024-03-05T00:00:00Z',
@@ -29,6 +32,7 @@ const seasonalPriceList: PriceListRecord = {
 const presentation: PresentationRecord = {
   id: '22222222-2222-2222-2222-222222222222',
   organizationId: 'org-1',
+  branchId: 'branch-1',
   productId: '33333333-3333-3333-3333-333333333333',
   name: '1.5L bottle',
   quantityBehavior: 0,
@@ -65,7 +69,7 @@ describe('PriceListsScreen routing', () => {
     })
 
     expect(screen.getByText('Catalog content')).toBeInTheDocument()
-    expect(screen.queryByText('Prices')).not.toBeInTheDocument()
+    expect(screen.queryByText('Precios')).not.toBeInTheDocument()
   })
 })
 
@@ -89,15 +93,14 @@ describe('PriceListsScreen', () => {
       .mockResolvedValueOnce(new Response(JSON.stringify(lists), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify(items), { status: 200 }))
 
-  it('loads the default price list and presentations, and lists them under Prices', async () => {
+  it('loads the price lists under Prices', async () => {
     fetchMock
       .mockResolvedValueOnce(new Response(JSON.stringify([defaultPriceList]), { status: 200 })) // GET /pricing/price-lists
       .mockResolvedValueOnce(new Response(JSON.stringify([presentation]), { status: 200 })) // GET /catalog/presentations
 
     render(<PriceListsScreen />)
 
-    await screen.findByText('1.5L bottle')
-    expect(screen.getByText('7791234567890')).toBeInTheDocument()
+    await screen.findByText('Default')
     expect(fetchMock.mock.calls[0][0]).toBe('/pricing/price-lists')
     expect(fetchMock.mock.calls[1][0]).toBe('/catalog/presentations')
   })
@@ -111,8 +114,8 @@ describe('PriceListsScreen', () => {
     const user = userEvent.setup()
     render(<PriceListsScreen />)
 
-    await screen.findByRole('button', { name: /create default price list/i })
-    await user.click(screen.getByRole('button', { name: /create default price list/i }))
+    await screen.findByRole('button', { name: /crear lista de precios predeterminada/i })
+    await user.click(screen.getByRole('button', { name: /crear lista de precios predeterminada/i }))
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
     const [url, init] = fetchMock.mock.calls[2]
@@ -120,58 +123,17 @@ describe('PriceListsScreen', () => {
     expect(JSON.parse(init.body as string)).toMatchObject({ isDefault: true })
   })
 
-  it('publishes a new price through the default price list', async () => {
-    fetchMock
-      .mockResolvedValueOnce(new Response(JSON.stringify([defaultPriceList]), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify([presentation]), { status: 200 }))
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            id: '55555555-5555-5555-5555-555555555555',
-            organizationId: 'org-1',
-            priceListId: defaultPriceList.id,
-            presentationId: presentation.id,
-            unitPrice: 600,
-            effectiveFrom: '2024-07-01',
-            source: 'Manual',
-            importBatchId: null,
-            createdAtUtc: '2024-07-01T00:00:00Z',
-            createdByUserId: 'user-1',
-          }),
-          { status: 201 },
-        ),
-      )
-
-    const user = userEvent.setup()
-    render(<PriceListsScreen />)
-
-    await screen.findByText('1.5L bottle')
-    await user.click(screen.getByRole('button', { name: /new price/i }))
-    await user.type(screen.getByLabelText('Unit price'), '600')
-    await user.type(screen.getByLabelText('Effective from'), '2024-07-01')
-    await user.click(screen.getByRole('button', { name: /^publish$/i }))
-
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
-    const [url, init] = fetchMock.mock.calls[2]
-    expect(url).toBe(`/pricing/price-lists/${defaultPriceList.id}/entries`)
-    expect(JSON.parse(init.body as string)).toMatchObject({
-      presentationId: presentation.id,
-      unitPrice: 600,
-      effectiveFrom: '2024-07-01',
-    })
-  })
-
-  it('shows the Suppliers tab as a structural placeholder', async () => {
+  it('hides the Suppliers and Import sections for now', async () => {
     fetchMock
       .mockResolvedValueOnce(new Response(JSON.stringify([defaultPriceList]), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify([presentation]), { status: 200 }))
 
-    const user = userEvent.setup()
     render(<PriceListsScreen />)
 
-    await screen.findByText('1.5L bottle')
-    await user.click(screen.getByRole('button', { name: /^suppliers$/i }))
-    expect(screen.getByText(/supplier mappings/i)).toBeInTheDocument()
+    await screen.findByText('Default')
+    expect(screen.getByRole('button', { name: 'Precios' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^proveedores$/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^importar$/i })).not.toBeInTheDocument()
   })
 
   const mapping = {
@@ -217,29 +179,30 @@ describe('PriceListsScreen', () => {
     ],
   }
 
-  it('uploads a file, renders the real review table, and commits through the endpoint', async () => {
+  // The Import section is hidden for now (PriceListsScreen VISIBLE_TABS); re-enable with it.
+  it.skip('uploads a file, renders the real review table, and commits through the endpoint', async () => {
     fetchMock
       .mockResolvedValueOnce(new Response(JSON.stringify([defaultPriceList]), { status: 200 })) // GET /pricing/price-lists
       .mockResolvedValueOnce(new Response(JSON.stringify([presentation]), { status: 200 })) // GET /catalog/presentations
 
     const user = userEvent.setup()
     render(<PriceListsScreen />)
-    await screen.findByText('1.5L bottle')
+    await screen.findByText('Default')
 
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify([mapping]), { status: 200 })) // GET /pricing/supplier-mappings
-    await user.click(screen.getByRole('button', { name: /^import$/i }))
-    await screen.findByLabelText(/supplier/i)
+    await user.click(screen.getByRole('button', { name: /^importar$/i }))
+    await screen.findByLabelText(/proveedor/i)
 
     fetchMock
       .mockResolvedValueOnce(new Response(JSON.stringify(batch), { status: 201 })) // POST /pricing/imports
       .mockResolvedValueOnce(new Response(JSON.stringify(batchDetail), { status: 200 })) // GET /pricing/imports/{id}
 
     const file = new File(['dummy'], 'prices.xlsx', { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
-    await user.upload(screen.getByLabelText(/file/i), file)
-    await user.click(screen.getByRole('button', { name: /^upload$/i }))
+    await user.upload(screen.getByLabelText(/archivo/i), file)
+    await user.click(screen.getByRole('button', { name: /^subir$/i }))
 
-    expect(await screen.findByTestId('import-row-status-2')).toHaveTextContent('Matched')
-    const commitButton = screen.getByRole('button', { name: /^commit$/i })
+    expect(await screen.findByTestId('import-row-status-2')).toHaveTextContent('Coincide')
+    const commitButton = screen.getByRole('button', { name: /^confirmar$/i })
     expect(commitButton).toBeEnabled()
 
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ ...batch, status: 'Committed' }), { status: 200 })) // POST commit
@@ -251,31 +214,32 @@ describe('PriceListsScreen', () => {
     })
   })
 
-  it('rejects a staged batch through the endpoint', async () => {
+  // The Import section is hidden for now (PriceListsScreen VISIBLE_TABS); re-enable with it.
+  it.skip('rejects a staged batch through the endpoint', async () => {
     loadOnce([defaultPriceList])
 
     const user = userEvent.setup()
     render(<PriceListsScreen />)
-    await screen.findByText('1.5L bottle')
+    await screen.findByText('Default')
 
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify([mapping]), { status: 200 }))
-    await user.click(screen.getByRole('button', { name: /^import$/i }))
-    await screen.findByLabelText(/supplier/i)
+    await user.click(screen.getByRole('button', { name: /^importar$/i }))
+    await screen.findByLabelText(/proveedor/i)
 
     fetchMock
       .mockResolvedValueOnce(new Response(JSON.stringify(batch), { status: 201 }))
       .mockResolvedValueOnce(new Response(JSON.stringify(batchDetail), { status: 200 }))
 
     const file = new File(['dummy'], 'prices.xlsx', { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
-    await user.upload(screen.getByLabelText(/file/i), file)
-    await user.click(screen.getByRole('button', { name: /^upload$/i }))
+    await user.upload(screen.getByLabelText(/archivo/i), file)
+    await user.click(screen.getByRole('button', { name: /^subir$/i }))
 
     await screen.findByTestId('import-row-status-2')
 
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ ...batch, status: 'Rejected' }), { status: 200 }))
-    await user.click(screen.getByRole('button', { name: /^reject$/i }))
+    await user.click(screen.getByRole('button', { name: /^rechazar$/i }))
 
-    expect(await screen.findByText(/batch rejected\./i)).toBeInTheDocument()
+    expect(await screen.findByText(/lote rejected./i)).toBeInTheDocument()
     const rejectCall = fetchMock.mock.calls.find(([url]) => url === `/pricing/imports/${batch.id}/reject`)
     expect(rejectCall).toBeDefined()
   })
@@ -287,7 +251,7 @@ describe('PriceListsScreen', () => {
 
     const { container } = render(<PriceListsScreen />)
 
-    await screen.findByText('1.5L bottle')
+    await screen.findByText('Default')
     expect(container.querySelector('.mx-auto')).toBeNull()
     expect(container.querySelector('[class*="max-w-2xl"], [class*="max-w-3xl"]')).toBeNull()
   })
@@ -301,7 +265,7 @@ describe('PriceListsScreen', () => {
     expect(within(row).getByText('Seasonal')).toBeInTheDocument()
     // `isDefault` is rendered as its own column, not inferred from the name.
     expect(within(row).getByText('No')).toBeInTheDocument()
-    expect(within(row).getByText(new Date('2024-03-05T00:00:00Z').toLocaleDateString())).toBeInTheDocument()
+    expect(within(row).getByText(new Date('2024-03-05T00:00:00Z').toLocaleDateString('es-AR'))).toBeInTheDocument()
   })
 
   it('shows an empty state when the organization has no price list at all', async () => {
@@ -309,7 +273,7 @@ describe('PriceListsScreen', () => {
 
     render(<PriceListsScreen />)
 
-    expect(await screen.findByText('No price lists yet.')).toBeInTheDocument()
+    expect(await screen.findByText('Todavía no hay listas de precios.')).toBeInTheDocument()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
   })
 
@@ -318,11 +282,11 @@ describe('PriceListsScreen', () => {
 
     render(<PriceListsScreen />)
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/unreachable/i)
+    expect(await screen.findByRole('alert')).toHaveTextContent(/no está disponible/i)
     // "No price lists yet." is a real rendering of this screen (see the empty
     // state case above), so its absence here is a fact about this state.
-    expect(screen.queryAllByText('No price lists yet.')).toHaveLength(0)
-    expect(screen.getByTestId('data-view-load-error')).toHaveTextContent(/price lists could not be loaded/i)
+    expect(screen.queryAllByText('Todavía no hay listas de precios.')).toHaveLength(0)
+    expect(screen.getByTestId('data-view-load-error')).toHaveTextContent(/no se pudieron cargar las listas de precios/i)
   })
 
   it('keeps a failed action from being reported as a failed load', async () => {
@@ -334,13 +298,13 @@ describe('PriceListsScreen', () => {
     const user = userEvent.setup()
     render(<PriceListsScreen />)
 
-    await screen.findByText('No price lists yet.')
-    await user.click(screen.getByRole('button', { name: /create default price list/i }))
+    await screen.findByText('Todavía no hay listas de precios.')
+    await user.click(screen.getByRole('button', { name: /crear lista de precios predeterminada/i }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/a default price list already exists/i)
     // The list itself was read fine — it is genuinely empty, not unreadable.
     expect(screen.queryAllByTestId('data-view-load-error')).toHaveLength(0)
-    expect(screen.getByText('No price lists yet.')).toBeInTheDocument()
+    expect(screen.getByText('Todavía no hay listas de precios.')).toBeInTheDocument()
   })
 
   it('filters the listed price lists client-side by name', async () => {
@@ -352,7 +316,7 @@ describe('PriceListsScreen', () => {
     await screen.findByText('Seasonal')
     expect(screen.getAllByText('Default')).toHaveLength(1)
 
-    await user.type(screen.getByLabelText(/search price lists/i), 'seasonal')
+    await user.type(screen.getByLabelText(/buscar listas de precios/i), 'seasonal')
 
     expect(screen.getByText('Seasonal')).toBeInTheDocument()
     expect(screen.queryAllByText('Default')).toHaveLength(0)
@@ -367,9 +331,9 @@ describe('PriceListsScreen', () => {
     render(<PriceListsScreen />)
 
     await screen.findByText('Seasonal')
-    await user.type(screen.getByLabelText(/search price lists/i), 'zzzz')
+    await user.type(screen.getByLabelText(/buscar listas de precios/i), 'zzzz')
 
-    expect(screen.getByText(/no price lists match/i)).toBeInTheDocument()
+    expect(screen.getByText(/ninguna lista de precios coincide/i)).toBeInTheDocument()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
     expect(screen.queryAllByTestId('data-view-card')).toHaveLength(0)
   })
@@ -384,7 +348,7 @@ describe('PriceListsScreen', () => {
     await screen.findByText('Seasonal')
     expect(screen.getByRole('table')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('radio', { name: /card view/i }))
+    await user.click(screen.getByRole('radio', { name: /vista de tarjetas/i }))
 
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
     expect(screen.getAllByTestId('data-view-card')).toHaveLength(2)
@@ -396,7 +360,7 @@ describe('PriceListsScreen', () => {
     await screen.findByText('Seasonal')
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
     expect(screen.getAllByTestId('data-view-card')).toHaveLength(2)
-    expect(screen.getByRole('radio', { name: /card view/i })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByRole('radio', { name: /vista de tarjetas/i })).toHaveAttribute('aria-checked', 'true')
   })
 
   it('keeps the view preference separate from the other data screens', async () => {
@@ -411,89 +375,26 @@ describe('PriceListsScreen', () => {
     await waitFor(() => expect(window.localStorage.getItem('view:price-lists')).toBeNull())
   })
 
-  it('opens the prices of the default list without being asked to', async () => {
+  it('opens on the lists table, not on the price editor', async () => {
     loadOnce([defaultPriceList, seasonalPriceList])
 
     render(<PriceListsScreen />)
 
-    const prices = await screen.findByTestId('price-list-entries')
-    expect(within(prices).getByText('1.5L bottle')).toBeInTheDocument()
-    expect(prices).toHaveTextContent('Default')
-    expect(prices).not.toHaveTextContent('Seasonal')
+    await screen.findByText('Default')
+    expect(screen.queryByTestId('price-editor-grid')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^precios$/i })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('table')).toBeInTheDocument()
   })
 
-  it('publishes against the price list the operator picked, not the default one', async () => {
-    loadOnce([defaultPriceList, seasonalPriceList])
-    fetchMock.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({
-          id: '55555555-5555-5555-5555-555555555555',
-          organizationId: 'org-1',
-          priceListId: seasonalPriceList.id,
-          presentationId: presentation.id,
-          unitPrice: 720,
-          effectiveFrom: '2024-08-01',
-          source: 'Manual',
-          importBatchId: null,
-          createdAtUtc: '2024-08-01T00:00:00Z',
-          createdByUserId: 'user-1',
-        }),
-        { status: 201 },
-      ),
+  it('asks for a branch instead of loading when none is selected', async () => {
+    render(
+      <BranchContext.Provider value={{ selectedBranch: null, selectableBranches: [], selectBranch: () => {} }}>
+        <PriceListsScreen />
+      </BranchContext.Provider>,
     )
 
-    const user = userEvent.setup()
-    render(<PriceListsScreen />)
-
-    const row = within(await screen.findByRole('table'))
-      .getAllByRole('row')
-      .find((candidate) => within(candidate).queryByText('Seasonal') !== null)
-    expect(row).toBeDefined()
-    await user.click(within(row!).getByRole('button', { name: /manage prices/i }))
-
-    const prices = screen.getByTestId('price-list-entries')
-    expect(prices).toHaveTextContent('Seasonal')
-    await user.click(within(prices).getByRole('button', { name: /new price/i }))
-    await user.type(screen.getByLabelText('Unit price'), '720')
-    await user.type(screen.getByLabelText('Effective from'), '2024-08-01')
-    await user.click(screen.getByRole('button', { name: /^publish$/i }))
-
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
-    expect(fetchMock.mock.calls[2][0]).toBe(`/pricing/price-lists/${seasonalPriceList.id}/entries`)
-  })
-
-  it('reads the history of the selected price list', async () => {
-    loadOnce([defaultPriceList, seasonalPriceList])
-
-    const user = userEvent.setup()
-    render(<PriceListsScreen />)
-
-    const prices = await screen.findByTestId('price-list-entries')
-
-    fetchMock.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify([
-          {
-            id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-            organizationId: 'org-1',
-            priceListId: defaultPriceList.id,
-            presentationId: presentation.id,
-            unitPrice: 540.5,
-            effectiveFrom: '2024-05-01',
-            source: 'Manual',
-            importBatchId: null,
-            createdAtUtc: '2024-05-01T00:00:00Z',
-            createdByUserId: 'user-1',
-          },
-        ]),
-        { status: 200 },
-      ),
-    )
-    await user.click(within(prices).getByRole('button', { name: /^history$/i }))
-
-    expect(await screen.findByText('2024-05-01: $540.50')).toBeInTheDocument()
-    expect(fetchMock.mock.calls[2][0]).toBe(
-      `/pricing/price-lists/${defaultPriceList.id}/presentations/${presentation.id}/history`,
-    )
+    expect(await screen.findByRole('status')).toHaveTextContent(/Elegí una sucursal/)
+    expect(screen.getByRole('heading', { name: 'Listas de precios' })).toBeInTheDocument()
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 })

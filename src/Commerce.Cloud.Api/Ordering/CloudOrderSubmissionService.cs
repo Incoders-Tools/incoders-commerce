@@ -1,3 +1,4 @@
+using Commerce.Application.Time;
 using Commerce.Application.Ordering;
 using Commerce.Application.Pricing;
 using Commerce.BranchNode;
@@ -17,7 +18,7 @@ namespace Commerce.Cloud.Api.Ordering;
 ///
 /// commerce-customer-identity design.md "Order.CustomerId referential
 /// integrity, given no orders table exists": every denial happens BEFORE
-/// <see cref="CloudOrderStore.Submit"/> is reached, so an <see cref="Order"/>
+/// <see cref="IOrderStore.SubmitAsync"/> is reached, so an <see cref="Order"/>
 /// with a dangling/unbound <c>CustomerId</c> is never constructed. Order of
 /// checks: (1) credential resolves to an enabled row in this organization,
 /// (2) that row is actually bound to the customer id the caller declared
@@ -31,7 +32,7 @@ namespace Commerce.Cloud.Api.Ordering;
 /// checks above (the customer's <c>DiscountPercentage</c> is only known
 /// after the customer read, and an unauthorized caller must not be able to
 /// probe catalog/price existence through a reason-code difference) and
-/// BEFORE <see cref="CloudOrderStore.Submit"/>. A <c>NoEffectivePrice</c>
+/// BEFORE <see cref="IOrderStore.SubmitAsync"/>. A <c>NoEffectivePrice</c>
 /// outcome on ANY line denies the WHOLE order with reason
 /// <c>"no-effective-price"</c> — no partial acceptance.
 /// </summary>
@@ -39,24 +40,37 @@ public sealed class CloudOrderSubmissionService
 {
     private readonly CustomerCatalogAccessService _accessService;
     private readonly PostgresCustomerStore _customerStore;
-    private readonly CloudOrderStore _orderStore;
+    private readonly IOrderStore _orderStore;
     private readonly PostgresCatalogStore _catalogStore;
     private readonly PostgresPriceListStore _priceListStore;
+    private readonly PostgresRateComponentStore _rateComponentStore;
     private readonly GuestVerificationService? _guestVerificationService;
+    private readonly IBusinessClock _businessClock;
 
+    /// <summary>
+    /// <paramref name="rateComponentStore"/> is REQUIRED, not optional, even
+    /// though a list with no published set composes to the identity: an
+    /// optional default here would let a host silently resolve base prices as
+    /// if they were finals, and the failure would be invisible until a set is
+    /// published. Every call site declares it.
+    /// </summary>
     public CloudOrderSubmissionService(
         CustomerCatalogAccessService accessService,
         PostgresCustomerStore customerStore,
-        CloudOrderStore orderStore,
+        IOrderStore orderStore,
         PostgresCatalogStore catalogStore,
         PostgresPriceListStore priceListStore,
-        GuestVerificationService? guestVerificationService = null)
+        PostgresRateComponentStore rateComponentStore,
+        GuestVerificationService? guestVerificationService = null,
+        IBusinessClock? businessClock = null)
     {
+        _businessClock = businessClock ?? BusinessClock.System;
         _accessService = accessService;
         _customerStore = customerStore;
         _orderStore = orderStore;
         _catalogStore = catalogStore;
         _priceListStore = priceListStore;
+        _rateComponentStore = rateComponentStore;
         _guestVerificationService = guestVerificationService;
     }
 
@@ -102,15 +116,16 @@ public sealed class CloudOrderSubmissionService
         }
 
         // commerce-pricing-engine: resolution runs here, strictly AFTER the
-        // four checks above and BEFORE _orderStore.Submit — REGISTERED path,
+        // four checks above and BEFORE _orderStore.SubmitAsync — REGISTERED path,
         // customer.DiscountPercentage applied.
-        var (deniedReason, snapshots) = await ResolveLinesAsync(scope, lines, customer.DiscountPercentage, ct);
+        var (deniedReason, snapshots) = await ResolveLinesAsync(scope, lines, customer.DiscountPercentage, isCustomer: true, customer.PriceListId, ct);
         if (deniedReason is not null)
         {
             return new OrderSubmissionOutcome(OrderSubmissionOutcomeStatus.Denied, deniedReason, Order: null, WasNewlyAccepted: false);
         }
 
-        return _orderStore.Submit(scope, orderId, customerId, destinationBranchId, actorId, snapshots!, correlationId, destination, hasAvailableStock);
+        return await _orderStore.SubmitRegisteredAsync(
+            scope, orderId, customerId, destinationBranchId, actorId, snapshots!, correlationId, destination, hasAvailableStock, ct);
     }
 
     /// <summary>
@@ -156,15 +171,122 @@ public sealed class CloudOrderSubmissionService
         }
 
         // commerce-pricing-engine: resolution runs here, strictly AFTER the
-        // checks above and BEFORE _orderStore.Submit — REGISTERED path,
+        // checks above and BEFORE _orderStore.SubmitAsync — REGISTERED path,
         // customer.DiscountPercentage applied, identical to SubmitAsync.
-        var (deniedReason, snapshots) = await ResolveLinesAsync(scope, lines, customer.DiscountPercentage, ct);
+        var (deniedReason, snapshots) = await ResolveLinesAsync(scope, lines, customer.DiscountPercentage, isCustomer: true, customer.PriceListId, ct);
         if (deniedReason is not null)
         {
             return new OrderSubmissionOutcome(OrderSubmissionOutcomeStatus.Denied, deniedReason, Order: null, WasNewlyAccepted: false);
         }
 
-        return _orderStore.Submit(scope, orderId, customerId, destinationBranchId, actorId, snapshots!, correlationId, destination, hasAvailableStock);
+        return await _orderStore.SubmitRegisteredAsync(
+            scope, orderId, customerId, destinationBranchId, actorId, snapshots!, correlationId, destination, hasAvailableStock, ct);
+    }
+
+    /// <summary>
+    /// Staff-entered order (staff-order-taking T2): a signed-in staff member with <c>TakeOrders</c> takes an order for
+    /// a customer of the organization. The endpoint already authorized the CALLER, so — like
+    /// <see cref="SubmitForCustomerSessionAsync"/> — there is no customer credential to check; the remaining checks
+    /// (customer exists and is visible under RLS, customer enabled, then price resolution with the buyer's list and
+    /// discount) run in the same order and with the same reasons. A resubmitted <paramref name="orderId"/> returns the
+    /// stored order before any check runs, so a retry after a lost response gets the same outcome even if the
+    /// customer or the prices changed in between; the stored order is returned only when it belongs to this
+    /// organization and this customer, otherwise the submission is denied <c>order-id-conflict</c> and the stored
+    /// order is not revealed. The taker in <paramref name="entry"/> is the caller, never a request field.
+    /// </summary>
+    public async Task<OrderSubmissionOutcome> SubmitForStaffAsync(
+        CloudTenantScope scope,
+        Guid customerId,
+        Guid orderId,
+        Guid destinationBranchId,
+        StaffOrderEntry entry,
+        IReadOnlyList<SubmitOrderLine> lines,
+        Guid correlationId,
+        BranchSyncStore? destination,
+        bool hasAvailableStock,
+        CancellationToken ct)
+    {
+        var existing = await _orderStore.FindAsync(scope, orderId, ct);
+        if (existing is not null)
+        {
+            return IsReplayOf(existing, scope, customerId)
+                ? new OrderSubmissionOutcome(
+                    OrderSubmissionOutcomeStatus.Accepted, OrderSubmissionReasons.ExistingOrder, existing, WasNewlyAccepted: false)
+                : OrderIdConflict();
+        }
+
+        var customer = await _customerStore.FindAsync(scope, customerId, ct);
+        if (customer is null)
+        {
+            return new OrderSubmissionOutcome(OrderSubmissionOutcomeStatus.Denied, "not-found", Order: null, WasNewlyAccepted: false);
+        }
+
+        if (!customer.IsEnabled)
+        {
+            return new OrderSubmissionOutcome(OrderSubmissionOutcomeStatus.Denied, "customer-disabled", Order: null, WasNewlyAccepted: false);
+        }
+
+        var (deniedReason, snapshots) = await ResolveLinesAsync(scope, lines, customer.DiscountPercentage, isCustomer: true, customer.PriceListId, ct);
+        if (deniedReason is not null)
+        {
+            return new OrderSubmissionOutcome(OrderSubmissionOutcomeStatus.Denied, deniedReason, Order: null, WasNewlyAccepted: false);
+        }
+
+        var outcome = await _orderStore.SubmitStaffAsync(
+            scope, orderId, customerId, destinationBranchId, entry, snapshots!, correlationId, destination, hasAvailableStock, ct);
+
+        // A concurrent submission may have stored the id first; the store then answers with that order.
+        return outcome is { WasNewlyAccepted: false, Order: { } stored } && !IsReplayOf(stored, scope, customerId)
+            ? OrderIdConflict()
+            : outcome;
+    }
+
+    private static bool IsReplayOf(Order existing, CloudTenantScope scope, Guid customerId) =>
+        existing.OrganizationId == scope.OrganizationId && existing.CustomerId == customerId;
+
+    private static OrderSubmissionOutcome OrderIdConflict() =>
+        new(OrderSubmissionOutcomeStatus.Denied, OrderSubmissionReasons.OrderIdConflict, Order: null, WasNewlyAccepted: false);
+
+    /// <summary>
+    /// The price preview of <see cref="SubmitForStaffAsync"/>: the same customer checks and the same per-line
+    /// resolution, but every line is reported (priced, or <c>no-effective-price</c>) instead of stopping at the first
+    /// unpriced one, and nothing is stored. A quote with any unpriced line is <c>denied</c> with reason
+    /// <c>no-effective-price</c>, exactly the outcome submitting it would have.
+    /// </summary>
+    public async Task<StaffOrderQuote> QuoteForStaffAsync(
+        CloudTenantScope scope, Guid customerId, IReadOnlyList<SubmitOrderLine> lines, CancellationToken ct)
+    {
+        var customer = await _customerStore.FindAsync(scope, customerId, ct);
+        if (customer is null)
+        {
+            return StaffOrderQuote.Denied("not-found", customerId);
+        }
+
+        if (!customer.IsEnabled)
+        {
+            return StaffOrderQuote.Denied("customer-disabled", customerId);
+        }
+
+        var pricing = await BuyerPricingAsync(scope, lines.Count > 0, isCustomer: true, customer.PriceListId, ct);
+        var quoted = new List<StaffOrderQuoteLine>(lines.Count);
+        foreach (var line in lines)
+        {
+            var resolved = await ResolveLineAsync(scope, pricing, line, customer.DiscountPercentage, ct);
+            quoted.Add(resolved is null
+                ? StaffOrderQuoteLine.Unpriced(line)
+                : StaffOrderQuoteLine.Priced(resolved, pricing.ListName(resolved.PricedFromListId)));
+        }
+
+        var complete = quoted.All(l => l.Status == StaffOrderQuoteLine.PricedStatus);
+        return new StaffOrderQuote(
+            complete ? StaffOrderQuote.QuotedStatus : StaffOrderQuote.DeniedStatus,
+            complete ? null : "no-effective-price",
+            customerId,
+            pricing.BuyerList?.Id,
+            pricing.BuyerList?.Name,
+            customer.DiscountPercentage,
+            quoted,
+            quoted.Sum(l => l.LineTotal ?? 0m));
     }
 
     /// <summary>
@@ -176,13 +298,13 @@ public sealed class CloudOrderSubmissionService
     /// reuses the SAME <see cref="ResolveLinesAsync"/> the registered path
     /// uses, with <c>discountPercentage: null</c> (guest-ordering spec.md
     /// "Guest Price Resolution"): list price, never a discount. The
-    /// confirmed verification is consumed via
-    /// <see cref="GuestVerificationService.TryConsumeAsync"/> IMMEDIATELY
-    /// BEFORE <see cref="CloudOrderStore.Submit"/> — a pricing denial on any
-    /// line (<c>"no-effective-price"</c>) returns before that consumption
-    /// call is ever made, so the guest's one-time verification is not burned
-    /// by a denial that was never their fault (public-order-surface spec.md
-    /// "Guest Verification Gate Before Admission").
+    /// confirmed verification is handed to <see cref="IOrderStore.SubmitAsync"/>
+    /// (persist-web-orders), which spends it in the SAME database transaction
+    /// that stores the order: a failed insert leaves it usable, and a pricing
+    /// denial (<c>"no-effective-price"</c>) or an unknown destination branch
+    /// returns before any consumption, so the guest's one-time verification is
+    /// not burned by a failure that was never their fault (public-order-surface
+    /// spec.md "Guest Verification Gate Before Admission").
     /// </summary>
     public async Task<OrderSubmissionOutcome> SubmitGuestAsync(
         CloudTenantScope scope,
@@ -202,25 +324,21 @@ public sealed class CloudOrderSubmissionService
                 $"{nameof(SubmitGuestAsync)} requires a {nameof(GuestVerificationService)} to be supplied to this {nameof(CloudOrderSubmissionService)}.");
         }
 
-        var (deniedReason, snapshots) = await ResolveLinesAsync(scope, lines, discountPercentage: null, ct);
+        var (deniedReason, snapshots) = await ResolveLinesAsync(scope, lines, discountPercentage: null, isCustomer: false, customerPriceListId: null, ct);
         if (deniedReason is not null)
         {
             // Pricing denies BEFORE the verification is ever consumed.
             return new OrderSubmissionOutcome(OrderSubmissionOutcomeStatus.Denied, deniedReason, Order: null, WasNewlyAccepted: false);
         }
 
-        var consumed = await _guestVerificationService.TryConsumeAsync(
-            verificationId, guestContact.DocumentId, guestContact.ContactAddress, orderId, ct);
-        if (!consumed)
-        {
-            // Unconfirmed / expired / already-consumed / mismatched-contact —
-            // every failure branch denies identically; no order is stored.
-            return new OrderSubmissionOutcome(OrderSubmissionOutcomeStatus.Denied, "verification-invalid", Order: null, WasNewlyAccepted: false);
-        }
+        // An unconfirmed / expired / already-consumed / mismatched-contact verification denies as
+        // "verification-invalid" inside the store; no order is stored and nothing is spent.
+        var verification = _guestVerificationService.ConsumptionFor(
+            verificationId, guestContact.DocumentId, guestContact.ContactAddress);
 
-        return _orderStore.Submit(
+        return await _orderStore.SubmitAsync(
             scope, orderId, OrderOrigin.Guest, customerId: null, guestContact, destinationBranchId,
-            OrderActors.PublicGuest, snapshots!, correlationId, destination, hasAvailableStock);
+            OrderActors.PublicGuest, snapshots!, correlationId, destination, hasAvailableStock, verification, ct);
     }
 
     /// <summary>
@@ -232,53 +350,104 @@ public sealed class CloudOrderSubmissionService
     /// ANY line denies the WHOLE order with reason <c>"no-effective-price"</c>
     /// (no partial acceptance) → catalog lookup → snapshot.
     /// </summary>
+    private PriceListPorts PortsOf(CloudTenantScope scope, Guid priceListId) => new(
+        priceListId,
+        new PostgresEffectivePriceSource(_priceListStore, scope, priceListId),
+        new PostgresRateComponentSource(_rateComponentStore, scope, priceListId));
+
     private async Task<(string? DeniedReason, List<OrderLineSnapshot>? Snapshots)> ResolveLinesAsync(
-        CloudTenantScope scope, IReadOnlyList<SubmitOrderLine> lines, decimal? discountPercentage, CancellationToken ct)
+        CloudTenantScope scope, IReadOnlyList<SubmitOrderLine> lines, decimal? discountPercentage,
+        bool isCustomer, Guid? customerPriceListId, CancellationToken ct)
+    {
+        var pricing = await BuyerPricingAsync(scope, lines.Count > 0, isCustomer, customerPriceListId, ct);
+        var snapshots = new List<OrderLineSnapshot>(lines.Count);
+        foreach (var line in lines)
+        {
+            // One bad line poisons the whole order: deny before any further
+            // line is resolved and nothing is ever passed to Submit.
+            var snapshot = await ResolveLineAsync(scope, pricing, line, discountPercentage, ct);
+            if (snapshot is null)
+            {
+                return ("no-effective-price", null);
+            }
+
+            snapshots.Add(snapshot);
+        }
+
+        return (null, snapshots);
+    }
+
+    /// <summary>The price lists one buyer's order resolves against, chosen once per order.</summary>
+    private sealed record BuyerPricing(
+        PricingResolutionService? Service, PriceListRecord? BuyerList, PriceListRecord? DefaultList, DateOnly EffectiveOn)
+    {
+        public string? ListName(Guid? listId) =>
+            listId is null ? null
+            : listId == BuyerList?.Id ? BuyerList!.Name
+            : listId == DefaultList?.Id ? DefaultList!.Name
+            : null;
+    }
+
+    private async Task<BuyerPricing> BuyerPricingAsync(
+        CloudTenantScope scope, bool hasLines, bool isCustomer, Guid? customerPriceListId, CancellationToken ct)
     {
         // No default price list at all is treated the same as zero effective
         // rows for every line — never a silent 0m fallback. A zero-line
         // order never touches pricing at all (pre-existing regression-guard
         // tests submit empty-line orders against schemas that predate this
         // unit).
-        var effectiveOn = DateOnly.FromDateTime(DateTimeOffset.UtcNow.UtcDateTime);
-        PricingResolutionService? pricingService = null;
-        if (lines.Count > 0)
+        var effectiveOn = _businessClock.Today;
+        if (!hasLines)
         {
-            var defaultPriceList = await _priceListStore.FindDefaultPriceListAsync(scope, ct);
-            pricingService = defaultPriceList is null
-                ? null
-                : new PricingResolutionService(new PostgresEffectivePriceSource(_priceListStore, scope, defaultPriceList.Id));
+            return new BuyerPricing(null, null, null, effectiveOn);
         }
 
-        var snapshots = new List<OrderLineSnapshot>(lines.Count);
-        foreach (var line in lines)
+        // customer-price-lists T2: the list is chosen by the BUYER (the customer's own list, else the
+        // organization's default customer list, else the default list; a guest gets the default list), never
+        // by the channel the order came through.
+        var buyerPriceList = await _priceListStore.ResolveBuyerPriceListAsync(scope, isCustomer, customerPriceListId, ct);
+        // customer-price-lists T6: a presentation the buyer's list does not price falls back to the branch
+        // default list (with that list's own composition); the line records which list priced it.
+        var defaultList = buyerPriceList is null ? null : await _priceListStore.FindDefaultPriceListAsync(scope, ct);
+        var service = buyerPriceList is null
+            ? null
+            // commerce-price-composition slice 2: the SAME price
+            // list binds both ports, so the entry's base price and the
+            // components composed onto it can never come from two lists.
+            : new PricingResolutionService(
+                PortsOf(scope, buyerPriceList.Id),
+                defaultList is null ? null : PortsOf(scope, defaultList.Id));
+        return new BuyerPricing(service, buyerPriceList, defaultList, effectiveOn);
+    }
+
+    /// <summary>
+    /// Resolve → catalog lookup → snapshot for ONE line; <see langword="null"/> when the line has no effective price
+    /// (a <see cref="PriceResolutionOutcome.NoEffectivePrice"/>, or a presentation/product the catalog does not have).
+    /// </summary>
+    private async Task<OrderLineSnapshot?> ResolveLineAsync(
+        CloudTenantScope scope, BuyerPricing pricing, SubmitOrderLine line, decimal? discountPercentage, CancellationToken ct)
+    {
+        var resolution = pricing.Service is null
+            ? new PriceResolutionOutcome.NoEffectivePrice(line.PresentationId, pricing.EffectiveOn)
+            : await pricing.Service.ResolveAsync(line.PresentationId, line.Quantity, discountPercentage, pricing.EffectiveOn, ct);
+
+        if (resolution is not PriceResolutionOutcome.Resolved resolvedPrice)
         {
-            var resolution = pricingService is null
-                ? new PriceResolutionOutcome.NoEffectivePrice(line.PresentationId, effectiveOn)
-                : await pricingService.ResolveAsync(line.PresentationId, line.Quantity, discountPercentage, effectiveOn, ct);
-
-            if (resolution is not PriceResolutionOutcome.Resolved resolvedPrice)
-            {
-                // One bad line poisons the whole order: deny before any
-                // snapshot is built and nothing is ever passed to Submit.
-                return ("no-effective-price", null);
-            }
-
-            var presentationRecord = await _catalogStore.FindPresentationAsync(scope, line.PresentationId, ct);
-            if (presentationRecord is null)
-            {
-                return ("no-effective-price", null);
-            }
-
-            var productRecord = await _catalogStore.FindProductAsync(scope, presentationRecord.ProductId, ct);
-            if (productRecord is null)
-            {
-                return ("no-effective-price", null);
-            }
-
-            snapshots.Add(OrderSnapshotFactory.Snapshot(productRecord.ToDomain(), presentationRecord.ToDomain(), line.Quantity, resolvedPrice));
+            return null;
         }
 
-        return (null, snapshots);
+        var presentationRecord = await _catalogStore.FindPresentationAsync(scope, line.PresentationId, ct);
+        if (presentationRecord is null)
+        {
+            return null;
+        }
+
+        var productRecord = await _catalogStore.FindProductAsync(scope, presentationRecord.ProductId, ct);
+        if (productRecord is null)
+        {
+            return null;
+        }
+
+        return OrderSnapshotFactory.Snapshot(productRecord.ToDomain(), presentationRecord.ToDomain(), line.Quantity, resolvedPrice);
     }
 }

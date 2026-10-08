@@ -1,0 +1,9 @@
+{
+  "label": "Theme",
+  "options": {
+    "light": "Light",
+    "dark": "Dark",
+    "custom": "Custom"
+  },
+  "noCustomColorExplanation": "Ask an organization administrator to set a brand color to enable this theme."
+}

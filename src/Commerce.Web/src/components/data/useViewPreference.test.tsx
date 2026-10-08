@@ -8,8 +8,8 @@ import { useViewPreference } from './useViewPreference'
  * tolerant read/write pattern `theme/ThemeProvider.tsx` already uses
  * (try/catch on both sides, corrupt values fall back to the default).
  */
-function Harness({ screenKey }: { screenKey: string }) {
-  const [view, setView] = useViewPreference(screenKey)
+function Harness({ screenKey, defaultView }: { screenKey: string; defaultView?: 'table' | 'cards' }) {
+  const [view, setView] = useViewPreference(screenKey, defaultView)
   return (
     <div>
       <span data-testid="view">{view}</span>
@@ -71,6 +71,16 @@ describe('useViewPreference', () => {
 
     render(<Harness screenKey="catalog" />)
 
+    expect(screen.getByTestId('view')).toHaveTextContent('table')
+  })
+
+  it('uses the default the screen asks for when nothing is stored, and still prefers a stored choice', () => {
+    const first = render(<Harness screenKey="account" defaultView="cards" />)
+    expect(screen.getByTestId('view')).toHaveTextContent('cards')
+    first.unmount()
+
+    window.localStorage.setItem('view:account', 'table')
+    render(<Harness screenKey="account" defaultView="cards" />)
     expect(screen.getByTestId('view')).toHaveTextContent('table')
   })
 })

@@ -1,0 +1,264 @@
+{
+  "title": "Treasury",
+  "description": "How much money the business has and where: the total, split by account type and by branch, and each account with its movements.",
+  "info": "Money moves with operations: POS sales and payments, drawer withdrawals and deposits, cash count differences and deliveries paid. What does not go through the POS is recorded here by hand (a bank deposit, an expense paid by the bank, a transfer between accounts). An administrator can void or edit any movement: the original stays visible, crossed out with the reason, and no longer counts in any balance. Sales and payments are voided at the POS (so stock and the customer account follow); here they can only move to another account. Account types are managed in Lookup tables → Account types.",
+  "loading": "Loading…",
+  "empty": "No accounts yet. They appear with each branch's first synced sale, or create one with \"New account\".",
+  "retry": "Retry",
+  "cancel": "Cancel",
+  "saving": "Saving…",
+  "wholeCompany": "Whole company",
+  "today": "Today: in {{in}} · out {{out}}",
+  "actions": {
+    "newAccount": "New account",
+    "newMovement": "Record movement"
+  },
+  "kinds": {
+    "Cash": "Cash",
+    "Card": "Cards",
+    "Qr": "QR / wallets",
+    "Safe": "Safe",
+    "Bank": "Bank",
+    "Other": "Other account"
+  },
+  "movementKinds": {
+    "Sale": "Sale",
+    "CustomerPayment": "Account payment",
+    "DeliveryPayment": "Delivery payment",
+    "Reversal": "Reversal",
+    "CashCountDifference": "Cash count difference",
+    "CashWithdrawal": "Drawer withdrawal",
+    "CashDeposit": "Drawer deposit",
+    "Transfer": "Transfer",
+    "ManualIn": "Manual in",
+    "ManualOut": "Manual out"
+  },
+  "accountForm": {
+    "title": "New account",
+    "editTitle": "Edit account",
+    "name": "Name",
+    "namePlaceholder": "E.g.: Bank checking 1234/5, Company Visa, Digital wallet",
+    "type": "Account type",
+    "noType": "No type",
+    "typeHint": "Decides which subtotal it adds to (Cash, Banks, Credit cards…). Types are managed in Lookup tables.",
+    "branch": "Branch",
+    "wholeCompany": "Whole company (no branch)",
+    "chooseBranch": "Choose the branch",
+    "isSafe": "It is the branch's safe",
+    "isSafeHint": "POS withdrawals \"to the safe\" land in this account. One per branch.",
+    "description": "Description (optional)",
+    "descriptionPlaceholder": "E.g.: account number, alias or what it is for",
+    "create": "Create account",
+    "save": "Save changes",
+    "created": "Account \"{{name}}\" created.",
+    "saved": "Account \"{{name}}\" updated.",
+    "errors": {
+      "name": "Enter the account name.",
+      "safeBranch": "A safe belongs to a branch: choose which one."
+    }
+  },
+  "movementForm": {
+    "title": "Record movement",
+    "type": "Type",
+    "types": {
+      "In": "In (money comes in)",
+      "Out": "Out (money goes out)",
+      "Transfer": "Transfer between accounts"
+    },
+    "typeHint": {
+      "In": "Money coming into the account outside the POS: a bank deposit, the initial change fund, a contribution.",
+      "Out": "Money leaving the account: an expense, a supplier payment made by the bank, a withdrawal.",
+      "Transfer": "Money moving from one account to another: from the safe to the bank, between banks. The company total does not change."
+    },
+    "account": "Account",
+    "fromAccount": "From account",
+    "toAccount": "To account",
+    "amount": "Amount",
+    "amountPlaceholder": "E.g.: 150000 or 150000.50",
+    "date": "Date",
+    "concept": "Concept",
+    "conceptPlaceholder": {
+      "In": "E.g.: Deposit of Monday's drawer withdrawal",
+      "Out": "E.g.: Electricity bill",
+      "Transfer": "E.g.: Deposit of the takings"
+    },
+    "reference": "Receipt (optional)",
+    "referencePlaceholder": "E.g.: deposit slip 0012345",
+    "save": "Record",
+    "saved": "Movement recorded.",
+    "errors": {
+      "amount": "Enter an amount greater than zero, with up to two decimals.",
+      "concept": "Enter the concept: what the movement is for.",
+      "sameAccount": "Choose two different accounts for the transfer.",
+      "future": "The date cannot be after today."
+    }
+  },
+  "movements": {
+    "title": "{{account}} movements · {{branch}}",
+    "from": "From",
+    "to": "To",
+    "empty": "No movements in these dates.",
+    "totals": "In {{in}} · out {{out}} · net {{net}}",
+    "reversed": "reversed",
+    "columns": {
+      "date": "Date",
+      "kind": "Type",
+      "concept": "Detail",
+      "customer": "Customer",
+      "in": "In",
+      "out": "Out",
+      "actions": "Actions"
+    },
+    "voided": "voided",
+    "voidReason": "Voided: {{reason}}",
+    "correction": "Corrects an earlier movement",
+    "edit": "Edit",
+    "changeAccount": "Change account",
+    "recurring": "Recurring"
+  },
+  "errors": {
+    "load": "The treasury could not be loaded.",
+    "movements": "The movements could not be loaded.",
+    "range": "\"From\" cannot be after \"To\".",
+    "save": "It could not be saved. Try again.",
+    "codes": {
+      "account-type-not-found": "That account type does not exist or is inactive.",
+      "safe-already-exists": "That branch already has its safe.",
+      "same-account": "Choose two different accounts.",
+      "account-inactive": "The account is inactive: activate it to record movements.",
+      "automatic-account": "A branch's cash, cards and QR accounts are not deactivated: the POS posts its sales there.",
+      "balance-not-zero": "The account has a balance: transfer it to another account before deactivating it.",
+      "only-account-editable": "Only the account of a sale or payment can change.",
+      "nothing-changed": "Nothing changed.",
+      "not-voidable": "That movement cannot be voided here (already voided, or a sale or payment: void it at the POS)."
+    }
+  },
+  "noType": "No type",
+  "summary": {
+    "total": "Business total",
+    "totalHint": "The sum of every account. Sales on current account are not here: they show on each customer account.",
+    "byType": "By account type",
+    "byBranch": "By branch"
+  },
+  "accounts": {
+    "title": "Accounts",
+    "showInactive": "Show inactive accounts",
+    "inactive": "Inactive",
+    "edit": "Edit account",
+    "activate": "Activate",
+    "deactivate": "Deactivate",
+    "activated": "Account activated.",
+    "deactivated": "Account deactivated: it takes no new movements."
+  },
+  "editForm": {
+    "title": "Edit movement",
+    "hint": "The original movement stays recorded as voided (with the reason) and this one replaces it. Balances recalculate on their own.",
+    "transferHint": "It is a transfer: both parts are corrected. To change the accounts, void it and record it again.",
+    "onlyAccountHint": "It is a sale or a payment: only the account the money went into can change here. Void it at the POS.",
+    "reason": "Reason for the change",
+    "reasonPlaceholder": "E.g.: the deposit slip had another amount",
+    "save": "Save correction",
+    "saved": "Movement corrected.",
+    "errors": {
+      "reason": "Enter the reason for the change.",
+      "nothing": "Nothing changed."
+    }
+  },
+  "void": {
+    "action": "Void",
+    "question": "Void \"{{concept}}\" for {{amount}}? It stays visible, crossed out with the reason, but no longer counts in the balance.",
+    "transferNote": "It is a transfer: both parts (out and in) are voided.",
+    "reason": "Reason",
+    "reasonRequired": "Enter the reason.",
+    "confirm": "Void movement",
+    "done": "Movement voided."
+  },
+  "reprocess": {
+    "hint": "Missing movements? Sales, payments and drawer movements the POS sent before the treasury existed (or that could not be recorded) are brought in with this button. It can be used any number of times: it never duplicates.",
+    "action": "Bring in earlier operations",
+    "running": "Bringing in operations…",
+    "nothing": "Nothing was missing: the treasury already had every POS operation.",
+    "done_one": "{{count}} movement from earlier operations was added.",
+    "done_other": "{{count}} movements from earlier operations were added."
+  },
+  "recurrences": {
+    "title": "Recurring expenses and income",
+    "description": "Fixed expenses (electricity, gas, internet, phone, rent…) and recurring income are recorded automatically on their dates. When the amount changes, edit it: the repetition goes on with the new amount from the next date.",
+    "new": "New recurring",
+    "newTitle": "New recurring expense or income",
+    "editTitle": "Edit recurring",
+    "formHint": "Each date is recorded as an ordinary movement of the account. If a date does not apply (paid apart, say), void that movement: it is not recorded again.",
+    "out": "Expense (money out)",
+    "in": "Income (money in)",
+    "accountOut": "From account",
+    "accountIn": "To account",
+    "conceptPlaceholder": "E.g.: Electricity, Internet, Shop rent",
+    "referencePlaceholder": "E.g.: customer no. 123456",
+    "amountHint": "The new amount applies from the next date; what was recorded stays.",
+    "repeat": "Repeats",
+    "frequency": "Frequency",
+    "frequencies": {
+      "Monthly": "Monthly",
+      "Weekly": "Weekly",
+      "Yearly": "Yearly"
+    },
+    "interval": "Every how many (1 = every)",
+    "start": "First date",
+    "scheduleLocked": "Dates were already recorded: frequency and first date stay (to change them, pause this one and create another).",
+    "ends": "Ends",
+    "endMode": "When does it end?",
+    "endModes": {
+      "Never": "Never",
+      "OnDate": "On a date",
+      "AfterCount": "After a number of times"
+    },
+    "endDate": "Last date",
+    "count": "Number of times",
+    "every": {
+      "Monthly_one": "Every month, on day {{day}}",
+      "Monthly_other": "Every {{count}} months, on day {{day}}",
+      "Weekly_one": "Every week, on {{weekday}}",
+      "Weekly_other": "Every {{count}} weeks, on {{weekday}}",
+      "Yearly_one": "Every year, on {{date}}",
+      "Yearly_other": "Every {{count}} years, on {{date}}"
+    },
+    "since": "from {{date}}",
+    "endsNever": "never ends",
+    "endsOn": "until {{date}}",
+    "endsAfter_one": "{{count}} time",
+    "endsAfter_other": "{{count}} times",
+    "preview": "Next dates: {{dates}}. When a month lacks that day, its last day is used.",
+    "includePast": "Also record the dates since the first date that already passed",
+    "includePastHint": "Unchecked, recording starts today.",
+    "recorded_one": "{{count}} recorded",
+    "recorded_other": "{{count}} recorded",
+    "columns": {
+      "concept": "Concept",
+      "when": "When",
+      "account": "Account",
+      "amount": "Amount",
+      "next": "Next date"
+    },
+    "pausedBadge": "Paused",
+    "ended": "Ended",
+    "edit": "Edit",
+    "pause": "Pause",
+    "resume": "Resume",
+    "save": "Save changes",
+    "create": "Create recurring",
+    "created": "\"{{concept}}\" created: it is recorded automatically on each date.",
+    "saved": "\"{{concept}}\" updated: the changes apply from the next date.",
+    "paused": "\"{{concept}}\" paused: no new dates are recorded.",
+    "resumed": "\"{{concept}}\" resumed: recorded from today (not the paused dates).",
+    "empty": "No recurring expenses or income yet.",
+    "errors": {
+      "load": "The recurring movements could not be loaded.",
+      "interval": "\"Every how many\" is a whole number from 1 to 24.",
+      "endDate": "The last date cannot be before the first.",
+      "count": "The number of times is a whole number from 1 to 1000.",
+      "codes": {
+        "schedule-locked": "Dates were already recorded: frequency and first date cannot change."
+      }
+    }
+  }
+}

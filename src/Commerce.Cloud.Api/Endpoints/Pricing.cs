@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Commerce.Application.Pricing;
 using Commerce.Application.Pricing.Import;
 using Commerce.Cloud.Api.Persistence;
 using Commerce.Cloud.Api.Tenancy;
@@ -51,6 +52,12 @@ public static class PricingEndpoints
             PostgresPriceListStore priceListStore,
             CancellationToken ct) =>
         {
+            var branchFailure = BranchSelectionRequirement.Enforce(httpContext);
+            if (branchFailure is not null)
+            {
+                return branchFailure;
+            }
+
             var auth = await AuthorizeCallerAsync(httpContext, userStore, ct);
             if (auth is null)
             {
@@ -68,6 +75,12 @@ public static class PricingEndpoints
             PostgresPriceListStore priceListStore,
             CancellationToken ct) =>
         {
+            var branchFailure = BranchSelectionRequirement.Enforce(httpContext);
+            if (branchFailure is not null)
+            {
+                return branchFailure;
+            }
+
             var auth = await AuthorizeCallerAsync(httpContext, userStore, ct);
             if (auth is null)
             {
@@ -89,6 +102,12 @@ public static class PricingEndpoints
             PostgresPriceListStore priceListStore,
             CancellationToken ct) =>
         {
+            var branchFailure = BranchSelectionRequirement.Enforce(httpContext);
+            if (branchFailure is not null)
+            {
+                return branchFailure;
+            }
+
             var auth = await AuthorizeCallerAsync(httpContext, userStore, ct);
             if (auth is null)
             {
@@ -129,6 +148,12 @@ public static class PricingEndpoints
             PostgresPriceListStore priceListStore,
             CancellationToken ct) =>
         {
+            var branchFailure = BranchSelectionRequirement.Enforce(httpContext);
+            if (branchFailure is not null)
+            {
+                return branchFailure;
+            }
+
             var auth = await AuthorizeCallerAsync(httpContext, userStore, ct);
             if (auth is null)
             {
@@ -143,14 +168,83 @@ public static class PricingEndpoints
             return Results.Ok(history);
         });
 
+        // price-list-management spec "Price History Filterable By Date":
+        // review the branch's prices as of a single date, or across a
+        // range showing every change inside it. Read-only — no history is
+        // ever altered. `asOf` XOR (`from` AND `to`); neither given
+        // defaults to "now" (design.md "Resolution By Effective Date").
+        group.MapGet("/price-lists/{priceListId:guid}/prices", async (
+            Guid priceListId,
+            DateOnly? asOf,
+            DateOnly? from,
+            DateOnly? to,
+            HttpContext httpContext,
+            PostgresUserAccountStore userStore,
+            PostgresPriceListStore priceListStore,
+            CancellationToken ct) =>
+        {
+            var branchFailure = BranchSelectionRequirement.Enforce(httpContext);
+            if (branchFailure is not null)
+            {
+                return branchFailure;
+            }
+
+            var auth = await AuthorizeCallerAsync(httpContext, userStore, ct);
+            if (auth is null)
+            {
+                return Results.Forbid();
+            }
+
+            var isRange = from is not null || to is not null;
+            if (asOf is not null && isRange)
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["dateFilter"] = ["asOf cannot be combined with from/to."],
+                });
+            }
+
+            if (isRange && (from is null || to is null))
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["dateFilter"] = ["from and to are both required for a range filter."],
+                });
+            }
+
+            if (isRange && to!.Value < from!.Value)
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["dateFilter"] = ["to must not be before from."],
+                });
+            }
+
+            // A cross-org priceListId resolves to zero rows under RLS,
+            // exactly like the history endpoint above — no separate
+            // existence check needed.
+            IReadOnlyList<PriceListEntryRecord> prices = isRange
+                ? await priceListStore.ListRangeAsync(auth.Value.Scope, priceListId, from!.Value, to!.Value, ct)
+                : await priceListStore.ListAsOfAsync(auth.Value.Scope, priceListId, asOf ?? httpContext.Today(), ct);
+
+            return Results.Ok(prices);
+        });
+
         group.MapPost("/price-lists/{priceListId:guid}/entries", async (
             Guid priceListId,
             AppendPriceEntryRequest request,
             HttpContext httpContext,
             PostgresUserAccountStore userStore,
             PostgresPriceListStore priceListStore,
+            Commerce.Cloud.Api.Pricing.PriceFloorValidator floorValidator,
             CancellationToken ct) =>
         {
+            var branchFailure = BranchSelectionRequirement.Enforce(httpContext);
+            if (branchFailure is not null)
+            {
+                return branchFailure;
+            }
+
             var auth = await AuthorizeCallerAsync(httpContext, userStore, ct);
             if (auth is null)
             {
@@ -172,6 +266,16 @@ public static class PricingEndpoints
             if (priceList is null)
             {
                 return Results.NotFound();
+            }
+
+            // customer-price-lists: a price that would put the product below its floor list (or, on a floor list, put a
+            // list that depends on it below ITS floor) is refused with the violations; nothing is written.
+            var violations = await floorValidator.CheckChangeAsync(
+                scope, priceListId, request.EffectiveFrom,
+                new Dictionary<Guid, decimal> { [request.PresentationId] = request.UnitPrice }, null, ct);
+            if (violations.Count > 0)
+            {
+                return PriceListCompositionEndpoints.BelowFloor(violations);
             }
 
             PriceListEntryRecord created;
@@ -199,6 +303,94 @@ public static class PricingEndpoints
             return Results.Created($"/pricing/price-lists/{priceListId}/presentations/{request.PresentationId}/history", created);
         });
 
+        // price-editing-and-desktop-polish T4: many base prices of one list at once, all-or-nothing, under the same
+        // permission, branch and floor rules as the single entry above. `effectiveFrom` null = today's business day. A
+        // presentation that already has an entry effective that day gets its price corrected (the single entry refuses).
+        group.MapPost("/price-lists/{priceListId:guid}/entries/batch", async (
+            Guid priceListId,
+            PublishEntriesBatchRequest request,
+            HttpContext httpContext,
+            PostgresUserAccountStore userStore,
+            PostgresPriceListStore priceListStore,
+            Commerce.Cloud.Api.Pricing.PriceFloorValidator floorValidator,
+            CancellationToken ct) =>
+        {
+            var branchFailure = BranchSelectionRequirement.Enforce(httpContext);
+            if (branchFailure is not null)
+            {
+                return branchFailure;
+            }
+
+            var auth = await AuthorizeCallerAsync(httpContext, userStore, ct);
+            if (auth is null)
+            {
+                return Results.Forbid();
+            }
+            var (scope, caller) = auth.Value;
+
+            var errors = PriceEntryBatchRules.Validate(request.Entries);
+            if (errors.Count > 0)
+            {
+                return Results.ValidationProblem(errors);
+            }
+
+            // Cross-org (or nonexistent) price list is invisible under RLS — the same 404 as the single entry.
+            var priceList = await priceListStore.FindPriceListAsync(scope, priceListId, ct);
+            if (priceList is null)
+            {
+                return Results.NotFound();
+            }
+
+            var entries = request.Entries!.Select(e => (PresentationId: e!.PresentationId!.Value, UnitPrice: e.UnitPrice!.Value)).ToList();
+
+            // A presentation of another organization or branch is as invisible (RLS) as one that does not exist.
+            var known = await priceListStore.GetPresentationLabelsAsync(scope, [.. entries.Select(e => e.PresentationId)], ct);
+            var unknown = entries
+                .Select((e, index) => (e.PresentationId, Index: index))
+                .Where(e => !known.ContainsKey(e.PresentationId))
+                .ToDictionary(e => PriceEntryBatchRules.PresentationKey(e.Index), _ => new[] { "presentation not found." });
+            if (unknown.Count > 0)
+            {
+                return Results.ValidationProblem(unknown);
+            }
+
+            // A batch replaces a same-day price, so a past day would rewrite the history sales and orders were priced
+            // with: only today (business day) and future days may be published or corrected.
+            var today = httpContext.Today();
+            var effectiveFrom = request.EffectiveFrom ?? today;
+            if (effectiveFrom < today)
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["effectiveFrom"] = ["effectiveFrom cannot be earlier than today's business day."],
+                });
+            }
+
+            var violations = await floorValidator.CheckChangeAsync(
+                scope, priceListId, effectiveFrom, entries.ToDictionary(e => e.PresentationId, e => e.UnitPrice), null, ct);
+            if (violations.Count > 0)
+            {
+                return PriceListCompositionEndpoints.BelowFloor(violations);
+            }
+
+            IReadOnlyList<PriceListEntryRecord> published;
+            try
+            {
+                published = await priceListStore.PublishEntriesAsync(scope, priceListId, effectiveFrom, entries, "org-user", caller.Id, ct);
+            }
+            catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UniqueViolation)
+            {
+                // Another publish inserted one of these prices for the same day while this one ran: nothing was written.
+                return Results.Conflict(new { error = "entry-already-exists-for-date" });
+            }
+            catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.ForeignKeyViolation)
+            {
+                return Results.NotFound();
+            }
+
+            return Results.Ok(new PublishEntriesBatchResponse(published.Count, published));
+        });
+
         // --- Supplier mappings (Work Unit 9: "Per-Supplier Saved Column Mapping") ---
 
         group.MapPost("/supplier-mappings", async (
@@ -208,6 +400,12 @@ public static class PricingEndpoints
             PostgresPriceListStore priceListStore,
             CancellationToken ct) =>
         {
+            var branchFailure = BranchSelectionRequirement.Enforce(httpContext);
+            if (branchFailure is not null)
+            {
+                return branchFailure;
+            }
+
             var auth = await AuthorizeCallerAsync(httpContext, userStore, ct);
             if (auth is null)
             {
@@ -250,6 +448,12 @@ public static class PricingEndpoints
             PostgresPriceListStore priceListStore,
             CancellationToken ct) =>
         {
+            var branchFailure = BranchSelectionRequirement.Enforce(httpContext);
+            if (branchFailure is not null)
+            {
+                return branchFailure;
+            }
+
             var auth = await AuthorizeCallerAsync(httpContext, userStore, ct);
             if (auth is null)
             {
@@ -269,6 +473,20 @@ public static class PricingEndpoints
             PostgresCatalogStore catalogStore,
             CancellationToken ct) =>
         {
+            // B7 U4: this route looks presentations up by identification
+            // code, which is now branch-owned
+            // (catalog-item-identification "Branch-Owned Catalog") — a
+            // scope with no selected branch would silently match nothing
+            // under RLS rather than the org-wide match this route used to
+            // get, so a branch selection is required here too even though
+            // price lists themselves are not yet branch-owned (that is
+            // B7 U5).
+            var branchFailure = BranchSelectionRequirement.Enforce(httpContext);
+            if (branchFailure is not null)
+            {
+                return branchFailure;
+            }
+
             var auth = await AuthorizeCallerAsync(httpContext, userStore, ct);
             if (auth is null)
             {
@@ -346,7 +564,7 @@ public static class PricingEndpoints
                 if (defaultPriceList is not null)
                 {
                     var effective = await priceListStore.GetEffectiveAsync(
-                        scope, defaultPriceList.Id, presentation.Id, DateOnly.FromDateTime(DateTime.UtcNow), ct);
+                        scope, defaultPriceList.Id, presentation.Id, httpContext.Today(), ct);
                     currentPrice = effective?.UnitPrice;
                 }
 
@@ -371,6 +589,12 @@ public static class PricingEndpoints
             PostgresPriceListStore priceListStore,
             CancellationToken ct) =>
         {
+            var branchFailure = BranchSelectionRequirement.Enforce(httpContext);
+            if (branchFailure is not null)
+            {
+                return branchFailure;
+            }
+
             var auth = await AuthorizeCallerAsync(httpContext, userStore, ct);
             if (auth is null)
             {
@@ -392,8 +616,15 @@ public static class PricingEndpoints
             HttpContext httpContext,
             PostgresUserAccountStore userStore,
             PostgresPriceListStore priceListStore,
+            Commerce.Cloud.Api.Pricing.PriceFloorValidator floorValidator,
             CancellationToken ct) =>
         {
+            var branchFailure = BranchSelectionRequirement.Enforce(httpContext);
+            if (branchFailure is not null)
+            {
+                return branchFailure;
+            }
+
             var auth = await AuthorizeCallerAsync(httpContext, userStore, ct);
             if (auth is null)
             {
@@ -413,10 +644,22 @@ public static class PricingEndpoints
                 return Results.Conflict(new { error = "no-default-price-list" });
             }
 
+            // The matched rows are about to become entries of the default list today: the floor rule applies to them too.
+            var importDate = httpContext.Today();
+            var proposed = (await priceListStore.ListImportRowsAsync(scope, batchId, ct))
+                .Where(r => r.MatchStatus == nameof(ImportMatchStatus.Matched) && r.PresentationId is not null && r.ProposedPrice is not null)
+                .GroupBy(r => r.PresentationId!.Value)
+                .ToDictionary(g => g.Key, g => g.Last().ProposedPrice!.Value);
+            var violations = await floorValidator.CheckChangeAsync(scope, defaultPriceList.Id, importDate, proposed, null, ct);
+            if (violations.Count > 0)
+            {
+                return PriceListCompositionEndpoints.BelowFloor(violations);
+            }
+
             try
             {
                 var committed = await priceListStore.CommitImportBatchAsync(
-                    scope, batchId, defaultPriceList.Id, DateOnly.FromDateTime(DateTime.UtcNow), "org-user", caller.Id, ct);
+                    scope, batchId, defaultPriceList.Id, importDate, "org-user", caller.Id, ct);
                 return Results.Ok(committed);
             }
             catch (ImportBatchNotStagedException)
@@ -437,6 +680,12 @@ public static class PricingEndpoints
             PostgresPriceListStore priceListStore,
             CancellationToken ct) =>
         {
+            var branchFailure = BranchSelectionRequirement.Enforce(httpContext);
+            if (branchFailure is not null)
+            {
+                return branchFailure;
+            }
+
             var auth = await AuthorizeCallerAsync(httpContext, userStore, ct);
             if (auth is null)
             {
@@ -461,6 +710,9 @@ public static class PricingEndpoints
             }
         });
 
+        // customer-price-lists T3: breakdown, copy, composition and floor of a price list.
+        PriceListCompositionEndpoints.Map(group);
+
         return group;
     }
 
@@ -477,7 +729,7 @@ public static class PricingEndpoints
     /// <see langword="null"/> on ANY failure so every call site maps
     /// uniformly to <see cref="Results.Forbid()"/>.
     /// </summary>
-    private static async Task<(CloudTenantScope Scope, UserAccount Caller)?> AuthorizeCallerAsync(
+    internal static async Task<(CloudTenantScope Scope, UserAccount Caller)?> AuthorizeCallerAsync(
         HttpContext httpContext, PostgresUserAccountStore userStore, CancellationToken ct)
     {
         var scope = TenantScopeEndpointFilter.GetScope(httpContext);
@@ -488,8 +740,8 @@ public static class PricingEndpoints
             return null;
         }
 
-        var caller = await userStore.LoadActorAsync(scope, callerId, ct);
-        if (caller is null || caller.IsRevoked || !caller.EffectivePermissions.HasFlag(Permission.ManageCatalog))
+        var caller = await userStore.LoadActorAsync(scope.IdentityScope, callerId, ct);
+        if (caller is null || caller.IsRevoked || !ActingPermissions.For(caller, scope).HasFlag(Permission.ManageCatalog))
         {
             return null;
         }
@@ -501,5 +753,9 @@ public static class PricingEndpoints
 public sealed record CreatePriceListRequest(string Name, bool IsDefault);
 
 public sealed record AppendPriceEntryRequest(Guid PresentationId, decimal UnitPrice, DateOnly EffectiveFrom);
+
+public sealed record PublishEntriesBatchRequest(DateOnly? EffectiveFrom, IReadOnlyList<PriceEntryBatchItem?>? Entries);
+
+public sealed record PublishEntriesBatchResponse(int Published, IReadOnlyList<PriceListEntryRecord> Entries);
 
 public sealed record CreateSupplierMappingRequest(string SupplierName, string SheetName, int HeaderRow, string CodeColumn, string PriceColumn);

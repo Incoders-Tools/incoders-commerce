@@ -1,0 +1,188 @@
+name: POS Release
+
+# Publishes a signed POS MSIX and its update manifest as a GitHub Release.
+# Cut a release by pushing a `v<semver>` tag (the tag is the version source) or
+# by manual dispatch. This workflow is release-only: the CI gates in
+# release.yml stay PR-to-main only and are not triggered here.
+#
+# Channel mapping (ADR-004 / ADR-013):
+#   tag without a `-` suffix on a commit reachable from `main` -> stable
+#   any prerelease tag (v1.4.0-internal.1) or a commit not on main -> internal
+#
+# Required repository secrets (owner-managed, see docs/launch/go-live-requirements.md):
+#   POS_SIGNING_PFX_BASE64    base64 of the code-signing PFX
+#   POS_SIGNING_PFX_PASSWORD  password of that PFX
+# Publication is also gated by .github/release-authorization.yml (ADR-004).
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Semver without the leading v (e.g. 1.4.0 or 1.4.0-internal.1)"
+        required: true
+      channel:
+        description: "Release channel (auto = derive from version and branch)"
+        required: false
+        default: auto
+        type: choice
+        options: [auto, internal, stable]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pos-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    env:
+      POS_SIGNING_PFX_PASSWORD: ${{ secrets.POS_SIGNING_PFX_PASSWORD }}
+      POS_SIGNING_PFX_BASE64: ${{ secrets.POS_SIGNING_PFX_BASE64 }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Require signing secrets
+        shell: pwsh
+        run: |
+          $missing = @('POS_SIGNING_PFX_BASE64', 'POS_SIGNING_PFX_PASSWORD') |
+            Where-Object { [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_)) }
+          if ($missing) {
+            throw "Missing repository secret(s): $($missing -join ', '). Create the PFX with deploy/release/new-dev-signing-cert.ps1 and add them under Settings > Secrets and variables > Actions."
+          }
+
+      - name: Derive version and channel
+        id: meta
+        shell: pwsh
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_CHANNEL: ${{ inputs.channel }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if ($env:EVENT_NAME -eq 'workflow_dispatch') {
+            $version = $env:INPUT_VERSION.TrimStart('v')
+            $requested = $env:INPUT_CHANNEL
+          } else {
+            $version = $env:REF_NAME.TrimStart('v')
+            $requested = 'auto'
+          }
+          if ($version -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') {
+            throw "Version '$version' is not semver (1.2.3 or 1.2.3-internal.4)."
+          }
+          git fetch origin main --quiet
+          git merge-base --is-ancestor $env:GITHUB_SHA origin/main
+          $onMain = ($LASTEXITCODE -eq 0)
+          $global:LASTEXITCODE = 0
+
+          if ($requested -eq 'auto') {
+            $channel = if ($version.Contains('-') -or -not $onMain) { 'internal' } else { 'stable' }
+          } else {
+            $channel = $requested
+          }
+          if ($channel -eq 'stable' -and ($version.Contains('-') -or -not $onMain)) {
+            throw "A stable release must be a plain semver on a commit reachable from main (version=$version, onMain=$onMain)."
+          }
+          Write-Host "version=$version channel=$channel onMain=$onMain"
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "channel=$channel" >> $env:GITHUB_OUTPUT
+          "tag=v$version" >> $env:GITHUB_OUTPUT
+
+      - name: Publication gate (.github/release-authorization.yml)
+        shell: bash
+        env:
+          CHANNEL: ${{ steps.meta.outputs.channel }}
+        run: |
+          set -euo pipefail
+          FLAG=$(awk -v channel="$CHANNEL" '
+            $0 ~ "^  "channel":" { in_channel=1; next }
+            in_channel && /^  [a-zA-Z]/ { in_channel=0 }
+            in_channel && /publication_authorized:/ {
+              gsub(/^[ \t]+publication_authorized:[ \t]*/, ""); print; exit
+            }
+          ' .github/release-authorization.yml)
+          if [ "$FLAG" != "true" ]; then
+            echo "::error::Publication for channel '$CHANNEL' is not authorized (publication_authorized: ${FLAG:-missing}). Flip it in .github/release-authorization.yml (ADR-004) and re-run."
+            exit 1
+          fi
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      # Integration tests (tests/Commerce.Integration) need PostgreSQL and run in
+      # the PR gate (release.yml); they are intentionally excluded here. This
+      # job verifies what the packaged POS depends on: the POS/Updater
+      # dependency graph builds, and the upgrade + manifest tests pass.
+      - name: Build and test POS-relevant projects
+        shell: pwsh
+        run: |
+          dotnet build src/Commerce.Pos.Windows/Commerce.Pos.Windows.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { throw "POS build failed" }
+          dotnet test tests/Commerce.Upgrade/Commerce.Upgrade.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { throw "Commerce.Upgrade tests failed" }
+          dotnet test tests/Commerce.Bootstrap.Tests/Commerce.Bootstrap.Tests.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { throw "Commerce.Bootstrap tests failed" }
+
+      - name: Build and sign MSIX
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          CHANNEL: ${{ steps.meta.outputs.channel }}
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP 'signing.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:POS_SIGNING_PFX_BASE64))
+          try {
+            ./deploy/release/build-pos-msix.ps1 `
+              -Version $env:VERSION `
+              -Channel $env:CHANNEL `
+              -PfxPath $pfx `
+              -OutputDir "$env:GITHUB_WORKSPACE/artifacts"
+          } finally {
+            Remove-Item $pfx -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Verify signature and generate manifest
+        shell: pwsh
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          $info = Get-Content artifacts/build-info.json -Raw | ConvertFrom-Json
+          $sig = Get-AuthenticodeSignature (Join-Path artifacts $info.file)
+          # A self-signed cert is expected to report UnknownError (untrusted
+          # root) on the runner; a package with no signer at all is a failure.
+          if (-not $sig.SignerCertificate) { throw "MSIX has no signature: $($sig.Status)" }
+          Write-Host "Signer: $($sig.SignerCertificate.Subject) status=$($sig.Status)"
+          ./deploy/release/new-release-manifest.ps1 `
+            -BuildInfoPath artifacts/build-info.json `
+            -Repository $env:REPOSITORY `
+            -Tag $env:TAG `
+            -OutputPath artifacts/commerce-pos-release-manifest.json
+          Get-Content artifacts/commerce-pos-release-manifest.json
+
+      - name: Create GitHub Release
+        shell: pwsh
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          CHANNEL: ${{ steps.meta.outputs.channel }}
+        run: |
+          $info = Get-Content artifacts/build-info.json -Raw | ConvertFrom-Json
+          $ghArgs = @(
+            'release', 'create', $env:TAG,
+            (Join-Path artifacts $info.file),
+            'artifacts/commerce-pos-release-manifest.json',
+            '--title', "POS $($env:VERSION) ($($env:CHANNEL))",
+            '--target', $env:GITHUB_SHA,
+            '--generate-notes'
+          )
+          if ($env:CHANNEL -eq 'internal') { $ghArgs += '--prerelease' }
+          gh @ghArgs
+          if ($LASTEXITCODE -ne 0) { throw "gh release create failed" }

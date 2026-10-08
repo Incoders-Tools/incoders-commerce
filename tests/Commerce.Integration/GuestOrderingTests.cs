@@ -16,7 +16,7 @@ namespace Commerce.Integration;
 /// ADR-010 divergence proven end-to-end through the FULL submission path
 /// (not the isolated <see cref="Commerce.Application.Pricing.PricingResolutionService"/>
 /// unit test), and the guest verification gate wired immediately before
-/// <see cref="CloudOrderStore.Submit"/> (public-order-surface spec.md "Guest
+/// <see cref="IOrderStore.SubmitAsync"/> (public-order-surface spec.md "Guest
 /// Verification Gate Before Admission"; guest-ordering spec.md "Guest Price
 /// Resolution"). Against LIVE Postgres, mirroring the
 /// <see cref="OrderPricingTests"/> skip-if-unreachable convention.
@@ -71,17 +71,29 @@ public sealed class GuestOrderingTests : IDisposable
         Apply("0001_init_rls.sql", "__APP_RUNTIME_PASSWORD__", "dev-only-password");
         Apply("0002_users.sql");
         Apply("0003_organizations_branches.sql");
+        Apply("0021_branch_codes.sql");
         Apply("0004_device_credentials.sql");
+        Apply("0022_terminal_registers.sql");
+        Apply("0024_terminal_registers_assign_result.sql");
         Apply("0005_password_recovery.sql");
         Apply("0006_role_taxonomy.sql");
         Apply("0007_platform_administration.sql", "__PLATFORM_READONLY_PASSWORD__", "dev-only-platform-readonly-password");
         Apply("0008_customer_registry.sql");
         Apply("0009_catalog_and_pricing.sql");
         Apply("0010_guest_ordering.sql");
+        Apply("0016_catalog_branch_ownership.sql");
+        Apply("0036_product_soft_delete.sql");
+        Apply("0017_pricing_branch_ownership.sql");
+        Apply("0025_orders.sql");
+        Apply("0026_orders_guest_check.sql");
+        Apply("0038_order_line_price_provenance.sql");
+        Apply("0039_organization_country_and_city_postal_code.sql");
+        Apply("0040_customer_party_type.sql");
+        Apply("0042_staff_order_entry.sql");
 
         using var resetCmd = new NpgsqlCommand(
             """
-            TRUNCATE TABLE guest_order_verifications, price_list_entries, price_lists, presentations, products,
+            TRUNCATE TABLE order_lines, orders, guest_order_verifications, price_list_entries, price_lists, presentations, products,
                 customer_ordering_access, customers, password_reset_tokens,
                 user_directory, users, device_credentials, branches, organizations CASCADE
             """,
@@ -96,6 +108,22 @@ public sealed class GuestOrderingTests : IDisposable
         await using var cmd = new NpgsqlCommand("INSERT INTO organizations (id, name) VALUES ($1, 'Org')", connection);
         cmd.Parameters.AddWithValue(orgId);
         await cmd.ExecuteNonQueryAsync();
+    }
+
+    /// <summary>
+    /// B7 U4: products/presentations are branch-owned now, so every scope
+    /// this file builds for catalog/order use needs a real branch row.
+    /// </summary>
+    private async Task<Guid> SeedBranchAsync(Guid orgId)
+    {
+        var branchId = Guid.NewGuid();
+        await using var connection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        await connection.OpenAsync();
+        await using var cmd = new NpgsqlCommand("INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, 'Main')", connection);
+        cmd.Parameters.AddWithValue(branchId);
+        cmd.Parameters.AddWithValue(orgId);
+        await cmd.ExecuteNonQueryAsync();
+        return branchId;
     }
 
     private async Task<Guid> SeedCustomerAsync(CloudTenantScope scope, Guid actorId, decimal? discountPercentage = null)
@@ -115,7 +143,7 @@ public sealed class GuestOrderingTests : IDisposable
     {
         var catalogStore = new PostgresCatalogStore(_dataSource!);
         var product = await catalogStore.CreateProductAsync(
-            scope, new NewProduct(Guid.NewGuid(), "Product", Guid.NewGuid(), Guid.NewGuid(), actorId),
+            scope, new NewProduct(Guid.NewGuid(), "Product", CategoryFixture.Create(scope), Guid.NewGuid(), actorId),
             "org-user", actorId, CancellationToken.None);
         var presentation = await catalogStore.CreatePresentationAsync(
             scope,
@@ -137,7 +165,7 @@ public sealed class GuestOrderingTests : IDisposable
         var priceListStore = new PostgresPriceListStore(_dataSource!);
         await priceListStore.AppendEntryAsync(
             scope,
-            new NewPriceListEntry(Guid.NewGuid(), priceListId, presentationId, unitPrice, effectiveFrom ?? DateOnly.FromDateTime(DateTime.UtcNow), "Manual", ImportBatchId: null, actorId),
+            new NewPriceListEntry(Guid.NewGuid(), priceListId, presentationId, unitPrice, effectiveFrom ?? Commerce.Application.Time.BusinessClock.System.Today, "Manual", ImportBatchId: null, actorId),
             "org-user", actorId, CancellationToken.None);
     }
 
@@ -177,21 +205,22 @@ public sealed class GuestOrderingTests : IDisposable
         return (verificationId, contact);
     }
 
-    private (CloudOrderStore OrderStore, CloudOrderSubmissionService SubmissionService, GuestVerificationService VerificationService, FakeEmailSender Sender, PostgresCustomerOrderingAccessStore AccessStore)
+    private (IOrderStore OrderStore, CloudOrderSubmissionService SubmissionService, GuestVerificationService VerificationService, FakeEmailSender Sender, PostgresCustomerOrderingAccessStore AccessStore)
         NewServicesWithSharedSender()
     {
         var auditSink = new InMemoryAuditSink();
         var accessStore = new PostgresCustomerOrderingAccessStore(_dataSource!);
         var accessService = new CustomerCatalogAccessService(accessStore, auditSink);
         var customerStore = new PostgresCustomerStore(_dataSource!);
-        var orderStore = new CloudOrderStore();
+        var orderStore = new PostgresOrderStore(_dataSource!);
         var catalogStore = new PostgresCatalogStore(_dataSource!);
         var priceListStore = new PostgresPriceListStore(_dataSource!);
         var verificationStore = new PostgresGuestVerificationStore(_dataSource!);
         var sender = new FakeEmailSender();
         var verificationService = new GuestVerificationService(verificationStore, sender);
         var submissionService = new CloudOrderSubmissionService(
-            accessService, customerStore, orderStore, catalogStore, priceListStore, verificationService);
+            accessService, customerStore, orderStore, catalogStore, priceListStore,
+            new PostgresRateComponentStore(_dataSource!), verificationService);
         return (orderStore, submissionService, verificationService, sender, accessStore);
     }
 
@@ -204,8 +233,9 @@ public sealed class GuestOrderingTests : IDisposable
 
         var orgId = Guid.NewGuid();
         var actorId = Guid.NewGuid();
-        var scope = new CloudTenantScope(orgId);
         await SeedOrganizationAsync(orgId);
+        var branchId = await SeedBranchAsync(orgId);
+        var scope = new CloudTenantScope(orgId, BranchId: branchId);
         var presentationId = await SeedPresentationAsync(scope, actorId);
         var priceListId = await SeedDefaultPriceListAsync(scope, actorId);
         await PublishPriceAsync(scope, priceListId, presentationId, 100.00m, actorId);
@@ -217,12 +247,12 @@ public sealed class GuestOrderingTests : IDisposable
         var (verificationId, contact) = await IssueAndConfirmVerificationAsync(
             verificationService, sender, scope, "30111222333", "guest@example.com");
         var guestOutcome = await submissionService.SubmitGuestAsync(
-            scope, Guid.NewGuid(), verificationId, contact, Guid.NewGuid(),
+            scope, Guid.NewGuid(), verificationId, contact, branchId,
             new[] { new SubmitOrderLine(Guid.NewGuid(), presentationId, Quantity: 1m) },
             Guid.NewGuid(), destination: null, hasAvailableStock: true, CancellationToken.None);
 
         var registeredOutcome = await submissionService.SubmitAsync(
-            scope, customerId, credential, Guid.NewGuid(), Guid.NewGuid(), actorId,
+            scope, customerId, credential, Guid.NewGuid(), branchId, actorId,
             new[] { new SubmitOrderLine(Guid.NewGuid(), presentationId, Quantity: 1m) },
             Guid.NewGuid(), destination: null, hasAvailableStock: true, CancellationToken.None);
 
@@ -245,8 +275,9 @@ public sealed class GuestOrderingTests : IDisposable
 
         var orgId = Guid.NewGuid();
         var actorId = Guid.NewGuid();
-        var scope = new CloudTenantScope(orgId);
         await SeedOrganizationAsync(orgId);
+        var branchId = await SeedBranchAsync(orgId);
+        var scope = new CloudTenantScope(orgId, BranchId: branchId);
         var presentationId = await SeedPresentationAsync(scope, actorId);
         var priceListId = await SeedDefaultPriceListAsync(scope, actorId);
         await PublishPriceAsync(scope, priceListId, presentationId, 50.00m, actorId);
@@ -256,7 +287,7 @@ public sealed class GuestOrderingTests : IDisposable
             verificationService, sender, scope, "30999888777", "buyer@example.com", "Real Guest");
 
         var outcome = await submissionService.SubmitGuestAsync(
-            scope, Guid.NewGuid(), verificationId, contact, Guid.NewGuid(),
+            scope, Guid.NewGuid(), verificationId, contact, branchId,
             new[] { new SubmitOrderLine(Guid.NewGuid(), presentationId, Quantity: 2m) },
             Guid.NewGuid(), destination: null, hasAvailableStock: true, CancellationToken.None);
 
@@ -275,8 +306,9 @@ public sealed class GuestOrderingTests : IDisposable
 
         var orgId = Guid.NewGuid();
         var actorId = Guid.NewGuid();
-        var scope = new CloudTenantScope(orgId);
         await SeedOrganizationAsync(orgId);
+        var branchId = await SeedBranchAsync(orgId);
+        var scope = new CloudTenantScope(orgId, BranchId: branchId);
         var presentationId = await SeedPresentationAsync(scope, actorId);
         var priceListId = await SeedDefaultPriceListAsync(scope, actorId);
         await PublishPriceAsync(scope, priceListId, presentationId, 30.00m, actorId);
@@ -286,13 +318,13 @@ public sealed class GuestOrderingTests : IDisposable
         var orderId = Guid.NewGuid();
 
         var outcome = await submissionService.SubmitGuestAsync(
-            scope, orderId, Guid.NewGuid(), contact, Guid.NewGuid(),
+            scope, orderId, Guid.NewGuid(), contact, branchId,
             new[] { new SubmitOrderLine(Guid.NewGuid(), presentationId, Quantity: 1m) },
             Guid.NewGuid(), destination: null, hasAvailableStock: true, CancellationToken.None);
 
         Assert.Equal(OrderSubmissionOutcomeStatus.Denied, outcome.Status);
         Assert.Null(outcome.Order);
-        Assert.Null(orderStore.Find(scope, orderId));
+        Assert.Null(await orderStore.FindAsync(scope, orderId, CancellationToken.None));
     }
 
     [Fact]
@@ -302,8 +334,9 @@ public sealed class GuestOrderingTests : IDisposable
 
         var orgId = Guid.NewGuid();
         var actorId = Guid.NewGuid();
-        var scope = new CloudTenantScope(orgId);
         await SeedOrganizationAsync(orgId);
+        var branchId = await SeedBranchAsync(orgId);
+        var scope = new CloudTenantScope(orgId, BranchId: branchId);
         var presentationId = await SeedPresentationAsync(scope, actorId);
         var priceListId = await SeedDefaultPriceListAsync(scope, actorId);
         await PublishPriceAsync(scope, priceListId, presentationId, 30.00m, actorId);
@@ -314,12 +347,12 @@ public sealed class GuestOrderingTests : IDisposable
         var line = new SubmitOrderLine(Guid.NewGuid(), presentationId, Quantity: 1m);
 
         var first = await submissionService.SubmitGuestAsync(
-            scope, Guid.NewGuid(), verificationId, contact, Guid.NewGuid(),
+            scope, Guid.NewGuid(), verificationId, contact, branchId,
             new[] { line }, Guid.NewGuid(), destination: null, hasAvailableStock: true, CancellationToken.None);
         Assert.Equal(OrderSubmissionOutcomeStatus.Accepted, first.Status);
 
         var second = await submissionService.SubmitGuestAsync(
-            scope, Guid.NewGuid(), verificationId, contact, Guid.NewGuid(),
+            scope, Guid.NewGuid(), verificationId, contact, branchId,
             new[] { line }, Guid.NewGuid(), destination: null, hasAvailableStock: true, CancellationToken.None);
 
         Assert.Equal(OrderSubmissionOutcomeStatus.Denied, second.Status);
@@ -333,8 +366,9 @@ public sealed class GuestOrderingTests : IDisposable
 
         var orgId = Guid.NewGuid();
         var actorId = Guid.NewGuid();
-        var scope = new CloudTenantScope(orgId);
         await SeedOrganizationAsync(orgId);
+        var branchId = await SeedBranchAsync(orgId);
+        var scope = new CloudTenantScope(orgId, BranchId: branchId);
         var presentationId = await SeedPresentationAsync(scope, actorId);
         var priceListId = await SeedDefaultPriceListAsync(scope, actorId);
         await PublishPriceAsync(scope, priceListId, presentationId, 30.00m, actorId);
@@ -342,7 +376,7 @@ public sealed class GuestOrderingTests : IDisposable
         var accessStore = new PostgresCustomerOrderingAccessStore(_dataSource!);
         var accessService = new CustomerCatalogAccessService(accessStore, new InMemoryAuditSink());
         var customerStore = new PostgresCustomerStore(_dataSource!);
-        var orderStore = new CloudOrderStore();
+        var orderStore = new PostgresOrderStore(_dataSource!);
         var catalogStore = new PostgresCatalogStore(_dataSource!);
         var priceListStore = new PostgresPriceListStore(_dataSource!);
         var verificationStore = new PostgresGuestVerificationStore(_dataSource!);
@@ -351,7 +385,8 @@ public sealed class GuestOrderingTests : IDisposable
         var clockBox = new[] { now };
         var verificationService = new GuestVerificationService(verificationStore, sender, () => clockBox[0]);
         var submissionService = new CloudOrderSubmissionService(
-            accessService, customerStore, orderStore, catalogStore, priceListStore, verificationService);
+            accessService, customerStore, orderStore, catalogStore, priceListStore,
+            new PostgresRateComponentStore(_dataSource!), verificationService);
 
         var (verificationId, contact) = await IssueAndConfirmVerificationAsync(
             verificationService, sender, scope, "30111222333", "expired@example.com");
@@ -361,7 +396,7 @@ public sealed class GuestOrderingTests : IDisposable
         clockBox[0] = now.AddMinutes(30).AddSeconds(1);
 
         var outcome = await submissionService.SubmitGuestAsync(
-            scope, Guid.NewGuid(), verificationId, contact, Guid.NewGuid(),
+            scope, Guid.NewGuid(), verificationId, contact, branchId,
             new[] { new SubmitOrderLine(Guid.NewGuid(), presentationId, Quantity: 1m) },
             Guid.NewGuid(), destination: null, hasAvailableStock: true, CancellationToken.None);
 
@@ -378,8 +413,9 @@ public sealed class GuestOrderingTests : IDisposable
 
         var orgId = Guid.NewGuid();
         var actorId = Guid.NewGuid();
-        var scope = new CloudTenantScope(orgId);
         await SeedOrganizationAsync(orgId);
+        var branchId = await SeedBranchAsync(orgId);
+        var scope = new CloudTenantScope(orgId, BranchId: branchId);
         var presentationId = await SeedPresentationAsync(scope, actorId);
         // No default price list, no price entry: zero effective rows.
 
@@ -388,7 +424,7 @@ public sealed class GuestOrderingTests : IDisposable
             verificationService, sender, scope, "30111222333", "unpriced@example.com");
 
         var denied = await submissionService.SubmitGuestAsync(
-            scope, Guid.NewGuid(), verificationId, contact, Guid.NewGuid(),
+            scope, Guid.NewGuid(), verificationId, contact, branchId,
             new[] { new SubmitOrderLine(Guid.NewGuid(), presentationId, Quantity: 1m) },
             Guid.NewGuid(), destination: null, hasAvailableStock: true, CancellationToken.None);
 
@@ -403,7 +439,7 @@ public sealed class GuestOrderingTests : IDisposable
         await PublishPriceAsync(scope, priceListId, presentationId, 15.00m, actorId);
 
         var retried = await submissionService.SubmitGuestAsync(
-            scope, Guid.NewGuid(), verificationId, contact, Guid.NewGuid(),
+            scope, Guid.NewGuid(), verificationId, contact, branchId,
             new[] { new SubmitOrderLine(Guid.NewGuid(), presentationId, Quantity: 1m) },
             Guid.NewGuid(), destination: null, hasAvailableStock: true, CancellationToken.None);
 

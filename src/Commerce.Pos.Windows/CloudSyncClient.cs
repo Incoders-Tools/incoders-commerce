@@ -30,9 +30,11 @@ public sealed class CloudSyncClient
 
     public async Task<SyncPushResult> PushAsync(SyncEnvelope envelope, string deviceToken, CancellationToken ct = default)
     {
+        const string path = "/sync/inbox";
+        var endpoint = PosHttp.Endpoint(HttpMethod.Post, path);
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Post, "/sync/inbox")
+            using var request = new HttpRequestMessage(HttpMethod.Post, path)
             {
                 Content = JsonContent.Create(envelope)
             };
@@ -42,22 +44,35 @@ public sealed class CloudSyncClient
 
             if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
             {
+                PosHttp.LogFailure(endpoint, response, "device credential rejected; the terminal must be paired again");
                 return SyncPushResult.CredentialRejected(
-                    $"HTTP {(int)response.StatusCode}: device credential rejected. Re-pair this terminal.");
+                    $"HTTP {(int)response.StatusCode}: {PosMessages.TerminalNotRecognized}");
             }
 
             if (!response.IsSuccessStatusCode)
             {
-                var body = await response.Content.ReadAsStringAsync(ct);
-                return SyncPushResult.Failed($"HTTP {(int)response.StatusCode}: {body}");
+                await PosHttp.LogFailureWithBodyAsync(endpoint, response, ct);
+                return SyncPushResult.Failed($"HTTP {(int)response.StatusCode}: {PosHttp.MessageFor(response)}");
             }
 
-            var result = await response.Content.ReadFromJsonAsync<InboundApplyResult>(ct);
+            // A push is acknowledged only by the server's own ack for THIS operation.
+            // A 2xx with any other body (captive portal, proxy page, truncated JSON)
+            // never reaches the server's inbox, so the outbox row must stay pending.
+            var result = await PosHttp.TryReadJsonAsync<InboundApplyResult>(response, endpoint, ct);
+            if (result is null
+                || result.OperationId != envelope.OperationId
+                || !Enum.IsDefined(result.Outcome))
+            {
+                PosLog.Error("Sync", $"{endpoint} -> {(int)response.StatusCode}: reply is not an acknowledgement of operation {envelope.OperationId}; the operation stays pending.");
+                return SyncPushResult.Failed(PosMessages.UnexpectedResponse);
+            }
+
             return SyncPushResult.Succeeded(result);
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        catch (Exception ex) when (PosHttp.IsTransportFailure(ex, ct))
         {
-            return SyncPushResult.Failed($"Unreachable: {ex.Message}");
+            PosHttp.LogTransportFailure(endpoint, ex);
+            return SyncPushResult.Failed(PosMessages.ServerUnreachable);
         }
     }
 }

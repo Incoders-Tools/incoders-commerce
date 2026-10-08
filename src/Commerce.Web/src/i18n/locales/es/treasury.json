@@ -1,0 +1,264 @@
+{
+  "title": "Tesorería",
+  "description": "Cuánta plata tiene el negocio y dónde está: el total, separado por tipo de cuenta y por sucursal, y cada cuenta con sus movimientos.",
+  "info": "El dinero se mueve solo con las operaciones: ventas y cobros del POS, retiros e ingresos de caja, diferencias de arqueo y repartos cobrados. Acá se registra a mano lo que no pasa por el POS (un depósito en el banco, un gasto pagado por el banco, una transferencia entre cuentas). Un administrador puede anular o editar cualquier movimiento: el original queda visible y tachado, con el motivo, y ya no suma en ningún saldo. Las ventas y cobros se anulan desde el POS (así se corrigen también el stock y la cuenta del cliente); acá solo se pueden pasar a otra cuenta. Los tipos de cuenta se gestionan en Tablas auxiliares → Tipos de cuenta.",
+  "loading": "Cargando…",
+  "empty": "Todavía no hay cuentas. Aparecen con la primera venta sincronizada de cada sucursal, o creá una con \"Nueva cuenta\".",
+  "retry": "Reintentar",
+  "cancel": "Cancelar",
+  "saving": "Guardando…",
+  "wholeCompany": "Toda la empresa",
+  "today": "Hoy: entró {{in}} · salió {{out}}",
+  "actions": {
+    "newAccount": "Nueva cuenta",
+    "newMovement": "Registrar movimiento"
+  },
+  "kinds": {
+    "Cash": "Caja efectivo",
+    "Card": "Tarjetas",
+    "Qr": "QR / billeteras",
+    "Safe": "Caja fuerte",
+    "Bank": "Banco",
+    "Other": "Otra cuenta"
+  },
+  "movementKinds": {
+    "Sale": "Venta",
+    "CustomerPayment": "Cobro de cuenta",
+    "DeliveryPayment": "Cobro de reparto",
+    "Reversal": "Anulación",
+    "CashCountDifference": "Diferencia de arqueo",
+    "CashWithdrawal": "Retiro de caja",
+    "CashDeposit": "Ingreso de caja",
+    "Transfer": "Transferencia",
+    "ManualIn": "Ingreso manual",
+    "ManualOut": "Egreso manual"
+  },
+  "accountForm": {
+    "title": "Nueva cuenta",
+    "editTitle": "Editar cuenta",
+    "name": "Nombre",
+    "namePlaceholder": "Ej.: Banco Nación cta. cte. 1234/5, Visa empresa, Mercado Pago",
+    "type": "Tipo de cuenta",
+    "noType": "Sin tipo",
+    "typeHint": "Define en qué subtotal suma (Efectivo, Bancos, Tarjetas de crédito…). Los tipos se gestionan en Tablas auxiliares.",
+    "branch": "Sucursal",
+    "wholeCompany": "Toda la empresa (sin sucursal)",
+    "chooseBranch": "Elegí la sucursal",
+    "isSafe": "Es la caja fuerte de la sucursal",
+    "isSafeHint": "Los retiros del POS \"a la caja fuerte\" entran en esta cuenta. Hay una sola por sucursal.",
+    "description": "Descripción (opcional)",
+    "descriptionPlaceholder": "Ej.: CBU, alias o para qué se usa",
+    "create": "Crear cuenta",
+    "save": "Guardar cambios",
+    "created": "Cuenta \"{{name}}\" creada.",
+    "saved": "Cuenta \"{{name}}\" actualizada.",
+    "errors": {
+      "name": "Escribí el nombre de la cuenta.",
+      "safeBranch": "La caja fuerte es de una sucursal: elegí cuál."
+    }
+  },
+  "movementForm": {
+    "title": "Registrar movimiento",
+    "type": "Tipo",
+    "types": {
+      "In": "Ingreso (entra dinero)",
+      "Out": "Egreso (sale dinero)",
+      "Transfer": "Transferencia entre cuentas"
+    },
+    "typeHint": {
+      "In": "Dinero que entra a la cuenta sin pasar por el POS: un depósito en el banco, el fondo inicial de cambio, un aporte.",
+      "Out": "Dinero que sale de la cuenta: un gasto, un pago a un proveedor hecho por el banco, una extracción.",
+      "Transfer": "Dinero que pasa de una cuenta a otra: de la caja fuerte al banco, de un banco a otro. El total de la empresa no cambia."
+    },
+    "account": "Cuenta",
+    "fromAccount": "Desde la cuenta",
+    "toAccount": "Hacia la cuenta",
+    "amount": "Importe",
+    "amountPlaceholder": "Ej.: 150000 o 150000,50",
+    "date": "Fecha",
+    "concept": "Concepto",
+    "conceptPlaceholder": {
+      "In": "Ej.: Depósito del retiro de caja del lunes",
+      "Out": "Ej.: Pago de luz",
+      "Transfer": "Ej.: Depósito de la recaudación"
+    },
+    "reference": "Comprobante (opcional)",
+    "referencePlaceholder": "Ej.: boleta de depósito 0012345",
+    "save": "Registrar",
+    "saved": "Movimiento registrado.",
+    "errors": {
+      "amount": "Escribí un importe mayor que cero, con hasta dos decimales.",
+      "concept": "Escribí el concepto: para qué es el movimiento.",
+      "sameAccount": "Elegí dos cuentas distintas para la transferencia.",
+      "future": "La fecha no puede ser posterior a hoy."
+    }
+  },
+  "movements": {
+    "title": "Movimientos de {{account}} · {{branch}}",
+    "from": "Desde",
+    "to": "Hasta",
+    "empty": "No hay movimientos en estas fechas.",
+    "totals": "Entró {{in}} · salió {{out}} · neto {{net}}",
+    "reversed": "anulado",
+    "columns": {
+      "date": "Fecha",
+      "kind": "Tipo",
+      "concept": "Detalle",
+      "customer": "Cliente",
+      "in": "Entrada",
+      "out": "Salida",
+      "actions": "Acciones"
+    },
+    "voided": "anulado",
+    "voidReason": "Anulado: {{reason}}",
+    "correction": "Corrige un movimiento anterior",
+    "edit": "Editar",
+    "changeAccount": "Cambiar cuenta",
+    "recurring": "Recurrente"
+  },
+  "errors": {
+    "load": "No se pudo cargar la tesorería.",
+    "movements": "No se pudieron cargar los movimientos.",
+    "range": "La fecha \"Desde\" no puede ser posterior a \"Hasta\".",
+    "save": "No se pudo guardar. Probá de nuevo.",
+    "codes": {
+      "account-type-not-found": "Ese tipo de cuenta no existe o está inactivo.",
+      "safe-already-exists": "Esa sucursal ya tiene su caja fuerte.",
+      "same-account": "Elegí dos cuentas distintas.",
+      "account-inactive": "La cuenta está inactiva: activala para registrarle movimientos.",
+      "automatic-account": "La caja, las tarjetas y el QR de una sucursal no se desactivan: el POS registra ahí sus ventas.",
+      "balance-not-zero": "La cuenta tiene saldo: transferilo a otra cuenta antes de desactivarla.",
+      "only-account-editable": "De una venta o un cobro solo se puede cambiar la cuenta.",
+      "nothing-changed": "No cambiaste nada.",
+      "not-voidable": "Ese movimiento no se puede anular desde acá (ya está anulado, o es una venta o un cobro: anulalo desde el POS)."
+    }
+  },
+  "noType": "Sin tipo",
+  "summary": {
+    "total": "Total del negocio",
+    "totalHint": "La suma de todas las cuentas. Las ventas a cuenta corriente no están acá: se ven en la cuenta de cada cliente.",
+    "byType": "Por tipo de cuenta",
+    "byBranch": "Por sucursal"
+  },
+  "accounts": {
+    "title": "Cuentas",
+    "showInactive": "Mostrar cuentas inactivas",
+    "inactive": "Inactiva",
+    "edit": "Editar cuenta",
+    "activate": "Activar",
+    "deactivate": "Desactivar",
+    "activated": "Cuenta activada.",
+    "deactivated": "Cuenta desactivada: ya no recibe movimientos nuevos."
+  },
+  "editForm": {
+    "title": "Editar movimiento",
+    "hint": "El movimiento original queda registrado como anulado (con el motivo) y se reemplaza por este. Los saldos se recalculan solos.",
+    "transferHint": "Es una transferencia: se corrigen las dos partes. Para cambiar las cuentas, anulala y registrala de nuevo.",
+    "onlyAccountHint": "Es una venta o un cobro: acá solo se puede cambiar la cuenta donde entró el dinero (por ejemplo, si se cobró con tarjeta y no en efectivo). Para anularlo, hacelo desde el POS.",
+    "reason": "Motivo del cambio",
+    "reasonPlaceholder": "Ej.: la boleta de depósito decía otro importe",
+    "save": "Guardar corrección",
+    "saved": "Movimiento corregido.",
+    "errors": {
+      "reason": "Escribí el motivo del cambio.",
+      "nothing": "No cambiaste nada."
+    }
+  },
+  "void": {
+    "action": "Anular",
+    "question": "¿Anular \"{{concept}}\" por {{amount}}? Queda visible y tachado, con el motivo, pero deja de sumar en el saldo.",
+    "transferNote": "Es una transferencia: se anulan las dos partes (la salida y la entrada).",
+    "reason": "Motivo de la anulación",
+    "reasonRequired": "Escribí el motivo de la anulación.",
+    "confirm": "Anular movimiento",
+    "done": "Movimiento anulado."
+  },
+  "reprocess": {
+    "hint": "¿Faltan movimientos? Las ventas, cobros y movimientos de caja que el POS envió antes de que existiera la Tesorería (o que no se pudieron registrar) se traen con este botón. Se puede usar las veces que quieras: nunca duplica.",
+    "action": "Traer operaciones anteriores",
+    "running": "Trayendo operaciones…",
+    "nothing": "No faltaba nada: la Tesorería ya tenía todas las operaciones del POS.",
+    "done_one": "Se incorporó {{count}} movimiento de operaciones anteriores.",
+    "done_other": "Se incorporaron {{count}} movimientos de operaciones anteriores."
+  },
+  "recurrences": {
+    "title": "Gastos e ingresos recurrentes",
+    "description": "Los gastos fijos (luz, gas, internet, teléfono, alquiler…) y los ingresos que se repiten se registran solos en su fecha. Cuando cambia el monto, editalo: la repetición sigue y desde la próxima fecha se usa el nuevo.",
+    "new": "Nuevo recurrente",
+    "newTitle": "Nuevo gasto o ingreso recurrente",
+    "editTitle": "Editar recurrente",
+    "formHint": "Se registra como un movimiento normal de la cuenta en cada fecha. Si una fecha no corresponde (por ejemplo, se pagó aparte), anulá ese movimiento: no se vuelve a registrar.",
+    "out": "Gasto (sale dinero)",
+    "in": "Ingreso (entra dinero)",
+    "accountOut": "Sale de la cuenta",
+    "accountIn": "Entra a la cuenta",
+    "conceptPlaceholder": "Ej.: Luz (Edenor), Internet, Alquiler del local",
+    "referencePlaceholder": "Ej.: N° de cliente 123456",
+    "amountHint": "El nuevo monto se usa desde la próxima fecha; lo ya registrado no cambia.",
+    "repeat": "Se repite",
+    "frequency": "Frecuencia",
+    "frequencies": {
+      "Monthly": "Mensual",
+      "Weekly": "Semanal",
+      "Yearly": "Anual"
+    },
+    "interval": "Cada cuántos (1 = todos)",
+    "start": "Primera fecha",
+    "scheduleLocked": "Ya se registraron fechas: la frecuencia y la primera fecha no se cambian (para cambiarlas, pausá este y creá otro).",
+    "ends": "Termina",
+    "endMode": "¿Cuándo termina?",
+    "endModes": {
+      "Never": "Nunca",
+      "OnDate": "En una fecha",
+      "AfterCount": "Después de una cantidad de veces"
+    },
+    "endDate": "Última fecha",
+    "count": "Cantidad de veces",
+    "every": {
+      "Monthly_one": "Todos los meses, el día {{day}}",
+      "Monthly_other": "Cada {{count}} meses, el día {{day}}",
+      "Weekly_one": "Todas las semanas, los {{weekday}}",
+      "Weekly_other": "Cada {{count}} semanas, los {{weekday}}",
+      "Yearly_one": "Todos los años, el {{date}}",
+      "Yearly_other": "Cada {{count}} años, el {{date}}"
+    },
+    "since": "desde el {{date}}",
+    "endsNever": "sin fin",
+    "endsOn": "hasta el {{date}}",
+    "endsAfter_one": "{{count}} vez",
+    "endsAfter_other": "{{count}} veces",
+    "preview": "Próximas fechas: {{dates}}. Si el mes no tiene ese día, se usa el último día del mes.",
+    "includePast": "Registrar también las fechas que ya pasaron desde la primera fecha",
+    "includePastHint": "Si no lo marcás, se empieza a registrar desde hoy.",
+    "recorded_one": "{{count}} registrado",
+    "recorded_other": "{{count}} registrados",
+    "columns": {
+      "concept": "Concepto",
+      "when": "Cuándo",
+      "account": "Cuenta",
+      "amount": "Importe",
+      "next": "Próxima fecha"
+    },
+    "pausedBadge": "En pausa",
+    "ended": "Terminó",
+    "edit": "Editar",
+    "pause": "Pausar",
+    "resume": "Reanudar",
+    "save": "Guardar cambios",
+    "create": "Crear recurrente",
+    "created": "\"{{concept}}\" creado: se registra solo en cada fecha.",
+    "saved": "\"{{concept}}\" actualizado: los cambios rigen desde la próxima fecha.",
+    "paused": "\"{{concept}}\" en pausa: no se registran nuevas fechas.",
+    "resumed": "\"{{concept}}\" reanudado: se registra desde hoy (las fechas en pausa no).",
+    "empty": "Todavía no hay gastos ni ingresos recurrentes.",
+    "errors": {
+      "load": "No se pudieron cargar los recurrentes.",
+      "interval": "\"Cada cuántos\" es un número entero de 1 a 24.",
+      "endDate": "La última fecha no puede ser anterior a la primera.",
+      "count": "La cantidad de veces es un número entero de 1 a 1000.",
+      "codes": {
+        "schedule-locked": "Ya se registraron fechas: la frecuencia y la primera fecha no se pueden cambiar."
+      }
+    }
+  }
+}

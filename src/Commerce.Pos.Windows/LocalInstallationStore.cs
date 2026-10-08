@@ -60,6 +60,8 @@ public sealed class LocalInstallationStore
             BranchId = record.Pairing?.BranchId,
             BranchName = record.Pairing?.BranchName,
             OperatorEmail = record.Pairing?.OperatorEmail,
+            BranchCode = record.Pairing?.BranchCode,
+            RegisterNumber = record.Pairing?.RegisterNumber,
             EncryptedDeviceToken = record.Pairing is null
                 ? null
                 : Convert.ToBase64String(ProtectedData.Protect(
@@ -91,7 +93,10 @@ public sealed class LocalInstallationStore
             var plainBytes = ProtectedData.Unprotect(cipherBytes, optionalEntropy: null, DataProtectionScope.CurrentUser);
             var deviceToken = Encoding.UTF8.GetString(plainBytes);
 
-            return new DevicePairing(dto.OrganizationId.Value, dto.BranchId.Value, dto.BranchName, dto.OperatorEmail, deviceToken);
+            // BranchCode / RegisterNumber are absent in files written before registers existed: they stay null.
+            return new DevicePairing(
+                dto.OrganizationId.Value, dto.BranchId.Value, dto.BranchName, dto.OperatorEmail, deviceToken,
+                dto.BranchCode, dto.RegisterNumber);
         }
         catch (Exception ex) when (ex is CryptographicException or FormatException)
         {
@@ -106,6 +111,8 @@ public sealed class LocalInstallationStore
         public Guid? BranchId { get; set; }
         public string? BranchName { get; set; }
         public string? OperatorEmail { get; set; }
+        public int? BranchCode { get; set; }
+        public int? RegisterNumber { get; set; }
         public string? EncryptedDeviceToken { get; set; }
     }
 }
@@ -117,5 +124,11 @@ public sealed class LocalInstallationStore
 /// </summary>
 public sealed record LocalInstallationRecord(Guid InstallationId, DevicePairing? Pairing);
 
+/// <summary>
+/// `BranchCode` and `RegisterNumber` are the human identity of the terminal (`Sucursal 01 ... Caja 2`).
+/// They are null for a pairing stored before registers existed, or while the server could not be
+/// reached to tell; <see cref="TerminalIdentityRefresher"/> fills them in.
+/// </summary>
 public sealed record DevicePairing(
-    Guid OrganizationId, Guid BranchId, string BranchName, string OperatorEmail, string DeviceToken);
+    Guid OrganizationId, Guid BranchId, string BranchName, string OperatorEmail, string DeviceToken,
+    int? BranchCode = null, int? RegisterNumber = null);

@@ -40,7 +40,7 @@ public sealed class ManagementParityTests
         new[] { new Role("catalog-manager", permissions) });
 
     [Fact]
-    public void LocalAndWebAdapters_ProduceIdenticalAllowedOutcome_ForSameAuthorizedActor()
+    public async Task LocalAndWebAdapters_ProduceIdenticalAllowedOutcome_ForSameAuthorizedActor()
     {
         var organizationId = Guid.NewGuid();
         var branchId = Guid.NewGuid();
@@ -50,8 +50,8 @@ public sealed class ManagementParityTests
         var localOutcome = new LocalCatalogManagementAdapter(NewManagementService())
             .RenameProduct(actor, product, branchId, "Renamed via local", isOffline: false, Guid.NewGuid());
 
-        var webOutcome = NewCloudAdapter()
-            .RenameProduct(new CloudTenantScope(organizationId), actor, product, branchId, "Renamed via web", isOffline: false, Guid.NewGuid());
+        var webOutcome = await NewCloudAdapter()
+            .RenameProductAsync(new CloudTenantScope(organizationId), actor, product, branchId, "Renamed via web", isOffline: false, Guid.NewGuid(), CancellationToken.None);
 
         Assert.Equal(ManagementOutcomeStatus.Allowed, localOutcome.Status);
         Assert.Equal(ManagementOutcomeStatus.Allowed, webOutcome.Status);
@@ -61,7 +61,7 @@ public sealed class ManagementParityTests
     }
 
     [Fact]
-    public void LocalAndWebAdapters_DenyCrossBranchAccess_Identically()
+    public async Task LocalAndWebAdapters_DenyCrossBranchAccess_Identically()
     {
         var organizationId = Guid.NewGuid();
         var actorHomeBranchId = Guid.NewGuid();
@@ -72,8 +72,8 @@ public sealed class ManagementParityTests
         var localOutcome = new LocalCatalogManagementAdapter(NewManagementService())
             .RenameProduct(actor, product, foreignBranchId, "Should not apply", isOffline: false, Guid.NewGuid());
 
-        var webOutcome = NewCloudAdapter()
-            .RenameProduct(new CloudTenantScope(organizationId), actor, product, foreignBranchId, "Should not apply", isOffline: false, Guid.NewGuid());
+        var webOutcome = await NewCloudAdapter()
+            .RenameProductAsync(new CloudTenantScope(organizationId), actor, product, foreignBranchId, "Should not apply", isOffline: false, Guid.NewGuid(), CancellationToken.None);
 
         Assert.Equal(ManagementOutcomeStatus.Denied, localOutcome.Status);
         Assert.Equal(ManagementOutcomeStatus.Denied, webOutcome.Status);
@@ -84,7 +84,7 @@ public sealed class ManagementParityTests
     }
 
     [Fact]
-    public void LocalAndWebAdapters_DenyCrossOrganizationScope_Identically()
+    public async Task LocalAndWebAdapters_DenyCrossOrganizationScope_Identically()
     {
         var organizationId = Guid.NewGuid();
         var otherOrganizationId = Guid.NewGuid();
@@ -97,8 +97,8 @@ public sealed class ManagementParityTests
 
         // Web scope claims a different organization than the actor's own grant
         // (e.g. a spoofed/misrouted claim) — must be denied, never trusted.
-        var webOutcome = NewCloudAdapter()
-            .RenameProduct(new CloudTenantScope(otherOrganizationId), actor, product, branchId, "Should not apply", isOffline: false, Guid.NewGuid());
+        var webOutcome = await NewCloudAdapter()
+            .RenameProductAsync(new CloudTenantScope(otherOrganizationId), actor, product, branchId, "Should not apply", isOffline: false, Guid.NewGuid(), CancellationToken.None);
 
         Assert.Equal(ManagementOutcomeStatus.Allowed, localOutcome.Status);
         Assert.Equal(ManagementOutcomeStatus.Denied, webOutcome.Status);
@@ -107,7 +107,7 @@ public sealed class ManagementParityTests
     }
 
     [Fact]
-    public void LocalAndWebAdapters_DenyInsufficientPermission_Identically()
+    public async Task LocalAndWebAdapters_DenyInsufficientPermission_Identically()
     {
         var organizationId = Guid.NewGuid();
         var branchId = Guid.NewGuid();
@@ -117,8 +117,8 @@ public sealed class ManagementParityTests
         var localOutcome = new LocalCatalogManagementAdapter(NewManagementService())
             .RenameProduct(actor, product, branchId, "Should not apply", isOffline: false, Guid.NewGuid());
 
-        var webOutcome = NewCloudAdapter()
-            .RenameProduct(new CloudTenantScope(organizationId), actor, product, branchId, "Should not apply", isOffline: false, Guid.NewGuid());
+        var webOutcome = await NewCloudAdapter()
+            .RenameProductAsync(new CloudTenantScope(organizationId), actor, product, branchId, "Should not apply", isOffline: false, Guid.NewGuid(), CancellationToken.None);
 
         Assert.Equal(ManagementOutcomeStatus.Denied, localOutcome.Status);
         Assert.Equal(ManagementOutcomeStatus.Denied, webOutcome.Status);

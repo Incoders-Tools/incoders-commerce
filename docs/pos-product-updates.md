@@ -150,18 +150,80 @@ Clicking the icon opens an update wizard. The wizard owns detail and risk commun
 
 ## Update wizard stages
 
-The wizard should be explicit and resumable:
+The wizard is explicit and never silent: the operator opens it from the footer
+indicator ("Actualización X disponible") and starts it with "Instalar
+actualización". The stages live in `UpdateInstallWorkflow`
+(`src/Commerce.Updater`); the WPF window (`UpdateWizardWindow`) only shows
+progress and the typed result.
 
 1. Show current version, target version, package format, size, and compatibility.
-2. Download to a controlled staging directory.
-3. Verify hash, signature, publisher, and attestation.
-4. Quiesce the POS: block new sales, wait for in-flight work, preserve durable operations.
-5. Snapshot/backup local state according to ADR-004.
-6. Run installer through typed OS deployment API arguments.
-7. Start/verify the upgraded app.
-8. Report success or typed failure.
+2. Download to a controlled staging directory (`<data>/updates`, override
+   `Commerce:UpdateStagingDirectory`). Only files the downloader owns
+   (`Commerce.Pos.Windows-*.msix` and `.msix.partial`) are removed first; any
+   other file in the directory is left alone. A staged file that already
+   matches the manifest hash is reused. HTTP range resume is not implemented
+   (a retry restarts the download). A connection that delivers no bytes for 60
+   seconds fails as a typed download failure (not a cancel); the operator's
+   cancel is reported at the stage where it happened.
+3. Verify: SHA256 against the manifest, then the package signature (OS
+   `WinVerifyTrust`) and the signer subject against the CONFIGURED trusted
+   publisher (`Commerce:UpdateTrustedPublisher`, default the interim
+   `CN=Incoders Commerce (Interim)`; the manifest `publisherId` must match it
+   too). With `Commerce:UpdateTrustedThumbprint` set (SHA-256 of the signing
+   certificate) the signer must equal it and `Valid` or `UntrustedRoot` passes;
+   without a pin only `Valid` with the trusted subject passes (ADR-013).
+   Attestation is not verifiable yet, so
+   a package that requires it is refused. Any mismatch aborts before install
+   and deletes the staged file.
+4. Quiesce: refused while a sale is being built (the cart holds lines); durable
+   work is checked through the existing `IBranchNodeQuiescence`.
+5. When the POS is not running as a packaged app (dev run), stop here with a
+   clear message: download and verification completed, nothing was installed.
+6. Back up `branch.db` with the existing verified SQLite backup
+   (`<data>/upgrade-backups`). The backup is kept if the install fails.
+7. Register the process for restart (`RegisterApplicationRestart`), record the
+   pending upgrade (`pending-upgrade.json`) and install through
+   `PackageManager.AddPackageAsync(..., ForceApplicationShutdown)`. Windows
+   closes the POS, applies the update and relaunches it.
+8. On the next start the POS compares the running version with the recorded
+   target and shows "Actualización a la versión X completada" or "no se
+   completó" (with the backup path) in the footer.
 
-If any pre-install verification fails, no upgrade starts.
+If any pre-install verification fails, no upgrade starts. Failure reasons are
+typed (`UpdateFailureReason`): hash mismatch, signature invalid, signer or
+publisher mismatch, sale in progress, terminal busy, not packaged, backup
+failed, install failed, download failed, cancelled.
+
+Update checks call the public GitHub Releases API (`stable` = non-prerelease
+releases, `internal` also prereleases; `Commerce:UpdateChannel`,
+`Commerce:UpdateRepository`) off the UI thread with short timeouts; any
+failure is the typed "could not check" outcome and never blocks sales.
+`Commerce:UpdateManifestPath` (a local manifest file) wins when set. Settings
+shows the full status and has a "Buscar actualizaciones" action.
+
+Configuration summary:
+
+| Key | Default | Purpose |
+| --- | --- | --- |
+| `Commerce:UpdateChannel` | `stable` | `stable` or `internal` |
+| `Commerce:UpdateRepository` | `Incoders-Tools/incoders-commerce` | GitHub repository to read releases from |
+| `Commerce:UpdateManifestPath` | unset | Local manifest override (VM testing) |
+| `Commerce:UpdateTrustedPublisher` | `CN=Incoders Commerce (Interim)` | Required signer subject (ADR-013 swap is config-only) |
+| `Commerce:UpdateTrustedThumbprint` | unset | SHA-256 of the trusted signing certificate; required for interim-signed updates (ADR-013) |
+| `Commerce:UpdateStagingDirectory` | `<data>/updates` | Where packages are staged |
+
+Research (installing the update of the running app):
+
+- `PackageManager.AddPackageAsync` accepts only `None` and
+  `ForceApplicationShutdown`, takes a `file://` package URI and needs the
+  `packageManagement` restricted capability
+  ([API reference](https://learn.microsoft.com/en-us/uwp/api/windows.management.deployment.packagemanager.addpackageasync));
+  the MSIX manifest template declares it.
+- For a non-UWP packaged app `RegisterApplicationRestart` must be called before
+  shutdown begins to get the relaunch
+  ([Update non-Store published apps from your code](https://learn.microsoft.com/en-us/windows/msix/non-store-developer-updates)).
+- The POS targets `net10.0-windows10.0.19041.0` so the WinRT projection is
+  available.
 
 ## Rollout policy
 
@@ -206,9 +268,24 @@ Implement detection before installation:
 
 The install wizard should be implemented after detection is reliable and visible on the installed VM path.
 
-## Open decisions
+## Decisions and open questions
 
-- Exact package technology implementation details: WiX/MSI, MSIX tooling, signing provider.
-- Whether update checks call GitHub Releases directly or a thin first-party API endpoint that mirrors the release manifest.
-- Whether update availability is per organization/branch/channel or global per product channel.
-- How administrator authorization is represented in the UI when an MSI/service update requires elevation.
+Decided (owner and parent defaults, 2026-09-30; see
+[ADR-013](./architecture/decisions/ADR-013-interim-self-signed-code-signing.md)
+and `odd/tasks/product-update-service.md`):
+
+| Question | Decision |
+| --- | --- |
+| Release source | GitHub Releases, called directly by the POS. The repository is public, so no credentials are needed. A first-party mirror API stays a later option. |
+| Availability scope | Global per product channel (`stable` from `main`, `internal` from prereleases cut on `dev`), not per organization or branch. |
+| Package technology | MSIX first. The signed-MSI fallback of ADR-005 stays a follow-up and becomes a go-live item only if a terminal below Windows 10 2004 appears. |
+| Signing | Interim self-signed certificate installed once per terminal; a commercial certificate is a go-live requirement. Swapping it needs no code change (ADR-013). |
+| How a release is cut | Push a `v<semver>` tag or run `pos-release.yml` manually; the tag is the version source. Scripts: `deploy/release/`. |
+| Terminal trust | [Terminal certificate runbook](../deploy/pos-terminal-certificate.md). |
+| Launch blockers | [Go-live requirements](./launch/go-live-requirements.md). |
+
+Still open:
+
+- How administrator authorization is represented in the UI when an update needs elevation: the wizard installs per user through `AddPackageAsync` and shows no elevation flow; whether that succeeds for a machine-wide package on a standard-user account is validated on the installed VM.
+- How the Windows Service branch node is packaged if it is split from the POS process; today the POS hosts it in-process.
+- Whether packaged-app file virtualization affects `%LocalAppData%` data such as `branch.db`, the staged package (the deployment service must be able to read it) and the backup (validate on the installed VM; `Commerce:UpdateStagingDirectory` is the escape hatch).

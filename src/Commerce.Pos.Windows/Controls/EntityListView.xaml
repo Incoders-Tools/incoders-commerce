@@ -1,0 +1,192 @@
+<!--
+    The look of the reusable entity list (Controls/EntityListView.xaml.cs), merged into App.xaml after DesktopTheme.
+    Merged as a sibling of the theme, so every theme key (brushes, styles, spacing tokens, icons) is a DynamicResource:
+    a StaticResource here would not see DesktopTheme.xaml while App.xaml loads.
+-->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:controls="clr-namespace:Commerce.Pos.Windows.Controls">
+    <Style TargetType="controls:EntityListView">
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="controls:EntityListView">
+                    <Grid x:Name="PART_Layout">
+                        <Grid.Resources>
+                            <!-- Own row, cell and header looks: the system defaults paint a light-blue selection and grey headers in Dark. -->
+                            <Style TargetType="DataGrid">
+                                <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+                                <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+                                <Setter Property="BorderBrush" Value="{DynamicResource BorderBrushMuted}" />
+                                <Setter Property="BorderThickness" Value="1" />
+                                <Setter Property="RowBackground" Value="Transparent" />
+                                <Setter Property="AlternatingRowBackground" Value="Transparent" />
+                                <Setter Property="GridLinesVisibility" Value="Horizontal" />
+                                <Setter Property="HorizontalGridLinesBrush" Value="{DynamicResource BorderBrushMuted}" />
+                                <Setter Property="HeadersVisibility" Value="Column" />
+                                <Setter Property="FontFamily" Value="Segoe UI" />
+                                <Setter Property="FontSize" Value="13" />
+                                <Setter Property="MinRowHeight" Value="40" />
+                            </Style>
+                            <Style TargetType="DataGridColumnHeader">
+                                <Setter Property="Foreground" Value="{DynamicResource MutedTextBrush}" />
+                                <Setter Property="Background" Value="{DynamicResource SurfaceSoftBrush}" />
+                                <Setter Property="FontSize" Value="12" />
+                                <Setter Property="FontWeight" Value="SemiBold" />
+                                <Setter Property="Padding" Value="10,9" />
+                                <Setter Property="Cursor" Value="Hand" />
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="DataGridColumnHeader">
+                                            <Border Background="{TemplateBinding Background}" BorderBrush="{DynamicResource BorderBrushMuted}" BorderThickness="0,0,0,1"
+                                                    Padding="{TemplateBinding Padding}">
+                                                <ContentPresenter VerticalAlignment="Center" />
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                            <Style TargetType="DataGridRow">
+                                <Setter Property="Background" Value="Transparent" />
+                                <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+                                <Setter Property="Cursor" Value="Hand" />
+                                <Style.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter Property="Background" Value="{DynamicResource HoverSurfaceBrush}" />
+                                    </Trigger>
+                                    <Trigger Property="IsSelected" Value="True">
+                                        <Setter Property="Background" Value="{DynamicResource PrimaryBrush}" />
+                                        <Setter Property="Foreground" Value="{DynamicResource OnPrimaryBrush}" />
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                            <Style TargetType="DataGridCell">
+                                <Setter Property="Padding" Value="10,0" />
+                                <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="DataGridCell">
+                                            <Border Background="Transparent" Padding="{TemplateBinding Padding}">
+                                                <ContentPresenter VerticalAlignment="Center" />
+                                            </Border>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+
+                            <!-- The actions column: one icon button per row action (label as tooltip and accessible name). -->
+                            <DataTemplate x:Key="RowActionsTemplate">
+                                <ItemsControl ItemsSource="{Binding Actions}" HorizontalAlignment="Center" Focusable="False">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <StackPanel Orientation="Horizontal" />
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Button Style="{DynamicResource IconButton}" Margin="{DynamicResource ActionSpacing}"
+                                                    IsEnabled="{Binding IsEnabled}" ToolTip="{Binding Label}" AutomationProperties.Name="{Binding Label}"
+                                                    Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=DataGridRow}}">
+                                                <TextBlock Text="{Binding Icon}" Style="{DynamicResource IconTextBlock}" />
+                                            </Button>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </DataTemplate>
+                        </Grid.Resources>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="3*" MinWidth="560" />
+                            <ColumnDefinition Width="16" />
+                            <!-- The editor's share; EntityListView.EditorWidth sets it, HidesClosedEditor folds it while closed. -->
+                            <ColumnDefinition Width="2*" MinWidth="440" />
+                        </Grid.ColumnDefinitions>
+
+                        <!-- List: search, filters and Nuevo on top; the inline confirmation; the rows; the count. -->
+                        <Grid Grid.Column="0">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+
+                            <Grid Grid.Row="0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" MinWidth="200" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <Grid>
+                                    <TextBox x:Name="PART_SearchBox" Padding="38,9,12,9" VerticalContentAlignment="Center" AutomationProperties.Name="Buscar" />
+                                    <TextBlock Text="{DynamicResource IconSearch}" Style="{DynamicResource IconTextBlock}" FontSize="14" Foreground="{DynamicResource MutedTextBrush}"
+                                               HorizontalAlignment="Left" Margin="14,0,0,0" IsHitTestVisible="False" />
+                                    <!-- Same template, padding and font as the search box, so the placeholder starts where the caret does. -->
+                                    <TextBox x:Name="PART_SearchPlaceholder" Padding="38,9,12,9" VerticalContentAlignment="Center"
+                                             IsHitTestVisible="False" Focusable="False" IsTabStop="False" IsReadOnly="True"
+                                             Background="Transparent" BorderBrush="Transparent" Foreground="{DynamicResource MutedTextBrush}" />
+                                </Grid>
+
+                                <!-- One labelled combo per filter of the definition, built in code. -->
+                                <StackPanel x:Name="PART_Filters" Grid.Column="1" Orientation="Horizontal" />
+
+                                <Button x:Name="PART_NewButton" Grid.Column="2" Margin="{DynamicResource FieldActionSpacing}" Padding="16,0">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="{DynamicResource IconAdd}" Style="{DynamicResource IconTextBlock}" FontSize="14" Margin="0,0,8,0" />
+                                        <TextBlock x:Name="PART_NewLabel" Text="Nuevo" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </Button>
+                            </Grid>
+
+                            <!-- A row action that asks first waits here for the operator (no modal dialog). -->
+                            <Border x:Name="PART_Confirmation" Grid.Row="1" Visibility="Collapsed" Margin="0,10,0,0" Padding="12,8" CornerRadius="10" BorderThickness="1"
+                                    Background="{DynamicResource WarningSurfaceBrush}" BorderBrush="{DynamicResource WarningBorderBrush}">
+                                <DockPanel>
+                                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="{DynamicResource FieldActionSpacing}">
+                                        <Button x:Name="PART_ConfirmButton" Margin="{DynamicResource ActionSpacing}" />
+                                        <Button x:Name="PART_CancelConfirmationButton" Content="Cancelar" Style="{DynamicResource SecondaryButton}" />
+                                    </StackPanel>
+                                    <TextBlock x:Name="PART_ConfirmationText" VerticalAlignment="Center" TextWrapping="Wrap" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource WarningTextBrush}" />
+                                </DockPanel>
+                            </Border>
+
+                            <DataGrid x:Name="PART_Rows" Grid.Row="2" Margin="0,10,0,0" AutoGenerateColumns="False" IsReadOnly="True"
+                                      CanUserSortColumns="True" CanUserAddRows="False" CanUserDeleteRows="False" CanUserReorderColumns="False"
+                                      CanUserResizeColumns="False" CanUserResizeRows="False" SelectionMode="Single" SelectionUnit="FullRow"
+                                      EnableRowVirtualization="True" HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="Lista" />
+
+                            <TextBlock x:Name="PART_Count" Grid.Row="3" Margin="0,6,0,0" FontSize="12" Foreground="{DynamicResource MutedTextBrush}" />
+                        </Grid>
+
+                        <!-- Editor: the entity's own form (EditorContent), or a hint while nothing is open. -->
+                        <Border x:Name="PART_EditorPanel" Grid.Column="2" Style="{DynamicResource CardBorder}" Padding="16,12,8,12">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
+                                <DockPanel x:Name="PART_EditorHeader" Margin="0,0,8,8">
+                                    <Button x:Name="PART_CloseEditorButton" DockPanel.Dock="Right" Style="{DynamicResource IconButton}"
+                                            ToolTip="Cerrar" AutomationProperties.Name="Cerrar">
+                                        <TextBlock Text="&#xE711;" Style="{DynamicResource IconTextBlock}" FontSize="12" />
+                                    </Button>
+                                    <TextBlock x:Name="PART_EditorTitle" Style="{DynamicResource SectionTitleTextBlock}" FontSize="16" VerticalAlignment="Center"
+                                               TextTrimming="CharacterEllipsis" />
+                                </DockPanel>
+                                <ContentPresenter x:Name="PART_Editor" Grid.Row="1" Content="{TemplateBinding EditorContent}" />
+                                <TextBlock x:Name="PART_EmptyEditor" Grid.Row="0" Grid.RowSpan="2" Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
+                                           TextAlignment="Center" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="24" />
+                            </Grid>
+                        </Border>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+</ResourceDictionary>

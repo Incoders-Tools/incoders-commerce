@@ -15,6 +15,9 @@ namespace Commerce.Domain.Ordering;
 /// price (see <c>SubmitOrderLine</c>, which carries no price member at all).
 /// Once frozen here, a later price publication never alters these values
 /// (append-only history is not retroactive).
+///
+/// customer-price-lists T6: <c>PricedFromListId</c> is the price list that priced the line and <c>FellBack</c> is true when
+/// the buyer's own list had no price and the organization default list (Mostrador) priced it instead.
 /// </summary>
 public sealed record OrderLineSnapshot(
     Guid ProductId,
@@ -27,4 +30,6 @@ public sealed record OrderLineSnapshot(
     decimal UnitListPrice,
     decimal AppliedDiscountPercentage,
     decimal UnitNetPrice,
-    decimal LineTotal);
+    decimal LineTotal,
+    Guid? PricedFromListId = null,
+    bool FellBack = false);

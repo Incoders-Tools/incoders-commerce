@@ -1,0 +1,83 @@
+{
+  "title": "Organizations",
+  "description": "Tenants onboarded onto this platform, each with their own admin and branch.",
+  "newOrganization": "New organization",
+  "errors": {
+    "unexpectedLoad": "Unexpected error loading organizations."
+  },
+  "search": {
+    "label": "Search organizations",
+    "placeholder": "Search by name…"
+  },
+  "empty": {
+    "none": "No organizations yet.",
+    "noMatch": "No organizations match this search.",
+    "loadError": "Organizations could not be loaded."
+  },
+  "columns": {
+    "name": "Name",
+    "created": "Created"
+  },
+  "actions": {
+    "open": "Open",
+    "editBranding": "Edit branding"
+  },
+  "createForm": {
+    "title": "New organization",
+    "description": "Onboard a new tenant with its first branch and administrator.",
+    "backLabel": "Back to organizations",
+    "organizationNameLabel": "Organization name",
+    "branchNameLabel": "Branch name",
+    "adminEmailLabel": "Administrator email",
+    "adminPasswordLabel": "Administrator password",
+    "creating": "Creating…",
+    "submit": "Create organization",
+    "cancel": "Cancel",
+    "unableToCreate": "Unable to create organization."
+  },
+  "brandingForm": {
+    "title": "Edit branding",
+    "description": "Logo and primary color for {{name}}.",
+    "backLabel": "Back to organizations",
+    "logoUrlLabel": "Logo URL",
+    "logoPreviewAlt": "Organization logo preview",
+    "primaryColorLabel": "Primary color",
+    "primaryColorPickerLabel": "Primary color picker",
+    "unableToLoad": "Unable to load organization branding.",
+    "unableToSave": "Unable to save organization branding.",
+    "retry": "Retry",
+    "saving": "Saving…",
+    "save": "Save",
+    "cancel": "Cancel"
+  },
+  "settings": {
+    "title": "Organization settings",
+    "description": "Preferences of the organization that apply to all its branches.",
+    "numberFormat": {
+      "label": "Number format",
+      "hint": "How quantities (kilos, units) are typed and shown. Peso amounts are not affected.",
+      "comma": "Decimal comma (1,5)",
+      "point": "Decimal point (1.5)"
+    },
+    "save": "Save",
+    "saving": "Saving…",
+    "saved": "Settings saved.",
+    "unableToLoad": "Could not load the settings.",
+    "unableToSave": "Could not save the settings.",
+    "retry": "Retry",
+    "defaultCustomerPriceList": {
+      "label": "Default list for new customers",
+      "hint": "New customers start on this price list; it can be changed customer by customer later.",
+      "none": "No list"
+    },
+    "country": {
+      "label": "Country",
+      "hint": "The provinces and cities offered in forms are this country's."
+    },
+    "paymentTerms": {
+      "label": "General payment term (days)",
+      "hint": "How many days a customer has to pay a sale on current account. It applies to every customer without a term of their own (set on the customer form). With 0 the sale is due the same day. Due dates and days overdue are computed from it.",
+      "invalid": "The general payment term must be a whole number from 0 to 365 days."
+    }
+  }
+}

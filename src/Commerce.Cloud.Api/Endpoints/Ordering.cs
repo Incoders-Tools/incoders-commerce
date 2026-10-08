@@ -2,11 +2,14 @@ using Commerce.Cloud.Api.Ordering;
 using Commerce.Cloud.Api.Tenancy;
 using Commerce.Domain.Ordering;
 
+using Commerce.Cloud.Api.Persistence;
+using Commerce.Domain.Identity;
+
 namespace Commerce.Cloud.Api.Endpoints;
 
 /// <summary>
 /// Thin mapping onto <see cref="CloudOrderSubmissionService"/> (bound-access
-/// check + <see cref="CloudOrderStore"/> acceptance/delivery — no
+/// check + <see cref="IOrderStore"/> acceptance/delivery — no
 /// authorization or business logic duplicated here, per Component Reuse
 /// Policy). The organization id is always
 /// <see cref="CloudTenantScope.OrganizationId"/>, never a request field.
@@ -14,7 +17,7 @@ namespace Commerce.Cloud.Api.Endpoints;
 /// NOTE (deviation, documented): no persisted destination-branch registry
 /// exists in this host yet, so delivery always targets `destination: null`
 /// (branch offline) and `hasAvailableStock: false`, which
-/// <see cref="CloudOrderStore"/> already handles as an honest "pending"
+/// <see cref="IOrderStore"/> already handles as an honest "pending"
 /// outcome (ADR-003) rather than a false accept. Wiring a live branch
 /// connection registry is follow-up work outside Unit 2's scope.
 /// </summary>
@@ -29,10 +32,15 @@ public static class OrderingEndpoints
         group.MapPost("/", async (
             SubmitOrderRequest request,
             HttpContext httpContext,
+            PostgresUserAccountStore userStore,
             CloudOrderSubmissionService service,
             CancellationToken ct) =>
         {
-            var scope = TenantScopeEndpointFilter.GetScope(httpContext);
+            // Security review: the actor is the signed-in caller, never a request field (the request has none).
+            var (denied, caller) = await StaffAuthorization.AuthorizeAsync(
+                httpContext, userStore, ct, Permission.TakeOrders, Permission.ManageUsers);
+            if (denied is not null) return denied;
+            var scope = caller!.Scope;
 
             // commerce-customer-identity security fix: no CustomerOrderingAccess
             // is ever built from request data here. The request carries only
@@ -46,7 +54,7 @@ public static class OrderingEndpoints
                 request.AccessCredential,
                 request.OrderId,
                 request.DestinationBranchId,
-                request.ActorId,
+                caller.Id,
                 request.Lines,
                 request.CorrelationId,
                 destination: null,
@@ -58,10 +66,14 @@ public static class OrderingEndpoints
                 : Results.Json(outcome, statusCode: StatusCodes.Status403Forbidden);
         });
 
-        group.MapGet("/{orderId:guid}", (Guid orderId, HttpContext httpContext, CloudOrderStore store) =>
+        // Security review: reading orders needs the staff who take or manage them (not any signed-in user).
+        group.MapGet("/{orderId:guid}", async (
+            Guid orderId, HttpContext httpContext, PostgresUserAccountStore userStore, IOrderStore store, CancellationToken ct) =>
         {
-            var scope = TenantScopeEndpointFilter.GetScope(httpContext);
-            var order = store.Find(scope, orderId);
+            var (denied, caller) = await StaffAuthorization.AuthorizeAsync(
+                httpContext, userStore, ct, Permission.TakeOrders, Permission.ManageUsers);
+            if (denied is not null) return denied;
+            var order = await store.FindAsync(caller!.Scope, orderId, ct);
             return order is null ? Results.NotFound() : Results.Ok(order);
         });
 
@@ -72,10 +84,13 @@ public static class OrderingEndpoints
         // SubmittedAtUtc"). Registered-customer orders (rank 0) sort before
         // guest orders (rank 1) regardless of submission order; ties break
         // by submission time.
-        group.MapGet("/pending", (HttpContext httpContext, CloudOrderStore store) =>
+        group.MapGet("/pending", async (
+            HttpContext httpContext, PostgresUserAccountStore userStore, IOrderStore store, CancellationToken ct) =>
         {
-            var scope = TenantScopeEndpointFilter.GetScope(httpContext);
-            return Results.Ok(store.ListPending(scope));
+            var (denied, caller) = await StaffAuthorization.AuthorizeAsync(
+                httpContext, userStore, ct, Permission.TakeOrders, Permission.ManageUsers);
+            if (denied is not null) return denied;
+            return Results.Ok(await store.ListPendingAsync(caller!.Scope, ct: ct));
         });
 
         return group;
@@ -98,6 +113,5 @@ public sealed record SubmitOrderRequest(
     Guid CustomerId,
     Guid AccessCredential,
     Guid DestinationBranchId,
-    Guid ActorId,
     IReadOnlyList<SubmitOrderLine> Lines,
     Guid CorrelationId);

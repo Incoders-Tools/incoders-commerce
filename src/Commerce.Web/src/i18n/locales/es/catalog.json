@@ -1,0 +1,132 @@
+{
+  "title": "Catálogo",
+  "description": "Productos y presentaciones de la sucursal: alta, edición, códigos y categorías.",
+  "readOnlyDescription": "Productos y presentaciones de la sucursal, con sus códigos. Solo lectura.",
+  "branchRequired": "Elegí una sucursal en la barra superior para ver el catálogo.",
+  "columns": {
+    "name": "Nombre",
+    "identificationCode": "Código de identificación",
+    "noCode": "Sin código",
+    "quantityBehavior": "Comportamiento de cantidad",
+    "lastUpdated": "Última actualización",
+    "category": "Categoría"
+  },
+  "quantityBehaviorOptions": {
+    "fixedQuantity": "Cantidad fija",
+    "weighted": "Pesable",
+    "bulk": "A granel",
+    "unknown": "Desconocido"
+  },
+  "search": {
+    "label": "Buscar presentaciones",
+    "placeholder": "Buscar por nombre o código…"
+  },
+  "empty": {
+    "loadError": "No se pudo cargar el catálogo.",
+    "none": "Todavía no hay presentaciones.",
+    "noMatch": "Ninguna presentación coincide con esta búsqueda."
+  },
+  "edit": "Editar",
+  "status": {
+    "filterLabel": "Estado",
+    "active": "Activos",
+    "inactive": "Inactivos",
+    "all": "Todos",
+    "inactiveBadge": "Inactivo",
+    "deactivate": "Desactivar",
+    "reactivate": "Reactivar",
+    "dialog": {
+      "title": "Desactivar \"{{name}}\"",
+      "message": "El producto deja de aparecer en el POS y en las listas; su historial se conserva.",
+      "confirm": "Desactivar producto",
+      "confirming": "Desactivando…"
+    }
+  },
+  "errors": {
+    "unexpectedLoad": "Error inesperado: el servicio de catálogo no está disponible.",
+    "unexpectedUpdate": "Error inesperado al actualizar la presentación.",
+    "unexpectedStatus": "No se pudo cambiar el estado del producto."
+  },
+  "form": {
+    "title": "Editar presentación",
+    "description": "Nombre, categoría, presentación y código de \"{{name}}\".",
+    "backLabel": "Volver al catálogo",
+    "label": "Código de identificación",
+    "category": "Categoría",
+    "saving": "Guardando…",
+    "save": "Guardar",
+    "cancel": "Cancelar"
+  },
+  "copy": {
+    "action": "Copiar catálogo",
+    "title": "Copiar catálogo",
+    "description": "Copiá productos de \"{{source}}\" a otra sucursal de tu organización.",
+    "target": "Sucursal de destino",
+    "targetPlaceholder": "Elegí una sucursal",
+    "scope": "Qué copiar",
+    "whole": "Todo el catálogo",
+    "selected": "Productos seleccionados",
+    "loadingProducts": "Cargando productos…",
+    "noProducts": "Esta sucursal todavía no tiene productos.",
+    "pricesNote": "También se copia la lista de precios más reciente, solo con los precios de lo copiado. Los productos cuyo código ya existe en la sucursal de destino se omiten.",
+    "submit": "Copiar",
+    "copying": "Copiando…",
+    "errors": {
+      "failed": "No se pudo copiar el catálogo. Revisá la sucursal de destino e intentá de nuevo.",
+      "products": "No se pudieron cargar los productos."
+    },
+    "result": {
+      "title": "Copia finalizada",
+      "products": "Productos copiados: {{count}}",
+      "presentations": "Presentaciones copiadas: {{count}}",
+      "prices": "Precios copiados: {{count}}",
+      "noPriceList": "No se copió ninguna lista de precios.",
+      "skipped": "Presentaciones omitidas: {{count}}",
+      "skippedNote": "Su código de identificación ya existe en la sucursal de destino:"
+    }
+  },
+  "filters": {
+    "categoryLabel": "Categoría",
+    "allCategories": "Todas las categorías"
+  },
+  "sort": {
+    "label": "Ordenar por",
+    "options": {
+      "name-asc": "Nombre (A-Z)",
+      "name-desc": "Nombre (Z-A)",
+      "code": "Código",
+      "category": "Categoría",
+      "updated-desc": "Últimos actualizados"
+    }
+  },
+  "productForm": {
+    "newAction": "Nuevo producto",
+    "createTitle": "Nuevo producto",
+    "createDescription": "Producto, categoría y la presentación con la que se vende.",
+    "create": "Crear producto",
+    "productName": "Nombre del producto",
+    "presentationName": "Presentación",
+    "quantityBehaviorHint": "Pesable: se vende por kilo. Cantidad fija: por unidad.",
+    "codeHint": "El código que se escanea o se tipea en el POS. Opcional y único en la sucursal.",
+    "priceNote": "El producto se crea sin precio: cargalo en Listas de precios para venderlo.",
+    "defaultPresentation": {
+      "weighted": "Por kg",
+      "fixedQuantity": "Unidad",
+      "bulk": "A granel"
+    },
+    "errors": {
+      "nameRequired": "Ingresá el nombre del producto.",
+      "presentationRequired": "Ingresá el nombre de la presentación.",
+      "codeInUse": "Ese código ya lo usa otro producto de esta sucursal.",
+      "productInactive": "El producto está inactivo: reactivalo para editarlo.",
+      "renameDenied": "No se pudo cambiar el nombre del producto.",
+      "unexpectedCreate": "Error inesperado al crear el producto."
+    },
+    "codeSuggestion": {
+      "proposed": "Último código cargado: {{last}}. Te proponemos el siguiente, {{next}}; podés cambiarlo.",
+      "last": "Último código cargado: {{last}} (el siguiente libre es {{next}}).",
+      "use": "Usar {{next}}",
+      "placeholder": "Ej.: {{next}}"
+    }
+  }
+}

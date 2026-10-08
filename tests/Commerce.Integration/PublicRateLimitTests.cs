@@ -93,6 +93,9 @@ public sealed class PublicRateLimitTests : IDisposable
         Apply("0008_customer_registry.sql");
         Apply("0009_catalog_and_pricing.sql");
         Apply("0010_guest_ordering.sql");
+        Apply("0016_catalog_branch_ownership.sql");
+        Apply("0036_product_soft_delete.sql");
+        Apply("0017_pricing_branch_ownership.sql");
 
         using var resetCmd = new NpgsqlCommand(
             """
@@ -113,11 +116,26 @@ public sealed class PublicRateLimitTests : IDisposable
         await cmd.ExecuteNonQueryAsync();
     }
 
+    /// <summary>
+    /// B7 U4: products/presentations are branch-owned, and the guest surface
+    /// itself resolves to `GuestOrdering:BranchId` (<see cref="_branchId"/>)
+    /// — a real branches row is required either way.
+    /// </summary>
+    private async Task SeedBranchAsync(Guid orgId, Guid branchId)
+    {
+        await using var connection = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        await connection.OpenAsync();
+        await using var cmd = new NpgsqlCommand("INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, 'Main')", connection);
+        cmd.Parameters.AddWithValue(branchId);
+        cmd.Parameters.AddWithValue(orgId);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
     private async Task<Guid> SeedPresentationWithPriceAsync(CloudTenantScope scope, Guid actorId, decimal unitPrice)
     {
         var catalogStore = new PostgresCatalogStore(_dataSource!);
         var product = await catalogStore.CreateProductAsync(
-            scope, new NewProduct(Guid.NewGuid(), "Product", Guid.NewGuid(), Guid.NewGuid(), actorId),
+            scope, new NewProduct(Guid.NewGuid(), "Product", CategoryFixture.Create(scope), Guid.NewGuid(), actorId),
             "org-user", actorId, CancellationToken.None);
         var presentation = await catalogStore.CreatePresentationAsync(
             scope,
@@ -131,7 +149,7 @@ public sealed class PublicRateLimitTests : IDisposable
             scope,
             new NewPriceListEntry(
                 Guid.NewGuid(), priceList.Id, presentation.Id, unitPrice,
-                DateOnly.FromDateTime(DateTime.UtcNow), "Manual", ImportBatchId: null, actorId),
+                Commerce.Application.Time.BusinessClock.System.Today, "Manual", ImportBatchId: null, actorId),
             "org-user", actorId, CancellationToken.None);
 
         return presentation.Id;
@@ -247,13 +265,16 @@ public sealed class PublicRateLimitTests : IDisposable
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
 
         await SeedOrganizationAsync(_organizationId);
-        var scope = new CloudTenantScope(_organizationId);
+        await SeedBranchAsync(_organizationId, _branchId);
+        var scope = new CloudTenantScope(_organizationId, BranchId: _branchId);
         var presentationId = await SeedPresentationWithPriceAsync(scope, Guid.NewGuid(), 42.00m);
 
         // A DIFFERENT org's presentation must never leak into the public read.
         var otherOrgId = Guid.NewGuid();
+        var otherBranchId = Guid.NewGuid();
         await SeedOrganizationAsync(otherOrgId);
-        await SeedPresentationWithPriceAsync(new CloudTenantScope(otherOrgId), Guid.NewGuid(), 99.00m);
+        await SeedBranchAsync(otherOrgId, otherBranchId);
+        await SeedPresentationWithPriceAsync(new CloudTenantScope(otherOrgId, BranchId: otherBranchId), Guid.NewGuid(), 99.00m);
 
         await using var factory = NewConfiguredFactory(new WebApplicationFactory<Program>());
         var client = factory.CreateClient();
@@ -306,7 +327,8 @@ public sealed class PublicRateLimitTests : IDisposable
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
 
         await SeedOrganizationAsync(_organizationId);
-        var scope = new CloudTenantScope(_organizationId);
+        await SeedBranchAsync(_organizationId, _branchId);
+        var scope = new CloudTenantScope(_organizationId, BranchId: _branchId);
         var presentationId = await SeedPresentationWithPriceAsync(scope, Guid.NewGuid(), 25.00m);
 
         var sender = new CapturingEmailSender();

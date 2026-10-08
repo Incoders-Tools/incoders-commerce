@@ -1,4 +1,5 @@
 import { useId, type ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { ViewSwitch, type DataViewMode } from './ViewSwitch'
@@ -12,7 +13,7 @@ export function DataToolbar({
   searchValue,
   onSearchChange,
   searchLabel,
-  searchPlaceholder = 'Search…',
+  searchPlaceholder,
   view,
   onViewChange,
   children,
@@ -28,6 +29,7 @@ export function DataToolbar({
   children?: ReactNode
   className?: string
 }) {
+  const { t } = useTranslation('common')
   const searchId = useId()
 
   return (
@@ -40,7 +42,7 @@ export function DataToolbar({
           id={searchId}
           type="search"
           value={searchValue}
-          placeholder={searchPlaceholder}
+          placeholder={searchPlaceholder ?? t('dataView.searchPlaceholder')}
           onChange={(event) => onSearchChange(event.target.value)}
         />
       </div>

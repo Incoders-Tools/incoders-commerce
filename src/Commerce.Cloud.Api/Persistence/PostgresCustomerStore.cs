@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text;
 using Commerce.Cloud.Api.Auditing;
 using Commerce.Cloud.Api.Tenancy;
 using Commerce.Domain.Customers;
@@ -22,9 +24,7 @@ public sealed class PostgresCustomerStore
 
     private static async Task SetTenantScopeAsync(NpgsqlConnection connection, NpgsqlTransaction tx, CloudTenantScope scope, CancellationToken ct)
     {
-        await using var scopeCmd = new NpgsqlCommand("SELECT set_config('app.current_org_id', $1, true)", connection, tx);
-        scopeCmd.Parameters.AddWithValue(scope.OrganizationId.ToString());
-        await scopeCmd.ExecuteNonQueryAsync(ct);
+        await TenantScopeSql.ApplyAsync(connection, tx, scope, ct);
     }
 
     private static CustomerRecord Read(NpgsqlDataReader reader) => new(
@@ -51,15 +51,164 @@ public sealed class PostgresCustomerStore
         IsEnabled: reader.GetBoolean(20),
         CreatedAtUtc: reader.GetFieldValue<DateTimeOffset>(21),
         CreatedByUserId: reader.GetGuid(22),
-        UpdatedAtUtc: reader.GetFieldValue<DateTimeOffset>(23));
+        UpdatedAtUtc: reader.GetFieldValue<DateTimeOffset>(23),
+        CityId: reader.IsDBNull(24) ? null : reader.GetGuid(24),
+        CityName: reader.IsDBNull(25) ? null : reader.GetString(25),
+        BusinessTypeId: reader.IsDBNull(26) ? null : reader.GetGuid(26),
+        BusinessTypeName: reader.IsDBNull(27) ? null : reader.GetString(27),
+        ProvinceId: reader.IsDBNull(28) ? null : reader.GetString(28),
+        ProvinceName: reader.IsDBNull(29) ? null : reader.GetString(29),
+        PriceListId: reader.IsDBNull(30) ? null : reader.GetGuid(30),
+        PriceListName: reader.IsDBNull(31) ? null : reader.GetString(31),
+        PartyType: Enum.Parse<PartyType>(reader.GetString(32)),
+        PaymentTermsDays: reader.IsDBNull(33) ? null : reader.GetInt16(33));
 
+    // The LEFT JOINs resolve the display names of the optional city (global
+    // geography, with its province) and business type (organization catalog;
+    // the composite key keeps it inside the row's organization).
     private const string SelectColumns =
         """
-        id, organization_id, customer_kind, display_name, legal_name, tax_id_type, tax_id,
-        tax_condition, phone, email, address_street, address_number, neighborhood, locality,
-        province, postal_code, delivery_notes, discount_percentage, payment_terms, notes,
-        is_enabled, created_at_utc, created_by_user_id, updated_at_utc
+        c.id, c.organization_id, c.customer_kind, c.display_name, c.legal_name, c.tax_id_type, c.tax_id,
+        c.tax_condition, c.phone, c.email, c.address_street, c.address_number, c.neighborhood, c.locality,
+        c.province, c.postal_code, c.delivery_notes, c.discount_percentage, c.payment_terms, c.notes,
+        c.is_enabled, c.created_at_utc, c.created_by_user_id, c.updated_at_utc,
+        c.city_id, ci.name, c.business_type_id, bt.name, ci.province_id, pr.name,
+        c.price_list_id, pl.name, c.party_type, c.payment_terms_days
         """;
+
+    private const string FromClause =
+        """
+        customers c
+        LEFT JOIN cities ci ON ci.id = c.city_id
+        LEFT JOIN provinces pr ON pr.id = ci.province_id
+        LEFT JOIN business_types bt ON bt.organization_id = c.organization_id AND bt.id = c.business_type_id
+        LEFT JOIN price_lists pl ON pl.id = c.price_list_id
+        """;
+
+    private static async Task<CustomerRecord?> SelectByIdAsync(
+        NpgsqlConnection connection, NpgsqlTransaction tx, Guid customerId, CancellationToken ct)
+    {
+        CustomerRecord? record;
+        await using (var cmd = new NpgsqlCommand($"SELECT {SelectColumns} FROM {FromClause} WHERE c.id = $1", connection, tx))
+        {
+            cmd.Parameters.AddWithValue(customerId);
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            record = await reader.ReadAsync(ct) ? Read(reader) : null;
+        }
+
+        if (record is null)
+        {
+            return null;
+        }
+
+        var contacts = await LoadContactsAsync(connection, tx, [customerId], ct);
+        return contacts.TryGetValue(customerId, out var own) ? record with { Contacts = own } : record;
+    }
+
+    /// <summary>The contacts of the given customers in one query, ordered by `sort_order` then creation.</summary>
+    private static async Task<Dictionary<Guid, List<CustomerContactRecord>>> LoadContactsAsync(
+        NpgsqlConnection connection, NpgsqlTransaction tx, Guid[] customerIds, CancellationToken ct)
+    {
+        var byCustomer = new Dictionary<Guid, List<CustomerContactRecord>>();
+        await using var cmd = new NpgsqlCommand(
+            """
+            SELECT customer_id, id, first_name, last_name, phone, email, role, is_primary, sort_order
+            FROM customer_contacts
+            WHERE customer_id = ANY($1)
+            ORDER BY sort_order, created_at_utc, id
+            """, connection, tx);
+        cmd.Parameters.AddWithValue(customerIds);
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            var customerId = reader.GetGuid(0);
+            if (!byCustomer.TryGetValue(customerId, out var list))
+            {
+                byCustomer[customerId] = list = [];
+            }
+
+            list.Add(new CustomerContactRecord(
+                reader.GetGuid(1), reader.GetString(2),
+                reader.IsDBNull(3) ? null : reader.GetString(3),
+                reader.IsDBNull(4) ? null : reader.GetString(4),
+                reader.IsDBNull(5) ? null : reader.GetString(5),
+                reader.IsDBNull(6) ? null : reader.GetString(6),
+                reader.GetBoolean(7), reader.GetInt32(8)));
+        }
+
+        return byCustomer;
+    }
+
+    /// <summary>
+    /// REPLACE-SET of one customer's contacts inside the caller's transaction: contacts whose
+    /// id is not sent are deleted, the primary flag is cleared (the partial unique index allows
+    /// one primary, so it is re-applied per contact), then every sent contact is upserted by id.
+    /// An id that belongs to another customer or organization is refused.
+    /// </summary>
+    private static async Task ReplaceContactsAsync(
+        NpgsqlConnection connection, NpgsqlTransaction tx, Guid organizationId, Guid customerId,
+        IReadOnlyList<CustomerContactInput> contacts, CancellationToken ct)
+    {
+        var keptIds = contacts.Where(c => c.Id is not null).Select(c => c.Id!.Value).ToArray();
+        await using (var cmd = new NpgsqlCommand(
+            "DELETE FROM customer_contacts WHERE customer_id = $1 AND NOT (id = ANY($2))", connection, tx))
+        {
+            cmd.Parameters.AddWithValue(customerId);
+            cmd.Parameters.AddWithValue(keptIds);
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+
+        await using (var cmd = new NpgsqlCommand(
+            "UPDATE customer_contacts SET is_primary = false WHERE customer_id = $1 AND is_primary", connection, tx))
+        {
+            cmd.Parameters.AddWithValue(customerId);
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+
+        foreach (var contact in contacts)
+        {
+            await using var cmd = new NpgsqlCommand(
+                """
+                INSERT INTO customer_contacts
+                    (id, organization_id, customer_id, first_name, last_name, phone, email, role, is_primary, sort_order)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                ON CONFLICT (id) DO UPDATE
+                SET first_name = EXCLUDED.first_name, last_name = EXCLUDED.last_name, phone = EXCLUDED.phone,
+                    email = EXCLUDED.email, role = EXCLUDED.role, is_primary = EXCLUDED.is_primary,
+                    sort_order = EXCLUDED.sort_order, updated_at_utc = now()
+                WHERE customer_contacts.customer_id = EXCLUDED.customer_id
+                """, connection, tx);
+            cmd.Parameters.AddWithValue(contact.Id ?? Guid.NewGuid());
+            cmd.Parameters.AddWithValue(organizationId);
+            cmd.Parameters.AddWithValue(customerId);
+            cmd.Parameters.AddWithValue(contact.FirstName);
+            cmd.Parameters.AddWithValue((object?)contact.LastName ?? DBNull.Value);
+            cmd.Parameters.AddWithValue((object?)contact.Phone ?? DBNull.Value);
+            cmd.Parameters.AddWithValue((object?)contact.Email ?? DBNull.Value);
+            cmd.Parameters.AddWithValue((object?)contact.Role ?? DBNull.Value);
+            cmd.Parameters.AddWithValue(contact.IsPrimary);
+            cmd.Parameters.AddWithValue(contact.SortOrder);
+
+            int affected;
+            try
+            {
+                affected = await cmd.ExecuteNonQueryAsync(ct);
+            }
+            catch (PostgresException ex) when (
+                ex.TableName == "customer_contacts"
+                && ex.SqlState is PostgresErrorCodes.InsufficientPrivilege or PostgresErrorCodes.UniqueViolation)
+            {
+                // The id points at a contact this organization cannot see (row level security) or that is taken.
+                throw new CustomerContactRejectedException($"Contact id {contact.Id} cannot be used.");
+            }
+
+            if (affected == 0)
+            {
+                // ON CONFLICT matched a contact of ANOTHER customer of this organization.
+                throw new CustomerContactRejectedException($"Contact id {contact.Id} belongs to another customer.");
+            }
+        }
+    }
 
     /// <summary>
     /// ONE transaction: set_config -> INSERT customers (WITH CHECK pins
@@ -74,17 +223,18 @@ public sealed class PostgresCustomerStore
 
         await SetTenantScopeAsync(connection, tx, scope, ct);
 
-        CustomerRecord record;
         await using (var cmd = new NpgsqlCommand(
-            $"""
+            """
             INSERT INTO customers
                 (id, organization_id, customer_kind, display_name, legal_name, tax_id_type, tax_id,
                  tax_condition, phone, email, address_street, address_number, neighborhood, locality,
                  province, postal_code, delivery_notes, discount_percentage, payment_terms, notes,
-                 created_by_user_id)
+                 created_by_user_id, city_id, business_type_id, price_list_id, party_type, payment_terms_days)
             VALUES
-                ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
-            RETURNING {SelectColumns}
+                ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21,
+                 $22, $23,
+                 COALESCE($24::uuid, (SELECT default_customer_price_list_id FROM organizations WHERE id = $2)),
+                 $25, $26)
             """, connection, tx))
         {
             cmd.Parameters.AddWithValue(customer.Id);
@@ -108,11 +258,23 @@ public sealed class PostgresCustomerStore
             cmd.Parameters.AddWithValue((object?)customer.PaymentTerms ?? DBNull.Value);
             cmd.Parameters.AddWithValue((object?)customer.Notes ?? DBNull.Value);
             cmd.Parameters.AddWithValue(customer.CreatedByUserId);
+            cmd.Parameters.AddWithValue((object?)customer.CityId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue((object?)customer.BusinessTypeId ?? DBNull.Value);
+            // A new customer without an explicit list starts on the organization's default customer list (may be none).
+            cmd.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Uuid, (object?)customer.PriceListId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue((customer.PartyType ?? PartyTypeRules.DefaultFor(customer.TaxIdType)).ToString());
+            cmd.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Smallint, (object?)(short?)customer.PaymentTermsDays ?? DBNull.Value);
 
-            await using var reader = await cmd.ExecuteReaderAsync(ct);
-            await reader.ReadAsync(ct);
-            record = Read(reader);
+            await cmd.ExecuteNonQueryAsync(ct);
         }
+
+        if (customer.Contacts is { Count: > 0 } contacts)
+        {
+            await ReplaceContactsAsync(connection, tx, scope.OrganizationId, customer.Id, contacts, ct);
+        }
+
+        // Re-read through the joined select so the record carries the city and business type names.
+        var record = (await SelectByIdAsync(connection, tx, customer.Id, ct))!;
 
         await AuditLogWriter.InsertAsync(
             connection, tx,
@@ -141,16 +303,7 @@ public sealed class PostgresCustomerStore
 
         await SetTenantScopeAsync(connection, tx, scope, ct);
 
-        CustomerRecord? existing = null;
-        await using (var cmd = new NpgsqlCommand($"SELECT {SelectColumns} FROM customers WHERE id = $1", connection, tx))
-        {
-            cmd.Parameters.AddWithValue(customerId);
-            await using var reader = await cmd.ExecuteReaderAsync(ct);
-            if (await reader.ReadAsync(ct))
-            {
-                existing = Read(reader);
-            }
-        }
+        var existing = await SelectByIdAsync(connection, tx, customerId, ct);
 
         if (existing is null)
         {
@@ -158,21 +311,30 @@ public sealed class PostgresCustomerStore
             return null;
         }
 
-        CustomerRecord updated;
+        // Optional columns: an absent change keeps the stored value, decided IN
+        // SQL (CASE on a flag) so a concurrent write to that column between our
+        // read and our write is never overwritten with a stale copy (F2). The
+        // optimistic token is part of the WHERE for the same reason: the check
+        // and the write are one statement, not a read followed by a write.
         await using (var cmd = new NpgsqlCommand(
-            $"""
+            """
             UPDATE customers
-            SET display_name = $1, legal_name = $2, tax_id_type = $3, tax_id = $4, tax_condition = $5,
+            SET display_name = $1, tax_id_type = $3, tax_id = $4, tax_condition = $5,
                 phone = $6, email = $7, address_street = $8, address_number = $9, neighborhood = $10,
-                locality = $11, province = $12, postal_code = $13, delivery_notes = $14,
-                discount_percentage = $15, payment_terms = $16, notes = $17, is_enabled = $18,
+                postal_code = $11, delivery_notes = $12,
+                discount_percentage = $13, payment_terms = $14, notes = $15, is_enabled = $16,
+                city_id = CASE WHEN $17 THEN $18::uuid ELSE city_id END,
+                business_type_id = CASE WHEN $19 THEN $20::uuid ELSE business_type_id END,
+                price_list_id = CASE WHEN $23 THEN $24::uuid ELSE price_list_id END,
+                payment_terms_days = CASE WHEN $25 THEN $26::smallint ELSE payment_terms_days END,
+                party_type = COALESCE($2::text, party_type),
                 updated_at_utc = now()
-            WHERE id = $19
-            RETURNING {SelectColumns}
+            WHERE id = $21 AND ($22::timestamptz IS NULL OR updated_at_utc = $22)
             """, connection, tx))
         {
+            // legal_name, locality and province are no longer written (admin-console-field-fixes).
             cmd.Parameters.AddWithValue(update.DisplayName);
-            cmd.Parameters.AddWithValue((object?)update.LegalName ?? DBNull.Value);
+            cmd.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Text, (object?)update.PartyType?.ToString() ?? DBNull.Value);
             cmd.Parameters.AddWithValue(update.TaxIdType.ToString());
             cmd.Parameters.AddWithValue((object?)update.TaxId ?? DBNull.Value);
             cmd.Parameters.AddWithValue(update.TaxCondition.ToString());
@@ -181,20 +343,38 @@ public sealed class PostgresCustomerStore
             cmd.Parameters.AddWithValue((object?)update.AddressStreet ?? DBNull.Value);
             cmd.Parameters.AddWithValue((object?)update.AddressNumber ?? DBNull.Value);
             cmd.Parameters.AddWithValue((object?)update.Neighborhood ?? DBNull.Value);
-            cmd.Parameters.AddWithValue((object?)update.Locality ?? DBNull.Value);
-            cmd.Parameters.AddWithValue((object?)update.Province ?? DBNull.Value);
             cmd.Parameters.AddWithValue((object?)update.PostalCode ?? DBNull.Value);
             cmd.Parameters.AddWithValue((object?)update.DeliveryNotes ?? DBNull.Value);
             cmd.Parameters.AddWithValue((object?)update.DiscountPercentage ?? DBNull.Value);
             cmd.Parameters.AddWithValue((object?)update.PaymentTerms ?? DBNull.Value);
             cmd.Parameters.AddWithValue((object?)update.Notes ?? DBNull.Value);
             cmd.Parameters.AddWithValue(update.IsEnabled);
+            cmd.Parameters.AddWithValue(update.City is not null);
+            cmd.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Uuid, (object?)update.City?.Value ?? DBNull.Value);
+            cmd.Parameters.AddWithValue(update.BusinessType is not null);
+            cmd.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Uuid, (object?)update.BusinessType?.Value ?? DBNull.Value);
             cmd.Parameters.AddWithValue(customerId);
+            cmd.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.TimestampTz, (object?)update.ExpectedUpdatedAtUtc ?? DBNull.Value);
+            cmd.Parameters.AddWithValue(update.PriceList is not null);
+            cmd.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Uuid, (object?)update.PriceList?.Value ?? DBNull.Value);
+            cmd.Parameters.AddWithValue(update.PaymentTermsDays is not null);
+            cmd.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Smallint, (object?)(short?)update.PaymentTermsDays?.Value ?? DBNull.Value);
 
-            await using var reader = await cmd.ExecuteReaderAsync(ct);
-            await reader.ReadAsync(ct);
-            updated = Read(reader);
+            if (await cmd.ExecuteNonQueryAsync(ct) == 0)
+            {
+                // The row was visible a moment ago, so the token did not match.
+                await tx.RollbackAsync(ct);
+                throw new CustomerModifiedException(customerId);
+            }
         }
+
+        // Same transaction as the token-checked UPDATE above: a stale token rolls the contacts back too.
+        if (update.Contacts is not null)
+        {
+            await ReplaceContactsAsync(connection, tx, scope.OrganizationId, customerId, update.Contacts, ct);
+        }
+
+        var updated = (await SelectByIdAsync(connection, tx, customerId, ct))!;
 
         await AuditLogWriter.InsertAsync(
             connection, tx,
@@ -215,36 +395,68 @@ public sealed class PostgresCustomerStore
 
         await SetTenantScopeAsync(connection, tx, scope, ct);
 
-        await using var cmd = new NpgsqlCommand($"SELECT {SelectColumns} FROM customers WHERE id = $1", connection, tx);
-        cmd.Parameters.AddWithValue(customerId);
-
-        CustomerRecord? record = null;
-        await using (var reader = await cmd.ExecuteReaderAsync(ct))
-        {
-            if (await reader.ReadAsync(ct))
-            {
-                record = Read(reader);
-            }
-        }
+        var record = await SelectByIdAsync(connection, tx, customerId, ct);
 
         await tx.CommitAsync(ct);
         return record;
     }
 
-    public async Task<IReadOnlyList<CustomerRecord>> ListAsync(CloudTenantScope scope, CancellationToken ct)
+    public Task<IReadOnlyList<CustomerRecord>> ListAsync(CloudTenantScope scope, CancellationToken ct) =>
+        ListAsync(scope, null, ct);
+
+    /// <summary>
+    /// Ordered by display name. `Search` matches the name, legal name, tax id
+    /// and the first/last name of any contact ignoring case and accents (a plain `translate`/`lower`
+    /// fold, so no database extension is needed); LIKE wildcards in the term
+    /// are escaped, so `%` and `_` only match themselves.
+    /// </summary>
+    public async Task<IReadOnlyList<CustomerRecord>> ListAsync(
+        CloudTenantScope scope, CustomerListFilter? filter, CancellationToken ct)
     {
+        var search = CustomerSearchTerm.Normalize(filter?.Search);
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
 
         await SetTenantScopeAsync(connection, tx, scope, ct);
 
         var results = new List<CustomerRecord>();
-        await using (var cmd = new NpgsqlCommand($"SELECT {SelectColumns} FROM customers ORDER BY display_name", connection, tx))
-        await using (var reader = await cmd.ExecuteReaderAsync(ct))
+        await using (var cmd = new NpgsqlCommand(
+            $"""
+            SELECT {SelectColumns}
+            FROM {FromClause}
+            WHERE ($1::uuid IS NULL OR c.city_id = $1)
+              AND ($2::uuid IS NULL OR c.business_type_id = $2)
+              AND ($3::text IS NULL
+                   OR translate(lower(
+                          c.display_name || ' ' || coalesce(c.legal_name, '') || ' ' || coalesce(c.tax_id, '')),
+                      'áéíóúüñàèìòùâêîôûäëïöç', 'aeiouunaeiouaeiouaeioc') LIKE '%' || $3 || '%' ESCAPE '\'
+                   OR EXISTS (
+                      SELECT 1 FROM customer_contacts cc
+                      WHERE cc.customer_id = c.id
+                        AND translate(lower(cc.first_name || ' ' || coalesce(cc.last_name, '')),
+                      'áéíóúüñàèìòùâêîôûäëïöç', 'aeiouunaeiouaeiouaeioc') LIKE '%' || $3 || '%' ESCAPE '\'))
+            ORDER BY c.display_name, c.id
+            """, connection, tx))
         {
+            cmd.Parameters.AddWithValue((object?)filter?.CityId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue((object?)filter?.BusinessTypeId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue((object?)search ?? DBNull.Value);
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
             while (await reader.ReadAsync(ct))
             {
                 results.Add(Read(reader));
+            }
+        }
+
+        if (results.Count > 0)
+        {
+            var contacts = await LoadContactsAsync(connection, tx, results.Select(r => r.Id).ToArray(), ct);
+            for (var i = 0; i < results.Count; i++)
+            {
+                if (contacts.TryGetValue(results[i].Id, out var own))
+                {
+                    results[i] = results[i] with { Contacts = own };
+                }
             }
         }
 
@@ -324,5 +536,137 @@ public sealed class PostgresCustomerStore
 
         await tx.CommitAsync(ct);
         return results;
+    }
+
+    /// <summary>
+    /// customer-price-lists T4: the price list of every ENABLED customer that has one of its own (`customers.price_list_id`).
+    /// Always the complete set, not a delta: it travels in the `price-lists` snapshot, so it never depends on the customers
+    /// cursor and a customer whose list was assigned by a migration is still known to the branch.
+    /// </summary>
+    public async Task<IReadOnlyList<CustomerPriceListAssignment>> ListPriceListAssignmentsAsync(
+        CloudTenantScope scope, CancellationToken ct)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+
+        await SetTenantScopeAsync(connection, tx, scope, ct);
+
+        var results = new List<CustomerPriceListAssignment>();
+        await using (var cmd = new NpgsqlCommand(
+            "SELECT id, price_list_id FROM customers WHERE is_enabled AND price_list_id IS NOT NULL ORDER BY id", connection, tx))
+        await using (var reader = await cmd.ExecuteReaderAsync(ct))
+        {
+            while (await reader.ReadAsync(ct))
+            {
+                results.Add(new CustomerPriceListAssignment(reader.GetGuid(0), reader.GetGuid(1)));
+            }
+        }
+
+        await tx.CommitAsync(ct);
+        return results;
+    }
+
+    /// <summary>The enabled customers with payment terms of their own, in days (`price-lists` replica snapshot).</summary>
+    public async Task<IReadOnlyList<CustomerTermsAssignment>> ListPaymentTermsAsync(CloudTenantScope scope, CancellationToken ct)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+        await SetTenantScopeAsync(connection, tx, scope, ct);
+
+        var results = new List<CustomerTermsAssignment>();
+        await using (var cmd = new NpgsqlCommand(
+            "SELECT id, payment_terms_days FROM customers WHERE is_enabled AND payment_terms_days IS NOT NULL ORDER BY id", connection, tx))
+        await using (var reader = await cmd.ExecuteReaderAsync(ct))
+        {
+            while (await reader.ReadAsync(ct))
+            {
+                results.Add(new CustomerTermsAssignment(reader.GetGuid(0), reader.GetInt16(1)));
+            }
+        }
+
+        await tx.CommitAsync(ct);
+        return results;
+    }
+
+    /// <summary>
+    /// The enabled customers with a discount of their own (`price-lists` replica snapshot): the POS applies it after the
+    /// list composition, exactly as <see cref="Commerce.Application.Pricing.PricingResolutionService"/> does in the cloud.
+    /// A zero discount is no discount, so it is not sent.
+    /// </summary>
+    public async Task<IReadOnlyList<CustomerDiscountAssignment>> ListDiscountAssignmentsAsync(
+        CloudTenantScope scope, CancellationToken ct)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+
+        await SetTenantScopeAsync(connection, tx, scope, ct);
+
+        var results = new List<CustomerDiscountAssignment>();
+        await using (var cmd = new NpgsqlCommand(
+            "SELECT id, discount_percentage FROM customers WHERE is_enabled AND discount_percentage > 0 ORDER BY id", connection, tx))
+        await using (var reader = await cmd.ExecuteReaderAsync(ct))
+        {
+            while (await reader.ReadAsync(ct))
+            {
+                results.Add(new CustomerDiscountAssignment(reader.GetGuid(0), reader.GetDecimal(1)));
+            }
+        }
+
+        await tx.CommitAsync(ct);
+        return results;
+    }
+}
+
+/// <summary>
+/// Folds a free-text search term the same way <see cref="PostgresCustomerStore.ListAsync"/>
+/// folds the stored text: lowercase, accents removed, LIKE wildcards escaped.
+/// Separators typed inside a tax id ("30-12.345") are dropped when the term is
+/// nothing but digits and separators, since tax ids are stored digits only.
+/// </summary>
+internal static class CustomerSearchTerm
+{
+    public static string? Normalize(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return null;
+        }
+
+        var term = raw.Trim();
+        if (term.All(c => char.IsAsciiDigit(c) || c is '.' or '-' or ' '))
+        {
+            term = new string(term.Where(char.IsAsciiDigit).ToArray());
+            if (term.Length == 0)
+            {
+                return null;
+            }
+        }
+
+        return FoldForLike(term);
+    }
+
+    /// <summary>
+    /// Lowercase, accents removed, LIKE wildcards escaped (no tax-id handling):
+    /// the term of free-text lookups such as the city picker. Null when blank.
+    /// </summary>
+    public static string? FoldForLike(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return null;
+        }
+
+        var decomposed = raw.Trim().ToLowerInvariant().Normalize(NormalizationForm.FormD);
+        var folded = new StringBuilder(decomposed.Length);
+        foreach (var ch in decomposed)
+        {
+            if (CharUnicodeInfo.GetUnicodeCategory(ch) != UnicodeCategory.NonSpacingMark)
+            {
+                folded.Append(ch);
+            }
+        }
+
+        return folded.ToString().Normalize(NormalizationForm.FormC)
+            .Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
     }
 }

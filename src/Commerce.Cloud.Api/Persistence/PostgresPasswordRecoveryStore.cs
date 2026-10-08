@@ -1,3 +1,4 @@
+using Commerce.Cloud.Api.Auditing;
 using Commerce.Cloud.Api.Tenancy;
 using Npgsql;
 
@@ -131,7 +132,16 @@ public sealed class PostgresPasswordRecoveryStore
     /// reset"). Updates the password hash and bumps `session_version` in one
     /// transaction. Returns the new session version.
     /// </summary>
-    public async Task<int> SetPasswordAsync(CloudTenantScope scope, Guid userId, string passwordHash, CancellationToken ct)
+    public Task<int> SetPasswordAsync(CloudTenantScope scope, Guid userId, string passwordHash, CancellationToken ct) =>
+        SetPasswordAsync(scope, userId, passwordHash, auditEntry: null, ct);
+
+    /// <summary>
+    /// Same as the overload without an audit entry; when <paramref name="auditEntry"/> is given (an admin-forced
+    /// reset, admin-console-field-fixes T6) it is written in the SAME transaction as the password change. The entry
+    /// never carries password material.
+    /// </summary>
+    public async Task<int> SetPasswordAsync(
+        CloudTenantScope scope, Guid userId, string passwordHash, UserManagementAuditEntry? auditEntry, CancellationToken ct)
     {
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
@@ -139,6 +149,11 @@ public sealed class PostgresPasswordRecoveryStore
         await SetTenantScopeAsync(connection, tx, scope, ct);
 
         var newVersion = await UpdatePasswordAsync(connection, tx, userId, passwordHash, ct);
+
+        if (auditEntry is not null)
+        {
+            await AuditLogWriter.InsertAsync(connection, tx, auditEntry, ct);
+        }
 
         await tx.CommitAsync(ct);
         return newVersion;
@@ -187,9 +202,6 @@ public sealed class PostgresPasswordRecoveryStore
     private static async Task SetTenantScopeAsync(
         NpgsqlConnection connection, NpgsqlTransaction tx, CloudTenantScope scope, CancellationToken ct)
     {
-        await using var scopeCmd = new NpgsqlCommand(
-            "SELECT set_config('app.current_org_id', $1, true)", connection, tx);
-        scopeCmd.Parameters.AddWithValue(scope.OrganizationId.ToString());
-        await scopeCmd.ExecuteNonQueryAsync(ct);
+        await TenantScopeSql.ApplyAsync(connection, tx, scope, ct);
     }
 }

@@ -1,5 +1,4 @@
 import { render, screen } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PriceHistory } from './PriceHistory'
 import type { PriceListEntryRecord } from '@/api/types'
@@ -11,6 +10,7 @@ const entries: PriceListEntryRecord[] = [
   {
     id: '33333333-3333-3333-3333-333333333333',
     organizationId: 'org-1',
+    branchId: 'branch-1',
     priceListId,
     presentationId,
     unitPrice: 550,
@@ -23,6 +23,7 @@ const entries: PriceListEntryRecord[] = [
   {
     id: '44444444-4444-4444-4444-444444444444',
     organizationId: 'org-1',
+    branchId: 'branch-1',
     priceListId,
     presentationId,
     unitPrice: 500,
@@ -36,7 +37,7 @@ const entries: PriceListEntryRecord[] = [
 
 /**
  * design.md "Web: `PriceListsScreen` under the existing `RequireAdmin`": "a
- * per-row History expander listing every `effective_from` descending".
+ * history listing every `effective_from` descending", shown in the editor's side panel.
  */
 describe('PriceHistory', () => {
   const fetchMock = vi.fn()
@@ -50,25 +51,16 @@ describe('PriceHistory', () => {
     fetchMock.mockReset()
   })
 
-  it('is collapsed by default and fetches nothing', () => {
-    render(<PriceHistory priceListId={priceListId} presentationId={presentationId} />)
-
-    expect(screen.queryByText(/2024-06-01/)).not.toBeInTheDocument()
-    expect(fetchMock).not.toHaveBeenCalled()
-  })
-
-  it('expands to fetch and display history, newest first', async () => {
+  it('fetches and displays the history when shown, newest first', async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(entries), { status: 200 }))
 
-    const user = userEvent.setup()
     render(<PriceHistory priceListId={priceListId} presentationId={presentationId} />)
-
-    await user.click(screen.getByRole('button', { name: /history/i }))
 
     const items = await screen.findAllByRole('listitem')
     expect(items[0]).toHaveTextContent('2024-06-01')
     expect(items[0]).toHaveTextContent('550')
     expect(items[1]).toHaveTextContent('2024-01-01')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(fetchMock.mock.calls[0][0]).toBe(
       `/pricing/price-lists/${priceListId}/presentations/${presentationId}/history`,
     )
@@ -77,28 +69,17 @@ describe('PriceHistory', () => {
   it('shows an empty state with zero published entries', async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify([]), { status: 200 }))
 
-    const user = userEvent.setup()
     render(<PriceHistory priceListId={priceListId} presentationId={presentationId} />)
 
-    await user.click(screen.getByRole('button', { name: /history/i }))
-
-    await screen.findByText('No published prices yet.')
+    await screen.findByText('Todavía no hay precios publicados.')
   })
 
-  it('collapses again without a second fetch', async () => {
+  it('has no toggle of its own: the panel that shows it owns opening and closing', async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(entries), { status: 200 }))
 
-    const user = userEvent.setup()
     render(<PriceHistory priceListId={priceListId} presentationId={presentationId} />)
 
-    await user.click(screen.getByRole('button', { name: /history/i }))
     await screen.findAllByRole('listitem')
-    await user.click(screen.getByRole('button', { name: /hide history/i }))
-
-    expect(screen.queryByText(/2024-06-01/)).not.toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: /history/i }))
-    expect(await screen.findAllByRole('listitem')).toHaveLength(2)
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('button')).not.toBeInTheDocument()
   })
 })

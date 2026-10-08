@@ -42,7 +42,7 @@ describe('LoginRoute', () => {
   it('redirects an unauthenticated deep link to /login', () => {
     renderTree('/app/orders')
 
-    expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /iniciar sesión/i })).toBeInTheDocument()
     expect(screen.queryByText('Orders content')).not.toBeInTheDocument()
   })
 
@@ -57,9 +57,9 @@ describe('LoginRoute', () => {
     const user = userEvent.setup()
     renderTree('/app/orders')
 
-    await user.type(screen.getByLabelText('Email'), 'jane@example.com')
-    await user.type(screen.getByLabelText('Password'), 'correct-horse-battery-staple')
-    await user.click(screen.getByRole('button', { name: /sign in/i }))
+    await user.type(screen.getByLabelText('Correo electrónico'), 'jane@example.com')
+    await user.type(screen.getByLabelText('Contraseña'), 'correct-horse-battery-staple')
+    await user.click(screen.getByRole('button', { name: /iniciar sesión/i }))
 
     await waitFor(() => expect(screen.getByText('Orders content')).toBeInTheDocument())
   })
@@ -75,9 +75,9 @@ describe('LoginRoute', () => {
     const user = userEvent.setup()
     renderTree('/login')
 
-    await user.type(screen.getByLabelText('Email'), 'jane@example.com')
-    await user.type(screen.getByLabelText('Password'), 'correct-horse-battery-staple')
-    await user.click(screen.getByRole('button', { name: /sign in/i }))
+    await user.type(screen.getByLabelText('Correo electrónico'), 'jane@example.com')
+    await user.type(screen.getByLabelText('Contraseña'), 'correct-horse-battery-staple')
+    await user.click(screen.getByRole('button', { name: /iniciar sesión/i }))
 
     await waitFor(() => expect(screen.getByText('App landing')).toBeInTheDocument())
   })
@@ -85,6 +85,6 @@ describe('LoginRoute', () => {
   it('shows a Forgot password? link to /forgot-password', () => {
     renderTree('/login')
 
-    expect(screen.getByRole('link', { name: /forgot password/i })).toHaveAttribute('href', '/forgot-password')
+    expect(screen.getByRole('link', { name: /olvidó su contraseña/i })).toHaveAttribute('href', '/forgot-password')
   })
 })

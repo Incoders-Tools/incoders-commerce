@@ -80,7 +80,13 @@ public sealed class CatalogPriceSyncTests : IClassFixture<WebApplicationFactory<
         Apply("0002_users.sql");
         Apply("0003_organizations_branches.sql");
         Apply("0004_device_credentials.sql");
+        Apply("0022_terminal_registers.sql");
+        Apply("0024_terminal_registers_assign_result.sql");
         Apply("0009_catalog_and_pricing.sql");
+        Apply("0016_catalog_branch_ownership.sql");
+        Apply("0036_product_soft_delete.sql");
+        Apply("0017_pricing_branch_ownership.sql");
+        Apply("0018_catalog_categories.sql");
 
         using var resetCmd = new NpgsqlCommand(
             "TRUNCATE TABLE price_list_entries, price_lists, presentations, products, " +
@@ -118,15 +124,16 @@ public sealed class CatalogPriceSyncTests : IClassFixture<WebApplicationFactory<
         return issued.PlaintextToken;
     }
 
-    private async Task<Guid> SeedPresentationAsync(Guid organizationId, string? identificationCode = "7791234500000")
+    private async Task<Guid> SeedPresentationAsync(
+        Guid organizationId, Guid branchId, string? identificationCode = "7791234500000", Guid? categoryId = null)
     {
         using var scope = _factory.Services.CreateScope();
         var catalogStore = scope.ServiceProvider.GetRequiredService<PostgresCatalogStore>();
-        var tenantScope = new CloudTenantScope(organizationId);
+        var tenantScope = new CloudTenantScope(organizationId, BranchId: branchId);
         var actorId = Guid.NewGuid();
 
         var product = await catalogStore.CreateProductAsync(
-            tenantScope, new NewProduct(Guid.NewGuid(), "Flour", Guid.NewGuid(), Guid.NewGuid(), actorId),
+            tenantScope, new NewProduct(Guid.NewGuid(), "Flour", categoryId ?? CategoryFixture.Create(tenantScope), Guid.NewGuid(), actorId),
             "org-user", actorId, CancellationToken.None);
 
         var presentation = await catalogStore.CreatePresentationAsync(
@@ -137,11 +144,11 @@ public sealed class CatalogPriceSyncTests : IClassFixture<WebApplicationFactory<
         return presentation.Id;
     }
 
-    private async Task<Guid> SeedDefaultPriceListAsync(Guid organizationId)
+    private async Task<Guid> SeedDefaultPriceListAsync(Guid organizationId, Guid branchId)
     {
         using var scope = _factory.Services.CreateScope();
         var priceListStore = scope.ServiceProvider.GetRequiredService<PostgresPriceListStore>();
-        var tenantScope = new CloudTenantScope(organizationId);
+        var tenantScope = new CloudTenantScope(organizationId, BranchId: branchId);
         var actorId = Guid.NewGuid();
 
         var priceList = await priceListStore.CreatePriceListAsync(
@@ -151,17 +158,17 @@ public sealed class CatalogPriceSyncTests : IClassFixture<WebApplicationFactory<
         return priceList.Id;
     }
 
-    private async Task PublishPriceAsync(Guid organizationId, Guid priceListId, Guid presentationId, decimal unitPrice)
+    private async Task PublishPriceAsync(Guid organizationId, Guid branchId, Guid priceListId, Guid presentationId, decimal unitPrice)
     {
         using var scope = _factory.Services.CreateScope();
         var priceListStore = scope.ServiceProvider.GetRequiredService<PostgresPriceListStore>();
-        var tenantScope = new CloudTenantScope(organizationId);
+        var tenantScope = new CloudTenantScope(organizationId, BranchId: branchId);
         var actorId = Guid.NewGuid();
 
         await priceListStore.AppendEntryAsync(
             tenantScope,
             new NewPriceListEntry(
-                Guid.NewGuid(), priceListId, presentationId, unitPrice, DateOnly.FromDateTime(DateTime.UtcNow),
+                Guid.NewGuid(), priceListId, presentationId, unitPrice, Commerce.Application.Time.BusinessClock.System.Today,
                 "Manual", ImportBatchId: null, actorId),
             "org-user", actorId, CancellationToken.None);
     }
@@ -200,9 +207,9 @@ public sealed class CatalogPriceSyncTests : IClassFixture<WebApplicationFactory<
         var deviceToken = await IssueDeviceTokenAsync(orgId, branchId);
 
         var since = DateTimeOffset.UtcNow.AddMinutes(-1);
-        var presentationId = await SeedPresentationAsync(orgId);
-        var priceListId = await SeedDefaultPriceListAsync(orgId);
-        await PublishPriceAsync(orgId, priceListId, presentationId, 42.50m);
+        var presentationId = await SeedPresentationAsync(orgId, branchId);
+        var priceListId = await SeedDefaultPriceListAsync(orgId, branchId);
+        await PublishPriceAsync(orgId, branchId, priceListId, presentationId, 42.50m);
 
         var client = _factory.CreateClient();
         var response = await client.SendAsync(
@@ -226,9 +233,9 @@ public sealed class CatalogPriceSyncTests : IClassFixture<WebApplicationFactory<
         await SeedBranchAsync(orgId, branchId);
         var deviceToken = await IssueDeviceTokenAsync(orgId, branchId);
 
-        var presentationId = await SeedPresentationAsync(orgId);
-        var priceListId = await SeedDefaultPriceListAsync(orgId);
-        await PublishPriceAsync(orgId, priceListId, presentationId, 10m);
+        var presentationId = await SeedPresentationAsync(orgId, branchId);
+        var priceListId = await SeedDefaultPriceListAsync(orgId, branchId);
+        await PublishPriceAsync(orgId, branchId, priceListId, presentationId, 10m);
         await Task.Delay(50);
         var cursor = DateTimeOffset.UtcNow;
 
@@ -252,13 +259,13 @@ public sealed class CatalogPriceSyncTests : IClassFixture<WebApplicationFactory<
         await SeedBranchAsync(orgId, branchId);
         var deviceToken = await IssueDeviceTokenAsync(orgId, branchId);
 
-        var presentationId = await SeedPresentationAsync(orgId);
-        var priceListId = await SeedDefaultPriceListAsync(orgId);
+        var presentationId = await SeedPresentationAsync(orgId, branchId);
+        var priceListId = await SeedDefaultPriceListAsync(orgId, branchId);
         await Task.Delay(50);
         var cursor = DateTimeOffset.UtcNow;
         await Task.Delay(50);
         // Only the price changes after the cursor; the catalog row does not.
-        await PublishPriceAsync(orgId, priceListId, presentationId, 77m);
+        await PublishPriceAsync(orgId, branchId, priceListId, presentationId, 77m);
 
         var client = _factory.CreateClient();
         var response = await client.SendAsync(
@@ -283,7 +290,7 @@ public sealed class CatalogPriceSyncTests : IClassFixture<WebApplicationFactory<
         var deviceToken = await IssueDeviceTokenAsync(orgId, branchId);
 
         var since = DateTimeOffset.UtcNow.AddMinutes(-1);
-        var presentationId = await SeedPresentationAsync(orgId);
+        var presentationId = await SeedPresentationAsync(orgId, branchId);
         // No price list, no published price at all.
 
         var client = _factory.CreateClient();
@@ -305,13 +312,15 @@ public sealed class CatalogPriceSyncTests : IClassFixture<WebApplicationFactory<
         var orgAId = Guid.NewGuid();
         var orgBId = Guid.NewGuid();
         var branchAId = Guid.NewGuid();
+        var branchBId = Guid.NewGuid();
         await SeedOrganizationAsync(orgAId);
         await SeedOrganizationAsync(orgBId);
         await SeedBranchAsync(orgAId, branchAId);
+        await SeedBranchAsync(orgBId, branchBId);
         var deviceTokenA = await IssueDeviceTokenAsync(orgAId, branchAId);
 
         var since = DateTimeOffset.UtcNow.AddMinutes(-1);
-        await SeedPresentationAsync(orgBId, identificationCode: "ORG-B-ONLY");
+        await SeedPresentationAsync(orgBId, branchBId, identificationCode: "ORG-B-ONLY");
 
         var client = _factory.CreateClient();
         var response = await client.SendAsync(
@@ -320,5 +329,110 @@ public sealed class CatalogPriceSyncTests : IClassFixture<WebApplicationFactory<
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<CatalogSyncResponse>();
         Assert.Empty(body!.Items);
+    }
+
+    // --- catalog-categories: category id/name/icon in the projection, and
+    // product/category edits re-sending their presentations -------------------
+
+    private async Task<(Guid OrganizationId, Guid BranchId, string DeviceToken)> SeedDeviceAsync()
+    {
+        var orgId = Guid.NewGuid();
+        var branchId = Guid.NewGuid();
+        await SeedOrganizationAsync(orgId);
+        await SeedBranchAsync(orgId, branchId);
+        return (orgId, branchId, await IssueDeviceTokenAsync(orgId, branchId));
+    }
+
+    private async Task<CatalogSyncResponse> SyncAsync(string deviceToken, DateTimeOffset since)
+    {
+        var response = await _factory.CreateClient().SendAsync(
+            BuildRequest($"/device/catalog/sync?since={Uri.EscapeDataString(since.ToString("O"))}", deviceToken));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<CatalogSyncResponse>())!;
+    }
+
+    [Fact]
+    public async Task Sync_Row_CarriesTheProductsCategoryIdNameAndIconKey()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var (orgId, branchId, deviceToken) = await SeedDeviceAsync();
+        var since = DateTimeOffset.UtcNow.AddMinutes(-1);
+        var categoryId = CategoryFixture.Create(orgId, "wine", "Vinos");
+        var presentationId = await SeedPresentationAsync(orgId, branchId, categoryId: categoryId);
+
+        var body = await SyncAsync(deviceToken, since);
+
+        var item = Assert.Single(body.Items, i => i.PresentationId == presentationId);
+        Assert.Equal(categoryId, item.CategoryId);
+        Assert.Equal("Vinos", item.CategoryName);
+        Assert.Equal("wine", item.CategoryIconKey);
+    }
+
+    [Fact]
+    public async Task Sync_ProductOnlyEdit_ResendsItsPresentations()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var (orgId, branchId, deviceToken) = await SeedDeviceAsync();
+        var presentationId = await SeedPresentationAsync(orgId, branchId);
+        var scope = new CloudTenantScope(orgId, BranchId: branchId);
+        using var services = _factory.Services.CreateScope();
+        var catalogStore = services.ServiceProvider.GetRequiredService<PostgresCatalogStore>();
+        var presentation = (await catalogStore.FindPresentationAsync(scope, presentationId, CancellationToken.None))!;
+        var product = (await catalogStore.FindProductAsync(scope, presentation.ProductId, CancellationToken.None))!;
+        await Task.Delay(50);
+        var cursor = DateTimeOffset.UtcNow;
+        await Task.Delay(50);
+
+        // Only the PRODUCT changes after the cursor: presentation row untouched.
+        await catalogStore.UpdateProductAsync(
+            scope, product.Id, new UpdateProduct("Harina 000", product.CategoryId, product.DefaultUnitId),
+            "org-user", Guid.NewGuid(), CancellationToken.None);
+
+        var body = await SyncAsync(deviceToken, cursor);
+
+        var item = Assert.Single(body.Items, i => i.PresentationId == presentationId);
+        Assert.Equal("Harina 000", item.ProductName);
+    }
+
+    [Fact]
+    public async Task Sync_CategoryRename_ResendsThePresentationsOfItsProducts()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var (orgId, branchId, deviceToken) = await SeedDeviceAsync();
+        var categoryId = CategoryFixture.Create(orgId, "meat", "Carnes");
+        var presentationId = await SeedPresentationAsync(orgId, branchId, categoryId: categoryId);
+        await Task.Delay(50);
+        var cursor = DateTimeOffset.UtcNow;
+        await Task.Delay(50);
+
+        using var services = _factory.Services.CreateScope();
+        var categoryStore = services.ServiceProvider.GetRequiredService<PostgresCategoryStore>();
+        await categoryStore.UpdateAsync(
+            new CloudTenantScope(orgId, BranchId: branchId), categoryId, "Carnes rojas", "charcoal",
+            "org-user", Guid.NewGuid(), CancellationToken.None);
+
+        var body = await SyncAsync(deviceToken, cursor);
+
+        var item = Assert.Single(body.Items, i => i.PresentationId == presentationId);
+        Assert.Equal("Carnes rojas", item.CategoryName);
+        Assert.Equal("charcoal", item.CategoryIconKey);
+    }
+
+    [Fact]
+    public async Task Sync_AnUnchangedProductAndCategory_AreNotResent()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var (orgId, branchId, deviceToken) = await SeedDeviceAsync();
+        await SeedPresentationAsync(orgId, branchId, categoryId: CategoryFixture.Create(orgId, "meat", "Carnes"));
+        await Task.Delay(50);
+        var cursor = DateTimeOffset.UtcNow;
+
+        var body = await SyncAsync(deviceToken, cursor);
+
+        Assert.Empty(body.Items);
     }
 }

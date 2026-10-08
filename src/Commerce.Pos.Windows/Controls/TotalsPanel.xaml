@@ -1,0 +1,66 @@
+<UserControl x:Class="Commerce.Pos.Windows.Controls.TotalsPanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Foreground="{DynamicResource TextBrush}">
+    <Border Style="{StaticResource CardBorder}" Padding="16,12" CornerRadius="12">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <!-- No tax line yet: the IVA breakdown is Phase 2. -->
+            <Grid Grid.Row="0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="Subtotal" Style="{StaticResource MutedTextBlock}" />
+                <TextBlock x:Name="SubtotalText" Grid.Column="1" Text="$0.00" Style="{StaticResource MutedTextBlock}" />
+            </Grid>
+
+            <!-- Discounts: the amount taken off (lines plus the whole sale) and the action for the whole-sale discount. -->
+            <Grid x:Name="DiscountRow" Grid.Row="1" Margin="0,4,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="Descuento" Style="{StaticResource MutedTextBlock}" VerticalAlignment="Center" />
+                <TextBlock x:Name="DiscountText" Grid.Column="1" Text="$0.00" Style="{StaticResource MutedTextBlock}" VerticalAlignment="Center" Margin="0,0,12,0" />
+                <Button x:Name="SaleDiscountButton" Grid.Column="2" Style="{StaticResource IconButton}" Width="28" Height="28"
+                        Click="SaleDiscountButton_Click" ToolTip="Descuento de la venta" AutomationProperties.Name="Descuento de la venta">
+                    <TextBlock Text="%" FontSize="15" FontWeight="Bold" Foreground="{DynamicResource AccentTextBrush}" />
+                </Button>
+            </Grid>
+
+            <Grid Grid.Row="2" Margin="0,6,0,14">
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="TOTAL" FontSize="16" FontWeight="SemiBold" Style="{StaticResource MutedTextBlock}" VerticalAlignment="Center" Margin="0,0,10,0" />
+                    <TextBlock x:Name="ScannedTotalText" Text="$0.00" FontSize="32" FontWeight="Bold" VerticalAlignment="Center" />
+                </StackPanel>
+            </Grid>
+
+            <!-- Payment methods: the way to complete a sale. Each one asks the host to collect the tender and commit. -->
+            <UniformGrid Grid.Row="3" Rows="1">
+                <UniformGrid.Resources>
+                    <Style TargetType="Button" BasedOn="{StaticResource TenderButton}">
+                        <Setter Property="Margin" Value="{StaticResource ActionSpacing}" />
+                        <Setter Property="FontSize" Value="15" />
+                        <Setter Property="FontWeight" Value="SemiBold" />
+                        <EventSetter Event="Click" Handler="TenderButton_Click" />
+                    </Style>
+                </UniformGrid.Resources>
+                <Button x:Name="CashTenderButton" Content="Efectivo" Tag="cash" AutomationProperties.Name="Cobrar en efectivo" />
+                <Button x:Name="CardTenderButton" Content="Tarjeta" Tag="card" AutomationProperties.Name="Cobrar con tarjeta" />
+                <Button x:Name="QrTenderButton" Content="QR" Tag="qr" AutomationProperties.Name="Cobrar con QR" />
+                <!-- A sale on the customer's current account: only with a customer chosen (walk-in has no account). -->
+                <Button x:Name="AccountTenderButton" Content="Cuenta corriente" Tag="account" Margin="0" IsEnabled="False"
+                        ToolTip="Elegí un cliente para vender a cuenta corriente" ToolTipService.ShowOnDisabled="True"
+                        AutomationProperties.Name="Vender a cuenta corriente" />
+            </UniformGrid>
+        </Grid>
+    </Border>
+</UserControl>

@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -6,6 +7,7 @@ import { Label } from '@/components/ui/label'
 import { useAuth } from '@/auth/AuthContext'
 
 export function SignInScreen() {
+  const { t } = useTranslation('auth')
   const { signIn, error } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -26,12 +28,12 @@ export function SignInScreen() {
   return (
     <Card className="mx-auto mt-16 w-full max-w-sm">
       <CardHeader>
-        <CardTitle>Sign in</CardTitle>
+        <CardTitle>{t('signIn.title')}</CardTitle>
       </CardHeader>
       <CardContent>
         <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="email">Email</Label>
+            <Label htmlFor="email">{t('signIn.emailLabel')}</Label>
             <Input
               id="email"
               type="email"
@@ -42,7 +44,7 @@ export function SignInScreen() {
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="password">Password</Label>
+            <Label htmlFor="password">{t('signIn.passwordLabel')}</Label>
             <Input
               id="password"
               type="password"
@@ -57,7 +59,7 @@ export function SignInScreen() {
             </p>
           )}
           <Button type="submit" disabled={submitting}>
-            {submitting ? 'Signing in…' : 'Sign in'}
+            {submitting ? t('signIn.submitting') : t('signIn.submit')}
           </Button>
         </form>
       </CardContent>

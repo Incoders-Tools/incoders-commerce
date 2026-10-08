@@ -2,6 +2,7 @@ using Commerce.Cloud.Api.Endpoints;
 using Commerce.Cloud.Api.Persistence;
 using Commerce.Cloud.Api.Tenancy;
 using Commerce.Domain.Identity;
+using Commerce.Domain.Tenancy;
 using Npgsql;
 
 namespace Commerce.Integration;
@@ -67,9 +68,12 @@ public sealed class DeviceCredentialStoreTests : IDisposable
 
         var orgsSql = File.ReadAllText(Path.Combine(repoRoot, "deploy", "db", "migrations", "0003_organizations_branches.sql"));
         using (var cmd = new NpgsqlCommand(orgsSql, owner)) cmd.ExecuteNonQuery();
+        PostgresTestFixture.ApplyMigration(owner, "0021_branch_codes.sql");
 
         var deviceSql = File.ReadAllText(Path.Combine(repoRoot, "deploy", "db", "migrations", "0004_device_credentials.sql"));
         using (var cmd = new NpgsqlCommand(deviceSql, owner)) cmd.ExecuteNonQuery();
+        PostgresTestFixture.ApplyMigration(owner, "0022_terminal_registers.sql");
+        PostgresTestFixture.ApplyMigration(owner, "0024_terminal_registers_assign_result.sql");
 
         var recoverySql = File.ReadAllText(Path.Combine(repoRoot, "deploy", "db", "migrations", "0005_password_recovery.sql"));
         using (var cmd = new NpgsqlCommand(recoverySql, owner)) cmd.ExecuteNonQuery();
@@ -213,5 +217,265 @@ public sealed class DeviceCredentialStoreTests : IDisposable
             DeviceTokenHasher.Hash(orgACredential.PlaintextToken), CancellationToken.None);
         Assert.NotNull(orgARowAfter);
         Assert.True(orgARowAfter!.IsRevoked);
+    }
+
+    private async Task<Guid> AddBranchAsync(Guid orgId, string name)
+    {
+        var orgStore = new PostgresOrganizationStore(_dataSource!, new PostgresUserAccountStore(_dataSource!));
+        var branchId = Guid.NewGuid();
+        await orgStore.CreateBranchAsync(new CloudTenantScope(orgId), new NewBranch(branchId, name), CancellationToken.None);
+        return branchId;
+    }
+
+    internal static void ForgetRegisters(Guid installationId)
+    {
+        using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        owner.Open();
+        foreach (var sql in new[]
+                 {
+                     "ALTER TABLE terminal_registers NO FORCE ROW LEVEL SECURITY",
+                     $"DELETE FROM terminal_registers WHERE installation_id = '{installationId}'",
+                     "ALTER TABLE terminal_registers FORCE ROW LEVEL SECURITY",
+                 })
+        {
+            using var cmd = new NpgsqlCommand(sql, owner);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    [Fact]
+    public async Task IssueAsync_AssignsRegisterNumbersSequentiallyPerBranch()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var (orgId, branchId, userId) = await SeedOrgAndBranchAsync(_dataSource!);
+        var otherBranchId = await AddBranchAsync(orgId, "Second");
+        var store = new PostgresDeviceCredentialStore(_dataSource!);
+        var scope = new CloudTenantScope(orgId);
+
+        var first = await store.IssueAsync(scope, Guid.NewGuid(), branchId, userId, CancellationToken.None);
+        var second = await store.IssueAsync(scope, Guid.NewGuid(), branchId, userId, CancellationToken.None);
+        var otherBranch = await store.IssueAsync(scope, Guid.NewGuid(), otherBranchId, userId, CancellationToken.None);
+
+        Assert.Equal(1, first.RegisterNumber);
+        Assert.Equal(2, second.RegisterNumber);
+        Assert.Equal(1, otherBranch.RegisterNumber);
+    }
+
+    [Fact]
+    public async Task IssueAsync_RepairInTheSameBranch_KeepsTheRegisterNumber()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var (orgId, branchId, userId) = await SeedOrgAndBranchAsync(_dataSource!);
+        var store = new PostgresDeviceCredentialStore(_dataSource!);
+        var scope = new CloudTenantScope(orgId);
+        var installationId = Guid.NewGuid();
+
+        await store.IssueAsync(scope, Guid.NewGuid(), branchId, userId, CancellationToken.None);
+        var original = await store.IssueAsync(scope, installationId, branchId, userId, CancellationToken.None);
+        var repaired = await store.IssueAsync(scope, installationId, branchId, userId, CancellationToken.None);
+
+        Assert.Equal(2, original.RegisterNumber);
+        Assert.Equal(2, repaired.RegisterNumber);
+    }
+
+    [Fact]
+    public async Task IssueAsync_RepairInAnotherBranch_GetsANewNumber_AndTheFreedNumberIsNeverReused()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var (orgId, branchAId, userId) = await SeedOrgAndBranchAsync(_dataSource!);
+        var branchBId = await AddBranchAsync(orgId, "Second");
+        var store = new PostgresDeviceCredentialStore(_dataSource!);
+        var scope = new CloudTenantScope(orgId);
+        var mover = Guid.NewGuid();
+
+        var inA = await store.IssueAsync(scope, mover, branchAId, userId, CancellationToken.None);
+        await store.IssueAsync(scope, Guid.NewGuid(), branchBId, userId, CancellationToken.None);
+        var inB = await store.IssueAsync(scope, mover, branchBId, userId, CancellationToken.None);
+        var newcomerInA = await store.IssueAsync(scope, Guid.NewGuid(), branchAId, userId, CancellationToken.None);
+
+        Assert.Equal(1, inA.RegisterNumber);
+        Assert.Equal(2, inB.RegisterNumber);
+        // Register 1 of branch A was freed by the mover but must not go to a different terminal.
+        Assert.Equal(2, newcomerInA.RegisterNumber);
+        // Going back gives the mover ITS OWN old number again.
+        var back = await store.IssueAsync(scope, mover, branchAId, userId, CancellationToken.None);
+        Assert.Equal(1, back.RegisterNumber);
+    }
+
+    [Fact]
+    public async Task ConcurrentPairings_IntoOneBranch_GetDistinctConsecutiveNumbers()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var (orgId, branchId, userId) = await SeedOrgAndBranchAsync(_dataSource!);
+        var store = new PostgresDeviceCredentialStore(_dataSource!);
+        var scope = new CloudTenantScope(orgId);
+
+        var issued = await Task.WhenAll(Enumerable.Range(0, 12).Select(_ =>
+            Task.Run(() => store.IssueAsync(scope, Guid.NewGuid(), branchId, userId, CancellationToken.None))));
+
+        Assert.Equal(Enumerable.Range(1, 12), issued.Select(i => i.RegisterNumber).Order());
+    }
+
+    [Fact]
+    public async Task IssueAsync_WhenTheBranchRanOutOfNumbers_ThrowsTheTypedError_AndKeepsThePriorCredentialLive()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var (orgId, branchId, userId) = await SeedOrgAndBranchAsync(_dataSource!);
+        var store = new PostgresDeviceCredentialStore(_dataSource!);
+        var scope = new CloudTenantScope(orgId);
+        var live = await store.IssueAsync(scope, Guid.NewGuid(), branchId, userId, CancellationToken.None);
+        using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            owner.Open();
+            using var set = new NpgsqlCommand("SELECT set_config('app.current_org_id', $1, false)", owner);
+            set.Parameters.AddWithValue(orgId.ToString());
+            set.ExecuteNonQuery();
+            using var top = new NpgsqlCommand("INSERT INTO terminal_registers (organization_id, branch_id, installation_id, register_number) VALUES ($1, $2, $3, 999)", owner);
+            top.Parameters.AddWithValue(orgId); top.Parameters.AddWithValue(branchId); top.Parameters.AddWithValue(Guid.NewGuid());
+            top.ExecuteNonQuery();
+        }
+
+        await Assert.ThrowsAsync<RegisterNumbersExhaustedException>(() =>
+            store.IssueAsync(scope, Guid.NewGuid(), branchId, userId, CancellationToken.None));
+
+        // The failed pairing rolled back as a whole: the earlier terminal still holds a live credential.
+        var found = await store.FindByTokenHashAsync(DeviceTokenHasher.Hash(live.PlaintextToken), CancellationToken.None);
+        Assert.False(found!.IsRevoked);
+    }
+
+    [Fact]
+    public async Task GetIdentityAsync_ReturnsBranchAndRegister_AllocatingOneForATerminalPairedBeforeTheFeature()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var (orgId, branchId, userId) = await SeedOrgAndBranchAsync(_dataSource!);
+        var credentials = new PostgresDeviceCredentialStore(_dataSource!);
+        var registers = new PostgresTerminalRegisterStore(_dataSource!);
+        var scope = new CloudTenantScope(orgId);
+        var installationId = Guid.NewGuid();
+        await credentials.IssueAsync(scope, installationId, branchId, userId, CancellationToken.None);
+        ForgetRegisters(installationId);
+
+        var identity = await registers.GetIdentityAsync(scope, branchId, installationId, CancellationToken.None);
+        var again = await registers.GetIdentityAsync(scope, branchId, installationId, CancellationToken.None);
+
+        Assert.NotNull(identity);
+        Assert.Equal("Main", identity!.BranchName);
+        Assert.Equal(1, identity.BranchCode);
+        Assert.Equal(1, identity.RegisterNumber);
+        Assert.Equal(1, again!.RegisterNumber);
+    }
+
+    [Fact]
+    public async Task GetIdentityAsync_ForAnUnknownBranch_ReturnsNull()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var (orgId, _, _) = await SeedOrgAndBranchAsync(_dataSource!);
+        var registers = new PostgresTerminalRegisterStore(_dataSource!);
+
+        Assert.Null(await registers.GetIdentityAsync(new CloudTenantScope(orgId), Guid.NewGuid(), Guid.NewGuid(), CancellationToken.None));
+    }
+
+    private static void SetOrgScope(NpgsqlConnection owner, Guid orgId)
+    {
+        using var set = new NpgsqlCommand("SELECT set_config('app.current_org_id', $1, false)", owner);
+        set.Parameters.AddWithValue(orgId.ToString());
+        set.ExecuteNonQuery();
+    }
+
+    private static long CountAssignedAudits(Guid installationId)
+    {
+        using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        owner.Open();
+        using var cmd = new NpgsqlCommand(
+            "SELECT count(*) FROM audit_log WHERE entity_type = 'terminal-register' AND entity_id = $1 AND action = 'terminal.register.assigned'", owner);
+        cmd.Parameters.AddWithValue(installationId);
+        return (long)cmd.ExecuteScalar()!;
+    }
+
+    /// <summary>Live = the register row is not released; Exists = the installation has a row in that branch.</summary>
+    private static (bool Live, bool Exists) RegisterState(Guid branchId, Guid installationId)
+    {
+        using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        owner.Open();
+        using var cmd = new NpgsqlCommand(
+            "SELECT released_at IS NULL FROM terminal_registers WHERE branch_id = $1 AND installation_id = $2", owner);
+        cmd.Parameters.AddWithValue(branchId);
+        cmd.Parameters.AddWithValue(installationId);
+        var value = cmd.ExecuteScalar();
+        return (value is true, value is not null);
+    }
+
+    [Fact]
+    public async Task IssueAsync_AuditsEachNewRegisterAssignment_ButNotARepairInTheSameBranch()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var (orgId, branchId, userId) = await SeedOrgAndBranchAsync(_dataSource!);
+        var store = new PostgresDeviceCredentialStore(_dataSource!);
+        var scope = new CloudTenantScope(orgId);
+        var installationId = Guid.NewGuid();
+
+        await store.IssueAsync(scope, installationId, branchId, userId, CancellationToken.None);
+        await store.IssueAsync(scope, installationId, branchId, userId, CancellationToken.None);
+
+        Assert.Equal(1, CountAssignedAudits(installationId));
+    }
+
+    [Fact]
+    public async Task IssueAsync_WhenTheNewBranchIsExhausted_KeepsThePreviousCredentialLive_AndItsRegisterUnreleased()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var (orgId, branchAId, userId) = await SeedOrgAndBranchAsync(_dataSource!);
+        var branchBId = await AddBranchAsync(orgId, "Second");
+        var store = new PostgresDeviceCredentialStore(_dataSource!);
+        var scope = new CloudTenantScope(orgId);
+        var installationId = Guid.NewGuid();
+        var inA = await store.IssueAsync(scope, installationId, branchAId, userId, CancellationToken.None);
+        using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            owner.Open();
+            SetOrgScope(owner, orgId);
+            using var top = new NpgsqlCommand("INSERT INTO terminal_registers (organization_id, branch_id, installation_id, register_number) VALUES ($1, $2, $3, 999)", owner);
+            top.Parameters.AddWithValue(orgId); top.Parameters.AddWithValue(branchBId); top.Parameters.AddWithValue(Guid.NewGuid());
+            top.ExecuteNonQuery();
+        }
+
+        await Assert.ThrowsAsync<RegisterNumbersExhaustedException>(() =>
+            store.IssueAsync(scope, installationId, branchBId, userId, CancellationToken.None));
+
+        var credential = await store.FindByTokenHashAsync(DeviceTokenHasher.Hash(inA.PlaintextToken), CancellationToken.None);
+        Assert.False(credential!.IsRevoked);
+        Assert.Equal((true, true), RegisterState(branchAId, installationId));
+    }
+
+    [Fact]
+    public async Task GetIdentityAsync_WithACredentialRevokedByARepairing_ThrowsAndNeverReleasesOrAllocates()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        // The race: an identity call authenticated with the branch-B credential is still running
+        // when the terminal re-pairs to branch A. Its late write must not undo the re-pairing.
+        var (orgId, branchAId, userId) = await SeedOrgAndBranchAsync(_dataSource!);
+        var branchBId = await AddBranchAsync(orgId, "Second");
+        var credentials = new PostgresDeviceCredentialStore(_dataSource!);
+        var registers = new PostgresTerminalRegisterStore(_dataSource!);
+        var scope = new CloudTenantScope(orgId);
+        var installationId = Guid.NewGuid();
+        await credentials.IssueAsync(scope, installationId, branchBId, userId, CancellationToken.None);
+        await credentials.IssueAsync(scope, installationId, branchAId, userId, CancellationToken.None);
+
+        await Assert.ThrowsAsync<DeviceCredentialNotLiveException>(() =>
+            registers.GetIdentityAsync(scope, branchBId, installationId, CancellationToken.None));
+
+        Assert.Equal((true, true), RegisterState(branchAId, installationId));
+        Assert.Equal((false, true), RegisterState(branchBId, installationId));
     }
 }

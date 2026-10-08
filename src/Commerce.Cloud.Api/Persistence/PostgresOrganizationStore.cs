@@ -55,12 +55,7 @@ public sealed class PostgresOrganizationStore
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
 
-        await using (var scopeCmd = new NpgsqlCommand(
-            "SELECT set_config('app.current_org_id', $1, true)", connection, tx))
-        {
-            scopeCmd.Parameters.AddWithValue(scope.OrganizationId.ToString());
-            await scopeCmd.ExecuteNonQueryAsync(ct);
-        }
+        await TenantScopeSql.ApplyAsync(connection, tx, scope, ct);
 
         // Reject-if-org-exists (design.md): checked INSIDE the write
         // transaction, immediately after set_config, before any insert.
@@ -97,6 +92,7 @@ public sealed class PostgresOrganizationStore
             await insertOrgCmd.ExecuteNonQueryAsync(ct);
         }
 
+        // No `code` column: the `branches_code_allocate` trigger gives the organization's first branch code 1.
         await using (var insertBranchCmd = new NpgsqlCommand(
             "INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, $3)", connection, tx))
         {
@@ -146,58 +142,76 @@ public sealed class PostgresOrganizationStore
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
 
-        await using (var scopeCmd = new NpgsqlCommand(
-            "SELECT set_config('app.current_org_id', $1, true)", connection, tx))
-        {
-            scopeCmd.Parameters.AddWithValue(scope.OrganizationId.ToString());
-            await scopeCmd.ExecuteNonQueryAsync(ct);
-        }
+        await TenantScopeSql.ApplyAsync(connection, tx, scope, ct);
 
         var results = new List<BranchOption>();
         await using (var cmd = new NpgsqlCommand(
-            "SELECT id, name FROM branches WHERE id = ANY($1) ORDER BY name", connection, tx))
+            "SELECT id, name, code FROM branches WHERE id = ANY($1) ORDER BY name", connection, tx))
         {
             cmd.Parameters.AddWithValue(branchIds);
             await using var reader = await cmd.ExecuteReaderAsync(ct);
             while (await reader.ReadAsync(ct))
             {
-                results.Add(new BranchOption(reader.GetGuid(0), reader.GetString(1)));
+                results.Add(new BranchOption(reader.GetGuid(0), reader.GetString(1), reader.GetInt16(2)));
             }
         }
 
         await tx.CommitAsync(ct);
         return results;
     }
-    public async Task CreateBranchAsync(CloudTenantScope scope, NewBranch branch, CancellationToken ct)
+
+    public Task<int> CreateBranchAsync(CloudTenantScope scope, NewBranch branch, CancellationToken ct) =>
+        CreateBranchAsync(scope, branch, audit: null, ct);
+
+    /// <summary>
+    /// <paramref name="audit"/> is written in the SAME transaction as the
+    /// branch insert (platform-administration spec "Sysadmin Acts On A
+    /// Selected Organization": "every write ... is audited"). Every
+    /// existing caller keeps passing <c>null</c> (no behavior change for a
+    /// same-org caller); only the sysadmin-acting-on-a-selected-organization
+    /// path (`POST /account/branches` under
+    /// <see cref="Tenancy.CloudTenantScope.IsActingOnSelectedOrganization"/>)
+    /// supplies one.
+    /// </summary>
+    public async Task<int> CreateBranchAsync(CloudTenantScope scope, NewBranch branch, Auditing.UserManagementAuditEntry? audit, CancellationToken ct)
     {
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
-        await using (var scopeCmd = new NpgsqlCommand("SELECT set_config('app.current_org_id', $1, true)", connection, tx))
-        {
-            scopeCmd.Parameters.AddWithValue(scope.OrganizationId.ToString());
-            await scopeCmd.ExecuteNonQueryAsync(ct);
-        }
-        await using (var cmd = new NpgsqlCommand("INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, $3)", connection, tx))
+        await TenantScopeSql.ApplyAsync(connection, tx, scope, ct);
+        // `code` is left out on purpose: the `branches_code_allocate` trigger assigns the next
+        // per-organization code under an advisory lock (0021_branch_codes.sql), so this insert and
+        // any raw-SQL insert share ONE allocation rule. RETURNING hands the assigned code back.
+        short code;
+        await using (var cmd = new NpgsqlCommand("INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, $3) RETURNING code", connection, tx))
         {
             cmd.Parameters.AddWithValue(branch.Id); cmd.Parameters.AddWithValue(scope.OrganizationId); cmd.Parameters.AddWithValue(branch.Name);
-            await cmd.ExecuteNonQueryAsync(ct);
+            try
+            {
+                code = (short)(await cmd.ExecuteScalarAsync(ct))!;
+            }
+            catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.CheckViolation && ex.ConstraintName == "branches_code_range_ck")
+            {
+                // The trigger offered MAX(code)+1 = 1000: the organization used up 1..999.
+                throw new Commerce.Domain.Tenancy.BranchCodesExhaustedException();
+            }
+        }
+        if (audit is not null)
+        {
+            await Auditing.AuditLogWriter.InsertAsync(connection, tx, audit, ct);
         }
         await tx.CommitAsync(ct);
+        return code;
     }
 
     public async Task<IReadOnlyList<BranchOption>> ListBranchesAsync(CloudTenantScope scope, CancellationToken ct)
     {
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
-        await using (var scopeCmd = new NpgsqlCommand("SELECT set_config('app.current_org_id', $1, true)", connection, tx))
-        {
-            scopeCmd.Parameters.AddWithValue(scope.OrganizationId.ToString());
-            await scopeCmd.ExecuteNonQueryAsync(ct);
-        }
+        await TenantScopeSql.ApplyAsync(connection, tx, scope, ct);
         var branches = new List<BranchOption>();
-        await using var cmd = new NpgsqlCommand("SELECT id, name FROM branches ORDER BY name", connection, tx);
+        await using var cmd = new NpgsqlCommand("SELECT id, name, code FROM branches ORDER BY name", connection, tx);
         await using var reader = await cmd.ExecuteReaderAsync(ct);
-        while (await reader.ReadAsync(ct)) branches.Add(new BranchOption(reader.GetGuid(0), reader.GetString(1)));
+        while (await reader.ReadAsync(ct)) branches.Add(new BranchOption(reader.GetGuid(0), reader.GetString(1), reader.GetInt16(2)));
         await reader.CloseAsync();
         await tx.CommitAsync(ct);
         return branches;
@@ -213,5 +227,168 @@ public sealed class PostgresOrganizationStore
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         while (await reader.ReadAsync(ct)) organizations.Add(new OrganizationSummary(reader.GetGuid(0), reader.GetString(1), reader.GetFieldValue<DateTimeOffset>(2)));
         return organizations;
+    }
+
+    /// <summary>
+    /// Existence check for a caller-submitted organization id (platform-
+    /// administration spec "Sysadmin Acts On A Selected Organization"):
+    /// used ONLY by <see cref="Tenancy.TenantScopeEndpointFilter"/> to decide
+    /// whether a system administrator's selected-organization header names a
+    /// real organization before honoring it. Same `set_config` +
+    /// scoped-read pattern as <see cref="GetBrandingAsync"/> — RLS still
+    /// applies, this never bypasses it.
+    /// </summary>
+    public async Task<bool> OrganizationExistsAsync(Guid organizationId, CancellationToken ct)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+
+        await TenantScopeSql.ApplyAsync(connection, tx, organizationId, branchId: null, ct);
+
+        await using var cmd = new NpgsqlCommand("SELECT EXISTS (SELECT 1 FROM organizations WHERE id = $1)", connection, tx);
+        cmd.Parameters.AddWithValue(organizationId);
+        var exists = (bool)(await cmd.ExecuteScalarAsync(ct))!;
+
+        await tx.CommitAsync(ct);
+        return exists;
+    }
+
+    /// <summary>
+    /// Reads one organization's branding (T5a, organization-persistence spec
+    /// "Organization Branding Fields"). <paramref name="organizationId"/> is
+    /// ALWAYS a value the CALLER already trusts — either a system-admin-gated
+    /// route parameter (the endpoint checks `IsSystemAdmin` before calling
+    /// this) or the authenticated caller's own
+    /// <see cref="Tenancy.CloudTenantScope.OrganizationId"/> for the
+    /// "my organization" endpoint. This method never re-derives or validates
+    /// that trust itself — RLS scopes strictly to whatever id `set_config`
+    /// receives here, so the caller is what keeps it trustworthy. Returns
+    /// <c>null</c> when no organization with that id exists.
+    /// </summary>
+    public async Task<OrganizationBranding?> GetBrandingAsync(Guid organizationId, CancellationToken ct)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+
+        await TenantScopeSql.ApplyAsync(connection, tx, organizationId, branchId: null, ct);
+
+        OrganizationBranding? branding = null;
+        await using (var cmd = new NpgsqlCommand("SELECT logo_url, primary_color FROM organizations WHERE id = $1", connection, tx))
+        {
+            cmd.Parameters.AddWithValue(organizationId);
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            if (await reader.ReadAsync(ct))
+            {
+                branding = new OrganizationBranding(
+                    reader.IsDBNull(0) ? null : reader.GetString(0),
+                    reader.IsDBNull(1) ? null : reader.GetString(1));
+            }
+        }
+
+        await tx.CommitAsync(ct);
+        return branding;
+    }
+
+    /// <summary>
+    /// Updates one organization's branding and writes the audit row in the
+    /// SAME transaction (same convention as
+    /// <see cref="TryCreateBootstrapAsync"/>'s optional audit parameter) —
+    /// they commit together or not at all. Same trust note as
+    /// <see cref="GetBrandingAsync"/>: the caller (the system-admin-gated
+    /// endpoint) is what makes <paramref name="organizationId"/> safe to use.
+    /// Returns <c>false</c> when no organization with that id exists, in
+    /// which case nothing — including the audit row — is written.
+    /// </summary>
+    public async Task<bool> UpdateBrandingAsync(
+        Guid organizationId, string? logoUrl, string? primaryColor, UserManagementAuditEntry audit, CancellationToken ct)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+
+        await TenantScopeSql.ApplyAsync(connection, tx, organizationId, branchId: null, ct);
+
+        int rowsAffected;
+        await using (var cmd = new NpgsqlCommand(
+            "UPDATE organizations SET logo_url = $1, primary_color = $2 WHERE id = $3", connection, tx))
+        {
+            cmd.Parameters.AddWithValue((object?)logoUrl ?? DBNull.Value);
+            cmd.Parameters.AddWithValue((object?)primaryColor ?? DBNull.Value);
+            cmd.Parameters.AddWithValue(organizationId);
+            rowsAffected = await cmd.ExecuteNonQueryAsync(ct);
+        }
+
+        if (rowsAffected == 0)
+        {
+            await tx.RollbackAsync(ct);
+            return false;
+        }
+
+        await AuditLogWriter.InsertAsync(connection, tx, audit, ct);
+        await tx.CommitAsync(ct);
+        return true;
+    }
+
+    /// <summary>
+    /// Reads one organization's settings (the number format). Same trust note as <see cref="GetBrandingAsync"/>:
+    /// the caller passes its own authenticated organization id. Returns <c>null</c> when it does not exist.
+    /// </summary>
+    public async Task<OrganizationSettings?> GetSettingsAsync(Guid organizationId, CancellationToken ct)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+
+        await TenantScopeSql.ApplyAsync(connection, tx, organizationId, branchId: null, ct);
+
+        OrganizationSettings? settings = null;
+        await using (var cmd = new NpgsqlCommand(
+            "SELECT quantity_decimal_separator, default_customer_price_list_id, country_code, default_customer_payment_terms_days FROM organizations WHERE id = $1",
+            connection, tx))
+        {
+            cmd.Parameters.AddWithValue(organizationId);
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            if (await reader.ReadAsync(ct))
+            {
+                settings = new OrganizationSettings(
+                    reader.GetString(0), reader.IsDBNull(1) ? null : reader.GetGuid(1), reader.GetString(2), reader.GetInt16(3));
+            }
+        }
+
+        await tx.CommitAsync(ct);
+        return settings;
+    }
+
+    /// <summary>
+    /// Updates one organization's settings and writes the audit row in the SAME transaction. Returns
+    /// <c>false</c> (nothing written) when the organization does not exist.
+    /// </summary>
+    public async Task<bool> UpdateSettingsAsync(Guid organizationId, OrganizationSettings settings, UserManagementAuditEntry audit, CancellationToken ct)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+
+        await TenantScopeSql.ApplyAsync(connection, tx, organizationId, branchId: null, ct);
+
+        int rowsAffected;
+        await using (var cmd = new NpgsqlCommand(
+            "UPDATE organizations SET quantity_decimal_separator = $1, default_customer_price_list_id = $2, country_code = $4, default_customer_payment_terms_days = $5 WHERE id = $3",
+            connection, tx))
+        {
+            cmd.Parameters.AddWithValue(settings.QuantityDecimalSeparator);
+            cmd.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Uuid, (object?)settings.DefaultCustomerPriceListId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue(organizationId);
+            cmd.Parameters.AddWithValue(settings.CountryCode);
+            cmd.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Smallint, (short)settings.DefaultCustomerPaymentTermsDays);
+            rowsAffected = await cmd.ExecuteNonQueryAsync(ct);
+        }
+
+        if (rowsAffected == 0)
+        {
+            await tx.RollbackAsync(ct);
+            return false;
+        }
+
+        await AuditLogWriter.InsertAsync(connection, tx, audit, ct);
+        await tx.CommitAsync(ct);
+        return true;
     }
 }

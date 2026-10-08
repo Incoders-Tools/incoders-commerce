@@ -1,7 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { INVALID_RESET_LINK_MESSAGE } from '@/screens/ResetPasswordScreen'
 import { ResetPasswordRoute } from './ResetPasswordRoute'
 
 /**
@@ -34,14 +33,14 @@ describe('ResetPasswordRoute', () => {
   it('passes the path-param token to ResetPasswordScreen', () => {
     renderAt('/reset-password/abc')
 
-    expect(screen.getByRole('heading', { name: /reset your password/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /restablecer contraseña/i })).toBeInTheDocument()
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it('renders the invalid-link treatment for a bare /reset-password with no token, and makes no request', () => {
     renderAt('/reset-password')
 
-    expect(screen.getByText(INVALID_RESET_LINK_MESSAGE)).toBeInTheDocument()
+    expect(screen.getByText('Este enlace de restablecimiento no es válido o venció.')).toBeInTheDocument()
     expect(fetchMock).not.toHaveBeenCalled()
   })
 })

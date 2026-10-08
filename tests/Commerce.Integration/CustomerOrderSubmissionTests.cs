@@ -23,6 +23,8 @@ namespace Commerce.Integration;
 public sealed class CustomerOrderSubmissionTests : IClassFixture<WebApplicationFactory<Program>>, IDisposable
 {
     private readonly bool _postgresAvailable = PostgresTestFixture.TryPing(PostgresTestFixture.DirectConnectionString);
+    // A real branch is seeded for it in every bootstrapped organization: an unknown destination is a denial.
+    private static readonly Guid DestinationBranchId = Guid.NewGuid();
     private readonly WebApplicationFactory<Program> _factory;
 
     public CustomerOrderSubmissionTests(WebApplicationFactory<Program> factory)
@@ -38,7 +40,7 @@ public sealed class CustomerOrderSubmissionTests : IClassFixture<WebApplicationF
             // customer cookie's org_id claim). Any configured value works;
             // this test does not assert on it.
             builder.UseSetting("GuestOrdering:OrganizationId", Guid.NewGuid().ToString());
-            builder.UseSetting("GuestOrdering:BranchId", Guid.NewGuid().ToString());
+            builder.UseSetting("GuestOrdering:BranchId", DestinationBranchId.ToString());
         });
 
         if (_postgresAvailable)
@@ -81,9 +83,19 @@ public sealed class CustomerOrderSubmissionTests : IClassFixture<WebApplicationF
             cmd.ExecuteNonQuery();
         }
 
+        // B7 U5: guards against the shared/accumulating commerce_test
+        // database hazard (see PaymentEndpointTests) — 0009 own
+        // price_lists_one_default is ORG-scoped.
+        using (var truncatePricingCmd = new NpgsqlCommand(
+            "TRUNCATE TABLE price_list_entries, price_lists CASCADE", owner))
+        {
+            try { truncatePricingCmd.ExecuteNonQuery(); } catch (PostgresException) { /* first run: tables do not exist yet */ }
+        }
+
         Apply("0001_init_rls.sql", "__APP_RUNTIME_PASSWORD__", "dev-only-password");
         Apply("0002_users.sql");
         Apply("0003_organizations_branches.sql");
+        Apply("0021_branch_codes.sql");
         Apply("0004_device_credentials.sql");
         Apply("0005_password_recovery.sql");
         Apply("0006_role_taxonomy.sql");
@@ -91,9 +103,15 @@ public sealed class CustomerOrderSubmissionTests : IClassFixture<WebApplicationF
         Apply("0008_customer_registry.sql");
         Apply("0009_catalog_and_pricing.sql");
         Apply("0010_guest_ordering.sql");
+        Apply("0025_orders.sql");
+        Apply("0026_orders_guest_check.sql");
+        Apply("0038_order_line_price_provenance.sql");
+        Apply("0039_organization_country_and_city_postal_code.sql");
+        Apply("0040_customer_party_type.sql");
+        Apply("0042_staff_order_entry.sql");
 
         using var resetCmd = new NpgsqlCommand(
-            "TRUNCATE TABLE guest_order_verifications, price_import_rows, price_import_batches, " +
+            "TRUNCATE TABLE order_lines, orders, guest_order_verifications, price_import_rows, price_import_batches, " +
             "supplier_price_mappings, price_list_entries, price_lists, presentations, products, " +
             "customer_ordering_access, customers, password_reset_tokens, user_directory, users, " +
             "device_credentials, branches, organizations, platform_admins, audit_log RESTART IDENTITY CASCADE",
@@ -118,6 +136,16 @@ public sealed class CustomerOrderSubmissionTests : IClassFixture<WebApplicationF
             new BootstrapRequest(organizationId, token, "Org " + organizationId, "HQ", adminEmail, adminPassword));
         response.EnsureSuccessStatusCode();
 
+        await using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            await owner.OpenAsync();
+            await using var seed = new NpgsqlCommand(
+                "INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, 'Order destination')", owner);
+            seed.Parameters.AddWithValue(DestinationBranchId);
+            seed.Parameters.AddWithValue(organizationId);
+            await seed.ExecuteNonQueryAsync();
+        }
+
         var signIn = await client.PostAsJsonAsync("/account/sign-in", new SignInRequest(adminEmail, adminPassword));
         signIn.EnsureSuccessStatusCode();
 
@@ -128,8 +156,8 @@ public sealed class CustomerOrderSubmissionTests : IClassFixture<WebApplicationF
     {
         var createCustomerResponse = await adminClient.PostAsJsonAsync(
             "/customers",
-            new CreateCustomerRequest("Retail", "Self-Service Test Customer", null, "None", null, "ConsumidorFinal",
-                null, customerEmail, null, null, null, null, null, null, null, null, null, null));
+            new CreateCustomerRequest("Retail", "Self-Service Test Customer", "None", null, "ConsumidorFinal",
+                null, customerEmail, null, null, null, null, null, null, null, null));
         createCustomerResponse.EnsureSuccessStatusCode();
         var createdCustomer = await createCustomerResponse.Content.ReadFromJsonAsync<CreateCustomerResponse>();
 
@@ -295,8 +323,8 @@ public sealed class CustomerOrderSubmissionWithoutGuestConfigTests : IClassFixtu
     {
         var createCustomerResponse = await adminClient.PostAsJsonAsync(
             "/customers",
-            new CreateCustomerRequest("Retail", "Self-Service Test Customer", null, "None", null, "ConsumidorFinal",
-                null, customerEmail, null, null, null, null, null, null, null, null, null, null));
+            new CreateCustomerRequest("Retail", "Self-Service Test Customer", "None", null, "ConsumidorFinal",
+                null, customerEmail, null, null, null, null, null, null, null, null));
         createCustomerResponse.EnsureSuccessStatusCode();
         var createdCustomer = await createCustomerResponse.Content.ReadFromJsonAsync<CreateCustomerResponse>();
 
@@ -402,9 +430,19 @@ internal static class CustomerOrderSubmissionTestsMigrations
             cmd.ExecuteNonQuery();
         }
 
+        // B7 U5: guards against the shared/accumulating commerce_test
+        // database hazard (see PaymentEndpointTests) — 0009 own
+        // price_lists_one_default is ORG-scoped.
+        using (var truncatePricingCmd = new NpgsqlCommand(
+            "TRUNCATE TABLE price_list_entries, price_lists CASCADE", owner))
+        {
+            try { truncatePricingCmd.ExecuteNonQuery(); } catch (PostgresException) { /* first run: tables do not exist yet */ }
+        }
+
         Apply("0001_init_rls.sql", "__APP_RUNTIME_PASSWORD__", "dev-only-password");
         Apply("0002_users.sql");
         Apply("0003_organizations_branches.sql");
+        Apply("0021_branch_codes.sql");
         Apply("0004_device_credentials.sql");
         Apply("0005_password_recovery.sql");
         Apply("0006_role_taxonomy.sql");

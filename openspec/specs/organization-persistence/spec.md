@@ -100,6 +100,62 @@ scope, even if they belong to the user's own organization.
 - WHEN the branch-by-user query runs for that user
 - THEN no branches are returned
 
+### Requirement: Organization Branding Fields
+
+The system MUST persist an optional `logoUrl` and an optional
+`primaryColor` on each organization, additive to the existing `id`/`name`
+fields. Minimal scope by explicit user decision ("lo mas simple posible, a
+futuro ampliamos"): date format, geolocation and usage plan are NOT
+persisted. `logoUrl`, when set, MUST be an absolute `http`/`https` URL
+within a bounded maximum length. `primaryColor`, when set, MUST match
+`#rrggbb` hex notation. Either field MUST be clearable back to unset by
+submitting an empty value.
+
+A system-admin-gated endpoint MUST allow reading and updating any
+organization's branding by id, writing an audit entry for each update,
+following the `UserManagementAuditEntry` pattern already used for
+organization bootstrap. A separate endpoint, available to any authenticated
+user, MUST return only the caller's OWN organization's branding, scoped by
+the same row-level security as every other organization-scoped read —
+never a caller-submitted organization id.
+
+#### Scenario: System admin sets and reads an organization's branding
+
+- GIVEN an authenticated system admin and a persisted organization with no
+  branding set
+- WHEN the system admin submits a valid `logoUrl` and `primaryColor` to
+  that organization's branding endpoint
+- THEN a subsequent read of that organization's branding returns the
+  submitted values
+
+#### Scenario: Clearing branding
+
+- GIVEN an organization with a previously set `logoUrl` and `primaryColor`
+- WHEN a system admin submits empty values for both fields
+- THEN a subsequent read of that organization's branding returns both
+  fields unset
+
+#### Scenario: Invalid branding values are rejected
+
+- GIVEN an authenticated system admin
+- WHEN they submit a `logoUrl` that is not an absolute `http`/`https` URL,
+  or a `primaryColor` that is not `#rrggbb` hex
+- THEN the request is rejected and no branding value is persisted
+
+#### Scenario: Non-system-admin is denied
+
+- GIVEN an authenticated caller who is not a system admin
+- WHEN they call the system-admin branding read or update endpoint
+- THEN the request is rejected with no data returned or changed
+
+#### Scenario: A user reads only their own organization's branding
+
+- GIVEN Organization A and Organization B each have branding set
+- WHEN an authenticated caller belonging to Organization A calls the
+  own-organization branding endpoint
+- THEN Organization A's branding is returned and Organization B's branding
+  is never exposed
+
 ### Requirement: Price and Identification Tables Follow Established RLS Convention
 
 New org-scoped tables introduced for price list entries and per-supplier
@@ -131,6 +187,7 @@ enforced by no endpoint.
 - WHEN they call the branch-creation endpoint with a branch name and no
   target organization other than their own
 - THEN a new branch row is created under Organization A
+- AND the response carries the branch's short code (see "Branch Short Code")
 
 #### Scenario: Cross-organization branch creation is rejected
 
@@ -158,6 +215,7 @@ organization.
 - WHEN an authenticated caller in Organization A calls the branch-listing
   endpoint
 - THEN both branches are returned
+- AND each branch carries its short code
 
 #### Scenario: Listing does not leak another organization's branches
 
@@ -165,3 +223,123 @@ organization.
 - WHEN an authenticated caller in Organization A calls the branch-listing
   endpoint
 - THEN no branch belonging to Organization B is returned
+
+### Requirement: Branch Short Code
+
+See [Document numbering](../../../docs/document-numbering.md) for the whole scheme.
+
+Every branch MUST carry a short numeric `code` (1 to 999) that is unique within
+its organization, assigned by the server when the branch is created, and never
+changed afterwards. The first branch of an organization (the bootstrap branch)
+MUST receive code 1 and each later branch the next unused number; allocation
+MUST be race-free per organization (concurrent creations in one organization
+never share a code, while different organizations number independently).
+Existing branches MUST be backfilled per organization in creation order
+(`created_at`, then `id`). The code is shown to people with at least two digits
+(`01`, `02`, ... `100`) and is the `{branch}` part of human document numbers
+such as `V01-C2-125`. Branch DTOs (listing, creation response, session
+selectable branches, device pairing) MUST carry the code. The branch's GUID is a
+technical identifier shown only to system administrators.
+
+#### Scenario: Codes are sequential within an organization
+
+- GIVEN a new organization bootstrapped with its default branch
+- WHEN two more branches are created in it
+- THEN the branches hold codes 1, 2 and 3 in creation order
+
+#### Scenario: An organization that used up every code gets a typed conflict
+
+- GIVEN an organization whose branches already hold code 999
+- WHEN a caller creates one more branch
+- THEN the request is rejected with `409` and `{ "error": "branch-codes-exhausted" }`
+- AND no branch row is created
+
+#### Scenario: Codes are numbered per organization
+
+- GIVEN Organization A and Organization B each have a bootstrap branch
+- THEN both branches hold code 1
+
+#### Scenario: Existing branches are backfilled in creation order
+
+- GIVEN branches that predate the code column
+- WHEN the migration runs
+- THEN each organization's branches hold 1, 2, 3 ... ordered by `created_at`
+  then `id`, and re-running the migration changes nothing
+
+#### Scenario: A code never changes
+
+- GIVEN a branch with a code
+- WHEN any update tries to change its code
+- THEN the update is rejected and the code is unchanged
+
+#### Scenario: Concurrent creation yields distinct codes
+
+- GIVEN several branches are created at the same time in one organization
+- THEN every branch holds a distinct code and no code is skipped
+
+#### Scenario: The identifier column is for system administrators only
+
+- GIVEN the web Branches screen
+- WHEN a non-system-administrator views it
+- THEN it shows the code (with a tooltip explaining it) and not the branch GUID
+
+### Requirement: Branch-Owned Business Data
+
+Every business table other than organization, branch, identity, and
+credential infrastructure MUST carry a non-null `branch_id` in addition to
+`organization_id`, constrained so the branch belongs to the row's
+organization (a composite foreign key onto `branches (organization_id,
+id)`). Branch-owned tables are: products, presentations, price lists,
+price list entries, rate component sets and components, supplier price
+mappings, price import batches and rows, customers, customer ordering
+access, guest order verifications, and payment entries. Uniqueness rules
+that were per organization (identification code, one default price list,
+supplier mapping name) MUST become per branch.
+
+Row-level security on each branch-owned table MUST require both
+`organization_id` and `branch_id` to match the transaction's scoped
+organization and branch, using the established
+`NULLIF(current_setting(...), '')::uuid` pooler idiom, so a transaction
+without a scoped branch reads and writes nothing (fail-closed). Existing
+asymmetric lookup policies (credential-hash lookups) keep their current
+shape and compare the branch in the application after lookup.
+
+The migration that adds `branch_id` MUST backfill every existing row into
+its organization's earliest-created branch, and for an organization that
+owns rows but has no branch MUST first create a branch named "Main". The
+column becomes `NOT NULL` only after the backfill.
+
+#### Scenario: Existing rows land in the organization's first branch
+
+- GIVEN organization "Vaca Verde" has products, price lists, and customers
+  created before this change and its earliest branch is "Ruta 51"
+- WHEN the branch-ownership migration runs
+- THEN every one of those rows is owned by "Ruta 51" and remains readable
+  with "Ruta 51" selected
+
+#### Scenario: A row cannot reference another organization's branch
+
+- GIVEN a branch that belongs to Organization B
+- WHEN a row scoped to Organization A is written with that branch
+- THEN the database rejects the write
+
+#### Scenario: Unscoped branch reads nothing
+
+- GIVEN a transaction that scoped its organization but not its branch
+- WHEN it reads a branch-owned table
+- THEN zero rows are returned
+
+### Requirement: Selectable Branches In The Session
+
+The signed-in session response (`GET /account/me`) MUST list the branches
+the caller may select, each with id, name and short code: the persisted branches in
+the caller's `BranchScope`, or, for a system administrator acting on a
+selected organization, every branch of that organization. The list MUST
+NOT include a branch outside those rules.
+
+#### Scenario: Vaca Verde admin sees only Ruta 51
+
+- GIVEN a Vaca Verde `business-admin` whose `BranchScope` contains only
+  "Ruta 51" while Vaca Verde also has "Centro"
+- WHEN they request their session
+- THEN the selectable branches are exactly "Ruta 51"

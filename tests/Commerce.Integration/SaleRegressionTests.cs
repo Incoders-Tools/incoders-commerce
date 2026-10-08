@@ -37,7 +37,7 @@ public sealed class SaleRegressionTests : IDisposable
     {
         var auditSink = new InMemoryAuditSink();
         var authService = new TenantAuthorizationService(auditSink);
-        return new BranchNodeService(store, authService, auditSink);
+        return new BranchNodeService(store, authService, auditSink).WithOpenSession();
     }
 
     [Fact]

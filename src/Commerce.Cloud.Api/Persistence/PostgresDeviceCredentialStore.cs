@@ -65,20 +65,17 @@ public sealed class PostgresDeviceCredentialStore
     /// revoked, per the `device_credentials_revoke` policy) -> INSERT the new
     /// row (WITH CHECK pins organization_id) -> COMMIT. A terminal therefore
     /// never holds two live credentials, and re-pairing into a different
-    /// organization cannot leave the prior organization's binding alive.
+    /// organization cannot leave the prior organization's binding alive. The
+    /// terminal's register number is assigned in the same transaction.
     /// </summary>
+    /// <exception cref="Commerce.Domain.Tenancy.RegisterNumbersExhaustedException">The branch has no register number left.</exception>
     public async Task<IssuedDeviceCredential> IssueAsync(
         CloudTenantScope scope, Guid installationId, Guid branchId, Guid issuedToUserId, CancellationToken ct)
     {
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
 
-        await using (var scopeCmd = new NpgsqlCommand(
-            "SELECT set_config('app.current_org_id', $1, true)", connection, tx))
-        {
-            scopeCmd.Parameters.AddWithValue(scope.OrganizationId.ToString());
-            await scopeCmd.ExecuteNonQueryAsync(ct);
-        }
+        await TenantScopeSql.ApplyAsync(connection, tx, scope, ct);
 
         Guid? replacesCredentialId = null;
         await using (var revokeCmd = new NpgsqlCommand(
@@ -118,11 +115,16 @@ public sealed class PostgresDeviceCredentialStore
             await insertCmd.ExecuteNonQueryAsync(ct);
         }
 
+        // Same transaction: a pairing that cannot get a register number (branch
+        // exhausted) rolls back as a whole and the prior credential stays live.
+        var registerNumber = (await PostgresTerminalRegisterStore.AssignAsync(
+            connection, tx, scope.OrganizationId, branchId, installationId, releaseOthers: true, "org-user", issuedToUserId, ct))!.Value;
+
         await tx.CommitAsync(ct);
 
         var record = new DeviceCredentialRecord(
             credentialId, scope.OrganizationId, branchId, installationId, issuedToUserId, replacesCredentialId, IsRevoked: false);
-        return new IssuedDeviceCredential(record, plaintextToken);
+        return new IssuedDeviceCredential(record, plaintextToken, registerNumber);
     }
 
     /// <summary>
@@ -134,12 +136,7 @@ public sealed class PostgresDeviceCredentialStore
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
 
-        await using (var scopeCmd = new NpgsqlCommand(
-            "SELECT set_config('app.current_org_id', $1, true)", connection, tx))
-        {
-            scopeCmd.Parameters.AddWithValue(scope.OrganizationId.ToString());
-            await scopeCmd.ExecuteNonQueryAsync(ct);
-        }
+        await TenantScopeSql.ApplyAsync(connection, tx, scope, ct);
 
         await using var updateCmd = new NpgsqlCommand(
             "UPDATE device_credentials SET is_revoked = true, revoked_at = now() WHERE id = $1",

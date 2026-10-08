@@ -61,6 +61,7 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
 
         var orgsSql = File.ReadAllText(Path.Combine(repoRoot.FullName, "deploy", "db", "migrations", "0003_organizations_branches.sql"));
         using (var cmd = new NpgsqlCommand(orgsSql, owner)) cmd.ExecuteNonQuery();
+        PostgresTestFixture.ApplyMigration(owner, "0021_branch_codes.sql");
 
         var deviceSql = File.ReadAllText(Path.Combine(repoRoot.FullName, "deploy", "db", "migrations", "0004_device_credentials.sql"));
         using (var cmd = new NpgsqlCommand(deviceSql, owner)) cmd.ExecuteNonQuery();
@@ -73,6 +74,24 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
         // exist in this class's schema too.
         var catalogAndPricingSql = File.ReadAllText(Path.Combine(repoRoot.FullName, "deploy", "db", "migrations", "0009_catalog_and_pricing.sql"));
         using (var cmd = new NpgsqlCommand(catalogAndPricingSql, owner)) cmd.ExecuteNonQuery();
+
+        // B7 U4: products/presentations are branch-owned now, and the
+        // catalog-rename test below selects a branch via X-Branch-Id.
+        var branchOwnershipSql = File.ReadAllText(Path.Combine(repoRoot.FullName, "deploy", "db", "migrations", "0016_catalog_branch_ownership.sql"));
+        using (var cmd = new NpgsqlCommand(branchOwnershipSql, owner)) cmd.ExecuteNonQuery();
+        PostgresTestFixture.ApplyMigration(owner, "0036_product_soft_delete.sql");
+
+        // B7 U5: price_lists/etc. are branch-owned now too — keep this
+        // class's schema at the same point as every other fixture in the
+        // shared `commerce_test` database (see PostgresTestFixture's own
+        // doc comment on why a stale re-application of 0009 alone is unsafe
+        // once any later fixture has moved the shared schema past it).
+        var pricingBranchOwnershipSql = File.ReadAllText(Path.Combine(repoRoot.FullName, "deploy", "db", "migrations", "0017_pricing_branch_ownership.sql"));
+        using (var cmd = new NpgsqlCommand(pricingBranchOwnershipSql, owner)) cmd.ExecuteNonQuery();
+
+        // catalog-categories: products reference organization-owned categories.
+        var categoriesSql = File.ReadAllText(Path.Combine(repoRoot.FullName, "deploy", "db", "migrations", "0018_catalog_categories.sql"));
+        using (var cmd = new NpgsqlCommand(categoriesSql, owner)) cmd.ExecuteNonQuery();
 
         var adminConsoleSql = File.ReadAllText(Path.Combine(repoRoot.FullName, "deploy", "db", "migrations", "0012_admin_console.sql"));
         using (var cmd = new NpgsqlCommand(adminConsoleSql, owner)) cmd.ExecuteNonQuery();
@@ -539,25 +558,37 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
             "/account/sign-in", new SignInRequest("renamer@example.com", "rename-password"));
         Assert.Equal(HttpStatusCode.OK, signInResponse.StatusCode);
 
-        // commerce-pricing-engine Work Unit 1: the rename endpoint now
-        // authorizes over a REAL persisted product — bootstrap's
+        // B7 U4: `/catalog/*` now requires a selected branch, and the
+        // rename endpoint's old `TargetBranchId` body field is gone — the
+        // branch a rename applies to is always the request's own resolved
+        // `X-Branch-Id`. commerce-pricing-engine Work Unit 1: the rename
+        // endpoint authorizes over a REAL persisted product — bootstrap's
         // business-admin role carries ManageCatalog, so it creates one
-        // first. The SAME product id is reused for both calls below: the
-        // "denied" case is about a BRANCH mismatch, not product identity.
+        // first, WITH the created branch selected.
+        client.DefaultRequestHeaders.Add(
+            Commerce.Cloud.Api.Tenancy.TenantScopeEndpointFilter.BranchSelectorHeader, bootstrapBody!.BranchId.ToString());
+
         var createProductResponse = await client.PostAsJsonAsync(
-            "/catalog/products", new { name = "Original", categoryId = Guid.NewGuid(), defaultUnitId = Guid.NewGuid() });
+            "/catalog/products", new { name = "Original", defaultUnitId = Guid.NewGuid() });
         Assert.Equal(HttpStatusCode.Created, createProductResponse.StatusCode);
         var createdProduct = await createProductResponse.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
         var productId = createdProduct.GetProperty("id").GetGuid();
 
         var allowedResponse = await client.PostAsJsonAsync(
             $"/catalog/products/{productId}/rename",
-            new RenameProductRequest(bootstrapBody!.BranchId, "Renamed", false, Guid.NewGuid()));
+            new RenameProductRequest("Renamed", false, Guid.NewGuid()));
         Assert.Equal(HttpStatusCode.OK, allowedResponse.StatusCode);
+
+        // A DIFFERENT (out-of-scope) branch header is denied at the tenant
+        // scope filter itself, before the rename handler is ever reached —
+        // same 403 shape as any other unknown/out-of-scope branch selector.
+        client.DefaultRequestHeaders.Remove(Commerce.Cloud.Api.Tenancy.TenantScopeEndpointFilter.BranchSelectorHeader);
+        client.DefaultRequestHeaders.Add(
+            Commerce.Cloud.Api.Tenancy.TenantScopeEndpointFilter.BranchSelectorHeader, Guid.NewGuid().ToString());
 
         var deniedResponse = await client.PostAsJsonAsync(
             $"/catalog/products/{productId}/rename",
-            new RenameProductRequest(Guid.NewGuid(), "Renamed", false, Guid.NewGuid()));
+            new RenameProductRequest("Renamed", false, Guid.NewGuid()));
         Assert.Equal(HttpStatusCode.Forbidden, deniedResponse.StatusCode);
     }
 
@@ -965,9 +996,11 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
         var organizationId = Guid.NewGuid();
         var adminId = Guid.NewGuid();
         var targetId = Guid.NewGuid();
+        // The caller also holds the target's ManageCatalog: a target above the caller is refused
+        // (admin-console-field-fixes T6, StaffTargetRulesTests).
         await SeedUserAsync(
             organizationId, adminId, "admin-reset-admin@example.com", "admin-password",
-            permissions: Commerce.Domain.Identity.Permission.ManageUsers);
+            permissions: Commerce.Domain.Identity.Permission.ManageUsers | Commerce.Domain.Identity.Permission.ManageCatalog);
         await SeedUserAsync(organizationId, targetId, "admin-reset-target@example.com", "old-target-password");
 
         var clientOptions = new WebApplicationFactoryClientOptions

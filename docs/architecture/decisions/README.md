@@ -17,6 +17,7 @@ Architecture decisions are versioned in the repository. This index intentionally
 | [ADR-009](./ADR-009-guest-and-registered-ordering.md) | Guest and registered ordering coexist on one screen; accounts are admin-provisioned only; guest orders are classified non-priority. |
 | [ADR-010](./ADR-010-centralized-server-side-pricing.md) | Centralized server-side price resolution; guest sees list price, registered sees entity commercial conditions. |
 | [ADR-011](./ADR-011-payment-lifecycle-separate-from-order.md) | Payment modelled as a lifecycle separate from order fulfilment; no provider selected. |
+| [ADR-013](./ADR-013-interim-self-signed-code-signing.md) | Interim self-signed code signing for POS MSIX releases; commercial certificate is a go-live requirement. |
 
 ## Planned ADR topics
 

@@ -11,9 +11,39 @@ public sealed record NewPriceList(Guid Id, string Name, bool IsDefault, Guid Cre
 public sealed record PriceListRecord(
     Guid Id,
     Guid OrganizationId,
+    Guid BranchId,
     string Name,
     bool IsDefault,
     DateTimeOffset CreatedAtUtc,
+    Guid CreatedByUserId,
+    Guid? FloorPriceListId = null);
+
+/// <summary>
+/// One product of a price list on a date (customer-price-lists T3): the BASE price effective that day and the names the
+/// admin screens show. Only active products (a deactivated product leaves every list).
+/// </summary>
+public sealed record PriceListItemRecord(
+    Guid PresentationId,
+    Guid ProductId,
+    string ProductName,
+    string PresentationName,
+    string? IdentificationCode,
+    decimal UnitPrice,
+    DateOnly EntryEffectiveFrom);
+
+/// <summary>
+/// Input to <see cref="PostgresPriceListStore.CopyPriceListAsync"/>: a NEW, independent list made from another one. The
+/// entries are the base prices to publish on <see cref="EffectiveFrom"/>; <see cref="Set"/> (when any) is the new list's
+/// own rate component set, published on the same date.
+/// </summary>
+public sealed record NewPriceListCopy(
+    Guid Id,
+    string Name,
+    Guid SourcePriceListId,
+    Guid? FloorPriceListId,
+    DateOnly EffectiveFrom,
+    IReadOnlyList<(Guid PresentationId, decimal UnitPrice)> Entries,
+    NewRateComponentSet? Set,
     Guid CreatedByUserId);
 
 /// <summary>
@@ -35,6 +65,7 @@ public sealed record NewPriceListEntry(
 public sealed record PriceListEntryRecord(
     Guid Id,
     Guid OrganizationId,
+    Guid BranchId,
     Guid PriceListId,
     Guid PresentationId,
     decimal UnitPrice,
@@ -60,6 +91,7 @@ public sealed record NewSupplierPriceMapping(
 public sealed record SupplierPriceMappingRecord(
     Guid Id,
     Guid OrganizationId,
+    Guid BranchId,
     string SupplierName,
     string SheetName,
     int HeaderRow,
@@ -82,6 +114,7 @@ public sealed record NewImportBatchRow(
 public sealed record ImportBatchRowRecord(
     Guid Id,
     Guid OrganizationId,
+    Guid BranchId,
     Guid BatchId,
     int RowNumber,
     string? RawCode,
@@ -100,6 +133,7 @@ public sealed record ImportBatchRowRecord(
 public sealed record ImportBatchRecord(
     Guid Id,
     Guid OrganizationId,
+    Guid BranchId,
     Guid SupplierMappingId,
     string FileName,
     int RowCount,

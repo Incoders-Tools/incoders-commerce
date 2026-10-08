@@ -237,7 +237,7 @@ permission evaluation, not by convention or by omitting role assignment.
 ### Requirement: Canonical Role Catalog
 
 The system MUST maintain a server-owned role catalog mapping fixed English
-technical identifiers (`business-admin`, `seller`, `provider`,
+technical identifiers (`business-admin`, `seller`, `cashier`, `provider`,
 `platform-admin`) to a `Permission` set. Role assignment MUST reference a
 catalog name; the system MUST NOT accept or persist a `Permission` set
 supplied directly in a request body, and MUST reject a role name that is not
@@ -251,6 +251,30 @@ form.
   permission set
 - THEN the user is assigned exactly the catalog's `seller` permissions
   (`ViewSales` only), and the body-supplied permissions are ignored
+
+#### Scenario: Cashier is a distinct role from seller
+
+- GIVEN the role catalog
+- WHEN the permission sets of `seller` and `cashier` are compared
+- THEN `seller` (a field salesperson taking orders on the web) holds
+  `ViewSales` only, `cashier` (a point-of-sale till operator) holds
+  `OperatePos` only, and `business-admin` holds every staff permission
+  including `OperatePos`
+
+#### Scenario: A caller cannot grant cashier without holding OperatePos
+
+- GIVEN a caller whose effective permissions lack `OperatePos`
+- WHEN they create or update a user with the `cashier` role
+- THEN the request is denied by the grant cap and nothing is persisted
+
+#### Scenario: Persisted business-admin roles gain OperatePos on upgrade
+
+- GIVEN a persisted `business-admin` role entry created before `OperatePos`
+  existed
+- WHEN the `0020_operate_pos_permission.sql` migration runs (any number of
+  times)
+- THEN that entry carries `OperatePos` in addition to its previous
+  permissions, and other role entries are unchanged
 
 #### Scenario: Unknown role name is rejected
 
@@ -317,6 +341,60 @@ check.
 - WHEN they call the roles endpoint with role `platform-admin` for a user in
   Organization A
 - THEN the request is rejected regardless of the caller's own permission set
+
+### Requirement: Mandatory Staff Branch Scope
+
+A staff account (one with no `CustomerId`) MUST hold at least one branch in
+its branch scope, because a staff account with an empty scope cannot operate
+any branch. `POST /account/users` MUST reject a staff account whose
+`branchIds` is empty or omitted with HTTP 400 and the typed body
+`{"error":"branch-required"}`; a `CustomerId`-linked account keeps an empty
+branch scope. Every branch id MUST belong to the caller's organization
+(HTTP 400, `{"error":"branch-not-in-organization"}`), and a caller MUST NOT
+assign a branch outside their own `BranchScope` (HTTP 403); a system
+administrator acting on a selected organization MAY assign any branch of that
+organization. The system MUST expose `PUT /account/users/{userId}/branches`
+on the same `ManageUsers`-gated group, taking `{"branchIds":[...]}` and
+replacing the target's branch scope under the same validation, answering 204
+on success, 404 for a user outside the caller's organization, and 400 for a
+`CustomerId`-linked target. Each replacement MUST be recorded in the audit
+log as `user.branches.assigned`. The web and desktop clients share these
+rules because they share the API.
+
+#### Scenario: Staff creation without a branch is rejected
+
+- GIVEN an authenticated `business-admin` in Organization A
+- WHEN they call `POST /account/users` with role `seller` and no branch ids
+- THEN the response is 400 with `{"error":"branch-required"}` and no user is
+  persisted
+
+#### Scenario: Caller cannot assign a branch outside their own scope
+
+- GIVEN a caller holding `ManageUsers` whose `BranchScope` is branch X
+- WHEN they create a staff user, or replace a user's branches, with branch Y
+  of the same organization
+- THEN the request is rejected with 403 and nothing is persisted
+
+#### Scenario: System administrator assigns a branch of the acted-on organization
+
+- GIVEN a system administrator acting on Organization A through the
+  organization selector
+- WHEN they create a staff user with a branch of Organization A
+- THEN the user is created with that branch scope
+
+#### Scenario: Branch scope is replaced
+
+- GIVEN a staff user with branch X in Organization A
+- WHEN a `ManageUsers` caller calls `PUT /account/users/{userId}/branches`
+  with branch Y that they may assign
+- THEN the user's branch scope is exactly branch Y and an audit row is written
+
+#### Scenario: Replacing branches with an empty list is rejected
+
+- GIVEN a staff user with a branch scope
+- WHEN a `ManageUsers` caller calls the branches endpoint with `branchIds: []`
+- THEN the response is 400 with `{"error":"branch-required"}` and the scope is
+  unchanged
 
 ### Requirement: Business-Admin Rename Migration
 
@@ -479,7 +557,8 @@ The system MUST expose `GET /account/users` on the existing
 `ManageUsers`-gated `/account/users` group, returning the staff users
 persisted in the caller's own organization. The endpoint MUST NOT return a
 user belonging to another organization, and MUST NOT return a
-`CustomerId`-linked (customer) account.
+`CustomerId`-linked (customer) account. Each returned item MUST include
+the user's `branchIds`.
 
 #### Scenario: Business-admin lists staff in their own organization
 
@@ -508,3 +587,65 @@ user belonging to another organization, and MUST NOT return a
 - GIVEN an authenticated caller lacking `Permission.ManageUsers`
 - WHEN they call `GET /account/users`
 - THEN the request is rejected
+
+### Requirement: Deactivate And Reactivate Staff
+
+The system MUST expose `PUT /account/users/{userId}/status` with body
+`{ "revoked": true|false }` on the `ManageUsers`-gated `/account/users`
+group, scoped to the caller's organization (a system administrator acting on
+a selected organization is allowed). `revoked` is required (`400
+revoked-required`). Setting it to `true` MUST mark the user revoked and bump
+the user's session version so existing web sessions stop authenticating;
+setting it to `false` reactivates the user. Each state change MUST be audited
+as `user.revoked` or `user.reactivated`; repeating the current state MUST
+succeed (204) without a second audit row or session bump. A revoked user MUST
+fail `/account/sign-in`, `/device/pair` and `/device/operators/verify` with
+the generic 401, and `/device/operators/{userId}/status` MUST report
+`inactive`.
+
+The endpoint MUST reject: an unknown or foreign-organization target (404);
+the caller as target (`400 cannot-revoke-self`); a customer-linked target
+(`400 not-a-staff-user`); a target holding a permission the caller lacks, or a
+system-administrator target for a non-sysadmin caller (`403
+permissions-exceed-caller`); and a target whose branch scope is not inside the
+caller's own branch scope, except for a system administrator acting on the
+organization (`403 branch-not-in-scope`).
+
+#### Scenario: Admin deactivates a cashier
+
+- GIVEN a `business-admin` and a `cashier` in the same organization
+- WHEN the admin calls `PUT /account/users/{cashierId}/status` with
+  `{ "revoked": true }`
+- THEN the response is 204, the user is listed with `isRevoked: true`, a
+  `user.revoked` audit row exists and the user's session version increased
+
+#### Scenario: A deactivated user cannot enter
+
+- GIVEN a deactivated cashier with a known password
+- WHEN they call `/account/sign-in`, `/device/pair` or
+  `/device/operators/verify` with the correct password
+- THEN each response is 401, and the operator status route reports `inactive`
+
+#### Scenario: An existing web session ends
+
+- GIVEN a signed-in `business-admin` who is then deactivated by another admin
+- WHEN their old session cookie calls an authenticated route
+- THEN the response is 401
+
+#### Scenario: Reactivation restores access
+
+- GIVEN a deactivated user
+- WHEN an admin sends `{ "revoked": false }`
+- THEN the response is 204, a `user.reactivated` audit row exists and the
+  user can sign in again
+
+#### Scenario: Self-deactivation is refused
+
+- WHEN a caller sends `{ "revoked": true }` for their own user id
+- THEN the response is `400 cannot-revoke-self` and nothing changes
+
+#### Scenario: A caller cannot deactivate a user above their own cap
+
+- GIVEN a caller holding `ManageUsers` and `ViewSales` only
+- WHEN they deactivate a `cashier` (holds `OperatePos`)
+- THEN the response is `403 permissions-exceed-caller`

@@ -77,8 +77,12 @@ public sealed class SupplierImportTests : IClassFixture<WebApplicationFactory<Pr
         Apply("0001_init_rls.sql", "__APP_RUNTIME_PASSWORD__", "dev-only-password");
         Apply("0002_users.sql");
         Apply("0003_organizations_branches.sql");
+        Apply("0021_branch_codes.sql");
         Apply("0004_device_credentials.sql");
         Apply("0009_catalog_and_pricing.sql");
+        Apply("0016_catalog_branch_ownership.sql");
+        Apply("0036_product_soft_delete.sql");
+        Apply("0017_pricing_branch_ownership.sql");
 
         using var resetCmd = new NpgsqlCommand(
             "TRUNCATE TABLE price_import_rows, price_import_batches, supplier_price_mappings, " +
@@ -97,15 +101,26 @@ public sealed class SupplierImportTests : IClassFixture<WebApplicationFactory<Pr
         await cmd.ExecuteNonQueryAsync();
     }
 
-    private async Task<Guid> SeedPresentationWithCodeAsync(Guid organizationId, string identificationCode)
+    /// <summary>B7 U4: catalog scopes now need a real branch row.</summary>
+    private async Task SeedBranchAsync(Guid organizationId, Guid branchId)
+    {
+        using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        await owner.OpenAsync();
+        using var cmd = new NpgsqlCommand("INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, 'Main')", owner);
+        cmd.Parameters.AddWithValue(branchId);
+        cmd.Parameters.AddWithValue(organizationId);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    private async Task<Guid> SeedPresentationWithCodeAsync(Guid organizationId, Guid branchId, string identificationCode)
     {
         using var scope = _factory.Services.CreateScope();
         var catalogStore = scope.ServiceProvider.GetRequiredService<PostgresCatalogStore>();
-        var tenantScope = new CloudTenantScope(organizationId);
+        var tenantScope = new CloudTenantScope(organizationId, BranchId: branchId);
         var actorId = Guid.NewGuid();
 
         var product = await catalogStore.CreateProductAsync(
-            tenantScope, new NewProduct(Guid.NewGuid(), "Seed Product", Guid.NewGuid(), Guid.NewGuid(), actorId),
+            tenantScope, new NewProduct(Guid.NewGuid(), "Seed Product", CategoryFixture.Create(tenantScope), Guid.NewGuid(), actorId),
             "org-user", actorId, CancellationToken.None);
 
         var presentation = await catalogStore.CreatePresentationAsync(
@@ -116,13 +131,18 @@ public sealed class SupplierImportTests : IClassFixture<WebApplicationFactory<Pr
         return presentation.Id;
     }
 
-    private async Task<(HttpClient client, Guid organizationId)> SignedInClientAsync(Permission permissions)
+    private async Task<(HttpClient client, Guid organizationId, Guid branchId)> SignedInClientAsync(Permission permissions)
     {
         var organizationId = Guid.NewGuid();
         var branchId = Guid.NewGuid();
         var userId = Guid.NewGuid();
 
         await SeedOrganizationAsync(organizationId);
+        // B7 U4: `/pricing/imports` now requires a selected branch (it
+        // resolves presentations, which are branch-owned) — the header the
+        // filter validates needs a REAL branches row, not just an entry in
+        // the user's BranchScope array.
+        await SeedBranchAsync(organizationId, branchId);
 
         using (var scope = _factory.Services.CreateScope())
         {
@@ -134,7 +154,9 @@ public sealed class SupplierImportTests : IClassFixture<WebApplicationFactory<Pr
             Assert.True(created);
         }
 
-        return (await SignInViaTestEndpointAsync(organizationId, userId), organizationId);
+        var client = await SignInViaTestEndpointAsync(organizationId, userId);
+        client.DefaultRequestHeaders.Add("X-Branch-Id", branchId.ToString());
+        return (client, organizationId, branchId);
     }
 
     private async Task<HttpClient> SignInViaTestEndpointAsync(Guid organizationId, Guid userId)
@@ -230,8 +252,8 @@ public sealed class SupplierImportTests : IClassFixture<WebApplicationFactory<Pr
     {
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
 
-        var (client, orgId) = await SignedInClientAsync(Permission.ManageCatalog);
-        var presentationId = await SeedPresentationWithCodeAsync(orgId, "ABC-123");
+        var (client, orgId, branchId) = await SignedInClientAsync(Permission.ManageCatalog);
+        var presentationId = await SeedPresentationWithCodeAsync(orgId, branchId, "ABC-123");
         var mappingId = await CreateSupplierMappingAsync(client);
         var fileBytes = BuildWorkbook(("ABC-123", 24.99m), ("GHOST-CODE", 5.00m));
 
@@ -249,7 +271,7 @@ public sealed class SupplierImportTests : IClassFixture<WebApplicationFactory<Pr
     {
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
 
-        var (client, _) = await SignedInClientAsync(Permission.ManageCatalog);
+        var (client, _, _) = await SignedInClientAsync(Permission.ManageCatalog);
         var mappingId = await CreateSupplierMappingAsync(client);
         var notAWorkbook = System.Text.Encoding.UTF8.GetBytes("this is not an xlsx file");
 
@@ -268,8 +290,8 @@ public sealed class SupplierImportTests : IClassFixture<WebApplicationFactory<Pr
     {
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
 
-        var (client, orgId) = await SignedInClientAsync(Permission.ManageCatalog);
-        await SeedPresentationWithCodeAsync(orgId, "ABC-123");
+        var (client, orgId, branchId) = await SignedInClientAsync(Permission.ManageCatalog);
+        await SeedPresentationWithCodeAsync(orgId, branchId, "ABC-123");
         var mappingId = await CreateSupplierMappingAsync(client);
         var fileBytes = BuildWorkbook(("ABC-123", 24.99m));
         var createPriceListResponse = await client.PostAsJsonAsync("/pricing/price-lists", new { name = "Default", isDefault = true });
@@ -296,8 +318,8 @@ public sealed class SupplierImportTests : IClassFixture<WebApplicationFactory<Pr
     {
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
 
-        var (client, orgId) = await SignedInClientAsync(Permission.ManageCatalog);
-        await SeedPresentationWithCodeAsync(orgId, "ABC-123");
+        var (client, orgId, branchId) = await SignedInClientAsync(Permission.ManageCatalog);
+        await SeedPresentationWithCodeAsync(orgId, branchId, "ABC-123");
         var mappingId = await CreateSupplierMappingAsync(client);
         var fileBytes = BuildWorkbook(("ABC-123", 24.99m));
 

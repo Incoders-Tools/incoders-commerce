@@ -4,6 +4,7 @@ using Commerce.Application.Management;
 using Commerce.Application.Ordering;
 using Commerce.Application.Payments;
 using Commerce.Cloud.Api;
+using Commerce.Cloud.Api.Auditing;
 using Commerce.Cloud.Api.Authentication;
 using Commerce.Cloud.Api.Email;
 using Commerce.Cloud.Api.Endpoints;
@@ -16,6 +17,7 @@ using Commerce.Domain.Identity;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Identity;
+using Commerce.Application.Time;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Npgsql;
@@ -40,9 +42,23 @@ builder.Services.AddSingleton<ICloudInboxStore, PostgresCloudInboxStore>();
 builder.Services.AddSingleton<PostgresUserAccountStore>();
 builder.Services.AddSingleton<PostgresOrganizationStore>();
 builder.Services.AddSingleton<PostgresDeviceCredentialStore>();
+builder.Services.AddSingleton<PostgresTerminalRegisterStore>();
 builder.Services.AddSingleton<PostgresPasswordRecoveryStore>();
 builder.Services.AddSingleton<PostgresCustomerStore>();
 builder.Services.AddSingleton<PostgresCatalogStore>();
+builder.Services.AddSingleton<PostgresStaffOrderLookupStore>();
+builder.Services.AddSingleton<PostgresCategoryStore>();
+builder.Services.AddSingleton<PostgresBusinessTypeStore>();
+builder.Services.AddSingleton<PostgresSupplierCategoryStore>();
+builder.Services.AddSingleton<PostgresTreasuryAccountTypeStore>();
+builder.Services.AddSingleton<PostgresEmployeeRoleStore>();
+builder.Services.AddSingleton<PostgresSupplierStore>();
+builder.Services.AddSingleton<PostgresCurrentAccountStore>();
+builder.Services.AddSingleton<PostgresPurchaseReceptionStore>();
+builder.Services.AddSingleton<PostgresStockStore>();
+builder.Services.AddSingleton<PostgresGeoStore>();
+builder.Services.AddSingleton<PostgresBranchDiscountPinStore>();
+builder.Services.AddSingleton<CatalogCopyStore>();
 builder.Services.AddSingleton<PostgresPriceListStore>();
 builder.Services.AddSingleton<PostgresPaymentStore>();
 builder.Services.AddSingleton<IPaymentLedgerStore>(sp => sp.GetRequiredService<PostgresPaymentStore>());
@@ -142,7 +158,9 @@ builder.Services.AddSingleton<PaymentRecordingService>();
 
 // --- Shared application services (Component Reuse Policy: reused, not
 // reimplemented) --------------------------------------------------------
-builder.Services.AddSingleton<IAuditSink, InMemoryAuditSink>();
+// Durable audit: every IAuditSink consumer (staff authorization, catalog management, customer catalog access)
+// writes to the append-only audit_log, fail-open with Error logging; each entry carries its own actor kind.
+builder.Services.AddDurableAuditSink();
 builder.Services.AddSingleton<TenantAuthorizationService>();
 builder.Services.AddSingleton<CatalogManagementService>();
 builder.Services.AddSingleton<CustomerCatalogAccessService>();
@@ -151,8 +169,27 @@ builder.Services.AddSingleton<CustomerOrderingAccessService>();
 // --- Cloud.Api-local composition --------------------------------------------
 builder.Services.AddSingleton<CloudSyncReceiver>();
 builder.Services.AddSingleton<CloudCatalogManagementAdapter>();
-builder.Services.AddSingleton<CloudOrderStore>();
+// persist-web-orders: orders live in Postgres (survive restarts, carry P{branch}-W-{seq} numbers).
+builder.Services.AddSingleton<IOrderStore>(sp => new PostgresOrderStore(sp.GetRequiredService<NpgsqlDataSource>()));
+// order-fulfillment-and-delivery (0045): order tracking, delivery runs, remitos and the document data they print.
+builder.Services.AddSingleton<PostgresFulfillmentStore>();
+// payment-terms-and-treasury (0046): the company's money accounts per branch and payment method.
+builder.Services.AddSingleton<PostgresTreasuryStore>();
+builder.Services.AddSingleton<PostgresTreasuryRecurrenceStore>();
+// Records the recurring treasury movements on their dates (every few hours; needs the platform-read connection).
+builder.Services.AddHostedService<TreasuryRecurrenceJob>();
+builder.Services.AddSingleton<PostgresEmployeeStore>();
+builder.Services.AddSingleton<PostgresPayrollStore>();
+// commerce-price-composition slice 2: resolution composes the effective rate
+// components onto the entry's base price, so the submission service needs the
+// component store. Registered here rather than defaulted to null inside the
+// service — a missing registration must fail at startup, not reprice silently.
+builder.Services.AddSingleton<PostgresRateComponentStore>();
+builder.Services.AddSingleton<Commerce.Cloud.Api.Pricing.PriceFloorValidator>();
 builder.Services.AddSingleton<CloudOrderSubmissionService>();
+// Effective dates of pricing and stock follow the business day, not the UTC date (config `Business:TimeZone`, default Buenos Aires).
+builder.Services.AddSingleton<IBusinessClock>(_ =>
+    new BusinessClock(TimeProvider.System, BusinessTimeZone.Resolve(builder.Configuration["Business:TimeZone"])));
 
 // --- Auth: Identity cookie (browser, same-origin SPA) + device bearer
 // (Pos.Windows sync) — design.md "Browser auth" / "Device auth" -------------
@@ -172,9 +209,28 @@ builder.Services
             var validator = context.HttpContext.RequestServices.GetRequiredService<SessionVersionValidator>();
             return validator.ValidateAsync(context);
         };
+        // The SPA calls this API with fetch: a denied or anonymous request must answer 403/401, never the cookie
+        // handler's default 302 to /Account/AccessDenied or /Account/Login (pages this API does not have). Behind the
+        // local HTTPS proxy that redirect pointed at http:// on the HTTPS port, fetch failed at the network level and the
+        // SPA reported "Commerce.Cloud.Api no está disponible" for what was really a missing permission.
+        options.Events.OnRedirectToLogin = context =>
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            return Task.CompletedTask;
+        };
+        options.Events.OnRedirectToAccessDenied = context =>
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            return Task.CompletedTask;
+        };
     })
     .AddScheme<DeviceBearerAuthenticationOptions, DeviceBearerAuthenticationHandler>(
         CloudAuthenticationSchemes.DeviceBearer, _ => { })
+    // admin-console-field-fixes T5: a bearer request is the device, anything else the browser cookie. Named ONLY
+    // by the StaffOrDeviceOperator policy, which only the endpoints that opt in carry; the default scheme stays
+    // the cookie, so every other staff endpoint still refuses a device credential.
+    .AddPolicyScheme(CloudAuthenticationSchemes.StaffOrDevice, CloudAuthenticationSchemes.StaffOrDevice, options =>
+        options.ForwardDefaultSelector = DeviceOperatorAccess.SelectScheme)
     // Fourth, genuinely separate cookie scheme (commerce-guest-ordering
     // design.md "Customer session"): the separate staff-cookie pattern applied
     // a second time — its own Cookie.Name and Cookie.Path = "/customer", so
@@ -205,6 +261,9 @@ builder.Services.AddAuthorizationBuilder()
         .RequireAuthenticatedUser())
     .AddPolicy("Customer", policy => policy
         .AddAuthenticationSchemes(CloudAuthenticationSchemes.CustomerCookie)
+        .RequireAuthenticatedUser())
+    .AddPolicy(DeviceOperatorAccess.PolicyName, policy => policy
+        .AddAuthenticationSchemes(CloudAuthenticationSchemes.StaffOrDevice)
         .RequireAuthenticatedUser());
 
 // --- Rate limiting (commerce-guest-ordering design.md "Rate limiting"):
@@ -251,6 +310,19 @@ builder.Services.AddRateLimiter(options =>
             QueueLimit = 0,
         }));
 
+    // POST /device/pair is anonymous and accepts a client-chosen InstallationId:
+    // every fresh GUID that pairs consumes one of its branch's 999 register
+    // numbers for good. Per-IP fixed window; the ceiling is far above a real
+    // fit-out (a handful of terminals) and configurable per environment.
+    var devicePairPermitLimit = builder.Configuration.GetValue("RateLimits:DevicePairPermitLimit", DeviceRateLimitPolicies.DefaultPairPermitLimit);
+    options.AddPolicy(DeviceRateLimitPolicies.Pair, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(IpPartitionKey(httpContext), _ => new FixedWindowRateLimiterOptions
+        {
+            Window = DeviceRateLimitPolicies.PairWindow,
+            PermitLimit = devicePairPermitLimit,
+            QueueLimit = 0,
+        }));
+
     options.AddPolicy(PublicRateLimitPolicies.PublicCatalogRead, httpContext =>
         RateLimitPartition.GetFixedWindowLimiter(IpPartitionKey(httpContext), _ => new FixedWindowRateLimiterOptions
         {
@@ -287,7 +359,21 @@ app.MapAccountEndpoints();
 app.MapDeviceEndpoints();
 app.MapSyncEndpoints();
 app.MapCatalogEndpoints();
+app.MapCategoryEndpoints();
+app.MapMasterDataEndpoints();
+app.MapSupplierEndpoints();
+app.MapSupplierAccountEndpoints();
+app.MapCustomerAccountEndpoints();
+app.MapEmployeeAccountEndpoints();
+app.MapPurchaseReceptionEndpoints();
+app.MapStockEndpoints();
+app.MapGeographyEndpoints();
+app.MapBranchDiscountPinEndpoints();
 app.MapOrderingEndpoints();
+app.MapStaffOrderingEndpoints();
+app.MapFulfillmentEndpoints();
+app.MapTreasuryEndpoints();
+app.MapEmployeeEndpoints();
 app.MapCustomerEndpoints();
 app.MapCustomerSessionEndpoints();
 app.MapPricingEndpoints();

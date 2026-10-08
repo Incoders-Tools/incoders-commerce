@@ -1,0 +1,46 @@
+{
+  "title": "Branches",
+  "description": "Physical locations orders and stock are attributed to.",
+  "errors": {
+    "unableToLoad": "Unable to load branches.",
+    "unableToCreate": "Unable to create branch."
+  },
+  "createForm": {
+    "nameAriaLabel": "Branch name",
+    "namePlaceholder": "New branch name",
+    "submit": "Create branch"
+  },
+  "search": {
+    "label": "Search branches",
+    "placeholder": "Search by branch name…"
+  },
+  "empty": {
+    "none": "No branches yet.",
+    "noMatch": "No branches match this search.",
+    "loadError": "Branches could not be loaded."
+  },
+  "columns": {
+    "branchName": "Branch name",
+    "code": "Code",
+    "codeHint": "Short code of the branch. It is assigned automatically and never changes. It is used in sale numbers (e.g. V01-C2-125).",
+    "identifier": "Identifier"
+  },
+  "discountPin": {
+    "title": "Discount PIN",
+    "open": "Discount PIN",
+    "openFor": "Discount PIN for {{name}}",
+    "close": "Close",
+    "description": "Authorizes discounts at the {{name}} till. One shared PIN; it is stored hashed and can never be shown again.",
+    "loading": "Loading…",
+    "unset": "This branch has no discount PIN yet.",
+    "set": "PIN set. Last changed: {{date}}",
+    "newLabel": "New discount PIN",
+    "hint": "4 to 12 digits.",
+    "define": "Set PIN",
+    "change": "Change PIN",
+    "saving": "Saving…",
+    "invalid": "The PIN must be 4 to 12 digits.",
+    "loadError": "Unable to read the discount PIN.",
+    "saveError": "Unable to save the discount PIN."
+  }
+}

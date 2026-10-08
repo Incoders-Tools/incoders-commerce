@@ -1,12 +1,17 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useTranslation } from 'react-i18next'
 import { createBranch, listBranches } from '@/api/account'
 import type { BranchSummary } from '@/api/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { useOptionalAuth } from '@/auth/AuthContext'
+import { formatBranchCode } from '@/lib/branchCode'
 import { DataToolbar } from '@/components/data/DataToolbar'
 import { DataView, type DataViewColumn } from '@/components/data/DataView'
 import { PageHeader } from '@/components/data/PageHeader'
 import { useViewPreference } from '@/components/data/useViewPreference'
+import { DiscountPinPanel } from './DiscountPinPanel'
+import { BranchDocumentForm } from './BranchDocumentForm'
 
 /**
  * T4b: migrated onto the shared data-view layer (`components/data/*`),
@@ -22,6 +27,9 @@ import { useViewPreference } from '@/components/data/useViewPreference'
  * returned; there is no server-side branch search endpoint.
  */
 export function BranchesScreen() {
+  const { t } = useTranslation('branches')
+  // The branch GUID is a technical identifier: only system administrators see it.
+  const isSystemAdmin = Boolean(useOptionalAuth()?.user?.isSystemAdmin)
   const [branches, setBranches] = useState<BranchSummary[]>([])
   const [name, setName] = useState('')
   /** Why the last load failed, if it did. Never set by an action: an action
@@ -31,21 +39,24 @@ export function BranchesScreen() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [view, setView] = useViewPreference('branches')
+  const [pinBranch, setPinBranch] = useState<BranchSummary | null>(null)
+  const [documentBranch, setDocumentBranch] = useState<BranchSummary | null>(null)
+  const { t: tDocuments } = useTranslation('fulfillment')
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     try {
       setBranches(await listBranches())
       setLoadError(null)
     } catch {
-      setLoadError('Unable to load branches.')
+      setLoadError(t('errors.unableToLoad'))
     } finally {
       setLoading(false)
     }
-  }
+  }, [t])
 
   useEffect(() => {
     void refresh()
-  }, [])
+  }, [refresh])
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
@@ -55,7 +66,7 @@ export function BranchesScreen() {
       setName('')
       await refresh()
     } catch {
-      setActionError('Unable to create branch.')
+      setActionError(t('errors.unableToCreate'))
     }
   }
 
@@ -66,31 +77,57 @@ export function BranchesScreen() {
   }, [branches, trimmedSearch])
 
   const columns: DataViewColumn<BranchSummary>[] = [
-    { key: 'branchName', header: 'Branch name', cell: (branch) => branch.branchName },
+    { key: 'branchName', header: t('columns.branchName'), cell: (branch) => branch.branchName },
     {
-      key: 'branchId',
-      header: 'Identifier',
-      cell: (branch) => <span className="font-mono text-xs text-muted-foreground">{branch.branchId}</span>,
-      hideOnMobile: true,
+      key: 'code',
+      header: t('columns.code'),
+      headerHint: t('columns.codeHint'),
+      cell: (branch) => (
+        <span className="font-mono" title={t('columns.codeHint')}>
+          {formatBranchCode(branch.code)}
+        </span>
+      ),
     },
+    ...(isSystemAdmin
+      ? [
+          {
+            key: 'branchId',
+            header: t('columns.identifier'),
+            cell: (branch: BranchSummary) => (
+              <span className="font-mono text-xs text-muted-foreground">{branch.branchId}</span>
+            ),
+            hideOnMobile: true,
+          },
+        ]
+      : []),
   ]
+
+  if (documentBranch) {
+    return (
+      <BranchDocumentForm
+        branchId={documentBranch.branchId}
+        branchName={documentBranch.branchName}
+        onBack={() => setDocumentBranch(null)}
+      />
+    )
+  }
 
   return (
     <section className="flex w-full flex-col gap-6">
       <PageHeader
-        title="Branches"
-        description="Physical locations orders and stock are attributed to."
+        title={t('title')}
+        description={t('description')}
         actions={
           <form onSubmit={submit} className="flex w-full items-center gap-2 sm:w-auto">
             <Input
-              aria-label="Branch name"
+              aria-label={t('createForm.nameAriaLabel')}
               className="sm:w-56"
-              placeholder="New branch name"
+              placeholder={t('createForm.namePlaceholder')}
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
             />
-            <Button type="submit">Create branch</Button>
+            <Button type="submit">{t('createForm.submit')}</Button>
           </form>
         }
       />
@@ -107,11 +144,13 @@ export function BranchesScreen() {
         </p>
       )}
 
+      {pinBranch && <DiscountPinPanel branch={pinBranch} onClose={() => setPinBranch(null)} />}
+
       <DataToolbar
         searchValue={search}
         onSearchChange={setSearch}
-        searchLabel="Search branches"
-        searchPlaceholder="Search by branch name…"
+        searchLabel={t('search.label')}
+        searchPlaceholder={t('search.placeholder')}
         view={view}
         onViewChange={setView}
       />
@@ -120,10 +159,25 @@ export function BranchesScreen() {
         items={visibleBranches}
         columns={columns}
         getRowKey={(branch) => branch.branchId}
+        renderActions={(branch) => (
+          <span className="inline-flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              aria-label={t('discountPin.openFor', { name: branch.branchName })}
+              onClick={() => setPinBranch(branch)}
+            >
+              {t('discountPin.open')}
+            </Button>
+            <Button type="button" variant="outline" onClick={() => setDocumentBranch(branch)}>
+              {tDocuments('documents.branch.action')}
+            </Button>
+          </span>
+        )}
         view={view}
         loading={loading}
-        emptyMessage={branches.length === 0 ? 'No branches yet.' : 'No branches match this search.'}
-        loadErrorMessage={loadError === null ? null : 'Branches could not be loaded.'}
+        emptyMessage={branches.length === 0 ? t('empty.none') : t('empty.noMatch')}
+        loadErrorMessage={loadError === null ? null : t('empty.loadError')}
       />
     </section>
   )

@@ -43,6 +43,22 @@ required or permitted as a substitute for this verification.
 - THEN confirmation fails, no order is admitted, and the guest may request
   a new code
 
+#### Scenario: A failed submission does not burn the verification
+
+- GIVEN a guest holds a confirmed verification
+- WHEN the order cannot be stored (the destination branch does not exist,
+  a price cannot be resolved, or the insert fails)
+- THEN no order is admitted and the verification stays unconsumed, so the
+  guest can submit again with the same confirmation
+
+#### Scenario: A verification admits exactly one order
+
+- GIVEN a guest order was admitted with a confirmed verification
+- WHEN the same verification is presented for a different order
+- THEN the submission is rejected as an invalid verification
+- AND presenting it again for the SAME order id returns the stored order
+  and its number without consuming anything
+
 ### Requirement: Public Catalogue Read
 
 The catalogue MUST be readable without an authenticated session, scoped to
@@ -118,3 +134,25 @@ other endpoint groups.
 - WHEN a staff or registered-customer request is made against its own
   endpoint group
 - THEN that request is unaffected by the guest endpoint's throttled state
+
+### Requirement: Order Confirmation Shows the Order Number
+
+After an order is accepted, the web order screen (guest and registered) MUST
+show the human order number, for example "Pedido P01-W-37 recibido", with a
+tooltip that explains each part ("P = Pedido · 01 = Sucursal · W = Web · 37 =
+número de pedido de la sucursal"), in the active language. It MUST NOT show
+the order's GUID. If the response carries no number, the plain accepted
+message is shown.
+
+#### Scenario: A guest sees the number and its explanation
+
+- GIVEN a guest order was accepted as `P01-W-37`
+- WHEN the confirmation is shown
+- THEN it reads "Pedido P01-W-37 recibido", the number carries the
+  composition tooltip and no GUID is shown
+
+#### Scenario: A response without a number still confirms
+
+- GIVEN an accepted order whose response has no order number
+- WHEN the confirmation is shown
+- THEN it reads "Pedido aceptado." with no tooltip

@@ -244,6 +244,7 @@ public sealed class UpdaterService
     {
         _auditSink.Record(new AuditEntry(
             ActorId: actor.Id,
+            ActorKind: AuditActorKind.OrgUser,
             OrganizationId: actor.OrganizationId,
             BranchId: accessContext.TargetBranchId,
             Action: TriggerUpgrade.Name,

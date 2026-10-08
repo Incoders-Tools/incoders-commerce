@@ -15,6 +15,7 @@ describe('OrderLinesEditor', () => {
     {
       id: 'pres-1',
       organizationId: 'org-1',
+      branchId: 'branch-1',
       productId: 'prod-1',
       name: '1.5L bottle',
       quantityBehavior: 0,
@@ -27,6 +28,7 @@ describe('OrderLinesEditor', () => {
     {
       id: 'pres-2',
       organizationId: 'org-1',
+      branchId: 'branch-1',
       productId: 'prod-2',
       name: '2kg bag',
       quantityBehavior: 0,
@@ -41,7 +43,7 @@ describe('OrderLinesEditor', () => {
   it('renders a presentation picker by name and no raw GUID text input', () => {
     render(<OrderLinesEditor presentations={presentations} lines={[]} onChange={vi.fn()} />)
 
-    expect(screen.getByRole('combobox', { name: /presentation/i })).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: /presentación/i })).toBeInTheDocument()
     expect(screen.getByText('1.5L bottle')).toBeInTheDocument()
     expect(screen.getByText('2kg bag')).toBeInTheDocument()
 
@@ -56,12 +58,19 @@ describe('OrderLinesEditor', () => {
     const user = userEvent.setup()
     render(<OrderLinesEditor presentations={presentations} lines={[]} onChange={onChange} />)
 
-    await user.selectOptions(screen.getByRole('combobox', { name: /presentation/i }), 'pres-2')
-    await user.clear(screen.getByLabelText(/quantity/i))
-    await user.type(screen.getByLabelText(/quantity/i), '3')
-    await user.click(screen.getByRole('button', { name: /add line/i }))
+    await user.selectOptions(screen.getByRole('combobox', { name: /presentación/i }), 'pres-2')
+    await user.clear(screen.getByLabelText(/cantidad/i))
+    await user.type(screen.getByLabelText(/cantidad/i), '3')
+    await user.click(screen.getByRole('button', { name: /agregar línea/i }))
 
     expect(onChange).toHaveBeenCalledWith([{ productId: 'prod-2', presentationId: 'pres-2', quantity: 3 }])
+  })
+
+  it('uses semantic design tokens for the presentation select, dark-mode-safe', () => {
+    render(<OrderLinesEditor presentations={presentations} lines={[]} onChange={vi.fn()} />)
+
+    const select = screen.getByRole('combobox', { name: /presentación/i })
+    expect(select.className).not.toMatch(/border-neutral-300|bg-white/)
   })
 
   it('lists already-added lines by presentation name and supports removal', async () => {
@@ -70,9 +79,9 @@ describe('OrderLinesEditor', () => {
     const lines: SubmitOrderLine[] = [{ productId: 'prod-1', presentationId: 'pres-1', quantity: 2 }]
     render(<OrderLinesEditor presentations={presentations} lines={lines} onChange={onChange} />)
 
-    expect(screen.getByText(/1\.5L bottle.*qty:\s*2/i)).toBeInTheDocument()
+    expect(screen.getByText(/1\.5L bottle.*cant\.:\s*2/i)).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: /remove/i }))
+    await user.click(screen.getByRole('button', { name: /quitar/i }))
     expect(onChange).toHaveBeenCalledWith([])
   })
 })

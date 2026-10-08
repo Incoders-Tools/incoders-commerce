@@ -1,0 +1,271 @@
+{
+  "title": "Listas de precios",
+  "description": "Precios publicados por presentación, y la importación de proveedores que los alimenta.",
+  "createDefault": "Crear lista de precios predeterminada",
+  "branchRequired": "Elegí una sucursal en la barra superior para ver y editar las listas de precios.",
+  "errors": {
+    "unexpectedLoad": "Error inesperado al cargar las listas de precios.",
+    "unexpectedCreateDefault": "Error inesperado al crear la lista de precios predeterminada.",
+    "unexpectedLoadSupplierMappings": "Error inesperado al cargar los mapeos de proveedores.",
+    "unexpectedUpload": "Error inesperado al subir el archivo.",
+    "unexpectedCommit": "Error inesperado al confirmar el lote.",
+    "unexpectedReject": "Error inesperado al rechazar el lote.",
+    "unexpectedSaveMapping": "Error inesperado al guardar el mapeo de proveedor."
+  },
+  "sectionsNav": {
+    "label": "Secciones de listas de precios",
+    "prices": "Precios",
+    "edit": "Editar precios",
+    "suppliers": "Proveedores",
+    "import": "Importar"
+  },
+  "search": {
+    "label": "Buscar listas de precios",
+    "placeholder": "Buscar por nombre…"
+  },
+  "empty": {
+    "none": "Todavía no hay listas de precios.",
+    "noMatch": "Ninguna lista de precios coincide con esta búsqueda.",
+    "loadError": "No se pudieron cargar las listas de precios."
+  },
+  "columns": {
+    "name": "Nombre",
+    "isDefault": "Es predeterminada",
+    "yes": "Sí",
+    "no": "No",
+    "created": "Creada"
+  },
+  "actions": {
+    "managePrices": "Gestionar precios",
+    "composition": "Composición",
+    "copy": "Duplicar lista"
+  },
+  "editor": {
+    "listLabel": "Lista de precios",
+    "noList": "Elegí una lista",
+    "loading": "Cargando precios…",
+    "loadingBaseline": "Cargando los precios vigentes en la fecha elegida…",
+    "empty": "Todavía no hay productos en el catálogo.",
+    "noMatch": "Ningún producto coincide con la búsqueda.",
+    "search": {
+      "label": "Buscar productos",
+      "placeholder": "Producto o código…"
+    },
+    "categoryLabel": "Categoría",
+    "allCategories": "Todas las categorías",
+    "effectiveFromLabel": "Vigente desde",
+    "effectiveFromToday": "Hoy (día comercial)",
+    "effectiveFromHint": "Vigente desde: vacío = hoy (día comercial). Los precios publicados rigen a partir de esa fecha.",
+    "remark": {
+      "label": "Remarcar %",
+      "placeholder": "Ej: 10 o -5",
+      "apply": "Aplicar",
+      "hint": "Se aplica sobre el precio base. Los productos sin precio no se remarcan. Revisá la vista previa antes de publicar.",
+      "invalid": "Ingresá un porcentaje mayor que -100.",
+      "scope": {
+        "selected_one": "Se aplica a {{count}} producto seleccionado.",
+        "selected_other": "Se aplica a los {{count}} productos seleccionados.",
+        "filtered_one": "Se aplica a {{count}} producto: el que muestra el filtro.",
+        "filtered_other": "Se aplica a los {{count}} productos que muestra el filtro (los ocultos no cambian).",
+        "all_one": "Se aplica a {{count}} producto de la lista.",
+        "all_other": "Se aplica a los {{count}} productos de la lista."
+      }
+    },
+    "columns": {
+      "product": "Producto",
+      "presentation": "Presentación",
+      "code": "Código",
+      "category": "Categoría",
+      "base": "Base actual",
+      "final": "Final actual",
+      "newBase": "Nueva base",
+      "history": "Historial"
+    },
+    "selectAll": "Seleccionar todas las filas visibles",
+    "selectRow": "Seleccionar {{name}}",
+    "newBaseOf": "Nueva base de {{name}}",
+    "historyOf": "Historial de {{name}}",
+    "firstPrice": "Primer precio: {{price}}",
+    "changedCount_one": "{{count}} precio modificado",
+    "changedCount_other": "{{count}} precios modificados",
+    "invalidCount_one": "{{count}} fila con valores inválidos",
+    "invalidCount_other": "{{count}} filas con valores inválidos",
+    "showInvalid": "Mostrar",
+    "undo": "Deshacer cambios",
+    "publish": "Publicar cambios",
+    "publishing": "Publicando…",
+    "published_one": "Se publicó {{count}} precio.",
+    "published_other": "Se publicaron {{count}} precios.",
+    "violation": "{{price}} queda por debajo del piso {{floor}} ({{floorPrice}}).",
+    "dependentViolation": "Deja a {{list}} en {{price}}, por debajo de su piso {{floor}} ({{floorPrice}}).",
+    "errors": {
+      "invalidPrice": "Ingresá un precio mayor que cero, con hasta dos decimales.",
+      "belowFloor": "No se publicó ningún precio: hay precios por debajo de su lista piso. Corregí las filas marcadas.",
+      "unexpectedLoad": "Error inesperado al cargar los precios.",
+      "unexpectedPublish": "Error inesperado al publicar los precios."
+    },
+    "discard": {
+      "title": "Cambios sin publicar",
+      "message_one": "Tenés {{count}} cambio sin publicar. ¿Descartarlo?",
+      "message_other": "Tenés {{count}} cambios sin publicar. ¿Descartarlos?",
+      "confirm": "Descartar",
+      "keepEditing": "Seguir editando"
+    },
+    "composition": {
+      "label": "Composición:",
+      "loading": "Cargando la composición…",
+      "edit": "Editar composición",
+      "publishFirst": "Publicá o deshacé los cambios antes de editar la composición."
+    },
+    "priceFilter": {
+      "label": "Precio en la lista",
+      "all": "Todos",
+      "missing_one": "Sin precio ({{count}})",
+      "missing_other": "Sin precio ({{count}})",
+      "priced": "Con precio"
+    },
+    "newFinal": "Final: {{price}}",
+    "finalChange": "Final: {{from}} → {{to}}"
+  },
+  "suppliersPlaceholder": "Los mapeos de proveedores (mapeo de columnas para importaciones de Excel) llegarán en una futura versión; la tabla `supplier_price_mappings` todavía no existe.",
+  "history": {
+    "show": "Historial",
+    "loading": "Cargando historial…",
+    "unexpectedLoad": "Error inesperado al cargar el historial de precios.",
+    "empty": "Todavía no hay precios publicados."
+  },
+  "import": {
+    "loading": "Cargando…",
+    "supplierLabel": "Proveedor",
+    "fileLabel": "Archivo",
+    "uploading": "Subiendo…",
+    "upload": "Subir",
+    "batchStatus": "Lote {{status}}.",
+    "createMapping": {
+      "explanation": "Todavía no existe un mapeo de proveedor; configure uno antes de importar.",
+      "supplierNameLabel": "Nombre del proveedor",
+      "sheetNameLabel": "Nombre de la hoja",
+      "headerRowLabel": "Fila de encabezado",
+      "codeColumnLabel": "Columna de código",
+      "priceColumnLabel": "Columna de precio",
+      "saving": "Guardando…",
+      "save": "Guardar mapeo"
+    },
+    "reviewTable": {
+      "empty": "Todavía no hay filas para revisar.",
+      "columns": {
+        "row": "N.°",
+        "code": "Código",
+        "item": "Artículo",
+        "current": "Actual",
+        "proposed": "Propuesto",
+        "status": "Estado"
+      },
+      "statusOptions": {
+        "matched": "Coincide",
+        "noChange": "Sin cambios",
+        "unknownCode": "Código desconocido",
+        "invalidPrice": "Precio inválido",
+        "duplicateInFile": "Duplicado en el archivo"
+      },
+      "committing": "Confirmando…",
+      "commit": "Confirmar",
+      "reject": "Rechazar"
+    }
+  },
+  "breakdown": {
+    "title": "Composición de {{name}}",
+    "description": "Cómo se arma cada precio: el precio base más cada componente.",
+    "backLabel": "Volver a listas de precios",
+    "dateLabel": "Precios al día",
+    "loading": "Cargando composición…",
+    "empty": "No hay productos con precio en esta fecha.",
+    "editComposition": "Editar composición",
+    "noComposition": "Sin composición: el precio final es el precio base.",
+    "onBase": "sobre base",
+    "componentOnSubtotal": "{{label}} {{percentage}} % sobre subtotal",
+    "component": "{{label}} {{percentage}} %",
+    "floor": "Piso: {{name}}",
+    "noFloor": "Sin piso",
+    "floorSelect": "Lista piso",
+    "floorHint": "Esta lista nunca puede quedar por debajo del piso, producto por producto.",
+    "historyTitle": "Historial de composiciones",
+    "historyEmpty": "Todavía no hay versiones anteriores.",
+    "historyLine": "Desde {{date}}: {{summary}}",
+    "copied": "Lista duplicada. Precios incluidos: {{count}}.",
+    "columns": {
+      "code": "Código",
+      "product": "Producto",
+      "base": "Base",
+      "final": "Precio final"
+    },
+    "errors": {
+      "unexpectedLoad": "Error inesperado al cargar la composición.",
+      "floorCycle": "Esa lista ya depende de esta: el piso formaría un ciclo.",
+      "unexpectedFloor": "Error inesperado al cambiar la lista piso."
+    }
+  },
+  "compositionForm": {
+    "title": "Editar composición de {{name}}",
+    "description": "Publica una versión nueva a partir de la fecha elegida; las versiones anteriores quedan en el historial.",
+    "loading": "Cargando composición…",
+    "effectiveFrom": "Vigente desde",
+    "effectiveFromHint": "Por defecto mañana. No se edita la versión vigente: se publica una nueva y el historial se conserva.",
+    "mode": "Cómo editar",
+    "modeComponents": "Componentes",
+    "modeMarkup": "Solo remarcación",
+    "markup": "Remarcación %",
+    "markupHint": "Cambia solo la remarcación; el resto de los componentes se mantiene.",
+    "componentsTitle": "Componentes",
+    "label": "Etiqueta {{index}}",
+    "code": "Código {{index}}",
+    "percentage": "Porcentaje {{index}}",
+    "base": "Base de cálculo {{index}}",
+    "order": "Orden {{index}}",
+    "baseOptions": {
+      "Base": "Sobre base",
+      "Subtotal": "Sobre subtotal"
+    },
+    "add": "Agregar componente",
+    "remove": "Quitar componente {{index}}",
+    "publish": "Publicar composición",
+    "publishing": "Publicando…",
+    "cancel": "Cancelar",
+    "errors": {
+      "dateTaken": "Ya existe una composición con esa fecha de vigencia. Elegí otra fecha.",
+      "incomplete": "Completá la etiqueta, el código y el porcentaje de cada componente.",
+      "markupRequired": "Ingresá la remarcación.",
+      "unexpected": "Error inesperado al publicar la composición.",
+      "unexpectedLoad": "Error inesperado al cargar la composición."
+    }
+  },
+  "copyForm": {
+    "title": "Duplicar {{name}}",
+    "description": "Crea una lista nueva con los precios base de esta y su composición con otra remarcación. La lista de origen no cambia.",
+    "name": "Nombre de la nueva lista",
+    "markup": "Remarcación %",
+    "markupHint": "Reemplaza la remarcación de la composición duplicada.",
+    "effectiveFrom": "Vigente desde",
+    "floor": "Piso de la nueva lista",
+    "floorKeep": "Mantener el piso de la lista de origen",
+    "floorNone": "Sin piso",
+    "submit": "Duplicar lista",
+    "submitting": "Duplicando…",
+    "cancel": "Cancelar",
+    "errors": {
+      "nameTaken": "Ya existe una lista con ese nombre.",
+      "invalid": "Revisá el nombre y la remarcación.",
+      "unexpected": "Error inesperado al duplicar la lista."
+    }
+  },
+  "violations": {
+    "title": "Estos productos quedarían por debajo de {{floor}}",
+    "hint": "No se guardó nada. Subí esos precios o la remarcación y volvé a intentar.",
+    "columns": {
+      "list": "Lista",
+      "product": "Producto",
+      "price": "Precio",
+      "floor": "Piso"
+    }
+  }
+}

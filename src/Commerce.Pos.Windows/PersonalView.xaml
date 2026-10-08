@@ -1,0 +1,21 @@
+<UserControl x:Class="Commerce.Pos.Windows.PersonalView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Foreground="{DynamicResource TextBrush}">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- The two halves of Personal, as the web splits them: the staff file (Personal) and the system users (Usuarios). -->
+        <StackPanel Orientation="Horizontal" Margin="16,12,16,0" AutomationProperties.Name="Secciones de Personal">
+            <RadioButton x:Name="EmployeesTab" GroupName="PersonalTabs" Content="Empleados" Style="{StaticResource AppearanceThemeOption}"
+                         MinWidth="150" Margin="0,0,8,0" IsChecked="True" Checked="EmployeesTab_Checked" />
+            <RadioButton x:Name="UsersTab" GroupName="PersonalTabs" Content="Usuarios y acceso" Style="{StaticResource AppearanceThemeOption}"
+                         MinWidth="150" Checked="UsersTab_Checked" />
+        </StackPanel>
+
+        <ContentControl x:Name="TabHost" Grid.Row="1" Focusable="False" />
+    </Grid>
+</UserControl>

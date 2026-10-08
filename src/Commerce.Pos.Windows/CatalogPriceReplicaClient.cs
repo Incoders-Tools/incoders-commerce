@@ -14,6 +14,8 @@ namespace Commerce.Pos.Windows;
 /// </summary>
 public sealed class CatalogPriceReplicaClient
 {
+    private const string Path = "/device/catalog/sync";
+
     private readonly HttpClient _httpClient;
 
     public CatalogPriceReplicaClient(HttpClient httpClient)
@@ -23,29 +25,32 @@ public sealed class CatalogPriceReplicaClient
 
     public async Task<CatalogPriceSyncOutcome> PullAsync(DateTimeOffset since, string deviceToken, CancellationToken ct = default)
     {
+        var endpoint = PosHttp.Endpoint(HttpMethod.Get, Path);
         try
         {
             using var request = new HttpRequestMessage(
-                HttpMethod.Get, $"/device/catalog/sync?since={Uri.EscapeDataString(since.ToString("O"))}");
+                HttpMethod.Get, $"{Path}?since={Uri.EscapeDataString(since.ToString("O"))}");
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", deviceToken);
 
             using var response = await _httpClient.SendAsync(request, ct);
             if (!response.IsSuccessStatusCode)
             {
+                PosHttp.LogFailure(endpoint, response, "catalog pull failed");
                 return CatalogPriceSyncOutcome.Failed($"HTTP {(int)response.StatusCode}");
             }
 
-            var body = await response.Content.ReadFromJsonAsync<CatalogSyncResponseDto>(ct);
+            var body = await PosHttp.TryReadJsonAsync<CatalogSyncResponseDto>(response, endpoint, ct);
             if (body is null)
             {
-                return CatalogPriceSyncOutcome.Failed("Empty response from server.");
+                return CatalogPriceSyncOutcome.Failed(PosMessages.UnexpectedResponse);
             }
 
             return CatalogPriceSyncOutcome.Succeeded(body.Items, body.RemovedPresentationIds, body.ServerTimeUtc);
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        catch (Exception ex) when (PosHttp.IsTransportFailure(ex, ct))
         {
-            return CatalogPriceSyncOutcome.Failed($"Unreachable: {ex.Message}");
+            PosHttp.LogTransportFailure(endpoint, ex);
+            return CatalogPriceSyncOutcome.Failed(PosMessages.ServerUnreachable);
         }
     }
 }
@@ -54,7 +59,8 @@ public sealed class CatalogPriceReplicaClient
 public sealed record CatalogReplicaRowDto(
     Guid PresentationId, Guid ProductId, string ProductName, string PresentationName,
     string? IdentificationCode, string QuantityBehavior, Guid UnitId,
-    decimal? UnitPrice, DateOnly? EffectiveFrom, DateTimeOffset UpdatedAtUtc);
+    decimal? UnitPrice, DateOnly? EffectiveFrom, DateTimeOffset UpdatedAtUtc,
+    Guid? CategoryId = null, string? CategoryName = null, string? CategoryIconKey = null);
 
 /// <summary>Mirrors `Commerce.Cloud.Api.Endpoints.CatalogSyncResponse`.</summary>
 public sealed record CatalogSyncResponseDto(

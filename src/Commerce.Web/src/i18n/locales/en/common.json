@@ -1,0 +1,57 @@
+{
+  "actions": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "close": "Close",
+    "edit": "Edit",
+    "delete": "Delete",
+    "create": "Create",
+    "add": "Add",
+    "retry": "Retry",
+    "back": "Back",
+    "confirm": "Confirm",
+    "search": "Search"
+  },
+  "states": {
+    "loading": "Loading…",
+    "saving": "Saving…",
+    "empty": "No results.",
+    "unexpectedError": "An unexpected error occurred."
+  },
+  "app": {
+    "name": "Commerce",
+    "logoAlt": "Organization logo"
+  },
+  "home": {
+    "tagline": "Run your storefront from one place.",
+    "goToApp": "Go to app",
+    "signIn": "Sign in"
+  },
+  "dataView": {
+    "loading": "Loading…",
+    "actions": "Actions",
+    "tableView": "Table view",
+    "cardView": "Card view",
+    "view": "View",
+    "searchPlaceholder": "Search…"
+  },
+  "numberFormat": {
+    "example": {
+      "Comma": "E.g. 1,5",
+      "Dot": "E.g. 1.5"
+    },
+    "errors": {
+      "Comma": "This business writes decimals with a comma (e.g. 1,5).",
+      "Dot": "This business writes decimals with a dot (e.g. 1.5)."
+    }
+  },
+  "email": {
+    "invalid": "Enter a valid email address, for example name@domain.com.",
+    "valid": "Valid email address"
+  },
+  "unsavedChanges": {
+    "title": "Unsaved changes",
+    "discard": "Discard",
+    "keepEditing": "Keep editing"
+  }
+}

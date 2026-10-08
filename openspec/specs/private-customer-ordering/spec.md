@@ -216,3 +216,104 @@ operational path already defined for private customer ordering.
   Reference Integrity" and "Bound and Revocable Customer Access"
   requirements, with the prior order's settlement state having no bearing
   on acceptance
+
+### Requirement: Orders Belong To Their Destination Branch
+
+An order's owning branch MUST be its destination branch. A staff-submitted
+order MUST take its destination from the selected branch; a submitted
+destination that differs from the selected branch MUST be rejected. A
+registered customer's order MUST be destined to the customer's home
+branch. Order read and pending-list endpoints MUST return only orders
+destined to the selected branch.
+
+#### Scenario: Ruta 51's pending list excludes Centro orders
+
+- GIVEN pending orders destined to "Ruta 51" and to "Centro"
+- WHEN a staff member with "Ruta 51" selected lists pending orders
+- THEN only the Ruta 51 orders are returned
+
+#### Scenario: A customer's order goes to the customer's branch
+
+- GIVEN a signed-in customer whose home branch is "Ruta 51"
+- WHEN the customer submits an order
+- THEN the order's destination branch is "Ruta 51"
+
+### Requirement: Durable Numbered Orders
+
+Registered and guest orders MUST be stored in the database when accepted, so
+they survive an API restart, and each order MUST carry the human number
+`P{branch code}-W-{sequence}` (for example `P01-W-37`) assigned in the same
+transaction that stores it. The sequence counts the orders of the
+destination branch from 1; the order id sent by the client is idempotent per
+organization. An order whose destination branch does not exist in the
+organization MUST be rejected as `destination-branch-not-found`, never
+stored and never an unhandled error.
+
+#### Scenario: An accepted order survives a restart
+
+- GIVEN an order was accepted
+- WHEN the API restarts
+- THEN the order is still listed and can be read, with the same number
+
+#### Scenario: Resubmitting an order id returns the same number
+
+- GIVEN an order was accepted as `P01-W-37`
+- WHEN the same order id is submitted again
+- THEN the same order and number are returned and the branch counter does
+  not advance
+
+#### Scenario: Numbers are per branch
+
+- GIVEN branches `01` and `02`
+- WHEN orders are submitted to both
+- THEN each branch numbers its own orders from 1 (`P01-W-1`, `P02-W-1`)
+
+#### Scenario: Unknown destination branch is denied
+
+- GIVEN a destination branch id that is not a branch of the organization
+- WHEN an order is submitted to it
+- THEN the outcome is denied as `destination-branch-not-found` and nothing
+  is stored
+
+### Requirement: Delivery Follows the Commit
+
+Delivery of an accepted order to its destination branch MUST happen only
+after the order's transaction has committed, so a rolled-back submission
+never leaves the branch holding an order the cloud does not have. The order
+is stored pending (`DestinationOffline`) first and its delivery state is
+persisted afterwards; a failure at that step leaves the order stored and
+pending, never lost, and a later retry repeats the delivery idempotently.
+The pending list MUST contain only orders still pending for the destination,
+in deterministic order, and MUST be bounded (default 200, at most 500).
+
+#### Scenario: A rolled-back submission delivers nothing
+
+- GIVEN an order whose line insert fails inside the transaction
+- WHEN the submission is attempted with a reachable destination
+- THEN no order is stored and the destination branch received nothing
+
+#### Scenario: A delivery that cannot be persisted keeps the order
+
+- GIVEN the delivery state of an accepted order cannot be written
+- WHEN the order is read back
+- THEN it exists, pending as `DestinationOffline`, and a later retry confirms it
+
+#### Scenario: The pending list is bounded
+
+- GIVEN more pending orders than the requested limit and one confirmed order
+- WHEN the pending list is read
+- THEN at most the limit is returned, ordered by dispatch rank, submission
+  time and number, and the confirmed order is not listed
+
+### Requirement: Order Payload Carries the Number
+
+The order delivered to a branch MUST carry its human number as an optional
+trailing `OrderNumber` field of the order payload (additive evolution: null
+on an order written before numbering, ignored by a branch that does not know
+it).
+
+#### Scenario: A delivered order carries its number
+
+- GIVEN an accepted order numbered `P01-W-1` and a reachable destination
+- WHEN the branch inbox is read
+- THEN the stored payload carries `OrderNumber` `P01-W-1`

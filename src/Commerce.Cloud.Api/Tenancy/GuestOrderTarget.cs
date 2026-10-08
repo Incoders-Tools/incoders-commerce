@@ -15,7 +15,16 @@ namespace Commerce.Cloud.Api.Tenancy;
 /// </summary>
 public sealed record GuestOrderTarget(Guid OrganizationId, Guid DestinationBranchId)
 {
-    public CloudTenantScope Scope => new(OrganizationId);
+    /// <summary>
+    /// B7 U4 fix: previously omitted <see cref="DestinationBranchId"/>,
+    /// which meant every branch-owned read/write through this scope (e.g.
+    /// the guest catalog, once products/presentations became branch-owned)
+    /// ran with no `app.current_branch_id` GUC set and was hidden by RLS
+    /// fail-closed. guest-ordering spec "Guest Surface Uses Its Configured
+    /// Branch's Data" requires the configured branch to actually be used,
+    /// not merely carried on this record and never applied.
+    /// </summary>
+    public CloudTenantScope Scope => new(OrganizationId, BranchId: DestinationBranchId);
 
     public static bool TryFromConfiguration(IConfiguration config, out GuestOrderTarget? target)
     {

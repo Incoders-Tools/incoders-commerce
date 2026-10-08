@@ -1,6 +1,168 @@
-import { useEffect, useState, type FormEvent } from 'react'
-import { createOrganization, listOrganizations } from '@/api/account'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router'
+import { useTranslation } from 'react-i18next'
+import { listOrganizations } from '@/api/account'
+import { ApiError } from '@/api/client'
 import type { OrganizationSummary } from '@/api/types'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-export function OrganizationsScreen() { const [organizations,setOrganizations]=useState<OrganizationSummary[]>([]);const [organizationName,setOrganizationName]=useState('');const [adminEmail,setAdminEmail]=useState('');const [adminPassword,setAdminPassword]=useState('');const [error,setError]=useState<string|null>(null);const refresh=async()=>{try{setOrganizations(await listOrganizations())}catch{setError('Unable to load organizations.')}};useEffect(()=>{void refresh()},[]);const submit=async(e:FormEvent)=>{e.preventDefault();try{await createOrganization({organizationName,branchName:'Main',adminEmail,adminPassword});setOrganizationName('');await refresh()}catch{setError('Unable to create organization.')}};return <section><h2>Organizations</h2>{error&&<p role="alert">{error}</p>}<form onSubmit={submit}><Input aria-label="Organization name" value={organizationName} onChange={e=>setOrganizationName(e.target.value)} required/><Input aria-label="Administrator email" value={adminEmail} onChange={e=>setAdminEmail(e.target.value)} required/><Input aria-label="Administrator password" type="password" value={adminPassword} onChange={e=>setAdminPassword(e.target.value)} required/><Button type="submit">Create organization</Button></form><ul>{organizations.map(org=><li key={org.id}>{org.name}</li>)}</ul></section> }
+import { DataToolbar } from '@/components/data/DataToolbar'
+import { DataView, type DataViewColumn } from '@/components/data/DataView'
+import { PageHeader } from '@/components/data/PageHeader'
+import { useViewPreference } from '@/components/data/useViewPreference'
+import { useOrganizationContext } from '@/organization/OrganizationContext'
+import { OrganizationForm } from './OrganizationForm'
+import { OrganizationBrandingForm } from './OrganizationBrandingForm'
+
+function formatCreatedAt(value: string): string {
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? '—' : parsed.toLocaleDateString('es-AR')
+}
+
+/**
+ * T8: reformatted from a single minified line with no layout classes at all
+ * (fields literally overlapped visually) onto the shared data-view layer,
+ * following `BranchesScreen.tsx` / `CustomersScreen.tsx`. The create form
+ * moved behind a "New organization" action and now renders full-width in
+ * place of the list, mirroring the `CustomersScreen` → `CustomerForm`
+ * state-swap. Reachable only through `RequireSystemAdmin` (App.tsx).
+ *
+ * T5b: added an "Edit branding" row action opening `OrganizationBrandingForm`
+ * (logoUrl + primaryColor only — date format, geolocation and usage plan
+ * stay deferred per the user's minimal-scope decision). The list itself is
+ * unchanged: branding isn't a column here, it's fetched by the form when it
+ * opens (`GET /account/organizations/{id}/branding`).
+ */
+export function OrganizationsScreen() {
+  const { t } = useTranslation('organizations')
+  const navigate = useNavigate()
+  const { selectOrganization } = useOrganizationContext()
+  const [organizations, setOrganizations] = useState<OrganizationSummary[]>([])
+  const [loading, setLoading] = useState(true)
+  /** Why the last load failed, if it did. Never set by the create form: a
+   * failed create says nothing about whether the collection could be read. */
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [creating, setCreating] = useState(false)
+  const [editingBranding, setEditingBranding] = useState<OrganizationSummary | null>(null)
+  const [search, setSearch] = useState('')
+  const [view, setView] = useViewPreference('organizations')
+  // Guards against a slow refresh resolving after a newer one: `refresh` can
+  // run more than once (mount, then again after a create), and a fetch has
+  // no cancellation of its own, so a stale response landing after a fresh
+  // one could otherwise overwrite it with older data. Each call claims the
+  // next sequence number and only applies its result if it is still the
+  // most recent call in flight when it resolves.
+  const refreshSequence = useRef(0)
+
+  const refresh = useCallback(async () => {
+    const sequence = ++refreshSequence.current
+    setLoading(true)
+    setLoadError(null)
+    try {
+      const result = await listOrganizations()
+      if (sequence === refreshSequence.current) {
+        setOrganizations(result)
+      }
+    } catch (err) {
+      if (sequence === refreshSequence.current) {
+        setLoadError(err instanceof ApiError ? err.message : t('errors.unexpectedLoad'))
+      }
+    } finally {
+      if (sequence === refreshSequence.current) {
+        setLoading(false)
+      }
+    }
+  }, [t])
+
+  useEffect(() => {
+    void refresh()
+  }, [refresh])
+
+  const handleCreated = () => {
+    setCreating(false)
+    void refresh()
+  }
+
+  // platform-administration spec, "Sysadmin Acts On A Selected
+  // Organization": selects this organization and jumps straight to its
+  // Branches screen — the same screen a business-admin of that organization
+  // would use, reused rather than duplicated under Organizations.
+  const handleOpen = (organization: OrganizationSummary) => {
+    selectOrganization({ id: organization.id, name: organization.name })
+    navigate('/app/branches')
+  }
+
+  const trimmedSearch = search.trim().toLowerCase()
+  const visibleOrganizations = useMemo(() => {
+    if (trimmedSearch === '') return organizations
+    return organizations.filter((organization) => organization.name.toLowerCase().includes(trimmedSearch))
+  }, [organizations, trimmedSearch])
+
+  if (creating) {
+    return <OrganizationForm onCreated={handleCreated} onCancel={() => setCreating(false)} />
+  }
+
+  if (editingBranding !== null) {
+    return (
+      <OrganizationBrandingForm
+        organization={editingBranding}
+        onSaved={() => setEditingBranding(null)}
+        onCancel={() => setEditingBranding(null)}
+      />
+    )
+  }
+
+  const columns: DataViewColumn<OrganizationSummary>[] = [
+    { key: 'name', header: t('columns.name'), cell: (organization) => organization.name },
+    {
+      key: 'createdAt',
+      header: t('columns.created'),
+      cell: (organization) => formatCreatedAt(organization.createdAt),
+      hideOnMobile: true,
+    },
+  ]
+
+  return (
+    <section className="flex w-full flex-col gap-6">
+      <PageHeader
+        title={t('title')}
+        description={t('description')}
+        actions={<Button onClick={() => setCreating(true)}>{t('newOrganization')}</Button>}
+      />
+
+      {loadError && (
+        <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {loadError}
+        </p>
+      )}
+
+      <DataToolbar
+        searchValue={search}
+        onSearchChange={setSearch}
+        searchLabel={t('search.label')}
+        searchPlaceholder={t('search.placeholder')}
+        view={view}
+        onViewChange={setView}
+      />
+
+      <DataView
+        items={visibleOrganizations}
+        columns={columns}
+        getRowKey={(organization) => organization.id}
+        view={view}
+        loading={loading}
+        emptyMessage={organizations.length === 0 ? t('empty.none') : t('empty.noMatch')}
+        loadErrorMessage={loadError === null ? null : t('empty.loadError')}
+        renderActions={(organization) => (
+          <>
+            <Button variant="outline" size="sm" onClick={() => handleOpen(organization)}>
+              {t('actions.open')}
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setEditingBranding(organization)}>
+              {t('actions.editBranding')}
+            </Button>
+          </>
+        )}
+      />
+    </section>
+  )
+}

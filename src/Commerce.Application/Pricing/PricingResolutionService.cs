@@ -11,12 +11,49 @@ namespace Commerce.Application.Pricing;
 /// exact same compiled method: channel independence is a structural
 /// property of this signature (no channel/caller-identity parameter exists
 /// anywhere), not merely a tested convention.
+///
+/// customer-price-lists: WHICH price list the two ports are bound to is decided
+/// by the BUYER alone, through <see cref="BuyerPriceListSelector"/> — the
+/// customer's own list, else the organization's default list for customers,
+/// else the default list; a walk-in buyer gets the default list. This service
+/// still has no channel parameter and composes with the rate set of that list.
 /// </summary>
 public sealed class PricingResolutionService
 {
-    private readonly IEffectivePriceSource _priceSource;
+    private readonly PriceListPorts _primary;
+    private readonly PriceListPorts? _fallback;
 
-    public PricingResolutionService(IEffectivePriceSource priceSource) => _priceSource = priceSource;
+    /// <summary>
+    /// <paramref name="rateComponentSource"/> is optional, and omitting it is
+    /// NOT the same kind of absence as a missing price: a host with no
+    /// component source composes every price as the identity, which is exactly
+    /// what an empty effective set does (spec "Empty Composition Resolves To
+    /// The Base Price"). The POS uses that today — its replicated
+    /// `price_replica` carries prices, not rate components — so its resolved
+    /// prices are unchanged by this slice. That gap is a REPLICATION gap, not a
+    /// resolution one: the arithmetic lives here, in the one compiled method
+    /// both hosts run, and the day the replica carries components the POS
+    /// passes a source and composes identically with no code change here.
+    /// </summary>
+    public PricingResolutionService(
+        IEffectivePriceSource priceSource,
+        IEffectiveRateComponentSource? rateComponentSource = null)
+    {
+        _primary = new PriceListPorts(Guid.Empty, priceSource, rateComponentSource);
+        _fallback = null;
+    }
+
+    /// <summary>
+    /// customer-price-lists T6: prices from <paramref name="primary"/> (the buyer's list) and, when it has no effective
+    /// price for a presentation, from <paramref name="fallback"/> (the organization/branch default list) with the
+    /// FALLBACK list's own composition. The outcome says which list priced the line. The fallback depends on the buyer's
+    /// lists only, never on the channel (ADR-010).
+    /// </summary>
+    public PricingResolutionService(PriceListPorts primary, PriceListPorts? fallback = null)
+    {
+        _primary = primary;
+        _fallback = fallback is not null && fallback.PriceListId != primary.PriceListId ? fallback : null;
+    }
 
     /// <summary>
     /// `discountPercentage == null` => GUEST: the official list price, no
@@ -24,12 +61,28 @@ public sealed class PricingResolutionService
     /// own `DiscountPercentage`. Rounding (`Money.Round2`, AwayFromZero) is
     /// applied EXACTLY TWICE: once for the unit-net price, once for the line
     /// total — never a third time at any higher level.
+    ///
+    /// commerce-price-composition, spec "Resolution Composes Rate Components
+    /// Before The Customer Discount": the three steps below are ORDERED, and
+    /// the order is part of the contract — base price, then composition, then
+    /// the customer discount.
     /// </summary>
     public async Task<PriceResolutionOutcome> ResolveAsync(
         Guid presentationId, decimal quantity, decimal? discountPercentage,
         DateOnly effectiveOn, CancellationToken ct)
     {
-        var unitPrice = await _priceSource.GetUnitPriceAsync(presentationId, effectiveOn, ct);
+        var ports = _primary;
+        var fellBack = false;
+        var unitPrice = await ports.PriceSource.GetUnitPriceAsync(presentationId, effectiveOn, ct);
+        if (unitPrice is null && _fallback is not null)
+        {
+            // customer-price-lists T6: the buyer's list has no price; the default list does or the outcome stays
+            // NoEffectivePrice. Its composition is the fallback list's own (never the buyer list's).
+            ports = _fallback;
+            fellBack = true;
+            unitPrice = await ports.PriceSource.GetUnitPriceAsync(presentationId, effectiveOn, ct);
+        }
+
         if (unitPrice is null)
         {
             // Task 3.5 (GREEN): zero effective rows -> the typed outcome,
@@ -37,14 +90,41 @@ public sealed class PricingResolutionService
             return new PriceResolutionOutcome.NoEffectivePrice(presentationId, effectiveOn);
         }
 
-        // Task 3.7 (GREEN): Round2 (AwayFromZero) applied EXACTLY TWICE —
-        // once for the unit-net price, once for the line total computed
-        // from the ALREADY-ROUNDED unit-net price. Never a third rounding
-        // pass at a higher (order) level.
+        // STEP 2 — compose. `unitPrice` is the BASE price (the `PriceListEntry`
+        // amount, respecified by this change); the FINAL LIST PRICE is derived
+        // from it here and is never persisted as a second column.
+        //
+        // The set is selected by the RESOLUTION date, independently of which
+        // entry is effective (spec "Composition Uses The Rates Effective On The
+        // Resolution Date"), and `null` — no set for the list and none for its
+        // organization — composes to the base itself. That identity is the
+        // whole reason this slice reprices nothing that was already loaded.
+        var basePrice = unitPrice.Value;
+        var effectiveComponents = ports.RateComponentSource is null
+            ? null
+            : await ports.RateComponentSource.GetEffectiveSetAsync(effectiveOn, ct);
+        var listPrice = effectiveComponents?.Compose(basePrice) ?? basePrice;
+
+        // STEP 3 — and only now the customer's discount, against the COMPOSED
+        // list price. Never against `basePrice`: discounting first would mean
+        // the markup component re-inflates the discount, and it would silently
+        // change what a discount means for every existing customer.
+        //
+        // Both steps are multiplications, so they commute in the NET price —
+        // the order is observable in `UnitListPrice`, which is why the spec
+        // defines the list price as the composed one and
+        // `PricingCompositionTests` asserts it there.
+        //
+        // Task 3.7 (GREEN), unchanged: Round2 (AwayFromZero) applied EXACTLY
+        // TWICE — once for the unit-net price, once for the line total computed
+        // from the ALREADY-ROUNDED unit-net price. Composition itself does NOT
+        // round, so this change adds no third rounding pass.
         var discount = discountPercentage ?? 0m;
-        var unitNet = Money.Round2(unitPrice.Value * (1 - discount / 100m));
+        var unitNet = Money.Round2(listPrice * (1 - discount / 100m));
         var lineTotal = Money.Round2(unitNet * quantity);
 
-        return new PriceResolutionOutcome.Resolved(unitPrice.Value, discount, unitNet, lineTotal);
+        return new PriceResolutionOutcome.Resolved(
+            listPrice, discount, unitNet, lineTotal,
+            ports.PriceListId == Guid.Empty ? null : ports.PriceListId, fellBack);
     }
 }

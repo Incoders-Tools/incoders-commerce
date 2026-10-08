@@ -7,13 +7,15 @@
 #        pwsh deploy/dev/run-all.ps1 -NoPos      # skip the WPF POS window
 #        pwsh deploy/dev/run-all.ps1 -NoWeb      # skip SPA build/copy and HTTPS proxy
 #        pwsh deploy/dev/run-all.ps1 -NoApi      # skip launching Cloud.Api
+#        pwsh deploy/dev/run-all.ps1 -NoProvision # skip ensuring the local sign-in accounts
 #        pwsh deploy/dev/run-all.ps1 -NoBrowser  # do not open the login URL
 
 param(
     [switch]$NoPos,
     [switch]$NoWeb,
     [switch]$NoApi,
-    [switch]$NoBrowser
+    [switch]$NoBrowser,
+    [switch]$NoProvision
 )
 
 $ErrorActionPreference = "Stop"
@@ -99,6 +101,23 @@ if (-not $NoApi) {
     }
     if (-not $apiReady) { throw "Commerce.Cloud.Api did not become healthy on http://localhost:8080/health within 60s. Check the API window." }
     Write-Host "Cloud.Api is healthy."
+
+    # Ensure the sign-in accounts exist on every launch. provision-admin.ps1
+    # is idempotent, so this is a no-op once they are there. Without it, any
+    # reset of the database leaves the developer unable to sign in until they
+    # remember to provision by hand, which is exactly the friction this
+    # launcher exists to remove. Non-fatal on purpose: a missing or
+    # incomplete deploy/dev/.env should not stop a stack that is otherwise up.
+    if (-not $NoProvision) {
+        Write-Host "`nEnsuring local sign-in accounts (deploy/dev/provision-admin.ps1)..."
+        try {
+            & (Join-Path $PSScriptRoot 'provision-admin.ps1') -ApiBaseUrl 'http://localhost:8080'
+        }
+        catch {
+            Write-Warning "Could not ensure the local accounts: $($_.Exception.Message)"
+            Write-Warning "The stack is running; provision them with: pwsh deploy/dev/provision-admin.ps1"
+        }
+    }
 }
 
 # --- 4. HTTPS proxy for browser testing -----------------------------------

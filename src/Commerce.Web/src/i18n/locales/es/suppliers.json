@@ -1,0 +1,109 @@
+{
+  "title": "Proveedores",
+  "description": "A quiénes les compramos, y su cuenta corriente.",
+  "newSupplier": "Nuevo proveedor",
+  "errors": {
+    "unexpectedLoad": "Error inesperado al cargar los proveedores.",
+    "unexpectedSave": "Error inesperado al guardar el proveedor."
+  },
+  "search": {
+    "label": "Buscar proveedores",
+    "placeholder": "Buscar por nombre, razón social, contacto o CUIT/DNI…"
+  },
+  "empty": {
+    "none": "Todavía no hay proveedores.",
+    "noMatch": "Ningún proveedor coincide con esta búsqueda.",
+    "loadError": "No se pudieron cargar los proveedores."
+  },
+  "columns": {
+    "name": "Nombre",
+    "category": "Rubro",
+    "contact": "Contacto",
+    "city": "Ciudad",
+    "taxId": "CUIT/CUIL/DNI",
+    "balance": "Saldo",
+    "balanceHint": "Lo que le debemos al proveedor",
+    "status": "Estado",
+    "noValue": "—",
+    "noTaxId": "Sin documento"
+  },
+  "balance": {
+    "inOurFavour": "{{amount}} a favor",
+    "overdue": "Vencido {{amount}}"
+  },
+  "statusOptions": {
+    "enabled": "Habilitado",
+    "disabled": "Deshabilitado"
+  },
+  "filters": {
+    "city": "Ciudad",
+    "allCities": "Todas las ciudades",
+    "category": "Rubro",
+    "allCategories": "Todos los rubros",
+    "status": "Estado",
+    "allStatuses": "Todos los estados"
+  },
+  "actions": {
+    "edit": "Editar",
+    "account": "Cuenta corriente"
+  },
+  "form": {
+    "titleNew": "Nuevo proveedor",
+    "titleEdit": "Editar proveedor",
+    "backLabel": "Volver a proveedores",
+    "sections": {
+      "identity": "Datos",
+      "contact": "Contacto",
+      "contacts": "Personas de contacto",
+      "address": "Ubicación",
+      "tax": "Fiscal",
+      "commercial": "Comercial",
+      "notes": "Observaciones"
+    },
+    "fields": {
+      "displayName": "Nombre",
+      "legalName": "Razón social",
+      "phone": "Teléfono",
+      "email": "Correo electrónico",
+      "city": "Ciudad",
+      "addressStreet": "Calle",
+      "addressNumber": "Número",
+      "neighborhood": "Barrio",
+      "postalCode": "Código postal",
+      "taxIdType": "Tipo de identificación fiscal",
+      "taxId": "CUIT/CUIL",
+      "dni": "DNI",
+      "taxCondition": "Condición fiscal",
+      "category": "Rubro",
+      "paymentTermsDays": "Plazo de pago (días)",
+      "bankCbu": "CBU/CVU",
+      "bankAlias": "Alias",
+      "notes": "Observaciones",
+      "enabled": "Habilitado"
+    },
+    "taxIdTypeOptions": {
+      "none": "Ninguno",
+      "dni": "DNI",
+      "cuit": "CUIT",
+      "cuil": "CUIL"
+    },
+    "noCategory": "Sin rubro",
+    "inactiveSuffix": "(inactiva)",
+    "save": "Guardar",
+    "saving": "Guardando…",
+    "cancel": "Cancelar",
+    "account": "Cuenta corriente",
+    "errors": {
+      "dniInvalid": "El DNI debe tener 7 u 8 dígitos.",
+      "cuitInvalid": "El CUIT/CUIL debe tener 11 dígitos.",
+      "cbuInvalid": "El CBU/CVU debe tener 22 dígitos.",
+      "aliasInvalid": "El alias debe tener entre 6 y 20 caracteres.",
+      "paymentTermsInvalid": "El plazo de pago debe estar entre 0 y 365 días."
+    },
+    "conflict": {
+      "message": "Otra persona modificó este proveedor mientras lo editabas. Recargá para ver los cambios más recientes; tus cambios sin guardar se perderán.",
+      "reload": "Recargar",
+      "reloadFailed": "No se pudo recargar el proveedor."
+    }
+  }
+}

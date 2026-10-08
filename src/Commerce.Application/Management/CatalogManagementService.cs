@@ -27,17 +27,24 @@ public sealed class CatalogManagementService
         _authorizationService = authorizationService;
     }
 
-    public ManagementOutcome RenameProduct(UserAccount actor, Product product, ManagementRequest request)
-    {
-        var accessResult = _authorizationService.Authorize(
-            actor,
-            new AccessRequest(
-                request.TargetOrganizationId,
-                request.TargetBranchId,
-                UpdateProductName,
-                request.IsOffline,
-                request.CorrelationId));
+    public ManagementOutcome RenameProduct(UserAccount actor, Product product, ManagementRequest request) =>
+        Rename(product, request, _authorizationService.Authorize(actor, RenameAccess(request)));
 
+    /// <summary>Async twin of <see cref="RenameProduct"/> for callers with a durable audit sink (the cloud).</summary>
+    public async Task<ManagementOutcome> RenameProductAsync(
+        UserAccount actor, Product product, ManagementRequest request, CancellationToken ct) =>
+        Rename(product, request, await _authorizationService.AuthorizeAsync(actor, RenameAccess(request), ct));
+
+    private static AccessRequest RenameAccess(ManagementRequest request) =>
+        new(
+            request.TargetOrganizationId,
+            request.TargetBranchId,
+            UpdateProductName,
+            request.IsOffline,
+            request.CorrelationId);
+
+    private static ManagementOutcome Rename(Product product, ManagementRequest request, AccessResult accessResult)
+    {
         if (!accessResult.Allowed)
         {
             return new ManagementOutcome(ManagementOutcomeStatus.Denied, accessResult.Reason, UpdatedProduct: null);

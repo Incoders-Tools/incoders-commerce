@@ -124,6 +124,8 @@ file.
 - THEN the terminal is re-paired to Branch 2, the new server-issued
   credential replaces the prior one, and no manual file deletion is
   required
+- AND the terminal receives a register number of Branch 2 (see "Register
+  Number")
 
 #### Scenario: Operator re-pairs to the same branch
 
@@ -133,6 +135,7 @@ file.
   in again
 - THEN the terminal receives a freshly issued credential for Branch 1
   and continues operating normally
+- AND it keeps the register number it already had in Branch 1
 
 ### Requirement: Issued-To User Distinct From Current Operator
 
@@ -160,3 +163,111 @@ operator-session activity on that terminal. Current-operator identity
   operator
 - THEN no re-pairing occurs and the existing device credential and
   `issued_to_user_id` are left untouched
+
+### Requirement: Register Number
+
+See [Document numbering](../../../docs/document-numbering.md) for the whole scheme.
+
+Every paired POS terminal MUST carry a register number (1 to 999) that is
+unique within its branch, assigned by the server in the same transaction that
+issues the device credential, and shown to people as `Caja {n}` (for example
+`Sucursal 01 · Ruta 51 · Caja 2`; no GUID is shown). Together with the branch
+code it is the `C{register}` part of POS document numbers such as
+`V01-C2-125`, which terminals generate offline, so a (branch, register) pair
+MUST identify exactly one installation for ever: a register number MUST NEVER
+be reused for a different installation, even after its terminal was moved or
+retired. The next number of a branch is the highest ever assigned there plus
+one; a branch that used all 999 numbers answers pairing with a typed
+`register-numbers-exhausted` conflict and the pairing changes nothing.
+Allocation MUST be race-free per branch.
+
+The pairing response (`DevicePairResponse`) carries the branch code and the
+register number, and the terminal persists them in `installation.json` (old
+files without them still load, with the identity unknown). A terminal that
+does not know its identity (paired before this requirement, or offline when it
+paired) fetches it from the authenticated `GET /device/identity` endpoint,
+which answers from the STORED device credential (never from the request),
+returns `{ organizationId, branchId, branchName, branchCode, registerNumber }`
+and allocates a register number when the live credential has none. Offline,
+the identity simply stays unknown: the terminal keeps working and the screens
+show only what is known. Terminals paired before this requirement are
+backfilled per branch in credential issue order.
+
+Only a pairing releases a register: `GET /device/identity` MUST re-verify, in
+its own transaction, that a live credential still binds the installation to the
+branch it answers for, only fills in a missing number for that branch, and
+answers 401 (writing nothing, releasing nothing) when a re-pairing revoked the
+credential meanwhile. Both `register-numbers-exhausted` conflicts (pairing and
+identity) share one typed body (`{ "error": "register-numbers-exhausted" }`;
+the pairing body also repeats it as `status`), and a terminal maps a `409` to
+the exhausted message ONLY when the body carries that error. Every newly
+allocated number is audited (`terminal.register.assigned`) and `POST
+/device/pair` is rate limited per client IP, because each new installation id
+consumes a number for good (residual risk: rotating IPs with valid operator
+credentials can still exhaust a branch; the audit makes it visible).
+
+#### Scenario: First pairing gets the next number of its branch
+
+- GIVEN Branch 1 already has terminals holding registers 1 and 2
+- WHEN a new installation pairs to Branch 1
+- THEN it is assigned register 3 and the pairing response carries branch
+  code and register number
+
+#### Scenario: Re-pairing to the same branch keeps the number
+
+- GIVEN an installation holds register 2 of Branch 1
+- WHEN it is paired to Branch 1 again (a fresh credential)
+- THEN it keeps register 2 and no other number is consumed
+
+#### Scenario: Re-pairing to another branch gives a new number there
+
+- GIVEN an installation holds register 1 of Branch A
+- WHEN it is paired to Branch B
+- THEN it receives the next unused register of Branch B
+- AND its register in Branch A is released
+- AND if it is later paired to Branch A again it gets register 1 back
+
+#### Scenario: Numbers are never reused
+
+- GIVEN an installation moved away from Branch A and released register 1
+- WHEN a different installation pairs to Branch A
+- THEN it receives a register higher than every number ever assigned in
+  Branch A, never the released register 1
+
+#### Scenario: A terminal paired before registers existed fetches its identity
+
+- GIVEN a terminal holds a valid device credential but no register number
+- WHEN it calls `GET /device/identity` with its device bearer
+- THEN it receives its branch code, branch name and a newly allocated
+  register number
+- AND later calls return the same register number
+- AND a call without a valid device bearer is rejected with 401
+
+#### Scenario: Concurrent pairings never share a number
+
+- GIVEN several installations pair to the same branch at the same time
+- THEN each receives a different register number
+
+#### Scenario: A branch without numbers left rejects the pairing atomically
+
+- GIVEN a branch that already assigned register 999
+- WHEN another installation pairs to it
+- THEN pairing answers `409` with status `register-numbers-exhausted`
+- AND no credential is issued and the installation's previous credential
+  stays valid
+
+#### Scenario: A late identity call cannot undo a re-pairing
+
+- GIVEN an identity call authenticated with the Branch B credential is still
+  running
+- WHEN the terminal re-pairs to Branch A (revoking the Branch B credential)
+- THEN the late call answers 401, allocates nothing in Branch B and releases
+  nothing in Branch A
+
+#### Scenario: A failed re-pairing keeps the previous registration intact
+
+- GIVEN an installation holds a live credential and register 2 in Branch A
+- AND Branch B has no register numbers left
+- WHEN the installation is paired to Branch B
+- THEN pairing answers `409` and the Branch A credential stays live
+- AND its register in Branch A is not released

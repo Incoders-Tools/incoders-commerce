@@ -1,5 +1,7 @@
 import { apiFetch, apiFetchOutcome } from './client'
 import type {
+  CopyCatalogRequest,
+  CopyCatalogResponse,
   CreatePresentationRequest,
   CreateProductRequest,
   ManagementOutcome,
@@ -19,8 +21,16 @@ export function renameProduct(
   })
 }
 
-export function listProducts(): Promise<ProductRecord[]> {
-  return apiFetch<ProductRecord[]>('/catalog/products')
+// Inactive (soft deleted) products are left out unless `includeInactive` is asked for.
+export function listProducts(includeInactive = false): Promise<ProductRecord[]> {
+  return apiFetch<ProductRecord[]>(`/catalog/products${includeInactive ? '?includeInactive=true' : ''}`)
+}
+
+// `POST /catalog/products/{id}/deactivate|reactivate`: the history (receptions, stock, sales) is kept.
+export function setProductActive(productId: string, active: boolean): Promise<ProductRecord> {
+  return apiFetch<ProductRecord>(`/catalog/products/${productId}/${active ? 'reactivate' : 'deactivate'}`, {
+    method: 'POST',
+  })
 }
 
 export function createProduct(request: CreateProductRequest): Promise<ProductRecord> {
@@ -30,8 +40,17 @@ export function createProduct(request: CreateProductRequest): Promise<ProductRec
   })
 }
 
-export function listPresentations(): Promise<PresentationRecord[]> {
-  return apiFetch<PresentationRecord[]>('/catalog/presentations')
+// catalog-categories: `PUT /catalog/products/{id}/category` — the server
+// refuses a category that does not belong to the caller's organization.
+export function changeProductCategory(productId: string, categoryId: string): Promise<ProductRecord> {
+  return apiFetch<ProductRecord>(`/catalog/products/${productId}/category`, {
+    method: 'PUT',
+    body: JSON.stringify({ categoryId }),
+  })
+}
+
+export function listPresentations(includeInactive = false): Promise<PresentationRecord[]> {
+  return apiFetch<PresentationRecord[]>(`/catalog/presentations${includeInactive ? '?includeInactive=true' : ''}`)
 }
 
 export function createPresentation(request: CreatePresentationRequest): Promise<PresentationRecord> {
@@ -47,6 +66,14 @@ export function updatePresentation(
 ): Promise<PresentationRecord> {
   return apiFetch<PresentationRecord>(`/catalog/presentations/${presentationId}`, {
     method: 'PUT',
+    body: JSON.stringify(request),
+  })
+}
+
+// B7 U5b: `POST /catalog/copy` — the header-selected branch is the SOURCE.
+export function copyCatalog(request: CopyCatalogRequest): Promise<CopyCatalogResponse> {
+  return apiFetch<CopyCatalogResponse>('/catalog/copy', {
+    method: 'POST',
     body: JSON.stringify(request),
   })
 }

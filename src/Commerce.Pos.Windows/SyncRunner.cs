@@ -35,6 +35,10 @@ public sealed class SyncRunner
     private readonly CustomerReplicaClient _customerReplicaClient;
     private readonly CatalogPriceReplicaClient _catalogPriceReplicaClient;
     private readonly OperatorProvisioningClient _operatorProvisioningClient;
+    private readonly DiscountPinReplicaClient? _discountPinReplicaClient;
+    private readonly StockReplicaClient? _stockReplicaClient;
+    private readonly PriceListsReplicaClient? _priceListsReplicaClient;
+    private readonly OrganizationSettingsReplicaClient? _organizationSettingsReplicaClient;
     private readonly LocalOperatorStore _localOperatorStore;
     private readonly Func<DevicePairing> _pairingAccessor;
     private int _running;
@@ -47,8 +51,16 @@ public sealed class SyncRunner
         CatalogPriceReplicaClient catalogPriceReplicaClient,
         OperatorProvisioningClient operatorProvisioningClient,
         LocalOperatorStore localOperatorStore,
-        Func<DevicePairing> pairingAccessor)
+        Func<DevicePairing> pairingAccessor,
+        DiscountPinReplicaClient? discountPinReplicaClient = null,
+        StockReplicaClient? stockReplicaClient = null,
+        PriceListsReplicaClient? priceListsReplicaClient = null,
+        OrganizationSettingsReplicaClient? organizationSettingsReplicaClient = null)
     {
+        _priceListsReplicaClient = priceListsReplicaClient;
+        _organizationSettingsReplicaClient = organizationSettingsReplicaClient;
+        _discountPinReplicaClient = discountPinReplicaClient;
+        _stockReplicaClient = stockReplicaClient;
         _store = store;
         _branchNodeService = branchNodeService;
         _syncClient = syncClient;
@@ -83,15 +95,19 @@ public sealed class SyncRunner
             await ReconcileOperatorsAsync(pairing);
             await PullCustomersAsync(pairing);
             await PullCatalogPricesAsync(pairing);
+            await PullDiscountPinAsync(pairing);
+            await PullStockAsync(pairing);
+            await PullPriceListsAsync(pairing);
+            await PullOrganizationSettingsAsync(pairing);
 
             var pending = _store.GetPendingOutbox(pairing.BranchId);
             if (pending.Count == 0)
             {
-                return new SyncRunResult("Nothing pending to sync.", CredentialRejected: false);
+                return new SyncRunResult(PosMessages.SyncNothingPending, CredentialRejected: false);
             }
 
             var succeeded = 0;
-            var failures = new List<string>();
+            var failed = 0;
             var credentialRejected = false;
 
             foreach (var envelope in pending)
@@ -104,7 +120,8 @@ public sealed class SyncRunner
                 catch (Exception ex)
                 {
                     _store.RecordAttemptFailure(envelope.OperationId, ex.Message);
-                    failures.Add($"{envelope.OperationId}: {ex.Message}");
+                    PosLog.Warning("Sync", $"Operation {envelope.OperationId} was not sent; it stays pending.", ex);
+                    failed++;
                     continue;
                 }
 
@@ -115,19 +132,20 @@ public sealed class SyncRunner
                 }
                 else
                 {
-                    failures.Add($"{envelope.OperationId}: {pushResult.Error}");
+                    PosLog.Warning("Sync", $"Operation {envelope.OperationId} was rejected: {pushResult.Error}; it stays pending.");
+                    failed++;
                     credentialRejected |= pushResult.CredentialWasRejected;
                     _store.RecordAttemptFailure(envelope.OperationId, pushResult.Error ?? "unknown error");
                 }
             }
 
-            var summary = failures.Count == 0
-                ? $"Synced {succeeded} operation(s) successfully."
-                : $"Synced {succeeded} operation(s); {failures.Count} failed:\n{string.Join("\n", failures)}";
+            var summary = failed == 0
+                ? PosMessages.SyncSucceeded(succeeded)
+                : PosMessages.SyncPartiallyFailed(succeeded, failed);
 
             if (credentialRejected)
             {
-                summary += "\n\nDevice credential rejected — click \"Re-pair terminal\" to continue syncing.";
+                summary += $"\n\n{PosMessages.TerminalNotRecognized}";
             }
 
             return new SyncRunResult(summary, credentialRejected);
@@ -168,10 +186,97 @@ public sealed class SyncRunner
         var replicaItems = outcome.Items
             .Select(row => new CatalogPriceReplicaItem(
                 row.PresentationId, pairing.OrganizationId, row.ProductId, row.ProductName, row.PresentationName,
-                row.IdentificationCode, row.QuantityBehavior, row.UnitId, row.UnitPrice, row.EffectiveFrom, row.UpdatedAtUtc))
+                row.IdentificationCode, row.QuantityBehavior, row.UnitId, row.UnitPrice, row.EffectiveFrom, row.UpdatedAtUtc,
+                row.CategoryId, row.CategoryName, row.CategoryIconKey))
             .ToList();
 
         _store.ApplyCatalogPriceSync(replicaItems, outcome.RemovedPresentationIds, outcome.ServerTimeUtc.Value);
+    }
+
+    /// <summary>
+    /// Refreshes the stock replica (cursor channel `stock`). A failed pull leaves the replica and cursor byte-identical:
+    /// the last known stock stays usable offline, labelled with the time of its last successful refresh.
+    /// </summary>
+    /// <summary>
+    /// customer-price-lists T4: replaces the price list replica with the cloud snapshot (every list's prices and rate
+    /// components, the lists, each customer's list and discount). A failed pull leaves the replica and cursor as they were, so a
+    /// stale replica keeps pricing offline.
+    /// </summary>
+    private async Task PullPriceListsAsync(DevicePairing pairing)
+    {
+        if (_priceListsReplicaClient is null)
+        {
+            return;
+        }
+
+        var outcome = await _priceListsReplicaClient.PullAsync(pairing.DeviceToken);
+        if (!outcome.Success || outcome.Snapshot is not { } snapshot)
+        {
+            return;
+        }
+
+        _store.ApplyPriceListsSync(
+            new PriceListsReplicaSnapshot(
+                pairing.OrganizationId, snapshot.Lists, snapshot.Entries, snapshot.RateSets, snapshot.CustomerPriceLists,
+                snapshot.OrganizationDefaultCustomerPriceListId, snapshot.CustomerDiscounts, snapshot.CustomerBalances,
+                snapshot.CustomerPaymentTerms, snapshot.DefaultCustomerPaymentTermsDays, snapshot.Categories),
+            snapshot.ServerTimeUtc);
+    }
+
+    private async Task PullStockAsync(DevicePairing pairing)
+    {
+        if (_stockReplicaClient is null)
+        {
+            return;
+        }
+
+        var since = _store.GetStockCursor() ?? DateTimeOffset.MinValue;
+        var outcome = await _stockReplicaClient.PullAsync(since, pairing.DeviceToken);
+        if (!outcome.Success || outcome.Items is null || outcome.ServerTimeUtc is null)
+        {
+            return;
+        }
+
+        _store.ApplyStockSync(
+            outcome.Items.Select(row => new StockReplicaItem(row.PresentationId, row.OnHand)).ToList(),
+            outcome.ServerTimeUtc.Value);
+    }
+
+    /// <summary>
+    /// operator-ux-adjustments T5: refreshes the organization's quantity decimal separator. A failed pull (or an unknown
+    /// value) leaves the last known one stored, so quantities keep their format offline.
+    /// </summary>
+    private async Task PullOrganizationSettingsAsync(DevicePairing pairing)
+    {
+        if (_organizationSettingsReplicaClient is null)
+        {
+            return;
+        }
+
+        var outcome = await _organizationSettingsReplicaClient.PullAsync(pairing.DeviceToken);
+        if (outcome is { Success: true, QuantityDecimalSeparator: { } separator })
+        {
+            _store.ApplyOrganizationSettings(separator);
+        }
+    }
+
+    /// <summary>
+    /// Refreshes the cached branch discount PIN verifier. A failed pull leaves
+    /// the cache exactly as it was, so discounts keep verifying offline; a
+    /// successful answer replaces it (or clears it when the branch has none).
+    /// </summary>
+    private async Task PullDiscountPinAsync(DevicePairing pairing)
+    {
+        if (_discountPinReplicaClient is null)
+        {
+            return;
+        }
+
+        var outcome = await _discountPinReplicaClient.PullAsync(pairing.DeviceToken);
+        if (outcome.Success)
+        {
+            _store.ApplyDiscountPin(pairing.BranchId, outcome.ToReplica(pairing.BranchId));
+        }
     }
 
     private async Task ReconcileOperatorsAsync(DevicePairing pairing)

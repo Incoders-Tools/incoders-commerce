@@ -174,7 +174,7 @@ public sealed class OrderingTests : IDisposable
     public void DuplicateOrderSubmission_ReturnsExistingAcceptance_WithoutCreatingASecondOrder()
     {
         var organizationId = Guid.NewGuid();
-        var orderStore = new CloudOrderStore();
+        var orderStore = new InMemoryOrderStore();
         var scope = new CloudTenantScope(organizationId);
         var orderId = Guid.NewGuid();
         var lines = new[] { OrderSnapshotFactory.Snapshot(NewProduct(organizationId), NewPresentation(NewProduct(organizationId)), 1m) };
@@ -197,7 +197,7 @@ public sealed class OrderingTests : IDisposable
         var customerId = Guid.NewGuid();
         var destinationBranchId = Guid.NewGuid();
         var access = new CustomerOrderingAccess(organizationId, customerId, Guid.NewGuid());
-        var orderStore = new CloudOrderStore();
+        var orderStore = new InMemoryOrderStore();
         var scope = new CloudTenantScope(organizationId);
         var lines = new[] { OrderSnapshotFactory.Snapshot(NewProduct(organizationId), NewPresentation(NewProduct(organizationId)), 1m) };
 
@@ -226,7 +226,7 @@ public sealed class OrderingTests : IDisposable
     public void Order_WithOfflineDestination_StaysPending_WithNoStockPromise()
     {
         var organizationId = Guid.NewGuid();
-        var orderStore = new CloudOrderStore();
+        var orderStore = new InMemoryOrderStore();
         var scope = new CloudTenantScope(organizationId);
         var lines = new[] { OrderSnapshotFactory.Snapshot(NewProduct(organizationId), NewPresentation(NewProduct(organizationId)), 1m) };
 
@@ -242,7 +242,7 @@ public sealed class OrderingTests : IDisposable
         var organizationId = Guid.NewGuid();
         var branchId = Guid.NewGuid();
         using var destination = new BranchSyncStore(ConnectionString);
-        var orderStore = new CloudOrderStore();
+        var orderStore = new InMemoryOrderStore();
         var scope = new CloudTenantScope(organizationId);
         var lines = new[] { OrderSnapshotFactory.Snapshot(NewProduct(organizationId), NewPresentation(NewProduct(organizationId)), 1m) };
 
@@ -258,7 +258,7 @@ public sealed class OrderingTests : IDisposable
         var organizationId = Guid.NewGuid();
         var branchId = Guid.NewGuid();
         using var destination = new BranchSyncStore(ConnectionString);
-        var orderStore = new CloudOrderStore();
+        var orderStore = new InMemoryOrderStore();
         var scope = new CloudTenantScope(organizationId);
         var lines = new[] { OrderSnapshotFactory.Snapshot(NewProduct(organizationId), NewPresentation(NewProduct(organizationId)), 1m) };
 
@@ -276,7 +276,7 @@ public sealed class OrderingTests : IDisposable
         var organizationId = Guid.NewGuid();
         var branchId = Guid.NewGuid();
         using var destination = new BranchSyncStore(ConnectionString);
-        var orderStore = new CloudOrderStore();
+        var orderStore = new InMemoryOrderStore();
         var scope = new CloudTenantScope(organizationId);
         var orderId = Guid.NewGuid();
         var actorId = Guid.NewGuid();

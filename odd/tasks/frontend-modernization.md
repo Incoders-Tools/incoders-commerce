@@ -92,17 +92,69 @@ admin panel.
       colour picker, logo) rather than migrating the current 45-line
       create+list stub twice.
       Route: delegated direct.
-- [ ] T5. Organization settings: backend fields (logo, theme colors, date
-      format, geolocation, usage plan) on the Organization entity +
-      sysadmin-gated endpoints, plus rebuilt `OrganizationsScreen.tsx` UI
-      (color picker, logo upload/URL, settings form). Backend touches
-      `Commerce.Cloud.Api` (entity, migration, endpoint) — cross-checked
-      against `organization-persistence` / `platform-administration` /
-      `admin-console` specs for consistency. Route: delegated direct,
-      likely its own sub-breakdown given size.
-- [ ] T6. Wire the authenticated user's resolved organization to the
+- [x] T5. Organization branding, minimal scope (user decision 2026-09-25:
+      "lo mas simple posible, a futuro ampliamos"): only `logoUrl`
+      (optional absolute http/https URL, no upload) and `primaryColor`
+      (optional `#rrggbb`) on the Organization. Date format, geolocation and
+      usage plan are explicitly deferred. Steps:
+      T5a backend — spec requirement in `openspec/specs/`, entity fields,
+      numbered SQL migration, sysadmin-gated read/update endpoints, and a
+      read endpoint for the signed-in user's own organization branding;
+      integration tests including cross-tenant denial.
+      T5b UI — "Edit branding" from the Organizations list opens a
+      full-screen `FormPage` with logo URL + color picker and a preview.
+      Route: delegated direct (writer).
+- [x] T6. Wire the authenticated user's resolved organization to the
       "custom" theme option (fetch org theme on session load, feed
-      `ThemeProvider`). Depends on T2 + T5.
+      `ThemeProvider`). Depends on T2 + T5. Also fixes review WARNING
+      `R3-branding-load-failure-save-clears`: when loading branding fails
+      the form must not let Save wipe the stored values.
+- [ ] T6b. T6 review follow-ups: WARNING
+      `R3-custom-availability-validation-mismatch` (ThemeSwitcher.tsx:26 —
+      the Custom option's availability check and the theme's color
+      validation disagree, so Custom can be enabled for a color that
+      applies nothing), WARNING `R3-stale-branding-on-identity-change`
+      (OrganizationBrandingProvider.tsx:40-42 — the previous user's
+      branding stays visible while the next identity loads), SUGGESTION
+      `R3-logo-failed-never-resets` (AppLayout.tsx:109-112).
+- [x] T7. Navigation icons: add `lucide-react` (the shadcn/ui icon
+      standard) and give every primary nav item and account-menu entry an
+      identifying icon next to its text. Replace the hand-drawn
+      `MenuIcon`/`ChevronDownIcon`. Accessible names MUST stay exactly the
+      current text (`Catalog`, `Orders`, `Customers`, `Users`, `Branches`,
+      `Price lists`, `Organizations`, `Change password`, `Sign out`) —
+      icons are `aria-hidden`. Route: delegated direct (writer).
+- [x] T8. Organizations screen layout fix (UI half of T5, no backend):
+      reformat the minified `OrganizationsScreen.tsx`, list on the
+      `components/data/*` layer (`view:organizations`), create form behind
+      a "New organization" action rendered full-width with visible
+      `<Label>`s and proper field spacing. Labels MUST keep the E2E names
+      `Organization name`, `Administrator email`, `Administrator password`,
+      button `Create organization` (`e2e/system-admin.spec.ts`) — if the
+      form moves behind a toggle, update that spec to open it first.
+      Settings fields (logo/theme/date/geo/plan) stay in T5: exploration on
+      2026-09-25 found NO spec and NO entity/API field for any of them
+      (`Organization` has only `Id`, `Name`), so they need a spec change
+      first. Route: delegated direct (writer).
+- [x] T9. Full-screen forms instead of inline expansions: add a shared
+      `components/layout/FormPage` shell (page header with back action,
+      full-width body, footer actions) and move the boxed inline editors
+      onto it — Catalog "Edit code" (`DataView.renderExpanded`) and the
+      Price lists entries/history panels. Follows the established
+      `CustomersScreen`→`CustomerForm` state-swap pattern (no per-item
+      routes yet); migrate `CustomerForm` onto the same shell. Preserve the
+      `Edit code` button name and form field labels used by
+      `e2e/catalog.spec.ts`; update E2E where the flow changes and
+      typecheck `e2e/` explicitly. Route: delegated direct (writer).
+- [x] T10. Forms actually use the width + dark-mode-safe selects: found by
+      the parent while verifying T9. `CustomerForm` keeps ~20 fields in a
+      single `max-w-lg` column inside the full-screen shell, and its three
+      native `<select>`s (plus `OrderLinesEditor`'s) hardcode `bg-white
+      border-neutral-300`, so they stay white in dark mode. Add a token-based
+      `components/ui/select.tsx` (native select styled like `Input`), use it
+      everywhere, and lay `CustomerForm` out as grouped sections on a
+      responsive multi-column grid. Route: delegated direct (writer; 3+
+      non-trivial files).
 
 ## Progress
 
@@ -733,8 +785,410 @@ admin panel.
   includes only `src`), so `npm run build` never typechecks it and Playwright
   only strips types. This fix was typechecked with an explicit `tsc` run.
 
+- 2026-09-25: Resumed after a power cut (tree clean, nothing lost). User
+  reported remaining aesthetic gaps: no nav icons, Organizations fields
+  overlapping, item editors looking like embedded modals instead of using
+  the full screen. Mapping fork findings recorded in T7-T9. T5 backend
+  settings blocked on a missing spec (no field exists anywhere). Order:
+  T7 -> T8 -> T9, committed directly on `dev` (user workflow preference).
+
+- 2026-09-25: T7 done (delegated direct, commit `cccfc08`). `lucide-react`
+  added; icons on every nav item, the hamburger, account menu (ChevronDown,
+  KeyRound, LogOut) and ThemeSwitcher (Sun/Moon/Palette replace hand-drawn
+  SVGs). All `aria-hidden`, accessible names unchanged. TDD strict: 2 RED
+  (no svg inside links / menu entries), then GREEN; 180/180.
+- 2026-09-25: T8 done (delegated direct, commit `6f8eeba`). New
+  `OrganizationForm.tsx`; screen on the data layer (`view:organizations`,
+  Name + Created columns), form full-width behind "New organization",
+  2-column grid with visible labels. Branch name is now user-controlled
+  (was hardcoded `'Main'`); blank is sent as null and the backend defaults
+  it to "Main" (`Account.cs:317`, verified by the parent). E2E
+  `system-admin.spec.ts` now opens the form first. TDD strict: 11/13 RED
+  first. Checks: `npm run test` 193/193 (37 files), `npm run lint` exit 0
+  with the baseline 13 warnings, `npm run build` clean, e2e typecheck clean
+  with `npx tsc --noEmit --strict --module esnext --moduleResolution
+  bundler --target es2022 --skipLibCheck --ignoreConfig --types node
+  e2e/*.ts`. Parent spot check: OrganizationsScreen + AppLayout tests
+  21/21. Playwright not run locally (CI only).
+  RDD: assess over `a5ddb77..6f8eeba` = medium, `slice_budget_reached`
+  (672 lines); user granted consent; lineage `review-a396c07a3d0aba3a`,
+  one reliability lens, APPROVED and acknowledged (authority burned).
+  Reviewed boundary advances to `6f8eeba`. Non-blocking follow-ups:
+  `R3-chevron-test-not-discriminating` (AccountMenu.test.tsx:89-96) and
+  `R3-hamburger-test-not-discriminating` (AppLayout.test.tsx:74-81) —
+  those icon tests passed before the change too; `R3-refresh-out-of-order`
+  (OrganizationsScreen.tsx:38-57) — a slow list refresh could overwrite a
+  newer one. Folded into T9 as cleanup.
+
+- 2026-09-25: T9 done (delegated direct). Commits: `d4d2ae1` FormPage
+  shell (+ CustomerForm/OrganizationForm on it), `34f49a5` Catalog "Edit
+  code" as a full-screen form (DataView `renderExpanded` removed, no other
+  caller), `6994991` price lists open via "Manage prices" as a full-screen
+  detail page, history stays an expandable section inside it (UX change:
+  the default list's prices no longer show without a click), `e12effc`
+  stale organization refresh guard (sequence number), `9eecf3b` icon tests
+  now assert the lucide class. TDD strict, RED observed per commit.
+  `npm run test` 204/204 (38 files), lint exit 0 / 13 baseline warnings,
+  build clean, e2e typecheck clean; `e2e/catalog.spec.ts` needed no change
+  (role/label selectors unchanged). Parent spot check: full suite 204/204.
+
+- 2026-09-25: T10 done (delegated direct). `2bde2bc` token-based
+  `ui/select.tsx` replacing every hardcoded select (CustomerForm x3,
+  OrderLinesEditor); `662aed2` CustomerForm in five fieldset sections
+  (Identity, Tax, Contact, Address, Commercial) on a 1/2/3-column grid,
+  `max-w-lg` removed. Catalog code form left at `max-w-md` on purpose
+  (single field). TDD strict: RED observed (missing module; 3 failing
+  CustomerForm cases; OrderLinesEditor color assertion). Checks: `npm run
+  test` 208/208 (39 files), lint exit 0 / 13 baseline warnings, build clean;
+  e2e untouched (`#order-line-presentation` id unchanged). Parent spot
+  check: full suite 208/208.
+  RDD over `6f8eeba..662aed2`: medium, `slice_budget_reached` (989 lines,
+  20 files); user granted; lineage `review-ca0149decfc067f7`, reliability
+  lens, APPROVED and acknowledged. Reviewed boundary -> `662aed2`.
+  Non-blocking follow-ups: `R3-select-tests-negative-only`
+  (CustomerForm.test.tsx:117-128 only asserts absence of old classes),
+  `R3-stale-load-test-timing` (OrganizationsScreen.test.tsx:278-284).
+
+- 2026-09-25: T5 done (delegated direct). `83b8d86` backend: spec
+  requirement in `organization-persistence`, `Organization` gains
+  `LogoUrl`/`PrimaryColor`, migration `0015_organization_branding.sql`
+  (nullable + CHECK, mirrored into `deploy/dev/db/init-rls.sql`),
+  `GET/PUT /account/organizations/{id}/branding` (system admin, audited
+  `organization.branding_updated`), `GET /account/organization/branding`
+  (caller's own org from the tenant scope, never a submitted id). Response
+  `{ logoUrl, primaryColor }`; http/https <= 2048 chars, `#rrggbb`, blank
+  clears. `48034db` UI: "Edit branding" row action -> full-screen
+  `OrganizationBrandingForm` (URL, color picker + hex, preview).
+  TDD strict: RED observed (compile errors backend; unresolved import and
+  3 failing screen tests frontend). Checks: integration suite 698/699 —
+  the one failure is the known-environmental `PublicRateLimitTests`
+  (populated `wwwroot`); `dotnet build` 0 errors; `npm run test` 218/218
+  (40 files); lint exit 0, 14 warnings (+1 `set-state-in-effect`, existing
+  category); build clean; e2e untouched. Parent spot check: branding
+  integration tests 16/16. Writer started Docker Desktop and only the
+  `postgres` service (`up -d`, never `down`).
+
+- 2026-09-25: RDD over `662aed2..HEAD` (T5): medium, `slice_budget_reached`
+  (905 lines, 15 files, migration 0015); user granted; lineage
+  `review-01cd6bf7324810db`, reliability lens, APPROVED and acknowledged.
+  Reviewed boundary -> T5 doc commit. Follow-ups: WARNING
+  `R3-branding-load-failure-save-clears` (OrganizationBrandingForm.tsx:48-53
+  — a failed load leaves empty fields, Save then clears real branding;
+  folded into T6), SUGGESTION `R3-branding-error-contract-unproved`
+  (OrganizationBrandingForm.test.tsx:115-117).
+
+- 2026-09-25: T6 done (delegated direct). `7e210ae`
+  `OrganizationBrandingProvider` (own-org branding per signed-in identity,
+  403/404/network -> null), `organizationTheme.ts` (primary, WCAG-contrast
+  foreground, ring), ThemeProvider applies them under "custom", Custom
+  disabled with an explanation when the org has no color, `BrandMark` logo
+  in the shell with text fallback. `2b54bef` fixes the T5 WARNING: a failed
+  branding load disables Save and offers Retry. TDD strict: RED observed
+  per commit. `npm run test` 241/241 (42 files), lint exit 0 / 17 warnings
+  (+3, existing categories), build clean, e2e untouched. Parent spot check
+  241/241. RDD over `e159daa..2b54bef`: medium (705 lines), user granted,
+  lineage `review-c156e2357c217f51`, APPROVED and acknowledged; follow-ups
+  in T6b.
+- 2026-09-25: Local sysadmin access lost again. Root cause: first
+  `compose up` after the named volume (59c3afa) recreated Postgres onto an
+  empty volume (one-time), and `deploy/dev/.env` had the sysadmin under a
+  wrong key so provisioning refused. `.env` fixed (SYSADMIN_* = platform
+  owner, ORGANIZATION_ADMIN_* = client), accounts re-provisioned.
+
+## Product review backlog (user, 2026-09-25)
+
+Reported by the product owner while using the app. Each item is being
+checked against `openspec/specs/` to classify it as a spec gap or an
+implementation gap before implementing.
+
+- [x] B1. Users screen shows the platform sysadmin with the
+      `business-admin` role checked. Wrong: sysadmin is the platform
+      owner's role, business-admin is the client's user inside an
+      organization. They must never be conflated.
+- [ ] B2. Every entity in the system must be editable. Users cannot be
+      edited today.
+- [ ] B3. Roles are poorly presented; use better components (badges /
+      chips / proper multi-select) instead of bare checkboxes.
+- [ ] B4. There is no customer (client) role; customers need access to
+      review price lists and place orders.
+- [ ] B5. Modularization: organization management is sysadmin-only, and
+      each role should see only its own modules.
+- [x] B6. Branches cannot be created from the UI.
+- [ ] B7. More attractive menu; for business admins, a top navbar with a
+      branch switcher. Owner decision 2026-09-25: EVERYTHING is filtered by
+      organization AND branch, not only orders. First case to support:
+      organization "Vaca Verde", branch "Ruta 51". Owner decision
+      2026-09-26: the catalog is per branch, with admin-only copy of the
+      whole catalog or of individual products from one branch to another
+      (spec `catalog-item-identification`, "Copying Catalog Between
+      Branches"). Owner decision 2026-09-26: a copy also carries the
+      source branch's latest uploaded price list (entries of the copied
+      presentations). The price lists screen must be filterable by date to
+      review history (spec `price-list-management`, "Price History
+      Filterable By Date").
+- [x] B9. Spanish UI through i18n (owner, 2026-09-25): clients and
+      organizations are Spanish-speaking; ship Spanish now on an i18n layer
+      so more languages can be added later. Code/specs/commits stay English.
+- [ ] B8. Owner's concern: the project is behind — determine whether the
+      cause is missing definition (specs) or failing implementation, per
+      item.
+
+### Gap audit result (mapping fork, 2026-09-25)
+
+- B1 IMPLEMENTATION GAP. Spec (`platform-administration`, "Sysadmin
+  Identity Lives in the Unified Model") makes sysadmin the
+  `is_system_admin` flag, not a role; `platform-admin` role is reserved and
+  unassignable. Bug is in seeding: `TestSeedEndpoints.cs:39-68` grants
+  every seeded user `business-admin` with full permissions in an auto-made
+  "E2E Test Organization", and `provision-admin.ps1` seeds the sysadmin
+  through it and only sets the flag. Users screen renders what it was
+  given. No spec change needed.
+- B5 mostly a consequence of B1 (tenant nav shown because of that stray
+  role). Organizations is correctly sysadmin-only in API and UI. Missing:
+  a spec line for what a sysadmin with no organization sees.
+- B6 DECIDED by the owner 2026-09-25: the sysadmin can do everything in
+  every organization (not only organization CRUD). Plan: a spec change in
+  `platform-administration` for a sysadmin organization context (pick an
+  organization in the top navbar, then use every tenant module on it with
+  full permissions), reusing the existing screens instead of duplicating
+  them under Organizations. Shares the navbar with B7's branch switcher.
+- B6 was a SPEC GAP (acknowledged-open in the admin-console change): branches
+  are created only inside the caller's own org (`POST /account/branches`,
+  `ManageBranchSettings`); no sysadmin cross-org path. A business-admin can
+  create branches today.
+- B2 IMPLEMENTATION + SPEC GAP: no update/disable for organizations,
+  branches, price lists, products (only rename), presentations delete;
+  users can change roles and reset passwords but `IsRevoked` is never set
+  by any endpoint. Specs never define delete vs disable per entity.
+- B3 matches spec (checkbox per assignable role, platform-admin excluded);
+  purely a UI quality change.
+- B4 SPEC-INTENTIONAL: customers are a separate entity with their own
+  credential scheme (`private-customer-ordering`, `customer-registry`,
+  `CustomerOrderingAccess`, `/order`), not a staff role. Customer login and
+  ordering exist. Needs owner confirmation, not a fix.
+- B7 SPEC GAP: no "selected branch" session concept or switch API
+  anywhere; multi-branch users exist in the model.
+- B8 answer: both. B1/B2(partly) are implementation failures against
+  existing specs; B6/B7/B2(delete semantics) were never defined.
+
+- 2026-09-25: B1 done (delegated direct; writer was cut off once by a usage
+  limit and resumed). `656c807` seed seam gains `systemAdmin` (zero roles,
+  zero branch scope, own "Platform System Administrator" org because
+  `users.organization_id` is NOT NULL) + `PromoteToSystemAdminAsync`;
+  `provision-admin.ps1` seeds with it and always repairs the sysadmin row
+  (`roles = []`, `branch_scope = {}`); `b9c052d` treats the expected 403
+  `no-branches-assigned` Desktop pairing as success for a branchless
+  sysadmin; parent fix `fix(tests)` added a missing `using` the writer never
+  compiled. Checks: full integration suite 702/702 in a clean worktree (the
+  user's running API/POS lock the main tree's DLLs; `--artifacts-path` gives
+  361 false failures — do not use it); `npm run test` 242/242, lint exit 0 /
+  17, build clean. Dev DB verified: sysadmin `is_system_admin=t`, roles `[]`,
+  no branches; Vaca Verde admin unchanged. RED evidence for the backend
+  tests was not captured separately (writer could not build) — disclosed.
+  RDD over `05ce1f6..HEAD`: medium (433 lines), granted, lineage
+  `review-2a111627d67b4672`, APPROVED and acknowledged. Follow-ups (B1b):
+  WARNING `R3-applayout-test-contradicts-name` (AppLayout.test.tsx:116-122),
+  WARNING `R3-pair-parse-before-status` (provision-admin.ps1:303-305),
+  WARNING `R3-seed-promote-not-atomic` (TestSeedEndpoints.cs:88-90),
+  SUGGESTION `R3-no-conflict-path-coverage`.
+
+- 2026-09-25: B6 done (delegated direct). `a2668e2` spec requirement
+  "Sysadmin Acts On A Selected Organization" (platform-administration);
+  `1731de0` `X-Organization-Id` honored only when the caller's freshly
+  loaded row is a non-revoked sysadmin and the org exists (unknown -> 404),
+  ignored for anyone else; `ActingPermissions` grants the full staff set for
+  that request only; cross-org branch creation audited; `fefe9c2`
+  `OrganizationContext` + switcher + "Open" row action + nav gating.
+  Checks: integration 708/708 (clean worktree, re-run on final HEAD), web
+  243/243, lint exit 0 / 20 (+3 `only-export-components`), build clean, e2e
+  typecheck clean. RDD over `c9bcf42..fefe9c2`: medium (1102 lines),
+  granted, lineage `review-03117369f466d82d`. The reviewer raised CRITICAL
+  `R3-stale-header-mirror` (the header mirror was synced in a parent effect,
+  so a screen's first fetch after "Open" or a reload went out without the
+  header and got 403). One bounded correction by the parent, `a3035ef`:
+  mirror updated synchronously with every selection change; TDD RED 2/3
+  then GREEN. Targeted validation APPROVED, acknowledged; boundary ->
+  `a3035ef`. Parent follow-up `20d7a10`: `/app` lands a sysadmin with no
+  selection on Organizations instead of the hidden Catalog (review WARNING
+  `R3-sysadmin-landing-hidden-route`); TDD RED 1/3 then GREEN; web 249/249;
+  RDD assess `under_budget` (43 lines), pending in the slice.
+  Open decisions/follow-ups (B6b): audit only covers cross-org branch
+  creation, not other sysadmin writes; WARNING
+  `R3-platform-endpoints-under-selection` (TenantScopeEndpointFilter.cs:78),
+  WARNING `R3-switch-stale-data` (OrganizationSwitcher.tsx:47-57),
+  SUGGESTIONs `R3-malformed-selector-silent`, `R3-weak-unknown-org-assertion`.
+  The user's running Cloud.Api is an older build; B6 needs an API restart.
+
+- 2026-09-26: B7 design (design fork, opus). Spec additions across 12
+  `openspec/specs/` files: `X-Branch-Id` selector validated against the
+  scoped org and the caller's branch scope (sysadmin: any branch of the
+  selected org), missing selector rejected with `branch-selection-required`,
+  device path uses its paired branch, `/account/me` returns selectable
+  branches, branch-owned tables get `branch_id NOT NULL` + composite FK +
+  backfill to each org's earliest branch, RLS enforces
+  `app.current_branch_id` fail-closed, users and branch management stay
+  org-level (Users screen lists staff of the selected branch), dev renames
+  Vaca Verde's branch to "Ruta 51". Adopted the design fork's
+  recommendations on everything except the catalog, which the owner decided.
+  Plan (work units): U1 selector plumbing, U2 dev "Ruta 51", U3 web branch
+  switcher (synchronous header mirror), U4 catalog (+ copy), U5 pricing,
+  U6 customers, U7 orders/payments/inbox, U8 users/audit.
+
+- 2026-09-26: B7 U1+U2 done (delegated direct; writer cut off once by a
+  usage limit and resumed). `ac1623b` U1: `X-Branch-Id` resolved after the
+  org selector; device requests always use their paired branch and ignore
+  the header; malformed -> 400; unknown/other-org/out-of-scope -> identical
+  403 (`Results.StatusCode(403)` — `Forbid()` 302-redirects under the staff
+  cookie scheme, caught in RED/GREEN); `BranchSelectionRequirement` guard
+  ready but not wired (U4+); `/account/me` and sign-in return
+  `selectableBranches` and `/me` now goes through the tenant filter;
+  `TenantScopeSql.ApplyAsync` replaces 20 hand-rolled `set_config` calls in
+  13 files and sets `app.current_branch_id` when selected (no RLS policy
+  reads it yet). `db7b7a2` U2: provisioning defaults the branch to
+  "Ruta 51", renames a single-branch org in place (id kept), widens the
+  admin's branch scope; `.env.example` and README fixed. Checks: full
+  integration 723/723 in a clean worktree; parent spot check 21/21
+  (branch + org selection tests); dev DB: Vaca Verde -> "Ruta 51".
+
+- 2026-09-26: B9 done (delegated direct; cut off once by a usage limit and
+  resumed). `8622713` i18n layer (`i18next` + `react-i18next`, `es` default
+  and fallback, no detection, `en` at full key parity enforced by a test,
+  12 namespaces), then one commit per screen group (`b2443dc`, `b3110aa`,
+  `1e21411`, `8c4f725`, `11d66fc`, `a3f972b`, `6db99c9`, `e27f38e`) and
+  `8845aa0` Spanish E2E selectors. Dates `es-AR`. Left in English on
+  purpose: role slugs, wire enum values, server ValidationProblem texts
+  (follow-up: localize server errors). TDD RED per group; disclosed gaps:
+  key-parity test never RED, a HomeScreen micro-edit not RED-checked. Checks:
+  web 252/252 (44 files), lint exit 0 / 20, build clean, e2e typecheck
+  clean. Parent spot check 252/252.
+  RDD: the whole block `a3035ef..8845aa0` (136 files, 4467 lines, high) hit
+  `lens_context_budget_exceeded`; split into five contiguous slices reviewed
+  from detached worktrees (`..8622713`, `..b3110aa`, `..ac1623b`,
+  `..db7b7a2`, `..8845aa0`). The user DECLINED all five (candidate-scoped;
+  exact decline invocations run, `declined_this_candidate` confirmed each
+  time). No review receipt exists for these commits.
+
+- 2026-09-26: B7 U3 done (delegated direct). `5c01bb4` `BranchContext`:
+  selectable branches from the session (sysadmin: refetch `/account/me`
+  with the org header), auto-select 1 -> it, else last used, else first;
+  synchronous `X-Branch-Id` mirror (render-time reset on identity/org
+  change). `a9ee73f` top bar (brand, org switcher, branch switcher,
+  account menu), sidebar grouped under "Operación" / "Administración" /
+  "Plataforma", `<Outlet key={org:branch}>` remounts screens on switch.
+  One branch shows as a static label; accessible names unchanged; e2e
+  untouched, typecheck clean. TDD RED observed. Web 271/271 (46 files),
+  lint exit 0 / 23 (+3 `only-export-components`), build clean. Parent spot
+  check 271/271. RDD `8728d90..a9ee73f`: high (966 lines), user DECLINED,
+  exact decline run. Gaps: "no selectable branch" message not built;
+  Users screen still org-wide (U8); a sysadmin's first branch after an org
+  switch needs one `/account/me` round trip.
+
+- 2026-09-26: B7 U4 done (delegated direct; writer stalled once and was
+  resumed). `6a74496` migration 0016 (`branch_id NOT NULL` on products and
+  presentations, composite FK, identification code unique per branch,
+  branch fail-closed RLS, mirrored into init-rls.sql), every `/catalog/*`
+  route requires the selected branch, rename stamps the branch from scope
+  (body `TargetBranchId` removed), `POST /pricing/imports` requires a
+  branch, `GuestOrderTarget.Scope` now carries its configured branch (was
+  silently dropped). `fdcfd46`..`a697e67` fixture fixes; `4262263` web
+  record types + e2e `X-Branch-Id` on direct API calls. Checks: integration
+  729/729 (worktree), build ok, web 271/271, lint/build clean, e2e typecheck
+  clean. Parent spot check: 80/80 (catalog, guest ordering, branch
+  selection). Dev DB: 0016 applied by psql (no migration runner exists);
+  no catalog rows existed, RLS verified by insert/switch/rollback.
+  RDD `b4e6877..4262263`: high (1241 lines), user DECLINED, exact decline
+  run. Latent gap for U7: staff order submission does not require a
+  branch yet, so without `X-Branch-Id` its catalog reads now come back
+  empty (fail-closed).
+
+- 2026-09-26/27: B7 U5 done (delegated direct; writer cut off once by a
+  usage limit and resumed). Migration 0017 (`branch_id NOT NULL` on
+  price_lists, price_list_entries, rate_component_sets, rate_components,
+  supplier_price_mappings, price_import_batches, price_import_rows; same-branch
+  composite FKs; one default list and mapping names per branch; branch
+  fail-closed RLS; mirrored), every `/pricing/*` route requires the branch,
+  `GET /pricing/price-lists/{id}/prices?asOf=|from=&to=` reuses the
+  effective-date rule, web `PriceDateFilter` (es-AR, read-only).
+  RDD: the whole U5 range (2186 lines) hit `lens_context_budget_exceeded`;
+  the unpushed 1635-line commit was split by the parent into `3138cf4`
+  (schema only — does NOT pass the pricing tests on its own, the stores are
+  adapted in the next commit) and `ea5d0ea` (endpoints + date API), tree
+  verified identical. Slice 1 (`32f4ff4..3138cf4`, high, four lenses,
+  granted): CRITICAL `R4-entry-backfill-presentation-branch-mismatch` —
+  entries were backfilled to the org's earliest branch while 0016 already
+  made presentations branch-owned, so the composite FK would abort the
+  production migration. One bounded correction `0f088af` (176/180 lines):
+  entries take their presentation's branch, mixed lists get a per-branch
+  copy (one default per branch respected), the migration is now one
+  transaction; new migration test RED then GREEN. Validation APPROVED,
+  acknowledged; the fix was inserted after `3138cf4` and the rest
+  cherry-picked cleanly. Slice 2 (`0f088af..1663800`, medium) APPROVED;
+  slice 3 (`1663800..262604a`, medium) APPROVED; all acknowledged.
+  Checks: integration 734/734 on the integrated HEAD (worktree), web
+  275/275, parent spot check 153/153 pricing tests. Dev DB: 0017 (pre-fix
+  text) was applied by the writer; dev had no presentations/entries, so the
+  fixed backfill changes nothing there.
+  Follow-ups (U5b): WARNINGs `R3-presentation-cascade-deletes-history`
+  (deleting a presentation cascades its price history),
+  `R3-asof-tie-nondeterminism`, `R3-org-default-set-branchless-null`,
+  `R3-prices-endpoint-untested`, `R3-stale-response-race` and
+  `R3-stale-entries-on-error` (PriceDateFilter), `R3-missing-failure-path-tests`,
+  migration comment/rollback drift (R2/R3/R4); SUGGESTIONs recorded in the
+  review receipts.
+  History note: while the correction was in review, the pre-correction
+  split chain (`3138cf4`, `084f5c0`, `8acac24`, `1f04fb6`, `e479601`) had
+  already reached `incoders/dev`. To avoid a force push, the correction
+  landed on top as `452b01a` (same content as the reviewed `0f088af`); the
+  final tree is byte-identical to the reviewed, integrated one. The ids
+  `0f088af`, `ea5d0ea`, `38115b4`, `1663800`, `262604a` exist only in the
+  review receipts, not on the branch.
+
+- 2026-09-29: B7 U5b done (delegated direct: one bounded writer; TDD on,
+  runner `dotnet test` / `vitest`). Commits: `663a4fb`
+  `feat(catalog): copy products and the latest price list between
+  branches`, `4bbdc91` `feat(web): copy the catalog to another branch
+  from the catalog screen`, `7b1e31b` `test(catalog): leave the shared
+  catalog tables empty after each copy test`.
+  Backend: `POST /catalog/copy` (header-selected branch = SOURCE, target in
+  the body; `ManageCatalog` only, target must be a branch of the same
+  organization inside the caller's scope, else 403), `CatalogCopyStore`
+  (one transaction, reads under the source branch GUC, writes under the
+  target's), new independent rows, skip-and-report on identification-code
+  clash (a product whose presentations were all skipped is not created),
+  latest source price list copied as a NEW list with the copied
+  presentations' entries and their effective dates, default only when the
+  target has none, one `catalog.copied` audit row (actor, source, target,
+  products/presentations copied, skipped count). Audit of the WIP against
+  the spec found one gap: "latest uploaded (created or imported)" ranked by
+  list creation only, so a list that later received a supplier import was
+  not treated as latest. Test
+  `Copy_RanksAListThatReceivedALaterImport_AsTheLatestUploaded` observed
+  RED (Strings differ), then GREEN after ranking by the later of the list's
+  creation and its newest `source = 'Import'` entry. Added characterization
+  tests (green on first run, spec clauses the WIP already met): audit
+  skipped count, latest of two lists + only copied presentations' entries,
+  target's existing default/lists untouched.
+  Web: "Copiar catálogo" action on the catalog screen (admin with
+  `ManageCatalog` or sysadmin, only when another branch is selectable),
+  full-screen `CatalogCopyForm` (target branch select excluding the source,
+  whole catalog or selected products, result with copied/price/skipped
+  codes), Spanish + English strings in `catalog.json`. New
+  `CatalogCopy.test.tsx` (6 tests; 4 RED before the form existed, then
+  GREEN). No existing DOM moved; e2e selectors untouched (e2e not changed).
+  Checks: `dotnet build`: 0 errors; focused `--filter
+  FullyQualifiedName~CatalogCopy`: 15/15; web `npm run test`: 281/281,
+  `npm run build`: ok. Full integration suite in a throwaway worktree at `7b1e31b` (`commerce_test`, not dev): 749/749. Trap found: this class legitimately leaves the same
+  code in two branches, which makes fixtures that re-apply 0009 without
+  truncating (BranchSelectionTests...) fail on `presentations_org_code_uk`
+  in a full run; fixed by truncating the catalog tables in the copy tests'
+  `Dispose` (`7b1e31b`). Integration tests silently SKIP (green) when
+  Postgres is down, and the full suite hangs without the pgbouncer
+  container: both containers must be up.
+
 ## Next step
 
-T5 (organization settings: backend fields + endpoints + the rebuilt
-`OrganizationsScreen`, which absorbs the last screen not on the
-`components/data/*` layer).
+U6..U8, B2 semantics, B3, B4 confirmation, B1b/B6b/T6b cleanups,
+U5 R3 follow-ups (presentation delete cascades price history, as-of tie
+determinism, org-default branchless null, untested prices endpoint,
+PriceDateFilter stale-response races, failure-path tests), localized
+server errors (the copy form maps every failure to one generic message).

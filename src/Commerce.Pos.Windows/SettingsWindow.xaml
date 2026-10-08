@@ -51,7 +51,8 @@
             <Border Style="{StaticResource SoftCardBorder}">
                 <StackPanel>
                     <TextBlock Text="Versión y actualizaciones" Style="{StaticResource SectionTitleTextBlock}" />
-                    <TextBlock x:Name="VersionStatusText" Style="{StaticResource MutedTextBlock}" TextWrapping="Wrap" />
+                    <TextBlock x:Name="VersionStatusText" Style="{StaticResource MutedTextBlock}" TextWrapping="Wrap" Margin="0,0,0,14" />
+                    <Button x:Name="CheckForUpdatesButton" Content="Buscar actualizaciones" HorizontalAlignment="Stretch" Click="CheckForUpdatesButton_Click" Style="{StaticResource SecondaryButton}" AutomationProperties.Name="Buscar actualizaciones" />
                 </StackPanel>
             </Border>
         </StackPanel>

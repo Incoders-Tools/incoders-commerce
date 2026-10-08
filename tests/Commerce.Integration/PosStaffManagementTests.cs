@@ -5,21 +5,21 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Commerce.Integration;
 
+[Collection("PosLog")]
 public sealed class PosStaffManagementTests : IDisposable
 {
     private readonly string _dataDirectory = Path.Combine(Path.GetTempPath(), "commerce-pos-staff", Guid.NewGuid().ToString());
 
     [Fact]
-    public async Task UserAdminClient_HasWindowScopedLifetime_AndCallsStaffListEndpoint()
+    public async Task UserAdminClient_IsTheSharedConnections_AndCallsStaffListEndpoint()
     {
         using var host = PosHostBuilder.Build(_dataDirectory);
-        var factory = host.Services.GetRequiredService<Func<UserAdminClient>>();
-        using var first = factory();
-        using var second = factory();
+        var connection = host.Services.GetRequiredService<ManagementConnection>();
         var handler = new RecordingHandler();
-        using var requestClient = new UserAdminClient(new HttpClient(handler) { BaseAddress = new Uri("https://example.test/") });
+        using var httpClient = new HttpClient(handler) { BaseAddress = new Uri("https://example.test/") };
+        var requestClient = new UserAdminClient(httpClient);
 
-        Assert.NotSame(first, second);
+        Assert.Same(connection.Staff, host.Services.GetRequiredService<ManagementConnection>().Staff);
         var users = await requestClient.ListUsersAsync();
         Assert.NotNull(users);
         Assert.Equal("/account/users", handler.RequestUri!.AbsolutePath);
@@ -27,16 +27,17 @@ public sealed class PosStaffManagementTests : IDisposable
     }
 
     [Fact]
-    public void StaffWindow_AndMainWindowMarkup_ExposeManageUsersFlow()
+    public void StaffView_AndMainWindowMarkup_ExposeManageUsersFlow()
     {
-        Assert.NotNull(typeof(UsersWindow));
+        Assert.NotNull(typeof(StaffView));
         var root = FindRepositoryRoot();
         var mainMarkup = File.ReadAllText(Path.Combine(root, "src", "Commerce.Pos.Windows", "MainWindow.xaml"));
-        var usersMarkup = File.ReadAllText(Path.Combine(root, "src", "Commerce.Pos.Windows", "UsersWindow.xaml"));
+        var staffMarkup = File.ReadAllText(Path.Combine(root, "src", "Commerce.Pos.Windows", "StaffView.xaml"));
         Assert.Contains("ManageStaffButton", mainMarkup);
         Assert.Contains("ManageStaffButton_Click", mainMarkup);
-        Assert.Contains("RolesItemsControl", usersMarkup);
-        Assert.Contains("Reset password", usersMarkup);
+        Assert.Contains("RoleComboBox", staffMarkup);
+        Assert.Contains("Restablecer contraseña", staffMarkup);
+        Assert.DoesNotContain("Reset password", staffMarkup);
     }
 
     private static string FindRepositoryRoot()

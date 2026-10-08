@@ -11,6 +11,7 @@ public partial class SettingsWindow : Window
     private readonly Func<string> _getVersionStatus;
     private readonly Func<Task<string>> _syncPendingAsync;
     private readonly Func<Window, bool> _reconfigureTerminal;
+    private readonly Func<Task<string>> _checkForUpdatesAsync;
     private bool _themePickerReady;
 
     public SettingsWindow(
@@ -19,7 +20,8 @@ public partial class SettingsWindow : Window
         Func<string> getSyncResult,
         Func<string> getVersionStatus,
         Func<Task<string>> syncPendingAsync,
-        Func<Window, bool> reconfigureTerminal)
+        Func<Window, bool> reconfigureTerminal,
+        Func<Task<string>> checkForUpdatesAsync)
     {
         InitializeComponent();
 
@@ -29,6 +31,7 @@ public partial class SettingsWindow : Window
         _getVersionStatus = getVersionStatus;
         _syncPendingAsync = syncPendingAsync;
         _reconfigureTerminal = reconfigureTerminal;
+        _checkForUpdatesAsync = checkForUpdatesAsync;
 
         InitializeThemePicker();
         RefreshSummaries();
@@ -82,6 +85,21 @@ public partial class SettingsWindow : Window
         {
             SyncPendingButton.IsEnabled = true;
             RefreshSummaries();
+        }
+    }
+
+    private async void CheckForUpdatesButton_Click(object sender, RoutedEventArgs e)
+    {
+        CheckForUpdatesButton.IsEnabled = false;
+        VersionStatusText.Text = "Buscando actualizaciones...";
+
+        try
+        {
+            VersionStatusText.Text = await _checkForUpdatesAsync();
+        }
+        finally
+        {
+            CheckForUpdatesButton.IsEnabled = true;
         }
     }
 

@@ -1,15 +1,96 @@
 # Deploy notes
 
-## Local development administrator
+## Test database isolation (`commerce_test`)
 
-Use one local identity for Web and Desktop administration:
+The integration suite and the app you are signed in to do **not** share a
+database.
 
-1. Copy `deploy/dev/.env.example` to the ignored `deploy/dev/.env` and set unique values for both variables.
+`deploy/dev/compose.yaml` creates two: `commerce_dev`, which
+`deploy/dev/run-all.ps1` and the `full` profile point Cloud.Api at, and
+`commerce_test`, which is the only database `tests/Commerce.Integration`
+touches (`PostgresTestFixture.Database`). They were one database until roughly
+three dozen fixtures resetting themselves with
+`TRUNCATE TABLE ... users, branches, organizations CASCADE` had destroyed the
+local sign-in accounts once too often: `dotnet test` now leaves `commerce_dev`
+completely alone.
+
+Three things make that hold:
+
+- `deploy/dev/db/init-test-db.sql` creates `commerce_test` and applies the same
+  `deploy/dev/db/init-rls.sql` to it. Postgres **roles** (`app_runtime`,
+  `platform_readonly`) are cluster-wide and already exist, but **GRANTs** and
+  RLS **policies** are per-database, so that file genuinely has to run twice.
+  The migrations themselves are applied by the tests
+  (`PostgresTestFixture.ApplyMigration`); `init-rls.sql` is not, which is why
+  this step is not optional.
+- PgBouncer no longer pins `DATABASES_DBNAME`. Its wildcard `[databases]` entry
+  now forwards whichever database the client asks for, so port 6543 serves
+  `commerce_dev` for the app and `commerce_test` for `PoolerScopingTests` at
+  the same time. Pinning it to one name silently rewrote every pooled
+  connection's target, which would have kept the suite truncating
+  `commerce_dev` through the pooler.
+- `TestDatabaseIsolationTests` fails the build if any file under
+  `tests/Commerce.Integration` hardcodes a `commerce_dev` connection string
+  again.
+
+On a **fresh** container this is automatic — the file is mounted into
+`/docker-entrypoint-initdb.d`. On a container that already exists (there is no
+named volume, so `docker compose down` would destroy your data — don't), create
+it once by hand:
+
+```bash
+docker cp deploy/dev/db/init-rls.sql     incoders-commerce-postgres-1:/tmp/init-rls.sql
+docker cp deploy/dev/db/init-test-db.sql incoders-commerce-postgres-1:/tmp/init-test-db.sql
+docker compose -f deploy/dev/compose.yaml exec -T postgres \
+  psql -v ON_ERROR_STOP=1 -U commerce_owner -d commerce_dev -f /tmp/init-test-db.sql
+docker compose -f deploy/dev/compose.yaml up -d --force-recreate --no-deps pgbouncer
+```
+
+The script is idempotent, so re-running it only re-applies the RLS policies.
+
+In CI the databases are ephemeral, so the separation protects nothing there;
+`.github/workflows/release.yml` simply adds `commerce_test` in its `build` job
+— the only job that runs `dotnet test` — and leaves every other `commerce_dev`
+reference untouched.
+
+## Local development identities
+
+`deploy/dev/provision-admin.ps1` restores both local identities in one command:
+the platform **system administrator**, and the first **organization** with its
+`business-admin`.
+
+1. Copy `deploy/dev/.env.example` to the ignored `deploy/dev/.env` and set unique values:
+
+   | Variable | Required | Meaning |
+   | --- | --- | --- |
+   | `COMMERCE_DEV_SYSADMIN_EMAIL` | yes | Platform system administrator (`is_system_admin`, never an organization role). Signs in to Web, pairs Desktop, and is the identity the script authenticates as to create the organization. |
+   | `COMMERCE_DEV_SYSADMIN_PASSWORD` | yes | Its password. |
+   | `COMMERCE_DEV_ORGANIZATION_NAME` | yes | Name of the organization to create. |
+   | `COMMERCE_DEV_ORGANIZATION_ADMIN_EMAIL` | yes | The organization's first `business-admin`. Must differ from `COMMERCE_DEV_SYSADMIN_EMAIL`. |
+   | `COMMERCE_DEV_ORGANIZATION_ADMIN_PASSWORD` | yes | Its password. |
+   | `COMMERCE_DEV_ORGANIZATION_BRANCH_NAME` | no | First branch name. Defaults to `Ruta 51` (B7: the first supported organization/branch pairing is Vaca Verde / Ruta 51) if absent. For a pre-existing organization with exactly one branch under a different name, the script renames it idempotently to this value instead of creating a second branch. |
+
 2. Start the complete local stack: `docker compose -f deploy/dev/compose.yaml --profile full up -d`.
 3. Run `pwsh -File deploy/dev/provision-admin.ps1`.
-4. Sign in to Web and Desktop with the **same** email and password from `deploy/dev/.env`.
+4. Sign in to Web and Desktop with the system administrator credentials, or to the organization with the business-admin ones.
 
-Desktop pairing happens before its admin window opens. The provisioning script verifies that the same identity can pair a Desktop terminal; keep credentials only in the ignored `.env` file, never in compose or init SQL.
+The system administrator is seeded through the Development-only
+`/internal/test-seed/user` seam and promoted with `is_system_admin = true`. The
+organization then goes through the real `POST /account/organizations`, which
+writes organization, branch, user and audit entry in one transaction.
+
+The script is **idempotent**: each identity is ensured, not created. When an
+account already exists it proves — by signing in as it — that the account is
+the one `.env` describes, and re-applies the system administrator promotion.
+It never rewrites an existing password; a stored password that differs from
+`.env` fails loudly and names the account and the variable, because recovery is
+rarely all-or-nothing and refusing to run unless the database is empty forces
+back exactly the manual work the script removes.
+
+Desktop pairing happens before its admin window opens; the script verifies the
+system administrator can pair a Desktop terminal. It refuses any non-loopback
+API. Keep credentials only in the ignored `.env` file, never in compose, init
+SQL, or `.env.example`.
 
 ## Unit 2 — Transaction-pooler proof-of-concept outcome
 
@@ -83,6 +164,10 @@ endpoint (Supabase port `6543`) in each environment's Railway variables.
 docker compose -f deploy/dev/compose.yaml up -d
 dotnet test tests/Commerce.Integration/Commerce.Integration.csproj --filter "PoolerScopingTests|PostgresCloudInboxStoreTests"
 ```
+
+These run against `commerce_test` through the same PgBouncer port 6543 the app
+uses for `commerce_dev` — see "Test database isolation" at the top of this file
+for why the pooler can serve both.
 
 If `deploy/dev/compose.yaml` is not running, these tests print a `SKIPPED`
 line naming the unreachable target and return without asserting pass/fail —
@@ -548,3 +633,60 @@ Cloud.Api (local, containerized, or staging) to sync against.
 ### commerce-admin-console — `0012_admin_console.sql`
 
 Apply `0012_admin_console.sql` after the existing migration lineage. It migrates legacy platform administrator identities into the reserved Incoders Platform organization, preserves the password hashes, and removes the legacy `platform_admins` table. After rollout, reset each migrated system administrator password through the unified `/account` identity flow; do not run the retired platform-genesis workflow.
+
+### human-document-numbers — `0021_branch_codes.sql`
+
+Apply `0021_branch_codes.sql` after `0020`. Every branch gets a short numeric `code` (1..999), unique per organization, assigned by the server and never changed; it is the `{branch}` part of human document numbers such as `V01-C2-125`.
+
+- Existing branches are numbered per organization in `created_at, id` order (1, 2, 3 ...). The backfill switches `FORCE ROW LEVEL SECURITY` off for the owner inside the migration transaction only (otherwise the owner sees zero rows) and aborts if any branch is left without a code before restoring it.
+- New branches are numbered by the `branches_code_allocate` BEFORE INSERT trigger (function `branches_allocate_code()`): when an insert omits `code`, it takes a transaction-scoped advisory lock keyed on the organization and assigns `MAX(code)+1`. Concurrent creations for one organization are serialized; different organizations do not block each other. Raw-SQL inserts that omit `code` keep working.
+- The `branches_code_immutable` trigger rejects any UPDATE that changes `code`. A `CHECK (code BETWEEN 1 AND 999)` and `UNIQUE (organization_id, code)` back it up.
+- Idempotent (a re-run changes nothing). The inverse is documented as a comment at the top of the file. `deploy/dev/db/init-rls.sql` carries a verbatim copy. The dev database has no migration tracking: apply the file by hand, as owner, to every existing environment before deploying the API that reads `branches.code`.
+
+### human-document-numbers — `0022_terminal_registers.sql`
+
+Apply `0022_terminal_registers.sql` after `0021` (it also needs `0004`). Every paired POS terminal (installation) gets a register number, unique within its branch, assigned by the server at pairing; it is the `C{register}` part of human sale numbers such as `V01-C2-125`.
+
+- Table `terminal_registers(organization_id, branch_id, installation_id, register_number 1..999, assigned_at, released_at)` with `UNIQUE (organization_id, branch_id, register_number)`, one row per (branch, installation) kept forever, and a partial unique index allowing ONE live (`released_at IS NULL`) register per installation. Composite FK to `branches (organization_id, id)`; `FORCE ROW LEVEL SECURITY` with the asymmetric `device_credentials` shape (unscoped SELECT and release, INSERT and re-activation pinned to the organization); identity columns are immutable.
+- Numbers are NEVER reused: sale numbers are generated offline, so a freed number handed to another installation could duplicate a sale number. A release only stamps `released_at`; the next number is `MAX(ever assigned)+1` per branch. A terminal that comes back to a branch it already held gets its own old number. The range is 1..999 because every reinstall of the POS is a new installation; running past 999 fails the `terminal_registers_number_ck` check and the API answers with a typed conflict.
+- Allocation lives in the SQL function `terminal_registers_assign(organization, branch, installation, release_others)` (advisory locks per installation and per branch, transaction-scoped, pgbouncer-safe). `POST /device/pair` calls it with `release_others = true` and is the ONLY place that releases a register. `GET /device/identity` calls it with `false` inside its own transaction: it re-verifies that a live credential still binds the installation to the branch (a re-pairing that revoked it wins and the call answers 401) and only fills in a missing number. Each newly allocated number is audited in `audit_log` (`terminal.register.assigned`).
+- Deploy order: apply `0021`, `0022` and `0024` BEFORE deploying an API version that pairs terminals. `/health/ready` verifies `branches.code`, `terminal_registers` (forced RLS) and the 4-argument `terminal_registers_assign` with the result shape of `0024`; an API deployed ahead of the migrations reports not ready (and logs `migration 0021/0022/0024 missing`) instead of answering every pairing with a 500.
+- Abuse: `POST /device/pair` is rate limited per client IP (`RateLimits:DevicePairPermitLimit`, default 30 per 15 minutes) because every new installation id burns a number for good. Residual risk: an attacker with valid operator credentials rotating IPs can still exhaust a branch's 999 numbers; the audit rows make that visible and the exhaustion is a typed `409 register-numbers-exhausted`, not an outage of the branch.
+- Backfill: every live (non-revoked) device credential without a register is numbered per branch in `issued_at, installation_id` order. The migration switches `FORCE ROW LEVEL SECURITY` off for the owner inside its transaction only and aborts if a live terminal is left without a register.
+- Idempotent (a re-run changes nothing). The inverse is documented as a comment at the top of the file. `deploy/dev/db/init-rls.sql` carries a verbatim copy. The dev database has no migration tracking: apply the file by hand, as owner, before deploying the API that reads `terminal_registers`.
+
+### human-document-numbers — `0023_pos_sales.sql`
+
+Apply `0023_pos_sales.sql` after `0022`. It adds `pos_sales`, the server-side projection of POS sales, and makes the human sale number `V{branch}-C{register}-{sequence}` (for example `V01-C2-125`) unique per organization.
+
+- Table `pos_sales(organization_id, branch_id, sale_id, register_number NULL, sale_sequence NULL, operation_id, occurred_at_utc, total_amount, recorded_at)`; primary key `(organization_id, sale_id)`; partial `UNIQUE (organization_id, branch_id, register_number, sale_sequence) WHERE sale_sequence IS NOT NULL` so unnumbered sales never collide; a CHECK keeps register and sequence both present or both absent. `FORCE ROW LEVEL SECURITY` with the tenant-isolation policy; `app_runtime` has SELECT and INSERT only (append-only).
+- The sync inbox transaction projects each `sale` envelope here and verifies the number the terminal claimed: the calling installation (from the device credential's claims) must have held that register in that branch (`terminal_registers`, released rows included), the branch code must match `branches.code`, and the number must be unused. A rejected claim stores the sale with NULL number parts and writes an `audit_log` row `sale.number_conflict` with the reason; the sale itself is always ingested.
+- Deploy order: apply `0023` before the API version that projects sales. An API deployed ahead of it still ingests every sale (the projection runs in a savepoint and is skipped with a warning log), but sales received meanwhile have no `pos_sales` row; they remain in `sync_inbox`. For that reason `/health/ready` does not require `pos_sales`.
+- Idempotent (a re-run changes nothing). The inverse is documented as a comment at the top of the file. `deploy/dev/db/init-rls.sql` carries a verbatim copy. The dev database has no migration tracking: apply the file by hand, as owner.
+
+### human-document-numbers — `0024_terminal_registers_assign_result.sql`
+
+Apply `0024_terminal_registers_assign_result.sql` after `0022` (order against `0023` does not matter). It changes the result of `terminal_registers_assign(organization, branch, installation, release_others)` from a bare `smallint` to two OUT columns, `assigned_number` and `newly_allocated`, so the API audits `terminal.register.assigned` only when the call really inserted a new row instead of inferring it with a second query.
+
+- A function cannot change its result type with `CREATE OR REPLACE`, so the migration drops the 4-argument signature and re-creates it with the same body, locks and grants (`EXECUTE` for `app_runtime` only). `0022` now also drops that signature before defining it, so replaying the whole chain (test fixtures do) always ends with the `0024` shape.
+- Deploy order: apply `0024` BEFORE the API version that reads `newly_allocated`; the API that reads `newly_allocated` checks the result shape in `/health/ready` and reports not ready against an older function. An API built before `0024` has no such check: it stays ready in front of `0024` and then fails pairing (see the deploy window below).
+- Deploy window, not backward compatible: an API built before `0024` calls the function expecting a bare `smallint`, so once `0024` is applied that older API fails every `POST /device/pair` (and the identity refresh that allocates a number) until the matching API is deployed. Apply `0024` and deploy the matching API together, as one step, never `0024` alone in front of live traffic. Nothing is in production yet, so no mixed window exists today; the order matters for the first real rollout.
+- Idempotent (a re-run changes nothing). The inverse is documented as a comment at the top of the file. `deploy/dev/db/init-rls.sql` carries a verbatim copy. The dev database has no migration tracking: apply the file by hand, as owner.
+
+### persist-web-orders — `0025_orders.sql`
+
+Apply `0025_orders.sql` after `0021`. It adds `orders` and `order_lines`, so web orders (registered customer and guest) survive an API restart, and gives every order the human number `P{branch}-W-{sequence}` (for example `P01-W-37`) as the pair `(branch_code, sequence)`.
+
+- `orders(organization_id, order_id, destination_branch_id, origin, customer_id, guest_*, status, pending_reason, branch_code, sequence, submitted_at_utc, created_at)`; primary key `(organization_id, order_id)` (the order id is idempotent per organization); `UNIQUE (organization_id, destination_branch_id, sequence)`; composite foreign key to `branches`. CHECK constraints repeat the domain invariants (registered order: customer and no guest data; guest order: guest contact and no customer; a confirmed order has no pending reason). `order_lines` holds the full line snapshot, primary key `(organization_id, order_id, line_no)`.
+- Sequence: the API takes the next number inside the INSERT transaction under `pg_advisory_xact_lock(hashtextextended(branch_id::text, 3))` (seed 1 is the per-branch register lock, 2 the per-installation lock of `0022`) as `MAX(sequence)+1`; the UNIQUE constraint is the backstop. Orders are never deleted, so a number is never reissued, and an idempotent resubmit returns the stored order without advancing the counter.
+- `FORCE ROW LEVEL SECURITY` with the tenant-isolation policy on both tables. `app_runtime` has SELECT and INSERT, plus UPDATE on `orders.status` and `orders.pending_reason` only; no DELETE.
+- Deploy order: apply `0025` BEFORE the API version that stores orders. `/health/ready` requires both tables, forced RLS and the policies and logs `migration 0025 missing`, so an API deployed ahead of it never takes traffic. There is no backfill: orders held only in the memory of a previous API process are lost at the restart that deploys this version (nothing is in production yet).
+- Idempotent (a re-run changes nothing). The inverse is documented as a comment at the top of the file. `deploy/dev/db/init-rls.sql` carries a verbatim copy. The dev database has no migration tracking: apply the file by hand, as owner.
+
+### persist-web-orders — `0026_orders_guest_check.sql`
+
+Apply `0026_orders_guest_check.sql` after `0025`. The guest branch of `orders_origin_identity_ck` (0025) compared `btrim(x) <> ''` without `IS NOT NULL`, so a guest order with a NULL document id, contact address or display name passed the CHECK (a NULL result passes). `0026` drops and re-adds the constraint with every mandatory guest part written as `IS NOT NULL AND btrim(x) <> ''`; the registered-customer branch is unchanged.
+
+- A shipped migration is never edited, so `0025` stays as applied and `0026` corrects it. Re-adding the constraint validates the existing rows; every stored order came through the domain constructor, so none can fail.
+- Deploy order: apply it after `0025` and before or together with the API version that reads orders; the API behaves the same either way (the domain already rejected those rows), so `/health/ready` does not check it.
+- Idempotent (a re-run drops and re-adds the same constraint). The inverse is documented as a comment at the top of the file. `deploy/dev/db/init-rls.sql` carries a verbatim copy. Apply by hand, as owner.

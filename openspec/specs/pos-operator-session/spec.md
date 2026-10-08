@@ -111,43 +111,151 @@ locally and MUST require re-provisioning online.
 - THEN the staleness window for that operator's credential is reset from
   that point
 
-### Requirement: Operator Identification Never Blocks a Sale
+### Requirement: Lock Screen Gates The Sale UI
 
-Identifying the current operator MUST be strictly additive. If no
-operator can be identified — no cached PIN present, or no connectivity
-to provision one — the sale MUST proceed, falling back to attributing it
-to the installation. Operator identification MUST NOT gate
-`CommitSaleButton_Click`.
+While no operator is signed in, the POS main window MUST show only a full-window
+lock screen, covering the navigation and the content: the sale, the sections and
+the cash prompt MUST be neither visible nor interactive (keyboard and scanner
+input included). Owner-approved behavior change (2026-09-30): sales now REQUIRE a
+signed-in operator in the UI. The previous rule that identification never blocks
+a sale is retired for the UI; the domain and sync layers keep their fallback (an
+absent operator resolves the actor to the installation id), so replicated and
+legacy sales stay valid.
 
-#### Scenario: Sale proceeds with no operator identified
+The lock screen MUST offer two ways in:
 
-- GIVEN a terminal has no operator with a valid cached PIN currently
-  logged in and no connectivity to provision one
+- Operator tiles plus PIN: one large tile per operator cached on the terminal whose
+  credential is not stale; tapping a tile asks for that operator's 6-digit PIN,
+  verified locally against the cached credential with no network call. A wrong PIN
+  shows an inline error and stays on the PIN entry. The operator is always chosen
+  first, so two operators sharing a PIN is harmless; there is no PIN-only login.
+- "Ingresar con usuario y contraseña": email and password verified online. An
+  operator not yet cached on the terminal, or one who ticked "Olvidé mi PIN", MUST
+  then create a PIN (new and confirmation, valid per the PIN policy) that is cached
+  locally, replacing any previous one, before entering. An operator already cached
+  and not expired enters directly and keeps their PIN; one whose credential expired
+  chooses a new PIN. Online failures MUST be shown inline in
+  Spanish: invalid credentials, operator not permitted, branch not in scope, no
+  branches assigned, terminal not recognized (telling the operator to configure the
+  terminal again) and server unreachable.
+
+When the terminal has no usable cached operator (first run after pairing, or every
+cached credential stale) the lock screen MUST open on email and password, with no
+tiles. When the server is unreachable the tile and PIN path MUST keep working. The
+lock screen MUST show the terminal's branch, scroll when its content exceeds the
+window, and work in every theme. The sign-in MUST NOT open any modal window.
+
+#### Scenario: Nobody signed in
+
+- GIVEN the application starts on a paired terminal
+- WHEN the main window appears
+- THEN only the lock screen is shown, and the sale, the navigation and the cash
+  prompt are not visible and cannot receive input
+
+#### Scenario: Tile and PIN, offline
+
+- GIVEN an operator is cached and the network is down
+- WHEN they tap their tile and enter the right PIN
+- THEN they get in and no network call is made
+
+#### Scenario: Wrong PIN
+
+- GIVEN an operator tapped their tile
+- WHEN they enter a wrong PIN
+- THEN "PIN incorrecto." is shown inline and the lock screen stays
+
+#### Scenario: New staff member creates a PIN
+
+- GIVEN an administrator created a staff user and handed over the email and password
+- WHEN the staff member signs in with "Ingresar con usuario y contraseña" on a terminal
+  where they are not cached
+- THEN after the online verification they choose a PIN, which is cached, and they
+  get in; next time they can use their tile and PIN
+
+#### Scenario: Forgotten PIN
+
+- GIVEN an operator is cached and forgot their PIN
+- WHEN they sign in with email and password and tick "Olvidé mi PIN"
+- THEN they choose a new PIN that replaces the old one
+
+#### Scenario: First run
+
+- GIVEN a paired terminal has no cached operator
+- WHEN the application starts
+- THEN the lock screen shows email and password directly, with no tiles
+
+#### Scenario: Terminal not recognized
+
+- GIVEN the server does not know the terminal's device credential
+- WHEN an operator signs in with email and password
+- THEN the lock screen tells them to configure the terminal again
+
+#### Scenario: Sale is attributed to the signed-in operator
+
+- GIVEN an operator signed in through the lock screen
 - WHEN a sale is completed
-- THEN the sale succeeds and is attributed to the installation, exactly
-  as before this change
+- THEN `CompleteOfflineSale`'s `actorId` is the operator's user id rather than the
+  installation id
 
-#### Scenario: Sale is attributed to the current operator when identified
+### Requirement: Operating The POS Requires OperatePos
 
-- GIVEN a terminal has a currently logged-in operator with a valid
-  cached PIN
-- WHEN a sale is completed
-- THEN `CompleteOfflineSale`'s `actorId` is the current operator's user
-  id rather than the installation id
+Signing an operator into a terminal MUST require the `OperatePos`
+permission, held by the `cashier` and `business-admin` roles. A `seller` (a
+field salesperson who takes orders on the web) MUST NOT be able to pair a
+terminal or be provisioned as an operator. The server MUST verify the
+permission only after the credentials are proven (a wrong password is still
+the generic 401), and MUST answer a permitted-credentials user lacking
+`OperatePos` with HTTP 403 and the typed status `operator-not-permitted` on
+both `POST /device/pair` and `POST /device/operators/verify`; no device
+credential is issued and no operator is provisioned. `GET
+/device/operators/{userId}/status` MUST report `inactive` for a user
+without `OperatePos`, so a previously provisioned operator whose role was
+changed is deprovisioned on the next reconciliation. The terminal MUST show
+a friendly Spanish message asking for a `cashier` role assignment.
 
-### Requirement: No Permission Gating Introduced
+Sale completion itself (`CommitSaleButton_Click`) is unchanged: it adds no
+permission check beyond the existing operator session (an operator can only
+exist after the sign-in above), and no `RecordSales` permission is
+introduced.
 
-This capability MUST NOT introduce any permission check on
-`CommitSaleButton_Click`. `Permission.Seller` remains `ViewSales`-only;
-no `RecordSales` permission is introduced by this capability.
+#### Scenario: Seller cannot pair a terminal
 
-#### Scenario: Sale button behavior is unchanged apart from attribution
+- GIVEN a `seller` with the correct password and a branch in scope
+- WHEN they call `POST /device/pair`
+- THEN the response is 403 with status `operator-not-permitted` and no
+  device credential is issued
+
+#### Scenario: Seller cannot be provisioned as an operator
+
+- GIVEN a paired terminal and a `seller` with the correct password
+- WHEN the terminal calls `POST /device/operators/verify`
+- THEN the response is 403 with status `operator-not-permitted`
+
+#### Scenario: Cashier and business-admin can operate
+
+- GIVEN a `cashier` (or `business-admin`) with the correct password and the
+  terminal's branch in scope
+- WHEN the terminal calls `POST /device/operators/verify`
+- THEN the response is `verified`
+
+#### Scenario: Wrong password is not disclosed as a role verdict
+
+- GIVEN a `seller` and an incorrect password
+- WHEN they call `POST /device/pair` or `POST /device/operators/verify`
+- THEN the response is the generic 401, not `operator-not-permitted`
+
+#### Scenario: Status is inactive without OperatePos
+
+- GIVEN a provisioned operator whose user no longer holds `OperatePos`
+- WHEN the terminal calls `GET /device/operators/{userId}/status`
+- THEN the status is `inactive`
+
+#### Scenario: Sale completion adds no permission check
 
 - GIVEN an operator session capability is present on a terminal
-- WHEN a sale is completed regardless of whether an operator is
-  identified
-- THEN no permission check runs beyond what existed before this change,
-  and the only observable difference is the `actorId` attributed
+- WHEN a sale is completed regardless of whether an operator is identified
+- THEN no permission check runs beyond what existed before, and the only
+  observable difference is the `actorId` attributed
 
 ### Requirement: Admin-Only Customer Management Screen Gated by Current Operator Role
 
@@ -180,3 +288,138 @@ already established for device pairing and bootstrap.
 - WHEN an attempt is made to open the customer-management screen
 - THEN access is denied, consistent with treating an unidentified operator
   as having no elevated role
+
+### Requirement: Operator Switching Keeps the Cash Session
+
+Switching the signed-in operator MUST NOT close or change the open cash
+session (`pos-cash-session`); each sale keeps the operator who made it.
+
+#### Scenario: Switch inside an open session
+
+- GIVEN a cash session is open
+- WHEN another operator signs in
+- THEN the same session stays open
+
+### Requirement: Operator Menu
+
+The operator button in the POS navigation bar MUST open a menu instead of any
+provisioning screen. The menu MUST show the active operator's email and access
+level (administrator, cashier, or no access to the point of sale) and MUST offer
+"Cambiar operador" (only when another non-stale operator is cached on the terminal)
+and "Cerrar sesión". Both return to the lock screen. The menu MUST NOT offer to add
+an operator: a new operator signs in on the lock screen with email and password.
+
+#### Scenario: Menu of the active operator
+
+- GIVEN a cashier is signed in and a second non-stale operator is cached
+- WHEN the operator button is clicked
+- THEN the menu shows the cashier's email and "Cajero", "Cambiar operador" and
+  "Cerrar sesión", and no provisioning entry
+
+#### Scenario: Switching goes through the lock screen
+
+- GIVEN an operator is signed in
+- WHEN they choose "Cambiar operador"
+- THEN the lock screen is shown
+
+### Requirement: Sign-Out Keeps The Cash Session And The Cart
+
+"Cerrar sesión" and "Cambiar operador" MUST both clear the terminal's current
+operator and return to the lock screen. Neither MUST close or change an open cash
+session (`pos-cash-session`) or clear a sale in progress: the cash session and the
+cart stay as they are, hidden behind the lock screen, and the next operator who
+signs in resumes them. Removing the active operator from the terminal in Personal,
+and the status check dropping a revoked or inactive active operator, MUST also
+return to the lock screen.
+
+#### Scenario: Sign out inside an open session
+
+- GIVEN a cash session is open, a sale is in progress and an operator is signed in
+- WHEN the operator chooses "Cerrar sesión"
+- THEN the lock screen is shown, the sale is not visible, the cash session is still
+  open and the cart is unchanged
+
+#### Scenario: Signing out and in as another operator
+
+- GIVEN two operators are cached and the first is signed in
+- WHEN the first signs out and the second enters their PIN
+- THEN the second is the current operator and the same cash session stays open with
+  the same cart
+
+#### Scenario: The active operator is deactivated
+
+- GIVEN an operator is signed in and an administrator deactivated their account
+- WHEN the next status check reports them inactive
+- THEN their cached credential is dropped and the lock screen is shown
+
+### Requirement: Personal Is Admin Staff Management, Not Operator Sign-In
+
+The "Personal" section of the POS MUST be reachable only by an operator holding
+`ManageUsers` and MUST be administrator staff management: create a staff user
+(email, initial password, role among Cajero, Vendedor and Administrador, and the
+terminal's branch), list staff with role, branch membership and status, deactivate
+and reactivate staff, reset a password, and manage the operators cached on this
+terminal. It MUST NOT provide a way to add an operator to the terminal or to sign
+an operator in: a new staff member signs in through the sign-in flow after the
+current operator signs out. Removing an operator from the terminal forgets only
+the local PIN credential, never the cloud account, and signs the operator out when
+they were active.
+
+#### Scenario: Personal offers no operator provisioning
+
+- GIVEN an administrator opens Personal
+- WHEN the section renders
+- THEN "Operadores de esta terminal" lists the cached operators with "Quitar de
+  esta terminal", and there is no action to add or provision an operator
+
+#### Scenario: Removing the active operator
+
+- GIVEN an operator is signed in and removes themselves from the terminal in
+  Personal
+- WHEN the removal is confirmed
+- THEN that operator is signed out, the lock screen is shown, and they no
+  longer appear as a tile on the lock screen
+
+#### Scenario: A new staff member is added through the lock screen
+
+- GIVEN an administrator created a staff user in Personal
+- WHEN the current operator signs out and the new staff member signs in on the
+  lock screen with email and password
+- THEN they choose a PIN and are provisioned on the terminal through the lock
+  screen, not through Personal
+
+### Requirement: Clientes And Personal Are Sections Of The Main Window
+
+The POS main window MUST be a shell whose content area shows one section at a
+time: Venta (the sale), Clientes and Personal. Clientes and Personal MUST open
+inside the main window, never as modal windows, and the navigation MUST show the
+active section and offer a "Venta" entry that returns to the sale. Switching
+sections MUST NOT lose the current sale: the cart, the scan box and the cash
+session survive a visit to another section. Clientes and Personal MUST be offered
+only to an operator holding `ManageUsers`; when the operator changes and loses
+that permission while one of them is open, the shell MUST return to the sale.
+Each section MUST scroll when its content exceeds the window, MUST show statuses
+and errors inline above the scroll area (no message boxes for expected errors),
+and MUST lock its inputs and show progress while a network action runs.
+
+The administrator server authorization (a cookie sign-in as the signed-in
+administrator) MUST be asked inline in the section ("Confirmá tu contraseña"), kept
+only while the section is open, and the password MUST never be stored.
+
+#### Scenario: Visiting Clientes keeps the sale
+
+- GIVEN a sale with lines is in progress
+- WHEN the administrator opens Clientes and then returns with "Venta"
+- THEN the same lines are still in the cart
+
+#### Scenario: Losing ManageUsers closes the section
+
+- GIVEN an administrator has Personal open
+- WHEN they sign out
+- THEN the shell shows the sale
+
+#### Scenario: An error stays visible
+
+- GIVEN a section form is scrolled to its last field
+- WHEN a request fails
+- THEN the error is shown above the scroll area and is visible without scrolling

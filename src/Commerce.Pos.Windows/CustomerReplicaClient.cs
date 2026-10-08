@@ -14,6 +14,8 @@ namespace Commerce.Pos.Windows;
 /// </summary>
 public sealed class CustomerReplicaClient
 {
+    private const string Path = "/device/customers/sync";
+
     private readonly HttpClient _httpClient;
 
     public CustomerReplicaClient(HttpClient httpClient)
@@ -23,29 +25,32 @@ public sealed class CustomerReplicaClient
 
     public async Task<CustomerSyncOutcome> PullAsync(DateTimeOffset since, string deviceToken, CancellationToken ct = default)
     {
+        var endpoint = PosHttp.Endpoint(HttpMethod.Get, Path);
         try
         {
             using var request = new HttpRequestMessage(
-                HttpMethod.Get, $"/device/customers/sync?since={Uri.EscapeDataString(since.ToString("O"))}");
+                HttpMethod.Get, $"{Path}?since={Uri.EscapeDataString(since.ToString("O"))}");
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", deviceToken);
 
             using var response = await _httpClient.SendAsync(request, ct);
             if (!response.IsSuccessStatusCode)
             {
+                PosHttp.LogFailure(endpoint, response, "customer pull failed");
                 return CustomerSyncOutcome.Failed($"HTTP {(int)response.StatusCode}");
             }
 
-            var body = await response.Content.ReadFromJsonAsync<CustomerSyncResponseDto>(ct);
+            var body = await PosHttp.TryReadJsonAsync<CustomerSyncResponseDto>(response, endpoint, ct);
             if (body is null)
             {
-                return CustomerSyncOutcome.Failed("Empty response from server.");
+                return CustomerSyncOutcome.Failed(PosMessages.UnexpectedResponse);
             }
 
             return CustomerSyncOutcome.Succeeded(body.Customers, body.DisabledIds, body.ServerTimeUtc);
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        catch (Exception ex) when (PosHttp.IsTransportFailure(ex, ct))
         {
-            return CustomerSyncOutcome.Failed($"Unreachable: {ex.Message}");
+            PosHttp.LogTransportFailure(endpoint, ex);
+            return CustomerSyncOutcome.Failed(PosMessages.ServerUnreachable);
         }
     }
 }

@@ -1,0 +1,46 @@
+{
+  "title": "Sucursales",
+  "description": "Ubicaciones físicas a las que se atribuyen pedidos y stock.",
+  "errors": {
+    "unableToLoad": "No se pudieron cargar las sucursales.",
+    "unableToCreate": "No se pudo crear la sucursal."
+  },
+  "createForm": {
+    "nameAriaLabel": "Nombre de la sucursal",
+    "namePlaceholder": "Nombre de la nueva sucursal",
+    "submit": "Crear sucursal"
+  },
+  "search": {
+    "label": "Buscar sucursales",
+    "placeholder": "Buscar por nombre de sucursal…"
+  },
+  "empty": {
+    "none": "Todavía no hay sucursales.",
+    "noMatch": "Ninguna sucursal coincide con esta búsqueda.",
+    "loadError": "No se pudieron cargar las sucursales."
+  },
+  "columns": {
+    "branchName": "Nombre de la sucursal",
+    "code": "Código",
+    "codeHint": "Código corto de la sucursal. Se asigna automáticamente y no cambia. Se usa en los números de venta (p. ej. V01-C2-125).",
+    "identifier": "Identificador"
+  },
+  "discountPin": {
+    "title": "PIN de descuentos",
+    "open": "PIN de descuentos",
+    "openFor": "PIN de descuentos de {{name}}",
+    "close": "Cerrar",
+    "description": "Autoriza los descuentos en la caja de {{name}}. Es un único PIN compartido; solo se guarda cifrado y no se puede volver a ver.",
+    "loading": "Cargando…",
+    "unset": "Esta sucursal todavía no tiene un PIN de descuentos.",
+    "set": "PIN configurado. Último cambio: {{date}}",
+    "newLabel": "Nuevo PIN de descuentos",
+    "hint": "De 4 a 12 dígitos.",
+    "define": "Definir PIN",
+    "change": "Cambiar PIN",
+    "saving": "Guardando…",
+    "invalid": "El PIN debe tener entre 4 y 12 dígitos.",
+    "loadError": "No se pudo consultar el PIN de descuentos.",
+    "saveError": "No se pudo guardar el PIN de descuentos."
+  }
+}

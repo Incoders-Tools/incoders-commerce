@@ -237,3 +237,60 @@ information.
 - WHEN authentication succeeds
 - THEN the resulting principal carries the organization and branch scope
   the server bound to that credential at issuance time
+
+### Requirement: Selected Branch Scopes Every Branch-Owned Staff Request
+
+Every staff request to an endpoint that reads or writes branch-owned data
+MUST carry a selected branch, supplied per request in the `X-Branch-Id`
+header (never persisted server-side against the caller's identity, never
+taken from a request body or route). The system MUST honor the selected
+branch only when it is a persisted branch of the request's scoped
+organization AND the caller may act on it: it is contained in the caller's
+freshly loaded `BranchScope`, or the caller is a verified system
+administrator acting on a selected organization (platform-administration,
+"Sysadmin Selects Any Branch Of The Selected Organization").
+
+A branch-owned request with no selected branch MUST be rejected with a
+distinct "branch selection required" outcome and MUST NOT fall back to any
+branch. A selected branch that is malformed, unknown, belongs to another
+organization, or lies outside the caller's `BranchScope` MUST be rejected
+without revealing whether that branch exists. Organization-level endpoints
+(organization, branch management, identity, session) MUST NOT require a
+selected branch.
+
+A device-authenticated request MUST take its branch from its server-issued
+device credential; an `X-Branch-Id` header on a device request MUST be
+ignored.
+
+#### Scenario: Vaca Verde staff works only on Ruta 51
+
+- GIVEN organization "Vaca Verde" has branches "Ruta 51" and "Centro", and
+  a `business-admin` of Vaca Verde whose `BranchScope` contains only
+  "Ruta 51"
+- WHEN they list products, price lists, customers, orders, and payments
+  with "Ruta 51" selected
+- THEN only rows owned by "Ruta 51" are returned, and every row they create
+  is owned by "Ruta 51"
+
+#### Scenario: Selecting a branch outside the caller's scope is denied
+
+- GIVEN the same Vaca Verde `business-admin` whose `BranchScope` contains
+  only "Ruta 51"
+- WHEN they select "Centro", or a branch of another organization
+- THEN the request is denied, no data is read or written, and the response
+  does not distinguish an out-of-scope branch from a nonexistent one
+
+#### Scenario: Branch-owned request without a selected branch is rejected
+
+- GIVEN an authenticated staff member with a non-empty `BranchScope`
+- WHEN they call a branch-owned endpoint without a selected branch
+- THEN the request is rejected as "branch selection required" and no
+  branch is chosen on their behalf
+
+#### Scenario: A device request ignores a supplied branch header
+
+- GIVEN a POS paired to "Ruta 51"
+- WHEN its device-authenticated sync request carries `X-Branch-Id` naming
+  "Centro"
+- THEN the request is scoped to "Ruta 51" exactly as if no header had been
+  supplied

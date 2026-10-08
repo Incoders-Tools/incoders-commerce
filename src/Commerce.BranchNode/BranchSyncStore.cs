@@ -1,11 +1,19 @@
 using Commerce.Domain.Payments;
+using Commerce.Domain.Sales;
 using Commerce.Domain.Sync;
 using Commerce.Domain.Sync.Payloads;
+using Commerce.Domain.Tenancy;
 using Microsoft.Data.Sqlite;
 
 namespace Commerce.BranchNode;
 
-public sealed record BranchOutboxCommitResult(bool WasNewlyCommitted, SaleEffect Effect);
+/// <summary>
+/// <see cref="Refusal"/> is set when the commit was refused before anything was
+/// written (pos-cash-session: no open cash session); <see cref="WasNewlyCommitted"/>
+/// is then false and <see cref="Effect"/> is the effect that was attempted.
+/// </summary>
+public sealed record BranchOutboxCommitResult(
+    bool WasNewlyCommitted, SaleEffect Effect, Commerce.Domain.CashSessions.SaleCommitRefusal? Refusal = null);
 
 /// <summary>
 /// One row of the `payment_outbox` table (commerce-payments design.md
@@ -29,7 +37,8 @@ public sealed record PaymentOutboxRow(
 /// One row of the minimum-viable cloud->local customer replica (Unit 6;
 /// commerce-customer-identity design.md "BranchNode cloud->local customer
 /// replication"). A projection, not the full aggregate — `Notes`/
-/// `DiscountPercentage`/`PaymentTerms` never leave the server.
+/// `PaymentTerms` never leave the server; `DiscountPercentage` arrives with the
+/// `price-lists` snapshot (<see cref="CustomerDiscountReplica"/>).
 /// `OrganizationId` is stamped by the caller (the terminal's own paired
 /// organization), not carried on the wire DTO.
 /// </summary>
@@ -62,14 +71,30 @@ public sealed record CatalogPriceReplicaItem(
     Guid UnitId,
     decimal? UnitPrice,
     DateOnly? EffectiveFrom,
-    DateTimeOffset UpdatedAtUtc);
+    DateTimeOffset UpdatedAtUtc,
+    Guid? CategoryId = null,
+    string? CategoryName = null,
+    string? CategoryIconKey = null);
+
+/// <summary>
+/// One organization category as known to this terminal (catalog-categories):
+/// derived from the replicated catalog rows, so it only lists categories that
+/// have at least one product locally.
+/// </summary>
+public sealed record CatalogCategory(Guid Id, string Name, string IconKey);
+
+/// <summary>
+/// A capped local catalog search result. <see cref="Truncated"/> is true when
+/// more rows matched than <see cref="Items"/> holds.
+/// </summary>
+public sealed record CatalogSearchResult(IReadOnlyList<CatalogPriceReplicaItem> Items, bool Truncated);
 
 /// <summary>
 /// SQLite-owned branch state (ADR-002: only the branch node opens the file).
 /// Serialized writer, WAL, `synchronous=FULL` per design.md. Sale effect and
 /// outbox row are committed atomically, or neither is committed.
 /// </summary>
-public sealed class BranchSyncStore : IDisposable
+public sealed partial class BranchSyncStore : IDisposable
 {
     private readonly SqliteConnection _connection;
     private readonly object _writeGate = new();
@@ -78,6 +103,10 @@ public sealed class BranchSyncStore : IDisposable
     {
         _connection = new SqliteConnection(connectionString);
         _connection.Open();
+
+        // Case/accent-folding helper for the local catalog search (SQLite's own
+        // LIKE/lower() only fold ASCII).
+        _connection.CreateFunction("fold_text", (string? value) => FoldText(value), isDeterministic: true);
 
         using (var pragma = _connection.CreateCommand())
         {
@@ -92,7 +121,8 @@ public sealed class BranchSyncStore : IDisposable
                 branch_id TEXT NOT NULL,
                 total_amount TEXT NOT NULL,
                 occurred_at_utc TEXT NOT NULL,
-                sale_kind TEXT NOT NULL DEFAULT 'Manual'
+                sale_kind TEXT NOT NULL DEFAULT 'Manual',
+                customer_id TEXT NULL
             );
             CREATE TABLE IF NOT EXISTS outbox (
                 operation_id TEXT PRIMARY KEY,
@@ -137,7 +167,10 @@ public sealed class BranchSyncStore : IDisposable
                 identification_code TEXT NULL,
                 quantity_behavior TEXT NOT NULL,
                 unit_id TEXT NOT NULL,
-                updated_at_utc TEXT NOT NULL
+                updated_at_utc TEXT NOT NULL,
+                category_id TEXT NULL,
+                category_name TEXT NULL,
+                category_icon_key TEXT NULL
             );
             CREATE UNIQUE INDEX IF NOT EXISTS catalog_replica_code_uk
                 ON catalog_replica (organization_id, identification_code)
@@ -217,6 +250,121 @@ public sealed class BranchSyncStore : IDisposable
         createSyncOutbox.ExecuteNonQuery();
 
         EnsureSaleKindColumnExists();
+        EnsureSaleCustomerColumnExists();
+        EnsureSaleNumberStorageExists();
+        EnsureCatalogCategoryColumnsExist();
+        EnsureDiscountStorageExists();
+        EnsureStockReplicaExists();
+        EnsurePriceListsReplicaExists();
+        EnsureTenderStorageExists();
+        EnsureCashSessionStorageExists();
+        EnsureOrganizationSettingsReplicaExists();
+        EnsureSaleHistoryStorageExists();
+        EnsureCustomerPaymentStorageExists();
+        EnsureCashMovementStorageExists();
+        EnsureCategoryStorageExists();
+    }
+
+    /// <summary>
+    /// A `branch.db` created before categories existed has a `catalog_replica`
+    /// without the category columns. Adds each nullable column only when
+    /// missing (SQLite has no `ADD COLUMN IF NOT EXISTS`), so reopening is
+    /// idempotent; existing rows read as uncategorized until the next sync
+    /// re-sends them with their category.
+    /// </summary>
+    private void EnsureCatalogCategoryColumnsExist()
+    {
+        var existing = new HashSet<string>(StringComparer.Ordinal);
+        using (var check = _connection.CreateCommand())
+        {
+            check.CommandText = "PRAGMA table_info(catalog_replica);";
+            using var reader = check.ExecuteReader();
+            while (reader.Read())
+            {
+                existing.Add(reader.GetString(1));
+            }
+        }
+
+        foreach (var column in new[] { "category_id", "category_name", "category_icon_key" })
+        {
+            if (existing.Contains(column))
+            {
+                continue;
+            }
+
+            using var alter = _connection.CreateCommand();
+            alter.CommandText = $"ALTER TABLE catalog_replica ADD COLUMN {column} TEXT NULL;";
+            alter.ExecuteNonQuery();
+        }
+    }
+
+    /// <summary>
+    /// Human sale numbers (`V01-C2-125`): the per-(branch, register) counter table and the
+    /// three nullable `sale_effects` columns that carry a sale's number. A `branch.db` from
+    /// before numbering gains them empty (old sales stay unnumbered, never renumbered);
+    /// reopening is idempotent.
+    /// </summary>
+    private void EnsureSaleNumberStorageExists()
+    {
+        using (var create = _connection.CreateCommand())
+        {
+            create.CommandText = """
+                CREATE TABLE IF NOT EXISTS terminal_counters (
+                    branch_id TEXT NOT NULL,
+                    register_number INTEGER NOT NULL,
+                    last_sequence INTEGER NOT NULL,
+                    PRIMARY KEY (branch_id, register_number)
+                );
+                """;
+            create.ExecuteNonQuery();
+        }
+
+        var existing = new HashSet<string>(StringComparer.Ordinal);
+        using (var check = _connection.CreateCommand())
+        {
+            check.CommandText = "PRAGMA table_info(sale_effects);";
+            using var reader = check.ExecuteReader();
+            while (reader.Read())
+            {
+                existing.Add(reader.GetString(1));
+            }
+        }
+
+        foreach (var column in new[] { "branch_code", "register_number", "sale_sequence" }.Where(c => !existing.Contains(c)))
+        {
+            using var alter = _connection.CreateCommand();
+            alter.CommandText = $"ALTER TABLE sale_effects ADD COLUMN {column} INTEGER NULL;";
+            alter.ExecuteNonQuery();
+        }
+
+        // Covers the one-off MAX(sale_sequence) seed of NextSaleSequence.
+        using var index = _connection.CreateCommand();
+        index.CommandText = "CREATE INDEX IF NOT EXISTS ix_sale_effects_number ON sale_effects (branch_id, register_number, sale_sequence);";
+        index.ExecuteNonQuery();
+    }
+
+    /// <summary>
+    /// A `branch.db` created before the customer was recorded on sales has no
+    /// `sale_effects.customer_id`. Adds it as a nullable column (existing rows
+    /// stay walk-in/unknown) only when missing, so reopening is idempotent.
+    /// </summary>
+    private void EnsureSaleCustomerColumnExists()
+    {
+        using var check = _connection.CreateCommand();
+        check.CommandText = "PRAGMA table_info(sale_effects);";
+        using var reader = check.ExecuteReader();
+        while (reader.Read())
+        {
+            if (string.Equals(reader.GetString(1), "customer_id", StringComparison.Ordinal))
+            {
+                return;
+            }
+        }
+        reader.Close();
+
+        using var alter = _connection.CreateCommand();
+        alter.CommandText = "ALTER TABLE sale_effects ADD COLUMN customer_id TEXT NULL;";
+        alter.ExecuteNonQuery();
     }
 
     /// <summary>
@@ -247,8 +395,9 @@ public sealed class BranchSyncStore : IDisposable
         alter.ExecuteNonQuery();
     }
 
-    public BranchOutboxCommitResult CommitSaleAtomically(SyncEnvelope envelope, SaleEffect effect) =>
-        CommitSaleAtomicallyCore(envelope, effect with { SaleKind = "Manual" }, lines: []);
+    public BranchOutboxCommitResult CommitSaleAtomically(
+        SyncEnvelope envelope, SaleEffect effect, bool requireOpenCashSession = false, SaleNumbering? numbering = null) =>
+        CommitSaleAtomicallyCore(envelope, effect with { SaleKind = "Manual" }, lines: [], requireOpenCashSession, numbering);
 
     /// <summary>
     /// Task 7.3 (GREEN): the scan-composed sale counterpart to
@@ -257,10 +406,16 @@ public sealed class BranchSyncStore : IDisposable
     /// SAME transaction as the sale effect and outbox row (design.md "POS
     /// scan-to-sell": `sale_effects(sale_kind='Scanned') + sale_lines [1 tx]`).
     /// </summary>
-    public BranchOutboxCommitResult CommitScannedSaleAtomically(SyncEnvelope envelope, SaleEffect effect, IReadOnlyList<SaleLine> lines) =>
-        CommitSaleAtomicallyCore(envelope, effect with { SaleKind = "Scanned" }, lines);
+    public BranchOutboxCommitResult CommitScannedSaleAtomically(
+        SyncEnvelope envelope, SaleEffect effect, IReadOnlyList<SaleLine> lines, bool requireOpenCashSession = false, SaleNumbering? numbering = null) =>
+        CommitSaleAtomicallyCore(envelope, effect with { SaleKind = "Scanned" }, lines, requireOpenCashSession, numbering);
 
-    private BranchOutboxCommitResult CommitSaleAtomicallyCore(SyncEnvelope envelope, SaleEffect effect, IReadOnlyList<SaleLine> lines)
+    /// <param name="numbering">The terminal's branch code and register number, or null while it does not know them
+    /// (the sale then commits WITHOUT a number). When given, the next sequence of that (branch, register) is taken
+    /// INSIDE this transaction, after the idempotency check and the cash-session check, so a replay or a refused
+    /// sale never burns a number and the number commits or rolls back with the sale.</param>
+    private BranchOutboxCommitResult CommitSaleAtomicallyCore(
+        SyncEnvelope envelope, SaleEffect effect, IReadOnlyList<SaleLine> lines, bool requireOpenCashSession, SaleNumbering? numbering)
     {
         lock (_writeGate)
         {
@@ -271,6 +426,25 @@ public sealed class BranchSyncStore : IDisposable
             {
                 transaction.Commit();
                 return new BranchOutboxCommitResult(WasNewlyCommitted: false, existing);
+            }
+
+            // pos-cash-session: the sale must belong to a session that is STILL open
+            // inside this same transaction, so a close can never interleave.
+            if (requireOpenCashSession && !IsCashSessionOpen(effect.CashSessionId, transaction))
+            {
+                transaction.Rollback();
+                return new BranchOutboxCommitResult(
+                    WasNewlyCommitted: false, effect, Commerce.Domain.CashSessions.SaleCommitRefusal.NoOpenCashSession);
+            }
+
+            if (numbering is { } terminal)
+            {
+                var sequence = NextSaleSequence(effect.BranchId, terminal.Register, transaction);
+                effect = effect with
+                {
+                    BranchCode = terminal.Branch.Value, RegisterNumber = terminal.Register.Value, SaleSequence = sequence,
+                };
+                envelope = envelope with { Payload = StampSaleNumber(envelope.Payload, effect) };
             }
 
             InsertSaleEffectRow(effect, transaction);
@@ -285,6 +459,57 @@ public sealed class BranchSyncStore : IDisposable
             return new BranchOutboxCommitResult(WasNewlyCommitted: true, effect);
         }
     }
+
+    /// <summary>
+    /// Takes the next sequence of the (branch, register) counter, never below the highest sequence
+    /// already stored for that pair: a lost row is seeded from it and a counter that fell behind
+    /// is lifted to it, so the terminal can never repeat a number. Must run inside the sale transaction.
+    /// </summary>
+    private int NextSaleSequence(Guid branchId, RegisterNumber register, SqliteTransaction transaction)
+    {
+        // Hot path: the counter row exists, one UPDATE. The counter is reconciled with the highest
+        // stored sequence (a restored or merged database can hold a higher one); that lookup is a
+        // single seek on ix_sale_effects_number, not a scan.
+        using (var bump = _connection.CreateCommand())
+        {
+            bump.Transaction = transaction;
+            bump.CommandText = """
+                UPDATE terminal_counters SET last_sequence = MAX(
+                        last_sequence,
+                        COALESCE((SELECT MAX(sale_sequence) FROM sale_effects
+                                   WHERE branch_id = $branchId AND register_number = $register), 0)) + 1
+                 WHERE branch_id = $branchId AND register_number = $register
+                RETURNING last_sequence;
+                """;
+            bump.Parameters.AddWithValue("$branchId", branchId.ToString());
+            bump.Parameters.AddWithValue("$register", register.Value);
+            if (bump.ExecuteScalar() is { } bumped)
+            {
+                return Convert.ToInt32(bumped, System.Globalization.CultureInfo.InvariantCulture);
+            }
+        }
+
+        // First sale of the pair (or a lost row): seed once from the highest stored sequence,
+        // served by ix_sale_effects_number.
+        using var seed = _connection.CreateCommand();
+        seed.Transaction = transaction;
+        seed.CommandText = """
+            INSERT INTO terminal_counters (branch_id, register_number, last_sequence)
+            VALUES ($branchId, $register,
+                    COALESCE((SELECT MAX(sale_sequence) FROM sale_effects WHERE branch_id = $branchId AND register_number = $register), 0) + 1)
+            RETURNING last_sequence;
+            """;
+        seed.Parameters.AddWithValue("$branchId", branchId.ToString());
+        seed.Parameters.AddWithValue("$register", register.Value);
+        return Convert.ToInt32(seed.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>The queued payload carries the number too (additive optional fields of SalePayloadV1).</summary>
+    private static string StampSaleNumber(string payloadJson, SaleEffect effect) =>
+        SyncPayloadCodec.Serialize(SyncPayloadCodec.Deserialize<SalePayloadV1>(payloadJson) with
+        {
+            BranchCode = effect.BranchCode, RegisterNumber = effect.RegisterNumber, SaleSequence = effect.SaleSequence,
+        });
 
     public void SimulateInterruptedCommit(SyncEnvelope envelope, SaleEffect effect)
     {
@@ -307,14 +532,34 @@ public sealed class BranchSyncStore : IDisposable
         using var insertSale = _connection.CreateCommand();
         insertSale.Transaction = transaction;
         insertSale.CommandText = """
-            INSERT INTO sale_effects (sale_id, branch_id, total_amount, occurred_at_utc, sale_kind)
-            VALUES ($saleId, $branchId, $totalAmount, $occurredAt, $saleKind);
+            INSERT INTO sale_effects
+                (sale_id, branch_id, total_amount, occurred_at_utc, sale_kind, customer_id,
+                 sale_discount_percent, sale_discount_amount, discount_auth_method, discount_operator_id, discount_pin_version,
+                 tender_method, tender_amount_received, tender_change, cash_session_id,
+                 branch_code, register_number, sale_sequence)
+            VALUES ($saleId, $branchId, $totalAmount, $occurredAt, $saleKind, $customerId,
+                    $saleDiscountPercent, $saleDiscountAmount, $authMethod, $authOperatorId, $authPinVersion,
+                    $tenderMethod, $tenderReceived, $tenderChange, $cashSessionId,
+                    $branchCode, $registerNumber, $saleSequence);
             """;
         insertSale.Parameters.AddWithValue("$saleId", effect.SaleId.ToString());
         insertSale.Parameters.AddWithValue("$branchId", effect.BranchId.ToString());
         insertSale.Parameters.AddWithValue("$totalAmount", effect.TotalAmount.ToString());
         insertSale.Parameters.AddWithValue("$occurredAt", effect.OccurredAtUtc.ToString("O"));
         insertSale.Parameters.AddWithValue("$saleKind", effect.SaleKind);
+        insertSale.Parameters.AddWithValue("$customerId", effect.CustomerId is { } customerId ? customerId.ToString() : DBNull.Value);
+        insertSale.Parameters.AddWithValue("$saleDiscountPercent", DecimalOrNull(effect.SaleDiscountPercent));
+        insertSale.Parameters.AddWithValue("$saleDiscountAmount", DecimalOrNull(effect.SaleDiscountAmount));
+        insertSale.Parameters.AddWithValue("$authMethod", (object?)effect.DiscountAuthorization?.Method ?? DBNull.Value);
+        insertSale.Parameters.AddWithValue("$authOperatorId", effect.DiscountAuthorization is { } auth ? auth.OperatorId.ToString() : DBNull.Value);
+        insertSale.Parameters.AddWithValue("$authPinVersion", effect.DiscountAuthorization is { } pinAuth ? pinAuth.PinVersion : DBNull.Value);
+        insertSale.Parameters.AddWithValue("$tenderMethod", (object?)effect.Tender?.Method ?? DBNull.Value);
+        insertSale.Parameters.AddWithValue("$tenderReceived", DecimalOrNull(effect.Tender?.AmountReceived));
+        insertSale.Parameters.AddWithValue("$tenderChange", DecimalOrNull(effect.Tender?.ChangeGiven));
+        insertSale.Parameters.AddWithValue("$cashSessionId", effect.CashSessionId is { } sessionId ? sessionId.ToString() : DBNull.Value);
+        insertSale.Parameters.AddWithValue("$branchCode", effect.BranchCode is { } branchCode ? branchCode : DBNull.Value);
+        insertSale.Parameters.AddWithValue("$registerNumber", effect.RegisterNumber is { } registerNumber ? registerNumber : DBNull.Value);
+        insertSale.Parameters.AddWithValue("$saleSequence", effect.SaleSequence is { } saleSequence ? saleSequence : DBNull.Value);
         insertSale.ExecuteNonQuery();
     }
 
@@ -325,9 +570,9 @@ public sealed class BranchSyncStore : IDisposable
         insertLine.CommandText = """
             INSERT INTO sale_lines
                 (sale_id, line_number, presentation_id, identification_code, product_name,
-                 presentation_name, quantity, unit_price, line_total)
+                 presentation_name, quantity, unit_price, line_total, line_discount_percent, line_discount_amount)
             VALUES ($saleId, $lineNumber, $presentationId, $identificationCode, $productName,
-                    $presentationName, $quantity, $unitPrice, $lineTotal);
+                    $presentationName, $quantity, $unitPrice, $lineTotal, $lineDiscountPercent, $lineDiscountAmount);
             """;
         insertLine.Parameters.AddWithValue("$saleId", line.SaleId.ToString());
         insertLine.Parameters.AddWithValue("$lineNumber", line.LineNumber);
@@ -338,6 +583,8 @@ public sealed class BranchSyncStore : IDisposable
         insertLine.Parameters.AddWithValue("$quantity", line.Quantity.ToString(System.Globalization.CultureInfo.InvariantCulture));
         insertLine.Parameters.AddWithValue("$unitPrice", line.UnitPrice.ToString(System.Globalization.CultureInfo.InvariantCulture));
         insertLine.Parameters.AddWithValue("$lineTotal", line.LineTotal.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        insertLine.Parameters.AddWithValue("$lineDiscountPercent", DecimalOrNull(line.LineDiscountPercent));
+        insertLine.Parameters.AddWithValue("$lineDiscountAmount", DecimalOrNull(line.LineDiscountAmount));
         insertLine.ExecuteNonQuery();
     }
 
@@ -346,7 +593,7 @@ public sealed class BranchSyncStore : IDisposable
         using var command = _connection.CreateCommand();
         command.CommandText = """
             SELECT sale_id, line_number, presentation_id, identification_code, product_name,
-                   presentation_name, quantity, unit_price, line_total
+                   presentation_name, quantity, unit_price, line_total, line_discount_percent, line_discount_amount
             FROM sale_lines
             WHERE sale_id = $saleId
             ORDER BY line_number;
@@ -366,7 +613,9 @@ public sealed class BranchSyncStore : IDisposable
                 PresentationName: reader.GetString(5),
                 Quantity: decimal.Parse(reader.GetString(6), System.Globalization.CultureInfo.InvariantCulture),
                 UnitPrice: decimal.Parse(reader.GetString(7), System.Globalization.CultureInfo.InvariantCulture),
-                LineTotal: decimal.Parse(reader.GetString(8), System.Globalization.CultureInfo.InvariantCulture)));
+                LineTotal: decimal.Parse(reader.GetString(8), System.Globalization.CultureInfo.InvariantCulture),
+                LineDiscountPercent: ReadDecimalOrNull(reader, 9),
+                LineDiscountAmount: ReadDecimalOrNull(reader, 10)));
         }
         return results;
     }
@@ -409,7 +658,8 @@ public sealed class BranchSyncStore : IDisposable
         using var command = _connection.CreateCommand();
         command.CommandText = """
             SELECT c.presentation_id, c.organization_id, c.product_id, c.product_name, c.presentation_name,
-                   c.identification_code, c.quantity_behavior, c.unit_id, p.unit_price, p.effective_from, c.updated_at_utc
+                   c.identification_code, c.quantity_behavior, c.unit_id, p.unit_price, p.effective_from, c.updated_at_utc,
+                   c.category_id, c.category_name, c.category_icon_key
             FROM catalog_replica c
             LEFT JOIN price_replica p ON p.presentation_id = c.presentation_id
             WHERE c.organization_id = $organizationId AND c.identification_code = $code;
@@ -485,7 +735,8 @@ public sealed class BranchSyncStore : IDisposable
                 SELECT operation_id, branch_id, organization_id, aggregate_id, aggregate_version,
                        actor_id, correlation_id, occurred_at_utc, payload_kind, payload
                 FROM sync_outbox
-                WHERE branch_id = $branchId AND status = 'Pending';
+                WHERE branch_id = $branchId AND status = 'Pending'
+                ORDER BY occurred_at_utc, rowid;
                 """;
             command.Parameters.AddWithValue("$branchId", branchId.ToString());
 
@@ -621,7 +872,17 @@ public sealed class BranchSyncStore : IDisposable
             ? null
             : DateTimeOffset.Parse((string)lastAckRaw);
 
-        return new SyncStatusSnapshot(branchId, lastAcknowledgedUtc, pendingCount, isOffline);
+        // The last time the cloud snapshot was applied locally (the pull side of a sync), which a sync with nothing to
+        // send still moves.
+        using var downloadCommand = _connection.CreateCommand();
+        downloadCommand.CommandText = "SELECT last_synced_utc FROM sync_cursors WHERE channel = $channel;";
+        downloadCommand.Parameters.AddWithValue("$channel", "price-lists-applied-local");
+        DateTimeOffset? lastDownloadedUtc = downloadCommand.ExecuteScalar() is string downloaded
+            && DateTimeOffset.TryParse(downloaded, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var parsed)
+                ? parsed
+                : null;
+
+        return new SyncStatusSnapshot(branchId, lastAcknowledgedUtc, pendingCount, isOffline, lastDownloadedUtc);
     }
 
     // --- Minimum-viable cloud->local customer replica (Unit 6) --------------
@@ -810,12 +1071,126 @@ public sealed class BranchSyncStore : IDisposable
         }
     }
 
+    public const int DefaultCatalogSearchLimit = 120;
+
+    /// <summary>
+    /// Local name search over the replica (desktop POS redesign T3). Every
+    /// whitespace-separated token of <paramref name="query"/> must match
+    /// (accent- and case-insensitively) inside the product + presentation name,
+    /// or be a prefix of the identification code. An empty query lists
+    /// everything. Organization scoped, ordered by name and capped at
+    /// <paramref name="limit"/>; <see cref="CatalogSearchResult.Truncated"/>
+    /// reports that more rows matched.
+    /// </summary>
+    public CatalogSearchResult SearchCatalog(
+        Guid organizationId, string? query, int limit = DefaultCatalogSearchLimit, Guid? categoryId = null)
+    {
+        var tokens = (query ?? string.Empty)
+            .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
+            .Select(FoldText)
+            .ToList();
+
+        var where = new System.Text.StringBuilder("c.organization_id = $organizationId");
+        if (categoryId is not null)
+        {
+            where.Append(" AND c.category_id = $categoryId");
+        }
+        for (var i = 0; i < tokens.Count; i++)
+        {
+            where.Append($"""
+                 AND (instr(fold_text(c.product_name || ' ' || c.presentation_name), $t{i}) > 0
+                      OR instr(fold_text(coalesce(c.identification_code, '')), $t{i}) = 1)
+                """);
+        }
+
+        using var command = _connection.CreateCommand();
+        command.CommandText = $"""
+            SELECT c.presentation_id, c.organization_id, c.product_id, c.product_name, c.presentation_name,
+                   c.identification_code, c.quantity_behavior, c.unit_id, p.unit_price, p.effective_from, c.updated_at_utc,
+                   c.category_id, c.category_name, c.category_icon_key
+            FROM catalog_replica c
+            LEFT JOIN price_replica p ON p.presentation_id = c.presentation_id
+            WHERE {where}
+            ORDER BY c.product_name COLLATE NOCASE, c.presentation_name COLLATE NOCASE
+            LIMIT $limit;
+            """;
+        command.Parameters.AddWithValue("$organizationId", organizationId.ToString());
+        if (categoryId is not null)
+        {
+            command.Parameters.AddWithValue("$categoryId", categoryId.Value.ToString());
+        }
+        for (var i = 0; i < tokens.Count; i++)
+        {
+            command.Parameters.AddWithValue($"$t{i}", tokens[i]);
+        }
+        command.Parameters.AddWithValue("$limit", limit + 1);
+
+        var items = new List<CatalogPriceReplicaItem>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            items.Add(ReadCatalogPriceReplicaItem(reader));
+        }
+
+        return items.Count > limit
+            ? new CatalogSearchResult(items.Take(limit).ToList(), Truncated: true)
+            : new CatalogSearchResult(items, Truncated: false);
+    }
+
+    /// <summary>
+    /// The distinct categories present in the local catalog for the
+    /// organization, ordered by name — what the POS category rail lists after
+    /// "Todos". Products without a category (an older row not re-synced yet)
+    /// contribute nothing here and remain reachable under "Todos".
+    /// </summary>
+    public IReadOnlyList<CatalogCategory> ListCatalogCategories(Guid organizationId)
+    {
+        using var command = _connection.CreateCommand();
+        command.CommandText = """
+            SELECT category_id, MAX(category_name), MAX(coalesce(category_icon_key, 'generic'))
+            FROM catalog_replica
+            WHERE organization_id = $organizationId AND category_id IS NOT NULL AND category_name IS NOT NULL
+            GROUP BY category_id
+            ORDER BY MAX(category_name) COLLATE NOCASE, category_id;
+            """;
+        command.Parameters.AddWithValue("$organizationId", organizationId.ToString());
+
+        var categories = new List<CatalogCategory>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            categories.Add(new CatalogCategory(Guid.Parse(reader.GetString(0)), reader.GetString(1), reader.GetString(2)));
+        }
+        return categories;
+    }
+
+    /// <summary>Lower-cases and strips diacritics so "Café" and "CAFE" compare equal.</summary>
+    public static string FoldText(string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return string.Empty;
+        }
+
+        var decomposed = value.Normalize(System.Text.NormalizationForm.FormD);
+        var builder = new System.Text.StringBuilder(decomposed.Length);
+        foreach (var ch in decomposed)
+        {
+            if (System.Globalization.CharUnicodeInfo.GetUnicodeCategory(ch) != System.Globalization.UnicodeCategory.NonSpacingMark)
+            {
+                builder.Append(char.ToLowerInvariant(ch));
+            }
+        }
+        return builder.ToString();
+    }
+
     public IReadOnlyList<CatalogPriceReplicaItem> ListCatalogPriceReplica()
     {
         using var command = _connection.CreateCommand();
         command.CommandText = """
             SELECT c.presentation_id, c.organization_id, c.product_id, c.product_name, c.presentation_name,
-                   c.identification_code, c.quantity_behavior, c.unit_id, p.unit_price, p.effective_from, c.updated_at_utc
+                   c.identification_code, c.quantity_behavior, c.unit_id, p.unit_price, p.effective_from, c.updated_at_utc,
+                   c.category_id, c.category_name, c.category_icon_key
             FROM catalog_replica c
             LEFT JOIN price_replica p ON p.presentation_id = c.presentation_id;
             """;
@@ -846,9 +1221,11 @@ public sealed class BranchSyncStore : IDisposable
         command.CommandText = """
             INSERT INTO catalog_replica
                 (presentation_id, organization_id, product_id, product_name, presentation_name,
-                 identification_code, quantity_behavior, unit_id, updated_at_utc)
+                 identification_code, quantity_behavior, unit_id, updated_at_utc,
+                 category_id, category_name, category_icon_key)
             VALUES ($presentationId, $organizationId, $productId, $productName, $presentationName,
-                    $identificationCode, $quantityBehavior, $unitId, $updatedAt)
+                    $identificationCode, $quantityBehavior, $unitId, $updatedAt,
+                    $categoryId, $categoryName, $categoryIconKey)
             ON CONFLICT(presentation_id) DO UPDATE SET
                 organization_id     = excluded.organization_id,
                 product_id          = excluded.product_id,
@@ -857,8 +1234,14 @@ public sealed class BranchSyncStore : IDisposable
                 identification_code = excluded.identification_code,
                 quantity_behavior   = excluded.quantity_behavior,
                 unit_id             = excluded.unit_id,
-                updated_at_utc      = excluded.updated_at_utc;
+                updated_at_utc      = excluded.updated_at_utc,
+                category_id         = excluded.category_id,
+                category_name       = excluded.category_name,
+                category_icon_key   = excluded.category_icon_key;
             """;
+        command.Parameters.AddWithValue("$categoryId", (object?)item.CategoryId?.ToString() ?? DBNull.Value);
+        command.Parameters.AddWithValue("$categoryName", (object?)item.CategoryName ?? DBNull.Value);
+        command.Parameters.AddWithValue("$categoryIconKey", (object?)item.CategoryIconKey ?? DBNull.Value);
         command.Parameters.AddWithValue("$presentationId", item.PresentationId.ToString());
         command.Parameters.AddWithValue("$organizationId", item.OrganizationId.ToString());
         command.Parameters.AddWithValue("$productId", item.ProductId.ToString());
@@ -932,7 +1315,10 @@ public sealed class BranchSyncStore : IDisposable
         UnitId: Guid.Parse(reader.GetString(7)),
         UnitPrice: reader.IsDBNull(8) ? null : decimal.Parse(reader.GetString(8), System.Globalization.CultureInfo.InvariantCulture),
         EffectiveFrom: reader.IsDBNull(9) ? null : DateOnly.Parse(reader.GetString(9)),
-        UpdatedAtUtc: DateTimeOffset.Parse(reader.GetString(10)));
+        UpdatedAtUtc: DateTimeOffset.Parse(reader.GetString(10)),
+        CategoryId: reader.IsDBNull(11) ? null : Guid.Parse(reader.GetString(11)),
+        CategoryName: reader.IsDBNull(12) ? null : reader.GetString(12),
+        CategoryIconKey: reader.IsDBNull(13) ? null : reader.GetString(13));
 
     private void UpsertCustomerRow(CustomerReplica customer, SqliteTransaction transaction)
     {
@@ -1020,24 +1406,7 @@ public sealed class BranchSyncStore : IDisposable
         command.Parameters.AddWithValue("$operationId", operationId.ToString());
         var saleId = Guid.Parse((string)command.ExecuteScalar()!);
 
-        using var saleCommand = _connection.CreateCommand();
-        saleCommand.Transaction = transaction;
-        saleCommand.CommandText = """
-            SELECT total_amount, occurred_at_utc, sale_kind FROM sale_effects WHERE sale_id = $saleId;
-            """;
-        saleCommand.Parameters.AddWithValue("$saleId", saleId.ToString());
-        using var reader = saleCommand.ExecuteReader();
-        if (!reader.Read())
-        {
-            return null;
-        }
-
-        return new SaleEffect(
-            saleId,
-            branchId,
-            decimal.Parse(reader.GetString(0), System.Globalization.CultureInfo.InvariantCulture),
-            DateTimeOffset.Parse(reader.GetString(1)),
-            reader.GetString(2));
+        return ReadSaleEffect(saleId, branchId, transaction);
     }
 
     /// <summary>

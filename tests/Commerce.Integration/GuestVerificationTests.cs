@@ -257,9 +257,15 @@ public sealed class GuestVerificationTests : IDisposable
             scope, "30111222333", GuestContactChannel.Email, "guest@example.com", CancellationToken.None);
         var realCode = ExtractCode(sender.Sent[0]);
         Assert.Equal(GuestVerificationConfirmResult.Confirmed, await service.ConfirmAsync(verificationId, realCode, CancellationToken.None));
-        var consumed = await service.TryConsumeAsync(
-            verificationId, "30111222333", "guest@example.com", Guid.NewGuid(), CancellationToken.None);
-        Assert.True(consumed);
+        await using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            await owner.OpenAsync();
+            await using var spend = new NpgsqlCommand(
+                "UPDATE guest_order_verifications SET consumed_at = now(), consumed_order_id = $1 WHERE id = $2", owner);
+            spend.Parameters.AddWithValue(Guid.NewGuid());
+            spend.Parameters.AddWithValue(verificationId);
+            await spend.ExecuteNonQueryAsync();
+        }
 
         var result = await service.ConfirmAsync(verificationId, realCode, CancellationToken.None);
 
@@ -281,25 +287,19 @@ public sealed class GuestVerificationTests : IDisposable
     }
 
     [Fact]
-    public async Task TryConsumeAsync_MismatchedContact_Fails_AndLeavesRowUnconsumed()
+    public void ConsumptionFor_CarriesTheTicketAndTheConfirmToSubmitWindow()
     {
-        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+        var now = new DateTimeOffset(2026, 10, 1, 12, 0, 0, TimeSpan.Zero);
+        var service = new GuestVerificationService(new PostgresGuestVerificationStore(null!), new FakeEmailSender(), () => now);
+        var verificationId = Guid.NewGuid();
 
-        var scope = SeedOrganization();
-        var sender = new FakeEmailSender();
-        var store = new PostgresGuestVerificationStore(_dataSource!);
-        var service = new GuestVerificationService(store, sender);
-        var verificationId = await service.RequestAsync(
-            scope, "30111222333", GuestContactChannel.Email, "guest@example.com", CancellationToken.None);
-        var realCode = ExtractCode(sender.Sent[0]);
-        await service.ConfirmAsync(verificationId, realCode, CancellationToken.None);
+        var consumption = service.ConsumptionFor(verificationId, "30111222333", "guest@example.com");
 
-        var consumed = await service.TryConsumeAsync(
-            verificationId, "30111222333", "someone-else@example.com", Guid.NewGuid(), CancellationToken.None);
-
-        Assert.False(consumed);
-        var record = await store.FindAsync(verificationId, CancellationToken.None);
-        Assert.Null(record!.ConsumedAt);
+        Assert.Equal(verificationId, consumption.VerificationId);
+        Assert.Equal("30111222333", consumption.DocumentId);
+        Assert.Equal("guest@example.com", consumption.ContactAddress);
+        // Confirmed more than 30 minutes ago is out of the window; the order store applies this bound.
+        Assert.Equal(now.AddMinutes(-30), consumption.ConfirmedAfter);
     }
 
     [Fact]

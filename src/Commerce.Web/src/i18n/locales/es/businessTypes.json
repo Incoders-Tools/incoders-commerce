@@ -1,0 +1,56 @@
+{
+  "title": "Tipos de negocio",
+  "description": "Rubros de los clientes (bar, restaurante, almacén…). Se eligen al cargar un cliente.",
+  "columns": {
+    "name": "Nombre",
+    "key": "Clave",
+    "sortOrder": "Orden",
+    "status": "Estado",
+    "createdAt": "Creación",
+    "updatedAt": "Última modificación"
+  },
+  "status": {
+    "active": "Activa",
+    "inactive": "Inactiva",
+    "all": "Todas",
+    "filterLabel": "Estado"
+  },
+  "actions": {
+    "create": "Nuevo tipo de negocio",
+    "edit": "Editar",
+    "deactivate": "Desactivar",
+    "activate": "Activar"
+  },
+  "search": {
+    "label": "Buscar tipos de negocio",
+    "placeholder": "Buscar por nombre o clave…"
+  },
+  "empty": {
+    "none": "Todavía no hay tipos de negocio.",
+    "noMatch": "Ningún tipo de negocio coincide con esta búsqueda.",
+    "loadError": "No se pudieron cargar los tipos de negocio."
+  },
+  "form": {
+    "createTitle": "Nuevo tipo de negocio",
+    "editTitle": "Editar tipo de negocio",
+    "description": "Nombre, clave y orden con el que aparece en las listas.",
+    "backLabel": "Volver a los tipos de negocio",
+    "name": "Nombre",
+    "key": "Clave",
+    "keyHint": "Identificador corto; si se deja vacío se genera a partir del nombre.",
+    "sortOrder": "Orden",
+    "isActive": "Activa",
+    "createdAt": "Creada: {{date}}",
+    "updatedAt": "Actualizada: {{date}}",
+    "save": "Guardar",
+    "saving": "Guardando…",
+    "cancel": "Cancelar"
+  },
+  "errors": {
+    "unableToLoad": "No se pudieron cargar los tipos de negocio.",
+    "unableToSave": "No se pudo guardar el tipo de negocio.",
+    "unableToUpdate": "No se pudo actualizar el estado.",
+    "nameInUse": "Ya existe un tipo de negocio con ese nombre.",
+    "keyInUse": "Ya existe un tipo de negocio con esa clave."
+  }
+}

@@ -1,0 +1,125 @@
+<UserControl x:Class="Commerce.Pos.Windows.Controls.PosNavBar"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Foreground="{DynamicResource TextBrush}">
+    <UserControl.Resources>
+        <!-- Icon and label take the button's foreground so the active and disabled states tint both. -->
+        <Style x:Key="NavIcon" TargetType="TextBlock" BasedOn="{StaticResource IconTextBlock}">
+            <Setter Property="Foreground" Value="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+            <Setter Property="Margin" Value="0,0,7,0" />
+        </Style>
+        <Style x:Key="NavLabel" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Foreground" Value="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+        </Style>
+        <Style x:Key="NavEntry" TargetType="Button" BasedOn="{StaticResource NavButton}">
+            <Setter Property="Margin" Value="0,0,6,0" />
+        </Style>
+    </UserControl.Resources>
+    <Border Background="{DynamicResource ShellElevatedBrush}" BorderBrush="{DynamicResource BorderBrushMuted}" BorderThickness="0,0,0,1" Padding="12,10">
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Column="0" Orientation="Horizontal">
+                <Button x:Name="NewSaleButton" Style="{StaticResource NavEntry}" Tag="Active" Click="SaleButton_Click" AutomationProperties.Name="Venta">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{StaticResource IconAdd}" Style="{StaticResource NavIcon}" />
+                        <TextBlock Text="Venta" Style="{StaticResource NavLabel}" />
+                    </StackPanel>
+                </Button>
+                <Button x:Name="SalesHistoryButton" Style="{StaticResource NavEntry}" Click="SalesButton_Click" AutomationProperties.Name="Ventas realizadas">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{StaticResource IconReceipt}" Style="{StaticResource NavIcon}" />
+                        <TextBlock Text="Ventas" Style="{StaticResource NavLabel}" />
+                    </StackPanel>
+                </Button>
+                <Button Style="{StaticResource NavEntry}" IsEnabled="False" ToolTip="Próximamente" ToolTipService.ShowOnDisabled="True" AutomationProperties.Name="Productos">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{StaticResource IconProducts}" Style="{StaticResource NavIcon}" />
+                        <TextBlock Text="Productos" Style="{StaticResource NavLabel}" />
+                    </StackPanel>
+                </Button>
+                <Button x:Name="ManageCustomersButton" Style="{StaticResource NavEntry}" Visibility="Collapsed" Click="CustomersButton_Click" AutomationProperties.Name="Clientes">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{StaticResource IconCustomers}" Style="{StaticResource NavIcon}" />
+                        <TextBlock Text="Clientes" Style="{StaticResource NavLabel}" />
+                    </StackPanel>
+                </Button>
+                <Button x:Name="ManageStaffButton" Style="{StaticResource NavEntry}" Visibility="Collapsed" Click="StaffButton_Click" AutomationProperties.Name="Personal">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{StaticResource IconStaff}" Style="{StaticResource NavIcon}" />
+                        <TextBlock Text="Personal" Style="{StaticResource NavLabel}" />
+                    </StackPanel>
+                </Button>
+                <Button Style="{StaticResource NavEntry}" IsEnabled="False" ToolTip="Próximamente" ToolTipService.ShowOnDisabled="True" AutomationProperties.Name="Reportes">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{StaticResource IconReports}" Style="{StaticResource NavIcon}" />
+                        <TextBlock Text="Reportes" Style="{StaticResource NavLabel}" />
+                    </StackPanel>
+                </Button>
+                <Button x:Name="SyncButton" Style="{StaticResource NavEntry}" Click="SyncButton_Click" AutomationProperties.Name="Sincronización">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{StaticResource IconSync}" Style="{StaticResource NavIcon}" />
+                        <TextBlock Text="Sincronización" Style="{StaticResource NavLabel}" />
+                    </StackPanel>
+                </Button>
+                <Button x:Name="RepairButton" Style="{StaticResource NavEntry}" Click="SettingsButton_Click" AutomationProperties.Name="Configuración">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{StaticResource IconSettings}" Style="{StaticResource NavIcon}" />
+                        <TextBlock Text="Configuración" Style="{StaticResource NavLabel}" />
+                    </StackPanel>
+                </Button>
+                <Button x:Name="CashMovementButton" Style="{StaticResource NavEntry}" Click="CashMovementButton_Click"
+                        ToolTip="Retirar dinero de la caja (a la caja fuerte, al banco, para un gasto) o ingresar dinero" AutomationProperties.Name="Movimiento de caja">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{StaticResource IconSync}" Style="{StaticResource NavIcon}" />
+                        <TextBlock Text="Movimiento de caja" Style="{StaticResource NavLabel}" />
+                    </StackPanel>
+                </Button>
+                <Button x:Name="CloseCashButton" Style="{StaticResource NavEntry}" Click="CloseCashButton_Click" ToolTip="Contar el efectivo y cerrar la caja" AutomationProperties.Name="Cerrar Caja">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{StaticResource IconRegister}" Style="{StaticResource NavIcon}" />
+                        <TextBlock Text="Cerrar Caja" Style="{StaticResource NavLabel}" />
+                    </StackPanel>
+                </Button>
+            </StackPanel>
+
+            <!-- The active operator opens the operator menu (who is signed in, switch operator, sign out); under it the
+                 cash session state, compact: "Caja abierta · 08:15" or "Caja cerrada". Adding operators lives in Personal. -->
+            <Button x:Name="SwitchOperatorButton" Grid.Column="2" Style="{StaticResource NavButton}" Click="OperatorButton_Click" PreviewMouseDown="OperatorButton_PreviewMouseDown"
+                    ToolTip="Operador y sesión" AutomationProperties.Name="Menú del operador" MaxWidth="170">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="{StaticResource IconOperator}" Style="{StaticResource NavIcon}" VerticalAlignment="Center" />
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock x:Name="OperatorDisplayText" Text="Sin operador activo" Style="{StaticResource NavLabel}" TextTrimming="CharacterEllipsis" MaxWidth="110" />
+                        <StackPanel Orientation="Horizontal" Margin="0,1,0,0">
+                            <Ellipse x:Name="CashSessionDot" Width="6" Height="6" Margin="0,0,4,0" VerticalAlignment="Center" Fill="{DynamicResource MutedTextBrush}" />
+                            <TextBlock x:Name="CashSessionStatusText" Text="Caja cerrada" Style="{StaticResource NavLabel}" FontSize="11" FontWeight="Normal"
+                                       TextTrimming="CharacterEllipsis" MaxWidth="100" />
+                        </StackPanel>
+                    </StackPanel>
+                </StackPanel>
+            </Button>
+            <Popup x:Name="OperatorMenuPopup" Grid.Column="2" PlacementTarget="{Binding ElementName=SwitchOperatorButton}" Placement="Bottom"
+                   HorizontalOffset="0" StaysOpen="False" Closed="OperatorMenuPopup_Closed" AllowsTransparency="True" PopupAnimation="Fade">
+                <Border Style="{StaticResource CardBorder}" Padding="12" CornerRadius="10" Margin="6" TextElement.Foreground="{DynamicResource TextBrush}">
+                    <StackPanel Width="230">
+                        <TextBlock x:Name="OperatorMenuTitle" FontWeight="SemiBold" FontSize="14" TextTrimming="CharacterEllipsis" />
+                        <TextBlock x:Name="OperatorMenuSubtitle" Style="{StaticResource MutedTextBlock}" FontSize="12" Margin="0,2,0,10" />
+                        <Button x:Name="SwitchOperatorMenuButton" Content="Cambiar operador" Style="{StaticResource SecondaryButton}"
+                                HorizontalAlignment="Stretch" Margin="0,0,0,6" Click="SwitchOperatorMenuButton_Click" />
+                        <Button x:Name="SignInMenuButton" Content="Iniciar sesión" HorizontalAlignment="Stretch" Margin="0,0,0,6" Click="SignInMenuButton_Click" />
+                        <Button x:Name="SignOutMenuButton" Content="Cerrar sesión" Style="{StaticResource SecondaryButton}"
+                                HorizontalAlignment="Stretch" Click="SignOutMenuButton_Click" />
+                    </StackPanel>
+                </Border>
+            </Popup>
+        </Grid>
+    </Border>
+</UserControl>

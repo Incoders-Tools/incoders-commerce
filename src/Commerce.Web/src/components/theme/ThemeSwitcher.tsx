@@ -1,59 +1,43 @@
-import type { SVGProps } from 'react'
+import { Moon, Palette, Sun, type LucideProps } from 'lucide-react'
+import type { ComponentType } from 'react'
+import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
+import { useOrganizationBranding } from '@/theme/OrganizationBrandingProvider'
 import { useTheme, type Theme } from '@/theme/ThemeProvider'
 
-// No icon library installed yet (package.json has no lucide-react/@radix
-// icons) — kept as small inline SVGs rather than adding a new dependency
-// for 3 glyphs.
-function SunIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true" {...props}>
-      <circle cx="12" cy="12" r="4" />
-      <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
-    </svg>
-  )
-}
-
-function MoonIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
-      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z" />
-    </svg>
-  )
-}
-
-function PaletteIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
-      <path d="M12 2a10 10 0 1 0 0 20c1.1 0 2-.9 2-2a2 2 0 0 1 0-4h2a3 3 0 0 0 3-3 8 8 0 0 0-7-11Z" />
-      <circle cx="7.5" cy="11.5" r="1" />
-      <circle cx="10.5" cy="7.5" r="1" />
-      <circle cx="15" cy="8" r="1" />
-    </svg>
-  )
-}
-
-const OPTIONS: { value: Theme; label: string; Icon: (props: SVGProps<SVGSVGElement>) => React.JSX.Element }[] = [
-  { value: 'light', label: 'Light', Icon: SunIcon },
-  { value: 'dark', label: 'Dark', Icon: MoonIcon },
-  { value: 'custom', label: 'Custom', Icon: PaletteIcon },
+// T7: switched from hand-drawn inline SVGs to lucide-react (now installed
+// for the nav/account-menu icons) so this control reads as the same design
+// system as the rest of the shell.
+const OPTIONS: { value: Theme; labelKey: 'light' | 'dark' | 'custom'; Icon: ComponentType<LucideProps> }[] = [
+  { value: 'light', labelKey: 'light', Icon: Sun },
+  { value: 'dark', labelKey: 'dark', Icon: Moon },
+  { value: 'custom', labelKey: 'custom', Icon: Palette },
 ]
 
 /**
- * Vercel-style 3-option segmented theme switcher. Mounted in AppLayout's
- * header for now (T3 will move it into an account dropdown menu).
+ * 3-option segmented theme switcher, mounted in the account menu. Three equal
+ * columns over the menu's full width, icon above label, so the longest label
+ * ("Personalizado") fits instead of being clipped by the menu's edge.
  */
 export function ThemeSwitcher() {
+  const { t } = useTranslation('theme')
   const { theme, setTheme } = useTheme()
+  const { branding } = useOrganizationBranding()
+  const customAvailable = Boolean(branding?.primaryColor)
 
   return (
     <div
       role="radiogroup"
-      aria-label="Theme"
-      className="inline-flex items-center gap-0.5 rounded-md border border-border bg-muted p-0.5"
+      aria-label={t('label')}
+      className="grid w-full grid-cols-3 gap-0.5 rounded-md border border-border bg-muted p-0.5"
     >
-      {OPTIONS.map(({ value, label, Icon }) => {
+      {OPTIONS.map(({ value, labelKey, Icon }) => {
         const selected = theme === value
+        const label = t(`options.${labelKey}`)
+        // T6: "Custom" needs an organization primary color to mean
+        // anything — disabled (not hidden, so its accessible name stays
+        // discoverable) rather than crashing or silently doing nothing.
+        const disabled = value === 'custom' && !customAvailable
         return (
           <button
             key={value}
@@ -61,16 +45,18 @@ export function ThemeSwitcher() {
             role="radio"
             aria-checked={selected}
             aria-label={label}
+            disabled={disabled}
+            title={disabled ? t('noCustomColorExplanation') : undefined}
             onClick={() => setTheme(value)}
             className={cn(
-              'inline-flex h-7 items-center gap-1.5 rounded-sm px-2.5 text-xs font-medium transition-colors',
+              'flex min-w-0 flex-col items-center justify-center gap-1 rounded-sm px-1 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50',
               selected
                 ? 'bg-background text-foreground shadow-sm'
                 : 'text-muted-foreground hover:text-foreground',
             )}
           >
-            <Icon />
-            <span>{label}</span>
+            <Icon aria-hidden="true" className="size-3.5 shrink-0" />
+            <span className="max-w-full truncate">{label}</span>
           </button>
         )
       })}

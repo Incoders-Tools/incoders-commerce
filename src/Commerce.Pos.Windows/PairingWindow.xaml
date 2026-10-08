@@ -10,9 +10,7 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
-                    <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
                 <StackPanel Grid.Row="0" Margin="0,0,0,18">
@@ -23,17 +21,19 @@
                 </StackPanel>
 
 
-                <StackPanel Grid.Row="1" Margin="0,0,0,12">
-                    <TextBlock Text="Correo" Style="{StaticResource MutedTextBlock}" Margin="0,0,0,5" />
-                    <TextBox x:Name="EmailTextBox" />
-                </StackPanel>
+                <!-- Everything the operator can type or click lives in FormPanel, so one
+                     IsEnabled flag locks the whole form while a request is in flight. -->
+                <StackPanel x:Name="FormPanel" Grid.Row="1">
+                    <StackPanel Margin="0,0,0,12">
+                        <TextBlock Text="Correo" Style="{StaticResource MutedTextBlock}" Margin="0,0,0,5" />
+                        <TextBox x:Name="EmailTextBox" />
+                    </StackPanel>
 
-                <StackPanel Grid.Row="2" Margin="0,0,0,16">
-                    <TextBlock Text="Contraseña" Style="{StaticResource MutedTextBlock}" Margin="0,0,0,5" />
-                    <PasswordBox x:Name="PasswordBox" />
-                </StackPanel>
+                    <StackPanel Margin="0,0,0,16">
+                        <TextBlock Text="Contraseña" Style="{StaticResource MutedTextBlock}" Margin="0,0,0,5" />
+                        <PasswordBox x:Name="PasswordBox" />
+                    </StackPanel>
 
-                <StackPanel Grid.Row="3">
                     <Button x:Name="SignInButton" Content="Ingresar" HorizontalAlignment="Stretch" Click="SignInButton_Click" />
 
                     <StackPanel x:Name="BranchSelectionPanel" Visibility="Collapsed" Margin="0,16,0,0">
@@ -49,7 +49,13 @@
                     </StackPanel>
                 </StackPanel>
 
-                <Border Grid.Row="4" Background="{DynamicResource DangerSurfaceBrush}" BorderBrush="{DynamicResource DangerBrush}" BorderThickness="1"
+                <StackPanel x:Name="BusyPanel" Grid.Row="2" Visibility="Collapsed" Margin="0,16,0,0">
+                    <ProgressBar x:Name="BusyProgressBar" IsIndeterminate="True" Height="6" BorderThickness="0"
+                                 Foreground="{DynamicResource PrimaryBrush}" Background="{DynamicResource BorderBrushMuted}" />
+                    <TextBlock x:Name="BusyText" Style="{StaticResource MutedTextBlock}" TextWrapping="Wrap" Margin="0,8,0,0" />
+                </StackPanel>
+
+                <Border Grid.Row="3" Background="{DynamicResource DangerSurfaceBrush}" BorderBrush="{DynamicResource DangerBrush}" BorderThickness="1"
                         CornerRadius="10" Padding="12" Margin="0,16,0,0">
                     <Border.Style>
                         <Style TargetType="Border">

@@ -154,37 +154,12 @@ public sealed class PostgresGuestVerificationStore
     }
 
     /// <summary>
-    /// Sets `consumed_at`/`consumed_order_id` — the ticket is spent
-    /// immediately before <c>CloudOrderStore.Submit</c>, so one confirmation
-    /// admits exactly one order (design.md "Verification state shape").
-    /// </summary>
-    public async Task ConsumeAsync(CloudTenantScope scope, Guid verificationId, Guid orderId, CancellationToken ct)
-    {
-        await using var connection = await _dataSource.OpenConnectionAsync(ct);
-        await using var tx = await connection.BeginTransactionAsync(ct);
-
-        await SetTenantScopeAsync(connection, tx, scope, ct);
-
-        await using var cmd = new NpgsqlCommand(
-            "UPDATE guest_order_verifications SET consumed_at = now(), consumed_order_id = $1 WHERE id = $2",
-            connection, tx);
-        cmd.Parameters.AddWithValue(orderId);
-        cmd.Parameters.AddWithValue(verificationId);
-        await cmd.ExecuteNonQueryAsync(ct);
-
-        await tx.CommitAsync(ct);
-    }
-
-    /// <summary>
     /// Tenant scoping is ALWAYS the first statement inside the transaction,
     /// mirroring <see cref="PostgresPasswordRecoveryStore"/> exactly.
     /// </summary>
     private static async Task SetTenantScopeAsync(
         NpgsqlConnection connection, NpgsqlTransaction tx, CloudTenantScope scope, CancellationToken ct)
     {
-        await using var scopeCmd = new NpgsqlCommand(
-            "SELECT set_config('app.current_org_id', $1, true)", connection, tx);
-        scopeCmd.Parameters.AddWithValue(scope.OrganizationId.ToString());
-        await scopeCmd.ExecuteNonQueryAsync(ct);
+        await TenantScopeSql.ApplyAsync(connection, tx, scope, ct);
     }
 }

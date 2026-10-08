@@ -1,3 +1,4 @@
+using System.IO;
 using System.Windows;
 using Commerce.BranchNode;
 using Commerce.Updater;
@@ -18,10 +19,16 @@ namespace Commerce.Pos.Windows;
 public partial class App : System.Windows.Application
 {
     private IHost? _host;
+    private bool _started;
 
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        // Logging and the global handlers come first so that even a failure
+        // while building the host is recorded and shown in friendly terms.
+        PosLog.Configure(new PosFileLogger(Path.Combine(PosHostBuilder.DefaultDataDirectory(), "logs")));
+        InstallGlobalHandlers();
 
         DesktopThemeService.ApplySavedTheme();
 
@@ -35,7 +42,7 @@ public partial class App : System.Windows.Application
         if (identity.Pairing is null)
         {
             var pairingClient = _host.Services.GetRequiredService<DevicePairingClient>();
-            var pairingWindow = new PairingWindow(pairingClient, localInstallationStore, identity.InstallationId) { Title = $"{branding.MainWindowTitle} — Pair terminal" };
+            var pairingWindow = new PairingWindow(pairingClient, localInstallationStore, identity.InstallationId) { Title = $"{branding.MainWindowTitle} — Configurar terminal" };
             var paired = pairingWindow.ShowDialog();
 
             if (paired != true || pairingWindow.PairedRecord is null)
@@ -47,22 +54,10 @@ public partial class App : System.Windows.Application
             identity = pairingWindow.PairedRecord;
         }
 
-        // Unlike PairingWindow, cancel/close of OperatorLoginWindow does NOT
-        // Shutdown(): an unidentified operator still has a branch to sell
-        // into (design.md "Cancel does not shut down; actorId is total").
-        // Both "Continue without operator" and cancel/close leave
-        // CurrentOperator unset, and MainWindow opens regardless.
+        // Nobody is signed in at startup: MainWindow opens on its lock screen (operator
+        // tiles + PIN, or email + password on first run) and the sale stays out of reach
+        // until an operator gets in.
         var currentOperator = _host.Services.GetRequiredService<CurrentOperator>();
-        var operatorLoginWindow = new OperatorLoginWindow(
-            _host.Services.GetRequiredService<OperatorProvisioningClient>(),
-            _host.Services.GetRequiredService<LocalOperatorStore>(),
-            identity.Pairing!.DeviceToken);
-
-        var loggedIn = operatorLoginWindow.ShowDialog();
-        if (loggedIn == true && operatorLoginWindow.ActiveOperator is not null)
-        {
-            currentOperator.Set(operatorLoginWindow.ActiveOperator);
-        }
 
         var mainWindow = new MainWindow(
             _host.Services.GetRequiredService<BranchSyncStore>(),
@@ -75,12 +70,17 @@ public partial class App : System.Windows.Application
             currentOperator,
             _host.Services.GetRequiredService<CustomerReplicaClient>(),
             _host.Services.GetRequiredService<CatalogPriceReplicaClient>(),
+            _host.Services.GetRequiredService<DiscountPinReplicaClient>(),
+            _host.Services.GetRequiredService<StockReplicaClient>(),
+            _host.Services.GetRequiredService<PriceListsReplicaClient>(),
+            _host.Services.GetRequiredService<OrganizationSettingsReplicaClient>(),
             _host.Services.GetRequiredService<Commerce.Application.Pricing.PricingResolutionService>(),
-            _host.Services.GetRequiredService<Func<CustomerAdminClient>>(),
-            _host.Services.GetRequiredService<Func<UserAdminClient>>(),
+            _host.Services.GetRequiredService<ManagementConnection>(),
             branding,
-            _host.Services.GetRequiredService<ReleaseDiscovery>(),
-            _host.Services.GetRequiredService<LocalUpdateManifestSource>(),
+            _host.Services.GetRequiredService<UpdateChecker>(),
+            _host.Services.GetRequiredService<UpdateInstallWorkflowFactory>(),
+            _host.Services.GetRequiredService<PendingUpgradeStore>(),
+            _host.Services.GetRequiredService<TerminalIdentityRefresher>(),
             identity);
 
         // ShutdownMode is OnExplicitShutdown (App.xaml) specifically so that
@@ -92,6 +92,48 @@ public partial class App : System.Windows.Application
         MainWindow = mainWindow;
         ShutdownMode = ShutdownMode.OnMainWindowClose;
         mainWindow.Show();
+        _started = true;
+    }
+
+    private void InstallGlobalHandlers()
+    {
+        DispatcherUnhandledException += (_, args) =>
+        {
+            PosLog.Error("App", "Unhandled exception on the UI thread.", args.Exception);
+            ShowUnexpectedError();
+
+            if (_started)
+            {
+                args.Handled = true;
+                return;
+            }
+
+            // Startup never finished: there is no window to fall back to and the
+            // explicit shutdown mode would leave an invisible process behind.
+            args.Handled = true;
+            Shutdown(1);
+        };
+
+        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+            PosLog.Error("App", $"Unhandled exception (terminating: {args.IsTerminating}).", args.ExceptionObject as Exception);
+
+        TaskScheduler.UnobservedTaskException += (_, args) =>
+        {
+            PosLog.Error("App", "Unobserved task exception.", args.Exception);
+            args.SetObserved();
+        };
+    }
+
+    private static void ShowUnexpectedError()
+    {
+        try
+        {
+            MessageBox.Show(PosMessages.Unexpected, "Incoders Commerce", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        catch
+        {
+            // Showing the dialog must never raise a second crash.
+        }
     }
 
     protected override void OnExit(ExitEventArgs e)

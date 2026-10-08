@@ -53,7 +53,7 @@ public sealed class CustomerTests
         var customer = NewRetailCustomer(TaxIdType.Cuit, "20-12345678-9");
 
         Assert.Equal(TaxIdType.Cuit, customer.TaxIdType);
-        Assert.Equal("20-12345678-9", customer.TaxId);
+        Assert.Equal("20123456789", customer.TaxId);
     }
 
     [Fact]

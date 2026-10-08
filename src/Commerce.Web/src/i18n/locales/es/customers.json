@@ -1,0 +1,155 @@
+{
+  "title": "Clientes",
+  "description": "Cuentas a las que se les puede vender, y su acceso para pedir.",
+  "newCustomer": "Nuevo cliente",
+  "errors": {
+    "unexpectedLoad": "Error inesperado al cargar los clientes.",
+    "unexpectedIssueAccess": "Error inesperado al emitir el acceso para pedidos.",
+    "unexpectedSave": "Error inesperado al guardar el cliente."
+  },
+  "issuedCredential": "Credencial de acceso para pedidos (se muestra una sola vez): {{credential}}",
+  "search": {
+    "label": "Buscar clientes",
+    "placeholder": "Buscar por nombre, razón social, contacto o CUIT/DNI…"
+  },
+  "empty": {
+    "none": "Todavía no hay clientes.",
+    "noMatch": "Ningún cliente coincide con esta búsqueda.",
+    "loadError": "No se pudieron cargar los clientes."
+  },
+  "columns": {
+    "name": "Nombre",
+    "contact": "Contacto",
+    "city": "Ciudad",
+    "businessType": "Tipo de negocio",
+    "phone": "Teléfono",
+    "taxId": "CUIT/CUIL/DNI",
+    "noTaxId": "Sin documento",
+    "noValue": "—",
+    "kind": "Tipo",
+    "status": "Estado",
+    "priceList": "Lista de precios",
+    "balance": "Saldo",
+    "balanceHint": "Lo que el cliente debe en cuenta corriente"
+  },
+  "kindOptions": {
+    "retail": "Minorista",
+    "wholesale": "Mayorista"
+  },
+  "statusOptions": {
+    "enabled": "Habilitado",
+    "disabled": "Deshabilitado"
+  },
+  "actions": {
+    "edit": "Editar",
+    "issueAccess": "Emitir acceso para pedidos",
+    "account": "Cuenta corriente"
+  },
+  "form": {
+    "titleNew": "Nuevo cliente",
+    "titleEdit": "Editar cliente",
+    "backLabel": "Volver a clientes",
+    "sections": {
+      "identity": "Datos",
+      "contact": "Contacto",
+      "address": "Ubicación",
+      "tax": "Fiscal",
+      "commercial": "Comercial",
+      "notes": "Observaciones",
+      "contacts": "Personas de contacto"
+    },
+    "fields": {
+      "customerKind": "Tipo de cliente",
+      "partyType": "Persona o empresa",
+      "personName": "Nombre y apellido",
+      "companyName": "Razón social",
+      "companyNameHint": "El nombre de la persona con quien tratás va en Personas de contacto.",
+      "taxIdType": "Tipo de identificación fiscal",
+      "taxId": "CUIT/CUIL",
+      "taxCondition": "Condición fiscal",
+      "phone": "Teléfono",
+      "email": "Correo electrónico",
+      "addressStreet": "Calle",
+      "addressNumber": "Número",
+      "neighborhood": "Barrio",
+      "province": "Provincia",
+      "postalCode": "Código postal",
+      "deliveryNotes": "Notas de entrega",
+      "discountPercentage": "Porcentaje de descuento",
+      "paymentTerms": "Nota sobre condiciones de pago",
+      "notes": "Observaciones",
+      "enabled": "Habilitado",
+      "city": "Ciudad",
+      "businessType": "Tipo de negocio",
+      "dni": "DNI",
+      "priceList": "Lista de precios",
+      "paymentTermsDays": "Plazo de pago (días)"
+    },
+    "taxIdTypeOptions": {
+      "none": "Ninguno",
+      "dni": "DNI",
+      "cuit": "CUIT",
+      "cuil": "CUIL"
+    },
+    "save": "Guardar",
+    "saving": "Guardando…",
+    "cancel": "Cancelar",
+    "noCity": "Sin ciudad",
+    "noBusinessType": "Sin tipo de negocio",
+    "inactiveSuffix": "(inactiva)",
+    "errors": {
+      "dniInvalid": "El DNI debe tener 7 u 8 dígitos.",
+      "cuitInvalid": "El CUIT/CUIL debe tener 11 dígitos."
+    },
+    "contacts": {
+      "empty": "Todavía no hay personas de contacto.",
+      "add": "Agregar contacto",
+      "rowLabel": "Contacto {{position}}",
+      "firstName": "Nombre",
+      "lastName": "Apellido",
+      "phone": "Teléfono",
+      "email": "Correo electrónico",
+      "role": "Rol",
+      "primary": "Principal",
+      "moveUp": "Subir contacto {{position}}",
+      "moveDown": "Bajar contacto {{position}}",
+      "remove": "Quitar contacto {{position}}",
+      "firstNameRequired": "El nombre del contacto es obligatorio."
+    },
+    "conflict": {
+      "message": "Otra persona modificó este cliente mientras lo editabas. Recargá para ver los cambios más recientes; tus cambios sin guardar se perderán.",
+      "reload": "Recargar",
+      "reloadFailed": "No se pudo recargar el cliente."
+    },
+    "noPriceList": "Sin lista (usa la predeterminada)",
+    "otherBranchList": "Lista de otra sucursal",
+    "partyTypeOptions": {
+      "person": "Persona",
+      "company": "Empresa"
+    },
+    "provincePlaceholder": "Elegí una provincia",
+    "cityNeedsProvince": "Primero elegí la provincia",
+    "paymentTermsDays": {
+      "placeholder": "Vacío = plazo general ({{days}} días)",
+      "placeholderUnknown": "Vacío = plazo general de la organización",
+      "hint": "Días que tiene el cliente para pagar una venta a cuenta corriente. Con esto se calculan el vencimiento y los días de atraso. Dejalo vacío para usar el plazo general (Configuración). 0 = vence el mismo día.",
+      "invalid": "El plazo de pago tiene que ser un número entero de 0 a 365 días, o vacío."
+    },
+    "paymentTermsNote": {
+      "placeholder": "Ej.: paga los viernes, con transferencia",
+      "hint": "Solo informativo: no cambia el vencimiento."
+    }
+  },
+  "filters": {
+    "city": "Ciudad",
+    "allCities": "Todas las ciudades",
+    "businessType": "Tipo de negocio",
+    "allBusinessTypes": "Todos los tipos de negocio",
+    "priceList": "Lista de precios",
+    "allPriceLists": "Todas las listas"
+  },
+  "balance": {
+    "inFavour": "A favor: {{amount}}",
+    "overdue": "Vencido: {{amount}}"
+  }
+}

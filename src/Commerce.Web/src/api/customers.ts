@@ -2,13 +2,20 @@ import { apiFetch } from './client'
 import type {
   CreateCustomerRequest,
   CreateCustomerResponse,
+  CustomerListFilters,
   CustomerRecord,
   IssueOrderingAccessResponse,
   UpdateCustomerRequest,
 } from './types'
 
-export function listCustomers(): Promise<CustomerRecord[]> {
-  return apiFetch<CustomerRecord[]>('/customers')
+/** Lists customers; search, city and business type are applied by the server. */
+export function listCustomers(filters: CustomerListFilters = {}): Promise<CustomerRecord[]> {
+  const query = new URLSearchParams()
+  if (filters.search) query.set('search', filters.search)
+  if (filters.cityId) query.set('cityId', filters.cityId)
+  if (filters.businessTypeId) query.set('businessTypeId', filters.businessTypeId)
+  const queryString = query.toString()
+  return apiFetch<CustomerRecord[]>(queryString ? `/customers?${queryString}` : '/customers')
 }
 
 export function getCustomer(id: string): Promise<CustomerRecord> {

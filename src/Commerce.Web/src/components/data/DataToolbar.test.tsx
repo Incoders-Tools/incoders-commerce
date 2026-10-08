@@ -17,7 +17,7 @@ describe('DataToolbar', () => {
     )
 
     expect(screen.getByLabelText('Search presentations')).toBeInTheDocument()
-    expect(screen.getByRole('radiogroup', { name: /view/i })).toBeInTheDocument()
+    expect(screen.getByRole('radiogroup', { name: /vista/i })).toBeInTheDocument()
   })
 
   it('reports typed search text', async () => {

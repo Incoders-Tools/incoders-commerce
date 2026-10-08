@@ -1,0 +1,445 @@
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using Commerce.Application.Pricing;
+using Commerce.Application.Time;
+using Commerce.BranchNode;
+using Commerce.Domain.Discounts;
+using Commerce.Domain.Sync;
+
+namespace Commerce.Pos.Windows;
+
+/// <summary>Outcome of a cart mutation; <see cref="Message"/> is operator-facing (Spanish) on failure.</summary>
+public sealed record SaleCartResult(bool Succeeded, string? Message = null)
+{
+    public static SaleCartResult Ok { get; } = new(true);
+
+    public static SaleCartResult Fail(string message) => new(false, message);
+}
+
+/// <summary>
+/// The pending scan/card-composed sale, extracted from <c>MainWindow</c> so it
+/// is testable without WPF. Every price and rounding comes from the shared
+/// <see cref="PricingResolutionService"/> re-resolved at the new quantity —
+/// the cart never computes a price itself, and a line that cannot be priced is
+/// never added or changed (no zero-priced substitute).
+///
+/// Discounts (pos-scan-sale "Percentage Discounts on Lines and on the Whole
+/// Sale"): a line discount applies to that line total, a sale discount to the
+/// subtotal after line discounts, each amount rounded once half away from zero.
+/// Adding or changing one demands a <see cref="DiscountAuthorization"/>: the
+/// cart never verifies a PIN itself, it only refuses to record a discount
+/// without proof. Removing one needs none.
+///
+/// Quantities (operator-ux-adjustments T3) follow the presentation's quantity behavior (<see cref="SaleQuantity"/>): a
+/// weighted (or bulk) line is in kilos with up to three decimals, entered by its measure and never stepped by one; a
+/// fixed-quantity line counts whole units. The line total of a weighted line is the price per kilo times the kilos, as
+/// the pricing service rounds it (the same money rule as every other line).
+/// </summary>
+public sealed class SaleCart : INotifyPropertyChanged
+{
+    private readonly Func<Guid?, BuyerPricing> _pricingFor;
+    private readonly Func<DateOnly> _today;
+    private BuyerPricing _pricing;
+    private QuantityFormat _quantityFormat = QuantityFormat.Terminal;
+
+    /// <summary>A cart that prices every sale from the one given service (no price lists, no customer rule).</summary>
+    public SaleCart(PricingResolutionService pricing, Func<DateOnly>? today = null)
+        : this(_ => new BuyerPricing(pricing, PriceListName: null, CustomerListUnavailable: false), today)
+    {
+    }
+
+    /// <summary>
+    /// A cart that prices from the list of its BUYER: <paramref name="pricingFor"/> maps the selected customer (null =
+    /// walk-in) to the pricing of that buyer's list (<see cref="BuyerPricingFactory.For"/>).
+    /// </summary>
+    public SaleCart(Func<Guid?, BuyerPricing> pricingFor, Func<DateOnly>? today = null)
+    {
+        _pricingFor = pricingFor;
+        _today = today ?? (() => BusinessClock.System.Today);
+        _pricing = pricingFor(null);
+    }
+
+    /// <summary>
+    /// How the lines show their quantities (operator-ux-adjustments T5: the organization's decimal separator as last
+    /// synced). Setting it restamps every line, so an open sale follows a change synced meanwhile; prices are untouched.
+    /// </summary>
+    public QuantityFormat QuantityFormat
+    {
+        get => _quantityFormat;
+        set
+        {
+            _quantityFormat = value;
+            for (var i = 0; i < Lines.Count; i++)
+            {
+                if (!ReferenceEquals(Lines[i].QuantityFormat, value))
+                {
+                    Lines[i] = Lines[i] with { QuantityFormat = value };
+                }
+            }
+        }
+    }
+
+    /// <summary>The customer the sale is attributed to; null for the walk-in (final consumer).</summary>
+    public Guid? CustomerId { get; private set; }
+
+    /// <summary>The name of the list pricing this sale, or null when the branch prices from its single legacy list.</summary>
+    public string? PriceListName => _pricing.PriceListName;
+
+    /// <summary>"Lista: Mostrador" (with a note when the customer's own list is not available here), or null.</summary>
+    public string? PriceListLabel => _pricing.Label;
+
+    /// <summary>The buyer's own discount percentage, already inside every price of the sale; null when it has none.</summary>
+    public decimal? CustomerDiscountPercent => _pricing.CustomerDiscountPercent;
+
+    /// <summary>The explanation of the customer's discount for the operator, or null.</summary>
+    public string? CustomerDiscountNote => _pricing.CustomerDiscountNote;
+
+    /// <summary>"Desc. cliente 10 %", or null.</summary>
+    public string? CustomerDiscountShortText => _pricing.CustomerDiscountShortText;
+
+    /// <summary>
+    /// The unit price the current buyer gets for <paramref name="presentationId"/> for one unit, for the catalog cards: the
+    /// buyer's list price after the customer's own discount (no line or sale discount); null when that list has no price
+    /// for it. Never a zero.
+    /// </summary>
+    public async Task<decimal?> QuoteUnitPriceAsync(Guid presentationId)
+    {
+        var outcome = await _pricing.Service.ResolveAsync(
+            presentationId, 1m, _pricing.CustomerDiscountPercent, _today(), CancellationToken.None);
+        return outcome is PriceResolutionOutcome.Resolved resolved ? resolved.UnitNetPrice : null;
+    }
+
+    /// <summary>
+    /// Selects the buyer of the sale (null = walk-in) and re-prices EVERY line from that buyer's list at its current
+    /// quantity. Line discount percentages, the sale discount and their authorization are kept (they were authorized as
+    /// percentages) and their amounts are recomputed over the new totals. If the new list has no price for some line the
+    /// change is refused with the names of those products and nothing changes: no line is ever left at a zero or at the
+    /// price of the other list. customer-price-lists T6: "no price in the new list" means no price in it AND in the
+    /// default list; a line only the default list (Mostrador) prices is re-priced from it and noted as such. The new buyer's
+    /// own discount (or its absence) replaces the previous one's in every line: it is part of the price, not a discount the
+    /// operator authorized.
+    /// </summary>
+    public async Task<SaleCartResult> SetCustomerAsync(Guid? customerId)
+    {
+        var pricing = _pricingFor(customerId);
+        var effectiveOn = _today();
+        var repriced = new List<ScannedSaleLineViewModel>(Lines.Count);
+        var unpriced = new List<string>();
+        foreach (var line in Lines.ToList())
+        {
+            var outcome = await pricing.Service.ResolveAsync(
+                line.PresentationId, line.Quantity, pricing.CustomerDiscountPercent, effectiveOn, CancellationToken.None);
+            if (outcome is not PriceResolutionOutcome.Resolved resolved)
+            {
+                unpriced.Add($"{line.ProductName} — {line.PresentationName}");
+                continue;
+            }
+
+            repriced.Add(line with
+            {
+                FallbackListName = pricing.FallbackNoteFor(resolved),
+                UnitPrice = resolved.UnitNetPrice,
+                LineTotal = resolved.LineTotal,
+                LineDiscountAmount = line.LineDiscountPercent is { } percent ? DiscountMath.Amount(resolved.LineTotal, percent) : null,
+            });
+        }
+
+        if (unpriced.Count > 0)
+        {
+            return SaleCartResult.Fail(
+                $"No se puede cambiar de cliente: {pricing.PriceListName ?? "la lista del cliente"} no tiene precio para {string.Join(", ", unpriced)}. " +
+                "Quite esos productos de la venta o elija otro cliente.");
+        }
+
+        _pricing = pricing;
+        CustomerId = customerId;
+        for (var i = 0; i < repriced.Count; i++)
+        {
+            Lines[i] = repriced[i];
+        }
+
+        RaiseChanged();
+        return SaleCartResult.Ok;
+    }
+
+    public ObservableCollection<ScannedSaleLineViewModel> Lines { get; } = new();
+
+    /// <summary>Sum of the undiscounted line totals.</summary>
+    public decimal Subtotal => Lines.Sum(l => l.LineTotal);
+
+    /// <summary>Sum of the line totals after line discounts; the base of the sale discount.</summary>
+    public decimal NetSubtotal => Lines.Sum(l => l.NetTotal);
+
+    public decimal? SaleDiscountPercent { get; private set; }
+
+    /// <summary>The rounded whole-sale discount over <see cref="NetSubtotal"/>; zero when none.</summary>
+    public decimal SaleDiscountAmount => SaleDiscountPercent is { } percent ? DiscountMath.Amount(NetSubtotal, percent) : 0m;
+
+    /// <summary>Line discounts plus the sale discount.</summary>
+    public decimal DiscountTotal => Subtotal - NetSubtotal + SaleDiscountAmount;
+
+    /// <summary>The FINAL amount to charge, after every discount.</summary>
+    public decimal Total => NetSubtotal - SaleDiscountAmount;
+
+    public bool HasDiscount => SaleDiscountPercent is not null || Lines.Any(l => l.HasDiscount);
+
+    /// <summary>The latest authorization behind the discounts on this sale; null when there are none.</summary>
+    public DiscountAuthorization? Authorization { get; private set; }
+
+    /// <summary>The whole-sale discount as it is committed, or null.</summary>
+    public SaleDiscount? SaleDiscount => SaleDiscountPercent is { } percent ? new SaleDiscount(percent, SaleDiscountAmount) : null;
+
+    public bool IsEmpty => Lines.Count == 0;
+
+    /// <summary>
+    /// The lines as they are committed: each keeps its UNDISCOUNTED total and
+    /// carries its discount percentage and amount (null when it has none), so
+    /// the gross total, minus the line discounts, minus <see cref="SaleDiscount"/>,
+    /// equals <see cref="Total"/>.
+    /// </summary>
+    public IReadOnlyList<SaleLine> BuildSaleLines(Guid saleId) => Lines
+        .Select((vm, index) => new SaleLine(
+            saleId, index + 1, vm.PresentationId, vm.IdentificationCode, vm.ProductName, vm.PresentationName,
+            vm.Quantity, vm.UnitPrice, vm.LineTotal, vm.LineDiscountPercent, vm.LineDiscountAmount))
+        .ToList();
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    /// <summary>
+    /// Adds <paramref name="quantity"/> of the presentation to the sale (a new line, or added to its existing line).
+    /// Without a quantity a fixed-quantity product adds one unit; a weighted product is refused: its kilos are always
+    /// entered, never assumed to be one.
+    /// </summary>
+    public async Task<SaleCartResult> AddAsync(CatalogPriceReplicaItem item, decimal? quantity = null)
+    {
+        if (quantity is null && SaleQuantity.IsMeasured(item.QuantityBehavior))
+        {
+            return SaleCartResult.Fail($"Indique los kilos de {item.ProductName}.");
+        }
+
+        var added = quantity ?? 1m;
+        if (SaleQuantity.Validate(added, item.QuantityBehavior) is { } invalid)
+        {
+            return SaleCartResult.Fail(invalid);
+        }
+
+        var existing = IndexOf(item.PresentationId);
+        var total = (existing >= 0 ? Lines[existing].Quantity : 0m) + added;
+        return await ApplyAsync(
+            item.PresentationId, item.IdentificationCode, item.ProductName, item.PresentationName, item.QuantityBehavior, total);
+    }
+
+    /// <summary>Adds one unit; a weighted line is edited by its kilos instead (<see cref="SetQuantityAsync"/>).</summary>
+    public Task<SaleCartResult> IncrementAsync(Guid presentationId) => ChangeByAsync(presentationId, 1m);
+
+    /// <summary>Decrements by one; a line at quantity one is removed. A weighted line is edited by its kilos instead.</summary>
+    public Task<SaleCartResult> DecrementAsync(Guid presentationId) => ChangeByAsync(presentationId, -1m);
+
+    /// <summary>
+    /// Sets an absolute quantity. For a fixed-quantity line zero or less removes the line; a weighted line refuses zero
+    /// or less (it is removed explicitly) and more than three decimals, and a fixed one refuses fractions.
+    /// </summary>
+    public async Task<SaleCartResult> SetQuantityAsync(Guid presentationId, decimal quantity)
+    {
+        var index = IndexOf(presentationId);
+        if (index < 0)
+        {
+            return SaleCartResult.Fail("El producto no está en la venta.");
+        }
+
+        var line = Lines[index];
+        if (quantity <= 0m && !line.IsMeasured)
+        {
+            Remove(presentationId);
+            return SaleCartResult.Ok;
+        }
+
+        if (SaleQuantity.Validate(quantity, line.QuantityBehavior) is { } invalid)
+        {
+            return SaleCartResult.Fail(invalid);
+        }
+
+        return await ApplyAsync(
+            line.PresentationId, line.IdentificationCode, line.ProductName, line.PresentationName, line.QuantityBehavior, quantity);
+    }
+
+    public bool Remove(Guid presentationId)
+    {
+        var index = IndexOf(presentationId);
+        if (index < 0)
+        {
+            return false;
+        }
+
+        Lines.RemoveAt(index);
+        NormalizeDiscounts();
+        RaiseChanged();
+        return true;
+    }
+
+    public void Clear()
+    {
+        Lines.Clear();
+        SaleDiscountPercent = null;
+        Authorization = null;
+        CustomerId = null;
+        _pricing = _pricingFor(null);
+        RaiseChanged();
+    }
+
+    /// <summary>Applies or changes a percentage discount on one line; needs an authorization.</summary>
+    public SaleCartResult SetLineDiscount(Guid presentationId, decimal percent, DiscountAuthorization authorization)
+    {
+        var index = IndexOf(presentationId);
+        if (index < 0)
+        {
+            return SaleCartResult.Fail("El producto no está en la venta.");
+        }
+
+        if (!DiscountMath.IsValidPercent(percent))
+        {
+            return SaleCartResult.Fail(InvalidPercentMessage);
+        }
+
+        var line = Lines[index];
+        Lines[index] = line with { LineDiscountPercent = percent, LineDiscountAmount = DiscountMath.Amount(line.LineTotal, percent) };
+        Authorization = authorization;
+        RaiseChanged();
+        return SaleCartResult.Ok;
+    }
+
+    /// <summary>Applies or changes the whole-sale percentage discount; needs an authorization.</summary>
+    public SaleCartResult SetSaleDiscount(decimal percent, DiscountAuthorization authorization)
+    {
+        if (IsEmpty)
+        {
+            return SaleCartResult.Fail("La venta está vacía.");
+        }
+
+        if (!DiscountMath.IsValidPercent(percent))
+        {
+            return SaleCartResult.Fail(InvalidPercentMessage);
+        }
+
+        SaleDiscountPercent = percent;
+        Authorization = authorization;
+        RaiseChanged();
+        return SaleCartResult.Ok;
+    }
+
+    /// <summary>Removes one line discount; no authorization needed. False when it had none.</summary>
+    public bool RemoveLineDiscount(Guid presentationId)
+    {
+        var index = IndexOf(presentationId);
+        if (index < 0 || !Lines[index].HasDiscount)
+        {
+            return false;
+        }
+
+        Lines[index] = Lines[index] with { LineDiscountPercent = null, LineDiscountAmount = null };
+        NormalizeDiscounts();
+        RaiseChanged();
+        return true;
+    }
+
+    /// <summary>Removes the whole-sale discount; no authorization needed. False when there was none.</summary>
+    public bool RemoveSaleDiscount()
+    {
+        if (SaleDiscountPercent is null)
+        {
+            return false;
+        }
+
+        SaleDiscountPercent = null;
+        NormalizeDiscounts();
+        RaiseChanged();
+        return true;
+    }
+
+    private const string InvalidPercentMessage = "El descuento debe ser mayor que 0 y hasta 100, con hasta 2 decimales.";
+
+    /// <summary>An empty sale keeps no sale discount, and a sale without discounts keeps no authorization marker.</summary>
+    private void NormalizeDiscounts()
+    {
+        if (IsEmpty)
+        {
+            SaleDiscountPercent = null;
+        }
+
+        if (!HasDiscount)
+        {
+            Authorization = null;
+        }
+    }
+
+    private async Task<SaleCartResult> ChangeByAsync(Guid presentationId, decimal delta)
+    {
+        var index = IndexOf(presentationId);
+        if (index < 0)
+        {
+            return SaleCartResult.Fail("El producto no está en la venta.");
+        }
+
+        var line = Lines[index];
+        return line.IsMeasured
+            ? SaleCartResult.Fail($"{line.ProductName} se vende por kilo: edite los kilos de la línea.")
+            : await SetQuantityAsync(presentationId, line.Quantity + delta);
+    }
+
+    private async Task<SaleCartResult> ApplyAsync(
+        Guid presentationId, string? code, string productName, string presentationName, string quantityBehavior, decimal quantity)
+    {
+        var effectiveOn = _today();
+        var outcome = await _pricing.Service.ResolveAsync(
+            presentationId, quantity, _pricing.CustomerDiscountPercent, effectiveOn, CancellationToken.None);
+        if (outcome is not PriceResolutionOutcome.Resolved resolved)
+        {
+            return SaleCartResult.Fail(
+                $"No hay precio vigente para {presentationName} el {effectiveOn:yyyy-MM-dd}. Use venta manual o sincronice.");
+        }
+
+        // Locate after the await: it separates any earlier lookup from the write.
+        var existingIndex = IndexOf(presentationId);
+
+        // A quantity change keeps the line discount percentage (it is not a
+        // new or changed discount) and recomputes the amount over the new total.
+        var percent = existingIndex >= 0 ? Lines[existingIndex].LineDiscountPercent : null;
+        var line = new ScannedSaleLineViewModel(
+            presentationId, code, productName, presentationName, quantity, resolved.UnitNetPrice, resolved.LineTotal,
+            percent, percent is { } p ? DiscountMath.Amount(resolved.LineTotal, p) : null,
+            _pricing.FallbackNoteFor(resolved), quantityBehavior, _quantityFormat);
+
+        if (existingIndex >= 0)
+        {
+            Lines[existingIndex] = line;
+        }
+        else
+        {
+            Lines.Add(line);
+        }
+
+        RaiseChanged();
+        return SaleCartResult.Ok;
+    }
+
+    private int IndexOf(Guid presentationId)
+    {
+        for (var i = 0; i < Lines.Count; i++)
+        {
+            if (Lines[i].PresentationId == presentationId)
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    private void RaiseChanged()
+    {
+        foreach (var name in new[] { nameof(Total), nameof(Subtotal), nameof(DiscountTotal), nameof(HasDiscount), nameof(IsEmpty), nameof(PriceListLabel), nameof(CustomerId), nameof(CustomerDiscountPercent), nameof(CustomerDiscountNote), nameof(CustomerDiscountShortText) })
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+        }
+    }
+}

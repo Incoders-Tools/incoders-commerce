@@ -1,6 +1,8 @@
 using System.Text.Json.Serialization;
 using Commerce.Application.Payments;
+using Commerce.Cloud.Api.Persistence;
 using Commerce.Cloud.Api.Tenancy;
+using Commerce.Domain.Identity;
 using Commerce.Domain.Payments;
 
 namespace Commerce.Cloud.Api.Endpoints;
@@ -11,10 +13,13 @@ namespace Commerce.Cloud.Api.Endpoints;
 /// <c>.RequireAuthorization()</c> + <see cref="TenantScopeEndpointFilter"/>,
 /// exactly <c>OrderingEndpoints</c>'s shape — thin mapping onto
 /// <see cref="PaymentRecordingService"/>. Organization id is ALWAYS
-/// <see cref="CloudTenantScope.OrganizationId"/>, never a request field. The
-/// SAME permission that manages the order records or reverses a payment — no
-/// second-approver requirement (answered product question (c)); settlement
-/// reads are reporting-only and gate nothing.
+/// <see cref="CloudTenantScope.OrganizationId"/>, never a request field.
+/// <para>
+/// Authorization (security review): money is administration — every route needs
+/// <see cref="Permission.ManageUsers"/> (<see cref="StaffAuthorization"/>), and the
+/// actor of a payment or reversal is the signed-in caller, never a request field
+/// (the requests have no actor member). No second approver (product question (c)).
+/// </para>
 /// </summary>
 public static class PaymentsEndpoints
 {
@@ -27,15 +32,17 @@ public static class PaymentsEndpoints
         group.MapPost("/", async (
             RecordPaymentRequest request,
             HttpContext httpContext,
+            PostgresUserAccountStore userStore,
             PaymentRecordingService service,
             CancellationToken ct) =>
         {
-            var scope = TenantScopeEndpointFilter.GetScope(httpContext);
+            var (denied, caller) = await StaffAuthorization.AuthorizeAsync(httpContext, userStore, ct, Permission.ManageUsers);
+            if (denied is not null) return denied;
             var subject = new PaymentSubject(request.SubjectKind, request.SubjectId);
 
             var entry = await service.RecordAsync(
-                subject, scope.OrganizationId, request.Method, request.Amount,
-                request.ActorId, request.EntryId, ct);
+                subject, caller!.Scope.OrganizationId, request.Method, request.Amount,
+                caller.Id, request.EntryId, ct);
 
             if (entry is null)
             {
@@ -52,14 +59,16 @@ public static class PaymentsEndpoints
             Guid entryId,
             ReversePaymentRequest request,
             HttpContext httpContext,
+            PostgresUserAccountStore userStore,
             PaymentRecordingService service,
             CancellationToken ct) =>
         {
-            var scope = TenantScopeEndpointFilter.GetScope(httpContext);
+            var (denied, caller) = await StaffAuthorization.AuthorizeAsync(httpContext, userStore, ct, Permission.ManageUsers);
+            if (denied is not null) return denied;
             var subject = new PaymentSubject(request.SubjectKind, request.SubjectId);
 
             var reversal = await service.ReverseAsync(
-                entryId, subject, scope.OrganizationId, request.ActorId, request.ReversalEntryId, ct);
+                entryId, subject, caller!.Scope.OrganizationId, caller.Id, request.ReversalEntryId, ct);
 
             return Results.Ok(reversal);
         });
@@ -68,10 +77,13 @@ public static class PaymentsEndpoints
             Guid orderId,
             decimal target,
             HttpContext httpContext,
+            PostgresUserAccountStore userStore,
             PaymentRecordingService service,
             CancellationToken ct) =>
         {
-            var scope = TenantScopeEndpointFilter.GetScope(httpContext);
+            var (denied, caller) = await StaffAuthorization.AuthorizeAsync(httpContext, userStore, ct, Permission.ManageUsers);
+            if (denied is not null) return denied;
+            var scope = caller!.Scope;
             var subject = new PaymentSubject(PaymentSubjectKind.Order, orderId);
             var settlement = await service.GetSettlementAsync(subject, scope.OrganizationId, target, ct);
             return Results.Ok(settlement);
@@ -81,10 +93,13 @@ public static class PaymentsEndpoints
             Guid customerId,
             decimal target,
             HttpContext httpContext,
+            PostgresUserAccountStore userStore,
             PaymentRecordingService service,
             CancellationToken ct) =>
         {
-            var scope = TenantScopeEndpointFilter.GetScope(httpContext);
+            var (denied, caller) = await StaffAuthorization.AuthorizeAsync(httpContext, userStore, ct, Permission.ManageUsers);
+            if (denied is not null) return denied;
+            var scope = caller!.Scope;
             var subject = new PaymentSubject(PaymentSubjectKind.Sale, customerId);
             var settlement = await service.GetSettlementAsync(subject, scope.OrganizationId, target, ct);
             return Results.Ok(settlement);
@@ -102,11 +117,9 @@ public sealed record RecordPaymentRequest(
     [property: JsonConverter(typeof(JsonStringEnumConverter))] PaymentSubjectKind SubjectKind,
     Guid SubjectId,
     [property: JsonConverter(typeof(JsonStringEnumConverter))] PaymentMethod Method,
-    decimal Amount,
-    Guid ActorId);
+    decimal Amount);
 
 public sealed record ReversePaymentRequest(
     Guid ReversalEntryId,
     [property: JsonConverter(typeof(JsonStringEnumConverter))] PaymentSubjectKind SubjectKind,
-    Guid SubjectId,
-    Guid ActorId);
+    Guid SubjectId);

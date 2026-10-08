@@ -1,0 +1,85 @@
+{
+  "title": "Usuarios",
+  "description": "Cuentas del personal, sus roles y restablecimientos de contraseña.",
+  "errors": {
+    "unableToLoad": "No se pudieron cargar los usuarios.",
+    "unableToCreate": "No se pudo crear el usuario.",
+    "unableToSaveRolesWithDetail": "No se pudieron guardar los roles de {{email}}: {{detail}}",
+    "unableToSaveRoles": "No se pudieron guardar los roles de {{email}}.",
+    "enterReplacementPassword": "Ingrese una contraseña de reemplazo.",
+    "unableToResetPassword": "No se pudo restablecer la contraseña.",
+    "branchRequired": "Elegí al menos una sucursal para el usuario.",
+    "branchNotInOrganization": "Una de las sucursales elegidas no pertenece a la organización.",
+    "forbidden": "No tenés permiso para asignar esa sucursal o rol.",
+    "unableToSaveBranches": "No se pudieron guardar las sucursales de {{email}}.",
+    "cannotRevokeSelf": "No podés darte de baja a vos mismo.",
+    "forbiddenStatus": "No tenés permiso para dar de baja o reactivar a este usuario.",
+    "unableToChangeStatus": "No se pudo cambiar el estado de {{email}}."
+  },
+  "createForm": {
+    "emailAriaLabel": "Correo electrónico del usuario",
+    "emailPlaceholder": "Correo electrónico",
+    "passwordAriaLabel": "Contraseña del usuario",
+    "passwordPlaceholder": "Contraseña",
+    "roleForNewUser": "{{role}} para nuevo usuario",
+    "submit": "Crear usuario",
+    "branchForNewUser": "Sucursal {{branch}} para nuevo usuario",
+    "branchesLegend": "Sucursales",
+    "noBranchesAvailable": "No hay sucursales disponibles."
+  },
+  "search": {
+    "label": "Buscar usuarios",
+    "placeholder": "Buscar por correo electrónico o rol…"
+  },
+  "empty": {
+    "none": "Todavía no hay usuarios.",
+    "noMatch": "Ningún usuario coincide con esta búsqueda.",
+    "loadError": "No se pudieron cargar los usuarios."
+  },
+  "columns": {
+    "email": "Correo electrónico",
+    "roles": "Roles",
+    "noRoles": "Sin roles",
+    "status": "Estado",
+    "branches": "Sucursales",
+    "noBranches": "Sin sucursales",
+    "unknownBranch": "Otra sucursal"
+  },
+  "statusOptions": {
+    "active": "Activo",
+    "revoked": "Revocado"
+  },
+  "row": {
+    "roleForUser": "{{role}} para {{email}}",
+    "saveRoles": "Guardar roles",
+    "replacementPasswordAriaLabel": "Contraseña de reemplazo para {{email}}",
+    "newPasswordPlaceholder": "Nueva contraseña",
+    "forceReset": "Forzar restablecimiento",
+    "branchForUser": "Sucursal {{branch}} para {{email}}",
+    "saveBranches": "Guardar sucursales",
+    "deactivate": "Dar de baja",
+    "reactivate": "Reactivar",
+    "confirmDeactivate": "¿Dar de baja a {{email}}?",
+    "confirmReactivate": "¿Reactivar a {{email}}?",
+    "confirm": "Confirmar",
+    "cancel": "Cancelar"
+  },
+  "roles": {
+    "business-admin": {
+      "label": "Administrador",
+      "description": "Gestiona la organización"
+    },
+    "seller": {
+      "label": "Vendedor",
+      "description": "Toma pedidos desde la web"
+    },
+    "cashier": {
+      "label": "Cajero",
+      "description": "Opera el punto de venta"
+    },
+    "provider": {
+      "label": "Proveedor",
+      "description": "Cuenta de proveedor"
+    }
+  }
+}

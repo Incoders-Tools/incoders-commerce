@@ -1,4 +1,5 @@
 using System.IO;
+using System.Net.Http;
 using Commerce.Application.Access;
 using Commerce.Application.Audit;
 using Commerce.Application.Pricing;
@@ -20,6 +21,9 @@ namespace Commerce.Pos.Windows;
 /// </summary>
 public static class PosHostBuilder
 {
+    /// <summary>Interim self-signed publisher (ADR-013); swap via <c>Commerce:UpdateTrustedPublisher</c>.</summary>
+    public const string DefaultTrustedPublisher = "CN=Incoders Commerce (Interim)";
+
     public static IHost Build(string? branchDataDirectory = null)
     {
         var builder = Host.CreateApplicationBuilder();
@@ -29,8 +33,11 @@ public static class PosHostBuilder
         var databasePath = Path.Combine(dataDirectory, "branch.db");
 
         var cloudApiBaseUrl = builder.Configuration["Commerce:CloudApiBaseUrl"] ?? "http://localhost:8080";
-        var updateManifestPath = builder.Configuration["Commerce:UpdateManifestPath"]
-            ?? Path.Combine(dataDirectory, "update-manifest.json");
+        // Update source: GitHub Releases per channel by default; an explicit
+        // Commerce:UpdateManifestPath (VM testing) wins when set.
+        var updateManifestPath = builder.Configuration["Commerce:UpdateManifestPath"];
+        var updateChannel = builder.Configuration["Commerce:UpdateChannel"] ?? "stable";
+        var updateRepository = builder.Configuration["Commerce:UpdateRepository"] ?? "Incoders-Tools/incoders-commerce";
 
         builder.Services.AddSingleton(_ => new BranchSyncStore($"Data Source={databasePath}"));
         builder.Services.AddSingleton<IAuditSink, InMemoryAuditSink>();
@@ -40,8 +47,53 @@ public static class PosHostBuilder
         builder.Services.AddSingleton(_ => new LocalOperatorStore(Path.Combine(dataDirectory, "operators.json")));
         builder.Services.AddSingleton<CurrentOperator>();
         builder.Services.AddSingleton(_ => ApplicationBranding.Load(dataDirectory));
-        builder.Services.AddSingleton(new LocalUpdateManifestSource(updateManifestPath));
+        builder.Services.AddHttpClient("update-releases");
+        builder.Services.AddSingleton<IUpdateManifestSource>(sp => string.IsNullOrWhiteSpace(updateManifestPath)
+            ? new GitHubReleaseManifestSource(
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient("update-releases"), updateRepository, updateChannel)
+            : new LocalFileManifestSource(updateManifestPath));
         builder.Services.AddSingleton<ReleaseDiscovery>();
+        builder.Services.AddSingleton<UpdateChecker>();
+
+        // Install wizard services (R5). Every seam is an injectable service so
+        // the wizard window only orchestrates.
+        var trustedPublisher = builder.Configuration["Commerce:UpdateTrustedPublisher"];
+        if (string.IsNullOrWhiteSpace(trustedPublisher))
+        {
+            trustedPublisher = DefaultTrustedPublisher;
+        }
+
+        var updateStagingDirectory = builder.Configuration["Commerce:UpdateStagingDirectory"];
+        if (string.IsNullOrWhiteSpace(updateStagingDirectory))
+        {
+            updateStagingDirectory = Path.Combine(dataDirectory, "updates");
+        }
+
+        // Optional pin (SHA-256 of the signing certificate, printed by
+        // deploy/release/new-dev-signing-cert.ps1). With it the wizard accepts
+        // only that exact signer, which is what lets the interim self-signed
+        // certificate work (ADR-013); without it only a fully trusted signature
+        // from the trusted publisher is accepted.
+        var trustedThumbprint = builder.Configuration["Commerce:UpdateTrustedThumbprint"];
+
+        // The downloader enforces its own inactivity timeout, so the client's
+        // fixed 100 s total budget must not cut a large package on a slow link.
+        builder.Services.AddHttpClient<PackageDownloader>(client => client.Timeout = Timeout.InfiniteTimeSpan);
+        builder.Services.AddSingleton<IPackageSignatureVerifier, WindowsPackageSignatureVerifier>();
+        builder.Services.AddSingleton<IUpgradeBackup, SqliteUpgradeBackup>();
+        builder.Services.AddSingleton<IBranchNodeQuiescence, InProcessBranchNodeQuiescence>();
+        builder.Services.AddSingleton<IPackagedAppInfo, PackagedAppInfo>();
+        builder.Services.AddSingleton<IApplicationRestartRegistrar, ApplicationRestartRegistrar>();
+        builder.Services.AddSingleton<IUpdateInstaller, PackageManagerUpdateInstaller>();
+        builder.Services.AddSingleton(new PendingUpgradeStore(Path.Combine(dataDirectory, "pending-upgrade.json")));
+        builder.Services.AddSingleton(new UpdateInstallOptions(
+            StagingDirectory: updateStagingDirectory,
+            DatabasePath: databasePath,
+            BackupDirectory: Path.Combine(dataDirectory, "upgrade-backups"),
+            TrustedPublisher: trustedPublisher,
+            QuiesceTimeout: TimeSpan.FromSeconds(5),
+            TrustedThumbprint: string.IsNullOrWhiteSpace(trustedThumbprint) ? null : trustedThumbprint));
+        builder.Services.AddSingleton<UpdateInstallWorkflowFactory>();
 
         // Task 7.2: the POS half of the shared IEffectivePriceSource port
         // (design.md "PricingResolutionService contract and location") — the
@@ -70,19 +122,40 @@ public static class PosHostBuilder
         {
             client.BaseAddress = new Uri(cloudApiBaseUrl);
         });
+        builder.Services.AddHttpClient<PriceListsReplicaClient>(client =>
+        {
+            client.BaseAddress = new Uri(cloudApiBaseUrl);
+        });
+        builder.Services.AddHttpClient<StockReplicaClient>(client =>
+        {
+            client.BaseAddress = new Uri(cloudApiBaseUrl);
+        });
+        builder.Services.AddHttpClient<DiscountPinReplicaClient>(client =>
+        {
+            client.BaseAddress = new Uri(cloudApiBaseUrl);
+        });
+        builder.Services.AddHttpClient<DeviceIdentityClient>(client =>
+        {
+            client.BaseAddress = new Uri(cloudApiBaseUrl);
+        });
+        builder.Services.AddHttpClient<OrganizationSettingsReplicaClient>(client =>
+        {
+            client.BaseAddress = new Uri(cloudApiBaseUrl);
+        });
+        builder.Services.AddSingleton<TerminalIdentityRefresher>();
 
-        // TRANSIENT, not a shared typed HttpClient (design.md "Desktop
-        // authorization for customer create/edit"): the admin cookie lives in
-        // a window-scoped CookieContainer, so every resolve must hand out a
-        // fresh instance, never the same cookie jar reused across windows.
-        builder.Services.AddTransient(_ => new CustomerAdminClient(cloudApiBaseUrl));
-        // A resolvable factory so MainWindow can mint one fresh CustomerAdminClient
-        // per CustomersWindow open, without holding an IServiceProvider itself.
-        builder.Services.AddSingleton<Func<CustomerAdminClient>>(
-            sp => () => sp.GetRequiredService<CustomerAdminClient>());
-        builder.Services.AddTransient(_ => new UserAdminClient(cloudApiBaseUrl));
-        builder.Services.AddSingleton<Func<UserAdminClient>>(
-            sp => () => sp.GetRequiredService<UserAdminClient>());
+        // ONE management connection shared by Clientes and Personal (admin-console-field-fixes T5): the paired
+        // device credential and the signed-in operator are read on every request (the persisted pairing follows a
+        // re-pair, the current operator follows a switch or a lock), so no password and no cookie are involved.
+        builder.Services.AddSingleton(sp =>
+        {
+            var installationStore = sp.GetRequiredService<LocalInstallationStore>();
+            var currentOperator = sp.GetRequiredService<CurrentOperator>();
+            return ManagementConnection.Create(
+                cloudApiBaseUrl,
+                () => installationStore.LoadOrCreate().Pairing?.DeviceToken,
+                () => currentOperator.Value?.UserId);
+        });
 
         // MainWindow is NOT registered here: it requires an already-paired
         // LocalInstallationRecord, which App.xaml.cs resolves via
@@ -93,7 +166,7 @@ public static class PosHostBuilder
         return builder.Build();
     }
 
-    private static string DefaultDataDirectory() => Path.Combine(
+    internal static string DefaultDataDirectory() => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "Incoders",
         "Commerce");

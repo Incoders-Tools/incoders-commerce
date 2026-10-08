@@ -1,0 +1,132 @@
+{
+  "title": "Catalog",
+  "description": "The branch's products and presentations: create, edit, codes and categories.",
+  "readOnlyDescription": "The branch's products and presentations, with their codes. Read only.",
+  "branchRequired": "Pick a branch in the top bar to view the catalog.",
+  "columns": {
+    "name": "Name",
+    "identificationCode": "Identification code",
+    "noCode": "No code",
+    "quantityBehavior": "Quantity behavior",
+    "lastUpdated": "Last updated",
+    "category": "Category"
+  },
+  "quantityBehaviorOptions": {
+    "fixedQuantity": "Fixed quantity",
+    "weighted": "Weighted",
+    "bulk": "Bulk",
+    "unknown": "Unknown"
+  },
+  "search": {
+    "label": "Search presentations",
+    "placeholder": "Search by name or code…"
+  },
+  "empty": {
+    "loadError": "The catalog could not be loaded.",
+    "none": "No presentations yet.",
+    "noMatch": "No presentations match this search."
+  },
+  "edit": "Edit",
+  "status": {
+    "filterLabel": "Status",
+    "active": "Active",
+    "inactive": "Inactive",
+    "all": "All",
+    "inactiveBadge": "Inactive",
+    "deactivate": "Deactivate",
+    "reactivate": "Reactivate",
+    "dialog": {
+      "title": "Deactivate \"{{name}}\"",
+      "message": "The product stops appearing in the POS and in lists; its history is kept.",
+      "confirm": "Deactivate product",
+      "confirming": "Deactivating…"
+    }
+  },
+  "errors": {
+    "unexpectedLoad": "Unexpected error: the catalog service is unreachable.",
+    "unexpectedUpdate": "Unexpected error while updating the presentation.",
+    "unexpectedStatus": "The product status could not be changed."
+  },
+  "form": {
+    "title": "Edit presentation",
+    "description": "Name, category, presentation and code of \"{{name}}\".",
+    "backLabel": "Back to catalog",
+    "label": "Identification code",
+    "category": "Category",
+    "saving": "Saving…",
+    "save": "Save",
+    "cancel": "Cancel"
+  },
+  "copy": {
+    "action": "Copy catalog",
+    "title": "Copy catalog",
+    "description": "Copy products from \"{{source}}\" to another branch of your organization.",
+    "target": "Target branch",
+    "targetPlaceholder": "Choose a branch",
+    "scope": "What to copy",
+    "whole": "Whole catalog",
+    "selected": "Selected products",
+    "loadingProducts": "Loading products…",
+    "noProducts": "This branch has no products yet.",
+    "pricesNote": "The latest price list is copied too, with only the prices of what is copied. Products whose code already exists in the target branch are skipped.",
+    "submit": "Copy",
+    "copying": "Copying…",
+    "errors": {
+      "failed": "The catalog could not be copied. Check the target branch and try again.",
+      "products": "Products could not be loaded."
+    },
+    "result": {
+      "title": "Copy finished",
+      "products": "Products copied: {{count}}",
+      "presentations": "Presentations copied: {{count}}",
+      "prices": "Prices copied: {{count}}",
+      "noPriceList": "No price list was copied.",
+      "skipped": "Presentations skipped: {{count}}",
+      "skippedNote": "Their identification code already exists in the target branch:"
+    }
+  },
+  "filters": {
+    "categoryLabel": "Category",
+    "allCategories": "All categories"
+  },
+  "sort": {
+    "label": "Sort by",
+    "options": {
+      "name-asc": "Name (A-Z)",
+      "name-desc": "Name (Z-A)",
+      "code": "Code",
+      "category": "Category",
+      "updated-desc": "Recently updated"
+    }
+  },
+  "productForm": {
+    "newAction": "New product",
+    "createTitle": "New product",
+    "createDescription": "Product, category and the presentation it is sold as.",
+    "create": "Create product",
+    "productName": "Product name",
+    "presentationName": "Presentation",
+    "quantityBehaviorHint": "Weighted: sold by the kilo. Fixed quantity: by the unit.",
+    "codeHint": "The code scanned or typed at the POS. Optional and unique in the branch.",
+    "priceNote": "The product is created without a price: set it in Price lists to sell it.",
+    "defaultPresentation": {
+      "weighted": "Per kg",
+      "fixedQuantity": "Unit",
+      "bulk": "Bulk"
+    },
+    "errors": {
+      "nameRequired": "Enter the product name.",
+      "presentationRequired": "Enter the presentation name.",
+      "codeInUse": "That code is already used by another product in this branch.",
+      "productInactive": "The product is inactive: reactivate it to edit it.",
+      "renameDenied": "The product name could not be changed.",
+      "unexpectedCreate": "Unexpected error while creating the product."
+    },
+    "codeSuggestion": {
+      "proposed": "Last code in use: {{last}}. The next one, {{next}}, is proposed; you can change it.",
+      "last": "Last code in use: {{last}} (the next free one is {{next}}).",
+      "use": "Use {{next}}",
+      "placeholder": "E.g.: {{next}}"
+    }
+  }
+}

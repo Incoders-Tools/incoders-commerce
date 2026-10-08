@@ -38,6 +38,25 @@ public sealed class Order
     public Guid DestinationBranchId { get; }
     public IReadOnlyList<OrderLineSnapshot> Lines { get; }
     public DateTimeOffset SubmittedAtUtc { get; }
+
+    /// <summary>
+    /// The human number (`P01-W-37`) the server assigns when the order is
+    /// stored (document-numbering). Null only for an order that was never
+    /// persisted (in-memory test doubles).
+    /// </summary>
+    public OrderNumber? OrderNumber { get; }
+
+    /// <summary>
+    /// The signed-in staff member who took this order for the customer (staff-order-taking). Null for an order the
+    /// customer or a guest submitted themselves.
+    /// </summary>
+    public Guid? TakenByUserId { get; }
+
+    /// <summary>Optional free text the staff member typed for the order, at most <see cref="MaxNoteLength"/> characters.</summary>
+    public string? Note { get; }
+
+    public const int MaxNoteLength = 500;
+
     public OrderDeliveryStatus Status { get; private set; }
     public OrderPendingReason PendingReason { get; private set; }
 
@@ -57,8 +76,16 @@ public sealed class Order
         GuestContact? guestContact,
         Guid destinationBranchId,
         IReadOnlyList<OrderLineSnapshot> lines,
-        DateTimeOffset submittedAtUtc)
+        DateTimeOffset submittedAtUtc,
+        OrderNumber? orderNumber = null,
+        Guid? takenByUserId = null,
+        string? note = null)
     {
+        if (note is { Length: > MaxNoteLength })
+        {
+            throw new ArgumentException($"An order note has at most {MaxNoteLength} characters.", nameof(note));
+        }
+
         if (origin == OrderOrigin.RegisteredCustomer &&
             (customerId is null || customerId == Guid.Empty || guestContact is not null))
         {
@@ -84,6 +111,9 @@ public sealed class Order
         DestinationBranchId = destinationBranchId;
         Lines = lines;
         SubmittedAtUtc = submittedAtUtc;
+        OrderNumber = orderNumber;
+        TakenByUserId = takenByUserId;
+        Note = note;
         Status = OrderDeliveryStatus.PendingDestination;
         PendingReason = OrderPendingReason.None;
     }

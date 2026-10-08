@@ -1,0 +1,154 @@
+{
+  "branchRequired": "Elegí una sucursal en la barra superior para ver y registrar recepciones.",
+  "status": {
+    "Draft": "Borrador",
+    "Confirmed": "Confirmada",
+    "Voided": "Anulada"
+  },
+  "documentType": {
+    "Invoice": "Factura",
+    "DeliveryNote": "Remito",
+    "Other": "Otro"
+  },
+  "list": {
+    "title": "Recepciones",
+    "description": "Mercadería recibida de proveedores. Al confirmarla suma stock y registra la factura en la cuenta corriente.",
+    "new": "Nueva recepción",
+    "open": "Abrir",
+    "search": {
+      "label": "Buscar recepciones",
+      "placeholder": "Buscar por número o documento…"
+    },
+    "filters": {
+      "status": "Estado",
+      "allStatuses": "Todos los estados",
+      "supplier": "Proveedor",
+      "allSuppliers": "Todos los proveedores",
+      "from": "Desde",
+      "to": "Hasta"
+    },
+    "columns": {
+      "number": "Número",
+      "supplier": "Proveedor",
+      "document": "Documento",
+      "date": "Fecha",
+      "due": "Vencimiento",
+      "total": "Total",
+      "status": "Estado",
+      "noValue": "—",
+      "noNumber": "Sin número"
+    },
+    "empty": {
+      "none": "Todavía no hay recepciones.",
+      "noMatch": "Ninguna recepción coincide con estos filtros.",
+      "loadError": "No se pudieron cargar las recepciones."
+    },
+    "errors": {
+      "unexpectedLoad": "Error inesperado al cargar las recepciones."
+    }
+  },
+  "form": {
+    "titleNew": "Nueva recepción",
+    "titleEdit": "Editar borrador",
+    "titleView": "Recepción de mercadería",
+    "backLabel": "Volver a recepciones",
+    "sections": {
+      "document": "Documento",
+      "lines": "Mercadería recibida",
+      "notes": "Observaciones"
+    },
+    "fields": {
+      "supplier": "Proveedor",
+      "documentType": "Tipo de documento",
+      "documentReference": "Número del documento",
+      "occurredOn": "Fecha del documento",
+      "dueOn": "Vencimiento",
+      "dueOnHint": "Si lo dejás vacío se calcula con el plazo de pago del proveedor.",
+      "notes": "Observaciones"
+    },
+    "noSupplier": "Elegí un proveedor",
+    "total": "Total de la recepción",
+    "saveDraft": "Guardar borrador",
+    "saving": "Guardando…",
+    "saved": "Borrador guardado.",
+    "confirm": "Confirmar recepción",
+    "cancel": "Cancelar",
+    "supplierAccount": "Ver cuenta corriente del proveedor",
+    "errors": {
+      "supplierRequired": "Elegí un proveedor.",
+      "linesRequired": "Agregá al menos una línea.",
+      "unexpectedSave": "Error inesperado al guardar la recepción.",
+      "unexpectedLoad": "Error inesperado al cargar la recepción.",
+      "notFound": "Esta recepción no existe o pertenece a otra sucursal.",
+      "duplicateDocument": "Ya hay una recepción confirmada con ese documento de este proveedor.",
+      "notConfirmed": "Esta recepción ya no está confirmada."
+    },
+    "conflict": {
+      "modified": "Otra persona modificó esta recepción mientras la editabas. Recargá para ver los cambios.",
+      "notDraft": "Esta recepción ya no es un borrador. Recargá para verla.",
+      "reload": "Recargar",
+      "reloadFailed": "No se pudo recargar la recepción."
+    }
+  },
+  "lines": {
+    "add": "Agregar línea",
+    "remove": "Quitar línea {{n}}",
+    "presentation": "Presentación (línea {{n}})",
+    "presentationPlaceholder": "Buscar producto o presentación…",
+    "quantity": "Cantidad (línea {{n}})",
+    "unitCost": "Costo unitario (línea {{n}})",
+    "lotCode": "Lote (línea {{n}})",
+    "expiresOn": "Vence (línea {{n}})",
+    "lineTotal": "Total de la línea",
+    "unit": {
+      "kg": "kg",
+      "units": "unidades"
+    },
+    "errors": {
+      "presentationRequired": "Elegí una presentación.",
+      "quantityRequired": "Ingresá una cantidad mayor a cero.",
+      "quantityInteger": "Ingresá una cantidad entera de unidades.",
+      "unitCostRequired": "Ingresá el costo unitario."
+    },
+    "table": {
+      "product": "Producto",
+      "presentation": "Presentación",
+      "quantity": "Cantidad",
+      "unitCost": "Costo unitario",
+      "lineTotal": "Total",
+      "lot": "Lote",
+      "expires": "Vence"
+    }
+  },
+  "picker": {
+    "loadError": "No se pudo cargar el catálogo.",
+    "noResults": "No hay presentaciones que coincidan.",
+    "searching": "Cargando el catálogo…",
+    "clear": "Quitar la presentación elegida"
+  },
+  "confirmDialog": {
+    "title": "¿Confirmar la recepción?",
+    "message": "Al confirmar, la recepción mueve el stock de la sucursal y agrega la factura a la cuenta corriente del proveedor. Después ya no se puede editar: solo anular.",
+    "confirm": "Confirmar y mover stock",
+    "confirming": "Confirmando…"
+  },
+  "view": {
+    "number": "Número",
+    "status": "Estado",
+    "supplier": "Proveedor",
+    "document": "Documento",
+    "date": "Fecha",
+    "due": "Vencimiento",
+    "notes": "Observaciones",
+    "voidReason": "Motivo de la anulación: {{reason}}",
+    "void": "Anular recepción"
+  },
+  "voidDialog": {
+    "title": "¿Anular la recepción?",
+    "message": "Al anular, se revierte el stock que entró y se anula la factura en la cuenta corriente del proveedor. Quedan ambos movimientos en el historial.",
+    "reason": "Motivo de la anulación",
+    "reasonRequired": "Escribí el motivo de la anulación.",
+    "confirm": "Anular y revertir",
+    "confirming": "Anulando…"
+  }
+}

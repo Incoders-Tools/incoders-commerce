@@ -1,16 +1,11 @@
-import { useEffect, useRef, useState, type SVGProps } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
+import { useTranslation } from 'react-i18next'
+import { ChevronDown, KeyRound, LogOut } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/auth/AuthContext'
 import { ThemeSwitcher } from '@/components/theme/ThemeSwitcher'
-
-function ChevronDownIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
-      <path d="m6 9 6 6 6-6" />
-    </svg>
-  )
-}
+import { useGuardedLinkClick, useUnsavedChangesGuard } from './UnsavedChanges'
 
 /**
  * Account-scoped dropdown (T3): trigger shows the signed-in user's display
@@ -22,9 +17,12 @@ function ChevronDownIcon(props: SVGProps<SVGSVGElement>) {
  * mirroring the accessibility behavior those libraries provide for free.
  */
 export function AccountMenu() {
+  const { t } = useTranslation('nav')
   const { user, signOut } = useAuth()
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
+  const guardedLinkClick = useGuardedLinkClick()
+  const { confirmLeave } = useUnsavedChangesGuard()
 
   useEffect(() => {
     if (!open) return
@@ -57,14 +55,17 @@ export function AccountMenu() {
         className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
       >
         <span>{user!.displayName}</span>
-        <ChevronDownIcon className={cn('transition-transform', open && 'rotate-180')} />
+        <ChevronDown
+          aria-hidden="true"
+          className={cn('size-3.5 shrink-0 transition-transform', open && 'rotate-180')}
+        />
       </button>
 
       {open && (
         <div
           role="menu"
-          aria-label="Account"
-          className="absolute right-0 top-full z-50 mt-2 w-60 overflow-hidden rounded-md border border-border bg-card text-card-foreground shadow-md"
+          aria-label={t('account.label')}
+          className="absolute right-0 top-full z-50 mt-2 w-72 overflow-hidden rounded-md border border-border bg-card text-card-foreground shadow-md"
         >
           <div className="border-b border-border px-3 py-2">
             <p className="truncate text-sm font-medium text-foreground">{user!.displayName}</p>
@@ -73,10 +74,14 @@ export function AccountMenu() {
             <Link
               role="menuitem"
               to="/app/password"
-              onClick={() => setOpen(false)}
-              className="flex items-center rounded-sm px-2 py-1.5 text-sm text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+              onClick={(event) => {
+                setOpen(false)
+                guardedLinkClick('/app/password')(event)
+              }}
+              className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
             >
-              Change password
+              <KeyRound aria-hidden="true" className="size-4 shrink-0" />
+              {t('account.changePassword')}
             </Link>
           </div>
           <div className="border-t border-border p-2">
@@ -88,11 +93,13 @@ export function AccountMenu() {
               role="menuitem"
               onClick={() => {
                 setOpen(false)
-                void signOut()
+                // Signing out drops any pending work too.
+                confirmLeave(() => void signOut())
               }}
-              className="flex w-full items-center rounded-sm px-2 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
             >
-              Sign out
+              <LogOut aria-hidden="true" className="size-4 shrink-0" />
+              {t('account.signOut')}
             </button>
           </div>
         </div>

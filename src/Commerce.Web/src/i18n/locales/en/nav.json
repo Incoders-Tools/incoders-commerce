@@ -1,0 +1,49 @@
+{
+  "primary": "Primary",
+  "toggleNavigation": "Toggle navigation",
+  "items": {
+    "dashboard": "Dashboard",
+    "catalog": "Catalog",
+    "categories": "Categories",
+    "orders": "Orders",
+    "customers": "Customers",
+    "suppliers": "Suppliers",
+    "receptions": "Receptions",
+    "stock": "Stock",
+    "supplierCategories": "Supplier categories",
+    "cities": "Cities",
+    "businessTypes": "Business types",
+    "users": "Users",
+    "branches": "Branches",
+    "priceLists": "Price lists",
+    "organizations": "Organizations",
+    "settings": "Settings",
+    "deliveries": "Delivery runs",
+    "treasury": "Treasury",
+    "treasuryAccountTypes": "Account types",
+    "employees": "Staff",
+    "payroll": "Payroll",
+    "employeeRoles": "Positions"
+  },
+  "sections": {
+    "operations": "Operations",
+    "management": "Management",
+    "purchasing": "Purchasing",
+    "lookupTables": "Lookup tables",
+    "system": "System",
+    "platform": "Platform"
+  },
+  "account": {
+    "label": "Account",
+    "changePassword": "Change password",
+    "signOut": "Sign out"
+  },
+  "organizationSwitcher": {
+    "label": "Organization",
+    "noOrganization": "No organization",
+    "loadError": "Unexpected error loading organizations."
+  },
+  "branchSwitcher": {
+    "label": "Branch"
+  }
+}

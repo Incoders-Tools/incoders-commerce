@@ -1,0 +1,139 @@
+<UserControl x:Class="Commerce.Pos.Windows.StaffView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:Commerce.Pos.Windows.Controls"
+             Foreground="{DynamicResource TextBrush}">
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+        <Style x:Key="FieldLabel" TargetType="TextBlock" BasedOn="{StaticResource MutedTextBlock}">
+            <Setter Property="Margin" Value="0,0,0,4" />
+        </Style>
+        <!-- The theme's field height (38 px): only the spacing below each field is set here. -->
+        <Style x:Key="FieldBox" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+            <Setter Property="Margin" Value="0,0,0,10" />
+        </Style>
+        <Style x:Key="FieldPassword" TargetType="PasswordBox" BasedOn="{StaticResource {x:Type PasswordBox}}">
+            <Setter Property="Margin" Value="0,0,0,10" />
+        </Style>
+        <Style x:Key="FieldCombo" TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
+            <Setter Property="Margin" Value="0,0,0,10" />
+            <Setter Property="DisplayMemberPath" Value="Label" />
+            <Setter Property="SelectedValuePath" Value="Name" />
+        </Style>
+    </UserControl.Resources>
+    <Grid Margin="16,12,16,8">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,10">
+            <TextBlock Text="PERSONAL" Style="{StaticResource EyebrowTextBlock}" />
+            <TextBlock Text="Usuarios y acceso" Style="{StaticResource HeroTextBlock}" FontSize="24" Margin="0" />
+        </StackPanel>
+
+        <!-- Outside the list and the form on purpose: an error must stay visible however far the section is scrolled. -->
+        <TextBlock x:Name="StatusText" Grid.Row="1" TextWrapping="Wrap" Margin="0,0,0,8" Foreground="{DynamicResource DangerBrush}"
+                   Visibility="Collapsed" AutomationProperties.Name="Estado" />
+
+        <StackPanel x:Name="BusyPanel" Grid.Row="2" Visibility="Collapsed" Margin="0,0,0,8">
+            <ProgressBar x:Name="BusyProgressBar" IsIndeterminate="True" Height="6" BorderThickness="0"
+                         Foreground="{DynamicResource PrimaryBrush}" Background="{DynamicResource BorderBrushMuted}" />
+            <TextBlock x:Name="BusyText" Margin="0,6,0,0" TextWrapping="Wrap" Style="{StaticResource MutedTextBlock}" />
+        </StackPanel>
+
+        <Grid x:Name="FormPanel" Grid.Row="3">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <!-- The list over the full width; "Nuevo", Editar rol or Restablecer contraseña open one form beside it. -->
+            <controls:EntityListView x:Name="StaffListView" EditorWidth="440" HidesClosedEditor="True">
+                <controls:EntityListView.EditorContent>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel Margin="0,0,12,0">
+
+                            <StackPanel x:Name="CreatePanel">
+                                <TextBlock Text="Se crea en la sucursal de esta terminal. La persona crea su PIN la primera vez que ingresa en una terminal, con su correo y contraseña."
+                                           Style="{StaticResource MutedTextBlock}" TextWrapping="Wrap" Margin="0,0,0,12" />
+                                <TextBlock Text="Correo" Style="{StaticResource FieldLabel}" />
+                                <TextBox x:Name="NewEmailTextBox" Style="{StaticResource FieldBox}" AutomationProperties.Name="Correo" />
+                                <TextBlock Text="Contraseña inicial" Style="{StaticResource FieldLabel}" />
+                                <PasswordBox x:Name="NewPasswordBox" Style="{StaticResource FieldPassword}" AutomationProperties.Name="Contraseña inicial" />
+                                <TextBlock Text="Rol" Style="{StaticResource FieldLabel}" />
+                                <ComboBox x:Name="RoleComboBox" Style="{StaticResource FieldCombo}" AutomationProperties.Name="Rol" />
+                                <StackPanel Orientation="Horizontal" Margin="{StaticResource ActionGroupSpacing}">
+                                    <Button x:Name="CreateButton" Content="Crear usuario" Margin="{StaticResource ActionSpacing}" Click="CreateButton_Click" />
+                                    <Button Content="Cancelar" Style="{StaticResource GhostButton}" Click="CancelEditorButton_Click" />
+                                </StackPanel>
+                            </StackPanel>
+
+                            <StackPanel x:Name="EditRolePanel">
+                                <TextBlock Text="Rol" Style="{StaticResource FieldLabel}" />
+                                <ComboBox x:Name="EditRoleComboBox" Style="{StaticResource FieldCombo}" AutomationProperties.Name="Rol" />
+                                <TextBlock x:Name="OwnRoleHint" Text="No podés cambiar tu propio rol." Style="{StaticResource MutedTextBlock}"
+                                           TextWrapping="Wrap" Visibility="Collapsed" />
+                                <StackPanel Orientation="Horizontal" Margin="{StaticResource ActionGroupSpacing}">
+                                    <Button x:Name="SaveRoleButton" Content="Guardar rol" Margin="{StaticResource ActionSpacing}" Click="SaveRoleButton_Click" />
+                                    <Button Content="Cancelar" Style="{StaticResource GhostButton}" Click="CancelEditorButton_Click" />
+                                </StackPanel>
+                            </StackPanel>
+
+                            <StackPanel x:Name="ResetPanel">
+                                <TextBlock Text="Nueva contraseña" Style="{StaticResource FieldLabel}" />
+                                <PasswordBox x:Name="ResetPasswordBox" Style="{StaticResource FieldPassword}" AutomationProperties.Name="Nueva contraseña" />
+                                <StackPanel Orientation="Horizontal" Margin="{StaticResource ActionGroupSpacing}">
+                                    <Button x:Name="ResetSaveButton" Content="Restablecer contraseña" Margin="{StaticResource ActionSpacing}" Click="ResetSaveButton_Click" />
+                                    <Button x:Name="ResetCancelButton" Content="Cancelar" Style="{StaticResource GhostButton}" Click="CancelEditorButton_Click" />
+                                </StackPanel>
+                            </StackPanel>
+                        </StackPanel>
+                    </ScrollViewer>
+                </controls:EntityListView.EditorContent>
+            </controls:EntityListView>
+
+            <!-- Local to this terminal: no server call, so it works offline too. -->
+            <Border Grid.Row="1" Style="{StaticResource CardBorder}" Margin="0,12,0,0">
+                <StackPanel>
+                    <TextBlock Text="Operadores de esta terminal" Style="{StaticResource SectionTitleTextBlock}" FontSize="16" />
+                    <TextBlock Text="Quienes pueden ingresar con su PIN en esta terminal. Para sumar a alguien nuevo, cerrá tu sesión: esa persona ingresa con su correo y contraseña desde la pantalla de ingreso."
+                               Style="{StaticResource MutedTextBlock}" TextWrapping="Wrap" Margin="0,4,0,10" />
+                    <ScrollViewer MaxHeight="190" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <ItemsControl x:Name="OperatorsItemsControl">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Style="{StaticResource SoftCardBorder}" Padding="12,8" Margin="0,0,0,6">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding Email}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Text="{Binding Detail}" Style="{StaticResource MutedTextBlock}" FontSize="12" />
+                                            </StackPanel>
+                                            <Button Grid.Column="1" Content="Quitar de esta terminal" Tag="{Binding UserId}" Style="{StaticResource SecondaryButton}"
+                                                    VerticalAlignment="Center" Visibility="{Binding ShowAction, Converter={StaticResource BoolToVisibility}}"
+                                                    Click="RemoveOperatorButton_Click" />
+                                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"
+                                                        Visibility="{Binding IsConfirming, Converter={StaticResource BoolToVisibility}}">
+                                                <Button Content="Quitar" Tag="{Binding UserId}" Margin="0,0,8,0" Click="ConfirmRemoveOperatorButton_Click" />
+                                                <Button Content="Cancelar" Style="{StaticResource GhostButton}" Click="CancelRemoveOperatorButton_Click" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                    <TextBlock x:Name="OperatorsEmptyText" Text="Todavía no hay operadores en esta terminal." Style="{StaticResource MutedTextBlock}"
+                               Visibility="Collapsed" />
+                    <TextBlock x:Name="OperatorConfirmText" TextWrapping="Wrap" Margin="0,4,0,0" FontWeight="SemiBold" Visibility="Collapsed" />
+                </StackPanel>
+            </Border>
+        </Grid>
+    </Grid>
+</UserControl>

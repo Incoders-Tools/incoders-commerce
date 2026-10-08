@@ -1,0 +1,68 @@
+{
+  "title": "Categories",
+  "description": "They group the products of every branch and are used as filters at the register.",
+  "columns": {
+    "name": "Name",
+    "icon": "Icon",
+    "pos": "On the POS"
+  },
+  "actions": {
+    "create": "New category",
+    "edit": "Edit",
+    "delete": "Delete",
+    "confirmDelete": "Confirm deletion",
+    "cancel": "Cancel"
+  },
+  "search": {
+    "label": "Search categories",
+    "placeholder": "Search by name…"
+  },
+  "empty": {
+    "none": "There are no categories yet.",
+    "noMatch": "No category matches this search.",
+    "loadError": "The categories could not be loaded."
+  },
+  "form": {
+    "createTitle": "New category",
+    "editTitle": "Edit category",
+    "description": "The name and icon it is shown with at the register.",
+    "backLabel": "Back to categories",
+    "name": "Name",
+    "icon": "Icon",
+    "save": "Save",
+    "saving": "Saving…",
+    "cancel": "Cancel",
+    "pos": {
+      "title": "Point of sale (POS)",
+      "show": "Show as a filter on the POS",
+      "order": "Order on the POS",
+      "hint": "Decides which categories the POS filter bar shows and in what order (same order: by name). Even when not shown, its products are still sold: found by scanning, searching or under \"All\". Terminals pick it up on their next sync."
+    }
+  },
+  "icons": {
+    "meat": "Meat",
+    "poultry": "Poultry",
+    "fish": "Fish",
+    "wine": "Wine",
+    "drinks": "Drinks",
+    "charcoal": "Charcoal",
+    "grocery": "Grocery",
+    "cleaning": "Cleaning",
+    "bakery": "Bakery",
+    "dairy": "Dairy",
+    "produce": "Produce",
+    "generic": "Generic"
+  },
+  "errors": {
+    "unableToLoad": "The categories could not be loaded.",
+    "unableToSave": "The category could not be saved.",
+    "unableToDelete": "The category could not be deleted.",
+    "nameInUse": "A category with that name already exists.",
+    "inUse": "It cannot be deleted: products still use this category.",
+    "posSortOrder": "The POS order is a whole number from 0 to 9999."
+  },
+  "pos": {
+    "shown": "Shown (order {{order}})",
+    "hidden": "Not shown"
+  }
+}

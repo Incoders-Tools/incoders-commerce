@@ -47,3 +47,11 @@ src/Commerce.Web/playwright/.cache/
 .engram/
 System.Management.Automation.Internal.Host.InternalHost
 src/Commerce.Cloud.Api/Properties/launchSettings.json
+
+# Release signing material and packaging output (never commit; see deploy/release/)
+*.pfx
+*.p12
+*.cer
+*.msix
+*.msixbundle
+artifacts/

@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import { useOptionalAuth } from '@/auth/AuthContext'
-import { getOrganizationThemeOverrides } from './organizationTheme'
+import { useOrganizationBranding } from './OrganizationBrandingProvider'
+import { getOrganizationThemeOverrides, ORG_THEME_OVERRIDE_KEYS } from './organizationTheme'
 
 export type Theme = 'light' | 'dark' | 'custom'
 
@@ -43,6 +44,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const auth = useOptionalAuth()
   const userId = auth?.user?.userId
   const storageKey = storageKeyFor(userId)
+  const { branding } = useOrganizationBranding()
 
   const [theme, setThemeState] = useState<Theme>(() => readStoredTheme(storageKey))
 
@@ -58,11 +60,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const root = document.documentElement
-    // "custom" is a placeholder consumer of org-level tokens until T6 wires
-    // a real organization theme in (see organizationTheme.ts). While
-    // getOrganizationThemeOverrides() returns null, "custom" must render as
-    // a safe fallback to "light" rather than leaving stale/no styling.
-    const overrides = theme === 'custom' ? getOrganizationThemeOverrides() : null
+    // T6: "custom" layers the organization's primaryColor (if any) onto the
+    // light palette — independent of the dark class. No primaryColor (org
+    // has none set, branding failed to load, or a persisted "custom"
+    // preference from before the org ever had a color) means overrides is
+    // null, and "custom" safely renders as plain light instead of a broken
+    // or stale palette.
+    const overrides = theme === 'custom' ? getOrganizationThemeOverrides(branding?.primaryColor ?? null) : null
 
     if (theme === 'dark') {
       root.classList.add('dark')
@@ -70,11 +74,15 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       root.classList.remove('dark')
     }
 
-    // Future T6: when overrides is non-null, inject them as inline CSS
-    // custom properties on `root` (or a generated <style> tag) here instead
-    // of toggling `.dark` — a custom palette is independent of light/dark.
-    void overrides
-  }, [theme])
+    for (const key of ORG_THEME_OVERRIDE_KEYS) {
+      root.style.removeProperty(key)
+    }
+    if (overrides) {
+      for (const [key, value] of Object.entries(overrides)) {
+        root.style.setProperty(key, value)
+      }
+    }
+  }, [theme, branding])
 
   const setTheme = (next: Theme) => {
     setThemeState(next)

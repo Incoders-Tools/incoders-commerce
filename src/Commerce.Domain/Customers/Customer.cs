@@ -41,6 +41,13 @@ public sealed class Customer
     /// </summary>
     public string? BillingInstrumentReference { get; }
     public string? Notes { get; }
+
+    /// <summary>Optional reference to a city of the global core geography (Georef).</summary>
+    public Guid? CityId { get; }
+
+    /// <summary>Optional reference to the organization's business type catalog.</summary>
+    public Guid? BusinessTypeId { get; }
+
     public bool IsEnabled { get; private set; }
     public DateTimeOffset CreatedAtUtc { get; }
     public Guid CreatedByUserId { get; }
@@ -69,7 +76,9 @@ public sealed class Customer
         Guid createdByUserId,
         bool isEnabled = true,
         DateTimeOffset? createdAtUtc = null,
-        string? billingInstrumentReference = null)
+        string? billingInstrumentReference = null,
+        Guid? cityId = null,
+        Guid? businessTypeId = null)
     {
         if (string.IsNullOrWhiteSpace(displayName))
         {
@@ -88,6 +97,19 @@ public sealed class Customer
         if (taxIdType != TaxIdType.None && !hasTaxId)
         {
             throw new ArgumentException("TaxId is required when TaxIdType is not None.", nameof(taxId));
+        }
+
+        // Shape per type, shared with the endpoints: separators (dots, dashes,
+        // spaces) are tolerated and dropped, so what is stored is digits only
+        // whichever path built the customer.
+        if (hasTaxId)
+        {
+            if (!TaxIdRules.TryNormalize(taxIdType, taxId, out var normalizedTaxId, out var taxIdError))
+            {
+                throw new ArgumentException(taxIdError, nameof(taxId));
+            }
+
+            taxId = normalizedTaxId;
         }
 
         // commerce-payments design.md "Customer instrument reference": reject
@@ -121,6 +143,8 @@ public sealed class Customer
         PaymentTerms = paymentTerms;
         BillingInstrumentReference = billingInstrumentReference;
         Notes = notes;
+        CityId = cityId;
+        BusinessTypeId = businessTypeId;
         CreatedByUserId = createdByUserId;
         IsEnabled = isEnabled;
         CreatedAtUtc = createdAtUtc ?? DateTimeOffset.UtcNow;

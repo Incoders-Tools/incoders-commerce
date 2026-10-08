@@ -1,5 +1,7 @@
 using System.Net;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Npgsql;
 
 namespace Commerce.Integration;
@@ -109,7 +111,8 @@ public sealed class PostgresReadinessHealthCheckTests : IClassFixture<WebApplica
                  {
                      "0002_users.sql", "0003_organizations_branches.sql",
                      "0004_device_credentials.sql", "0005_password_recovery.sql",
-                     "0006_role_taxonomy.sql",
+                     "0006_role_taxonomy.sql", "0021_branch_codes.sql", "0022_terminal_registers.sql",
+                     "0024_terminal_registers_assign_result.sql", "0025_orders.sql", "0026_orders_guest_check.sql", "0038_order_line_price_provenance.sql", "0042_staff_order_entry.sql",
                  })
         {
             var sql = File.ReadAllText(Path.Combine(RepoRoot(), "deploy", "db", "migrations", file));
@@ -132,6 +135,13 @@ public sealed class PostgresReadinessHealthCheckTests : IClassFixture<WebApplica
 
         var paymentsSql = File.ReadAllText(Path.Combine(RepoRoot(), "deploy", "db", "migrations", "0011_payments.sql"));
         using (var cmd = new NpgsqlCommand(paymentsSql, owner)) cmd.ExecuteNonQuery();
+
+        foreach (var file in new[] { "0013_rate_components.sql", "0014_rate_component_tenancy.sql" })
+        {
+            var sql = File.ReadAllText(Path.Combine(RepoRoot(), "deploy", "db", "migrations", file));
+            using var cmd = new NpgsqlCommand(sql, owner);
+            cmd.ExecuteNonQuery();
+        }
     }
 
     /// <summary>
@@ -497,5 +507,188 @@ public sealed class PostgresReadinessHealthCheckTests : IClassFixture<WebApplica
         var response = await client.GetAsync("/health/ready");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    /// <summary>
+    /// R4-deploy-order-hard-dependency. Since commerce-price-composition slice
+    /// 2, order pricing reads `rate_component_sets` on EVERY priced line. An
+    /// API deployed ahead of migration `0013` therefore fails every line of
+    /// every order with "relation does not exist", surfacing to the customer
+    /// as an unexplained `no-effective-price` denial — a total ordering outage
+    /// with no signal naming its cause.
+    ///
+    /// Readiness is where that becomes visible: the instance never takes
+    /// traffic, and the unhealthy message names the migration to apply. The
+    /// runbook half of this fix is in design.md; this is the half that does not
+    /// depend on anyone having read it.
+    /// </summary>
+    [Fact]
+    public async Task HealthReady_IsUnhealthy_BeforeRateComponentsMigrationApplied()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            owner.Open();
+            ApplyAllMigrations(owner);
+            using var dropCmd = new NpgsqlCommand(
+                "DROP TABLE IF EXISTS rate_components, rate_component_sets CASCADE", owner);
+            dropCmd.ExecuteNonQuery();
+        }
+
+        try
+        {
+            var client = _factory.CreateClient();
+            var response = await client.GetAsync("/health/ready");
+
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        }
+        finally
+        {
+            using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+            owner.Open();
+            ApplyAllMigrations(owner);
+        }
+    }
+
+    /// <summary>
+    /// R4-001 (human document numbers). Pairing calls `terminal_registers_assign`
+    /// on every request; an API deployed ahead of migration 0022 would answer
+    /// every pairing with a 500. Readiness makes that visible instead.
+    /// </summary>
+    [Theory]
+    [InlineData("DROP FUNCTION IF EXISTS terminal_registers_assign(uuid, uuid, uuid, boolean)")]
+    [InlineData("DROP TABLE IF EXISTS terminal_registers CASCADE")]
+    public async Task HealthReady_IsUnhealthy_BeforeTerminalRegistersMigrationApplied(string drift)
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            owner.Open();
+            ApplyAllMigrations(owner);
+            using var dropCmd = new NpgsqlCommand(drift, owner);
+            dropCmd.ExecuteNonQuery();
+        }
+
+        try
+        {
+            var response = await _factory.CreateClient().GetAsync("/health/ready");
+
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        }
+        finally
+        {
+            using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+            owner.Open();
+            ApplyAllMigrations(owner);
+        }
+    }
+
+    /// <summary>
+    /// A database with 0022's scalar `terminal_registers_assign` but without the result shape of
+    /// 0024 must not take traffic: the API reads `newly_allocated` on every pairing.
+    /// </summary>
+    [Fact]
+    public async Task HealthReady_IsUnhealthy_WhenTheAssignFunctionLacksThe0024ResultShape_AndNamesTheMigration()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            owner.Open();
+            ApplyAllMigrations(owner);
+
+            using var downgrade = new NpgsqlCommand(
+                "DROP FUNCTION terminal_registers_assign(uuid, uuid, uuid, boolean); " +
+                "CREATE FUNCTION terminal_registers_assign(p_organization_id uuid, p_branch_id uuid, p_installation_id uuid, p_release_others boolean DEFAULT true) " +
+                "RETURNS smallint LANGUAGE sql AS 'SELECT 1::smallint';", owner);
+            downgrade.ExecuteNonQuery();
+        }
+
+        try
+        {
+            var logs = new CapturedLogs();
+            var client = _factory
+                .WithWebHostBuilder(b => b.ConfigureServices(services => services.AddSingleton<ILoggerProvider>(logs)))
+                .CreateClient();
+
+            var response = await client.GetAsync("/health/ready");
+
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+            Assert.Contains(logs.Errors, message => message.Contains("migration 0021/0022/0024 missing", StringComparison.Ordinal));
+        }
+        finally
+        {
+            using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+            owner.Open();
+            ApplyAllMigrations(owner);
+        }
+    }
+
+    /// <summary>
+    /// persist-web-orders. Every order submission reads and writes `orders`/`order_lines`; an API
+    /// deployed ahead of migration 0025 would answer each one with a 500 (and lose the order).
+    /// Readiness makes that visible instead and names the migration.
+    /// </summary>
+    [Theory]
+    [InlineData("DROP TABLE IF EXISTS order_lines, orders CASCADE")]
+    [InlineData("DROP TABLE IF EXISTS order_lines")]
+    [InlineData("DROP POLICY IF EXISTS orders_tenant_isolation ON orders")]
+    [InlineData("DROP POLICY IF EXISTS order_lines_tenant_isolation ON order_lines")]
+    [InlineData("ALTER TABLE orders NO FORCE ROW LEVEL SECURITY")]
+    public async Task HealthReady_IsUnhealthy_BeforeOrdersMigrationApplied_AndNamesTheMigration(string drift)
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            owner.Open();
+            ApplyAllMigrations(owner);
+            using var dropCmd = new NpgsqlCommand(drift, owner);
+            dropCmd.ExecuteNonQuery();
+        }
+
+        try
+        {
+            var logs = new CapturedLogs();
+            var client = _factory
+                .WithWebHostBuilder(b => b.ConfigureServices(services => services.AddSingleton<ILoggerProvider>(logs)))
+                .CreateClient();
+
+            var response = await client.GetAsync("/health/ready");
+
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+            Assert.Contains(logs.Errors, message => message.Contains("migration 0025 missing", StringComparison.Ordinal));
+        }
+        finally
+        {
+            using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+            owner.Open();
+            ApplyAllMigrations(owner);
+        }
+    }
+
+    private sealed class CapturedLogs : ILoggerProvider
+    {
+        private readonly System.Collections.Concurrent.ConcurrentQueue<string> _errors = new();
+
+        public IReadOnlyCollection<string> Errors => _errors;
+
+        public ILogger CreateLogger(string categoryName) => new Sink(_errors);
+
+        public void Dispose() { }
+
+        private sealed class Sink(System.Collections.Concurrent.ConcurrentQueue<string> errors) : ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+            public bool IsEnabled(LogLevel logLevel) => true;
+
+            public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+            {
+                if (logLevel == LogLevel.Error) errors.Enqueue(formatter(state, exception));
+            }
+        }
     }
 }

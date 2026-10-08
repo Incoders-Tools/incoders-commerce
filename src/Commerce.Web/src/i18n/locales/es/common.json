@@ -1,0 +1,57 @@
+{
+  "actions": {
+    "save": "Guardar",
+    "cancel": "Cancelar",
+    "close": "Cerrar",
+    "edit": "Editar",
+    "delete": "Eliminar",
+    "create": "Crear",
+    "add": "Agregar",
+    "retry": "Reintentar",
+    "back": "Volver",
+    "confirm": "Confirmar",
+    "search": "Buscar"
+  },
+  "states": {
+    "loading": "Cargando…",
+    "saving": "Guardando…",
+    "empty": "No hay resultados.",
+    "unexpectedError": "Ocurrió un error inesperado."
+  },
+  "app": {
+    "name": "Commerce",
+    "logoAlt": "Logotipo de la organización"
+  },
+  "home": {
+    "tagline": "Gestione su tienda desde un solo lugar.",
+    "goToApp": "Ir a la aplicación",
+    "signIn": "Iniciar sesión"
+  },
+  "dataView": {
+    "loading": "Cargando…",
+    "actions": "Acciones",
+    "tableView": "Vista de tabla",
+    "cardView": "Vista de tarjetas",
+    "view": "Vista",
+    "searchPlaceholder": "Buscar…"
+  },
+  "numberFormat": {
+    "example": {
+      "Comma": "Ej: 1,5",
+      "Dot": "Ej: 1.5"
+    },
+    "errors": {
+      "Comma": "En este negocio los decimales se escriben con coma (ej: 1,5).",
+      "Dot": "En este negocio los decimales se escriben con punto (ej: 1.5)."
+    }
+  },
+  "email": {
+    "invalid": "Ingresá un correo electrónico válido, por ejemplo nombre@dominio.com.",
+    "valid": "Correo electrónico válido"
+  },
+  "unsavedChanges": {
+    "title": "Cambios sin guardar",
+    "discard": "Descartar",
+    "keepEditing": "Seguir editando"
+  }
+}

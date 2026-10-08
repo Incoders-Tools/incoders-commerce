@@ -21,16 +21,18 @@ public sealed class CloudCatalogManagementAdapter
         _managementService = managementService;
     }
 
-    public ManagementOutcome RenameProduct(
+    public Task<ManagementOutcome> RenameProductAsync(
         CloudTenantScope scope,
         UserAccount actor,
         Product product,
         Guid targetBranchId,
         string newName,
         bool isOffline,
-        Guid correlationId) =>
-        _managementService.RenameProduct(
+        Guid correlationId,
+        CancellationToken ct) =>
+        _managementService.RenameProductAsync(
             actor,
             product,
-            new ManagementRequest(scope.OrganizationId, targetBranchId, product.Id, newName, isOffline, correlationId));
+            new ManagementRequest(scope.OrganizationId, targetBranchId, product.Id, newName, isOffline, correlationId),
+            ct);
 }

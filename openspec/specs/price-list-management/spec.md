@@ -80,3 +80,40 @@ NOT remove or alter prior history.
 - GIVEN a caller lacks price-management authorization
 - WHEN they attempt to create a price entry
 - THEN the request is denied and no entry is persisted
+
+### Requirement: Branch-Owned Price Lists
+
+Price lists, their entries, and their rate component sets MUST be owned by
+the selected branch, and each branch MUST have at most one default price
+list. A price entry or rate component set MUST reference a price list and
+presentation of the same branch. Price reads, history, and resolution
+MUST use only the selected branch's lists.
+
+#### Scenario: Ruta 51 and Centro price the same product independently
+
+- GIVEN "Ruta 51" and "Centro" each have their own default price list
+- WHEN "Ruta 51" adds a new entry for one of its presentations
+- THEN Ruta 51's resolved price changes and Centro's does not
+
+### Requirement: Price History Filterable By Date
+
+The price lists screen MUST let an authorized user review historical
+prices of the selected branch by date: choosing a date (or a date range)
+MUST show the price each presentation had in effect on that date, using
+the same effective-date resolution as "Resolution By Effective Date".
+Without a date filter it MUST show the prices in effect now. Filtering
+MUST be read-only and MUST NOT alter history.
+
+#### Scenario: Reviewing Ruta 51 prices as of a past date
+
+- GIVEN a presentation in "Ruta 51" cost 1000 from March 1 and 1200 from
+  June 1
+- WHEN an admin filters the price list by May 15
+- THEN the presentation shows 1000, and filtering by today shows 1200
+
+#### Scenario: A range shows every change inside it
+
+- GIVEN the same presentation
+- WHEN an admin filters from May 1 to June 30
+- THEN both the March 1 entry in effect at the range start and the
+  June 1 change are listed in effective-date order

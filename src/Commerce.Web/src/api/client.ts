@@ -1,3 +1,14 @@
+import i18next from '@/i18n'
+import { getSelectedBranchId } from '@/branch/BranchContext'
+import { getSelectedOrganizationId } from '@/organization/OrganizationContext'
+
+// Not a React component: this module runs plain i18next (the singleton
+// `initReactI18next` initializes in `main.tsx`/`test/setup.ts`) rather than
+// the `useTranslation` hook, since `apiFetch` executes outside render.
+function t(key: 'apiUnreachable' | 'requestFailedWithStatus', options?: Record<string, unknown>): string {
+  return i18next.t(`errors:${key}`, options)
+}
+
 /**
  * Thin same-origin fetch wrapper. `credentials: 'include'` sends the
  * HttpOnly/Secure/SameSite=Lax Identity cookie Cloud.Api sets at sign-in
@@ -6,11 +17,39 @@
  */
 export class ApiError extends Error {
   readonly status: number
+  /** Machine code from a typed `{ "error": "<code>" }` body, when the server sent one. */
+  readonly code?: string
+  /** Field errors of a 400 ValidationProblem (`errors[field]`), keyed as the server names the field. */
+  readonly fieldErrors?: Record<string, string[]>
+  /** The parsed JSON error body, for typed 409s that carry data (e.g. floor violations). */
+  readonly body?: unknown
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, code?: string, fieldErrors?: Record<string, string[]>, body?: unknown) {
     super(message)
     this.name = 'ApiError'
     this.status = status
+    this.code = code
+    this.fieldErrors = fieldErrors
+    this.body = body
+  }
+}
+
+/**
+ * platform-administration spec, "Sysadmin Acts On A Selected Organization",
+ * and admin-console spec, "Top Navbar Branch Switcher": attaches
+ * `X-Organization-Id` when a system administrator has selected a target
+ * organization (`organization/OrganizationContext.tsx`) and `X-Branch-Id`
+ * when a branch is selected (`branch/BranchContext.tsx`), alongside each
+ * other. The server honors either header only for a caller entitled to use
+ * it and ignores it otherwise — this client never decides that, it only
+ * reflects the current UI selection.
+ */
+function tenantHeaders(): HeadersInit {
+  const organizationId = getSelectedOrganizationId()
+  const branchId = getSelectedBranchId()
+  return {
+    ...(organizationId ? { 'X-Organization-Id': organizationId } : {}),
+    ...(branchId ? { 'X-Branch-Id': branchId } : {}),
   }
 }
 
@@ -25,24 +64,37 @@ export async function apiFetch<TResponse>(
       credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
+        ...tenantHeaders(),
         ...init?.headers,
       },
     })
   } catch {
     // Network-level failure: API unreachable (spec.md "API unreachable"
     // scenario) — surfaced as a typed error the caller renders visibly.
-    throw new ApiError('Commerce.Cloud.Api is unreachable.', 0)
+    throw new ApiError(t('apiUnreachable'), 0)
   }
 
   if (!response.ok) {
     let detail = response.statusText
+    let code: string | undefined
+    let fieldErrors: Record<string, string[]> | undefined
+    let parsedBody: unknown
     try {
       const body = await response.json()
+      parsedBody = body
       detail = body?.title ?? body?.detail ?? JSON.stringify(body)
+      if (typeof body?.error === 'string') code = body.error
+      if (body?.errors && typeof body.errors === 'object') fieldErrors = body.errors
     } catch {
       // Non-JSON error body; fall back to statusText.
     }
-    throw new ApiError(detail || `Request failed with status ${response.status}`, response.status)
+    throw new ApiError(
+      detail || t('requestFailedWithStatus', { status: response.status }),
+      response.status,
+      code,
+      fieldErrors,
+      parsedBody,
+    )
   }
 
   if (response.status === 204) {
@@ -64,10 +116,11 @@ export async function apiFetchForm<TResponse>(path: string, formData: FormData):
     response = await fetch(path, {
       method: 'POST',
       credentials: 'include',
+      headers: tenantHeaders(),
       body: formData,
     })
   } catch {
-    throw new ApiError('Commerce.Cloud.Api is unreachable.', 0)
+    throw new ApiError(t('apiUnreachable'), 0)
   }
 
   if (!response.ok) {
@@ -78,7 +131,7 @@ export async function apiFetchForm<TResponse>(path: string, formData: FormData):
     } catch {
       // Non-JSON error body; fall back to statusText.
     }
-    throw new ApiError(detail || `Request failed with status ${response.status}`, response.status)
+    throw new ApiError(detail || t('requestFailedWithStatus', { status: response.status }), response.status)
   }
 
   return (await response.json()) as TResponse
@@ -112,11 +165,12 @@ export async function apiFetchOutcome<TOutcome>(
       credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
+        ...tenantHeaders(),
         ...init?.headers,
       },
     })
   } catch {
-    throw new ApiError('Commerce.Cloud.Api is unreachable.', 0)
+    throw new ApiError(t('apiUnreachable'), 0)
   }
 
   const rawBody = await response.text()
@@ -136,5 +190,5 @@ export async function apiFetchOutcome<TOutcome>(
   } catch {
     // Non-JSON error body; fall back to statusText.
   }
-  throw new ApiError(detail || `Request failed with status ${response.status}`, response.status)
+  throw new ApiError(detail || t('requestFailedWithStatus', { status: response.status }), response.status)
 }

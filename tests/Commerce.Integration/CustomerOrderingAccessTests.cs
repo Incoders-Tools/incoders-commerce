@@ -74,6 +74,8 @@ public sealed class CustomerOrderingAccessTests : IDisposable
         Apply("0002_users.sql");
         Apply("0003_organizations_branches.sql");
         Apply("0004_device_credentials.sql");
+        Apply("0022_terminal_registers.sql");
+        Apply("0024_terminal_registers_assign_result.sql");
         Apply("0005_password_recovery.sql");
         Apply("0006_role_taxonomy.sql");
         Apply("0007_platform_administration.sql", "__PLATFORM_READONLY_PASSWORD__", "dev-only-platform-readonly-password");
@@ -114,10 +116,12 @@ public sealed class CustomerOrderingAccessTests : IDisposable
         var accessStore = new PostgresCustomerOrderingAccessStore(_dataSource!);
         var accessService = new CustomerCatalogAccessService(accessStore, auditSink);
         var customerStore = new PostgresCustomerStore(_dataSource!);
-        var orderStore = new CloudOrderStore();
+        var orderStore = new InMemoryOrderStore();
         var catalogStore = new PostgresCatalogStore(_dataSource!);
         var priceListStore = new PostgresPriceListStore(_dataSource!);
-        var submissionService = new CloudOrderSubmissionService(accessService, customerStore, orderStore, catalogStore, priceListStore);
+        var submissionService = new CloudOrderSubmissionService(
+            accessService, customerStore, orderStore, catalogStore, priceListStore,
+            new PostgresRateComponentStore(_dataSource!));
         return (accessService, submissionService, accessStore, auditSink);
     }
 

@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -6,11 +7,13 @@ import { DataToolbar } from '@/components/data/DataToolbar'
 import { DataView, type DataViewColumn } from '@/components/data/DataView'
 import { PageHeader } from '@/components/data/PageHeader'
 import { useViewPreference } from '@/components/data/useViewPreference'
-import { PriceHistory } from './PriceHistory'
+import { PriceListBreakdownPage } from './PriceListBreakdownPage'
+import { CompositionForm } from './CompositionForm'
+import { CopyPriceListForm } from './CopyPriceListForm'
+import { DiscardEditsDialog, PriceEditorTab } from './PriceEditorTab'
 import { ImportReviewTable, type ImportReviewRow } from './ImportReviewTable'
 import { listPresentations } from '@/api/catalog'
 import {
-  appendEntry,
   commitImport,
   createPriceList,
   createSupplierMapping,
@@ -21,18 +24,34 @@ import {
   uploadImport,
 } from '@/api/pricing'
 import { ApiError } from '@/api/client'
+import { useMissingBranch } from '@/branch/useMissingBranch'
 import type { PresentationRecord, PriceListRecord, SupplierPriceMappingRecord } from '@/api/types'
 
-type Tab = 'prices' | 'suppliers' | 'import'
+type Tab = 'prices' | 'edit' | 'suppliers' | 'import'
+
+/** The composition pages of one list, each a full-screen page. */
+type CompositionPage = {
+  kind: 'breakdown' | 'composition' | 'copy'
+  listId: string
+  notice?: string
+  /** The composition was opened from "Editar precios": leaving it goes back there. */
+  fromEditor?: boolean
+}
+
+/**
+ * The sections offered. Suppliers and Import stay in the code but are hidden for now: the business does not use them
+ * yet (their tabs come back by adding them here).
+ */
+const VISIBLE_TABS = ['prices', 'edit'] as const
 
 function formatCreatedAt(value: string): string {
   const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? '—' : parsed.toLocaleDateString()
+  return Number.isNaN(parsed.getTime()) ? '—' : parsed.toLocaleDateString('es-AR')
 }
 
 /**
  * design.md "Web: `PriceListsScreen` under the existing `RequireAdmin`":
- * three sections on one screen. Reachable only through the existing
+ * four sections on one screen. Reachable only through the existing
  * `RequireAdmin` (App.tsx `/app/price-lists`) — no new guard component. The
  * server's `ManageCatalog` check on every `/pricing` call remains the real
  * gate (see `Endpoints/Pricing.cs`'s remarks on the
@@ -43,27 +62,42 @@ function formatCreatedAt(value: string): string {
  * primary one — the organization's price lists — goes through `DataView`
  * (columns from `PriceListRecord`, `view:price-lists` preference, client-side
  * search over what `GET /pricing/price-lists` already returned). The prices
- * held BY the selected list are a detail panel below it, not a second
- * table/card grid: one view switch cannot sensibly own two grids, and the
- * nested surface is per-presentation history plus a publish form rather than
- * a flat record list.
+ * held BY a list live in their own tab, not in a second table/card grid
+ * under the same view switch.
+ *
+ * T9 moved the per-presentation prices to a full-screen detail page. The
+ * price editing redesign (odd/tasks/price-editing-and-desktop-polish.md, T3)
+ * replaced that page with the "Editar precios" tab (`PriceEditorTab`): a grid
+ * of every product of one list, edited one by one or remarked by a
+ * percentage and published as one batch. "Gestionar precios" on a list row
+ * now opens that tab with the row's list preselected.
  */
 export function PriceListsScreen() {
+  const { t } = useTranslation('priceLists')
+  // Price lists (and every page reached from here) are branch-owned: without
+  // a selected branch the API answers 400 `branch-selection-required`, so the
+  // screen asks for one instead.
+  const missingBranch = useMissingBranch()
   const [tab, setTab] = useState<Tab>('prices')
   const [priceLists, setPriceLists] = useState<PriceListRecord[]>([])
   const [presentations, setPresentations] = useState<PresentationRecord[]>([])
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(!missingBranch)
   // Split exactly as T4b's screens do: only a failed LOAD may tell the
   // operator the collection could not be read. A failed action says nothing
   // about whether price lists exist.
   const [loadError, setLoadError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
-  const [selectedListId, setSelectedListId] = useState<string | null>(null)
-  const [publishingFor, setPublishingFor] = useState<string | null>(null)
+  // The list the "Editar precios" tab edits; null until chosen there, or preselected by "Gestionar precios".
+  const [editorListId, setEditorListId] = useState<string | null>(null)
+  // Unpublished edits in "Editar precios": leaving the tab asks first, and the tab waits in `pendingTab`.
+  const [editorDirtyCount, setEditorDirtyCount] = useState(0)
+  const [pendingTab, setPendingTab] = useState<Tab | null>(null)
+  const [page, setPage] = useState<CompositionPage | null>(null)
   const [search, setSearch] = useState('')
   const [view, setView] = useViewPreference('price-lists')
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
+    if (missingBranch) return
     setLoading(true)
     setLoadError(null)
     try {
@@ -71,21 +105,18 @@ export function PriceListsScreen() {
       setPriceLists(lists)
       setPresentations(items)
     } catch (err) {
-      setLoadError(err instanceof ApiError ? err.message : 'Unexpected error loading price lists.')
+      setLoadError(err instanceof ApiError ? err.message : t('errors.unexpectedLoad'))
     } finally {
       setLoading(false)
     }
-  }
+  }, [t, missingBranch])
 
   useEffect(() => {
     void refresh()
-  }, [])
+  }, [refresh])
 
   const defaultPriceList = priceLists.find((list) => list.isDefault) ?? null
-  // Derived, not stored: the operator's pick wins, otherwise the default list
-  // opens by itself (an organization normally has exactly one).
-  const selectedList =
-    priceLists.find((list) => list.id === selectedListId) ?? defaultPriceList ?? priceLists[0] ?? null
+  const editedListId = editorListId ?? defaultPriceList?.id ?? priceLists[0]?.id ?? null
 
   const handleCreateDefault = async () => {
     setActionError(null)
@@ -93,7 +124,7 @@ export function PriceListsScreen() {
       const created = await createPriceList({ name: 'Default', isDefault: true })
       setPriceLists((current) => [...current, created])
     } catch (err) {
-      setActionError(err instanceof ApiError ? err.message : 'Unexpected error creating the default price list.')
+      setActionError(err instanceof ApiError ? err.message : t('errors.unexpectedCreateDefault'))
     }
   }
 
@@ -104,27 +135,88 @@ export function PriceListsScreen() {
   }, [priceLists, trimmedSearch])
 
   const columns: DataViewColumn<PriceListRecord>[] = [
-    { key: 'name', header: 'Name', cell: (list) => list.name },
+    { key: 'name', header: t('columns.name'), cell: (list) => list.name },
     // "Is default", not "Default": a list is also commonly NAMED "Default",
     // and a header identical to a cell value elsewhere in the same table
     // makes both the screen and its tests ambiguous.
-    { key: 'isDefault', header: 'Is default', cell: (list) => (list.isDefault ? 'Yes' : 'No') },
+    {
+      key: 'isDefault',
+      header: t('columns.isDefault'),
+      cell: (list) => (list.isDefault ? t('columns.yes') : t('columns.no')),
+    },
     {
       key: 'createdAtUtc',
-      header: 'Created',
+      header: t('columns.created'),
       cell: (list) => formatCreatedAt(list.createdAtUtc),
       hideOnMobile: true,
     },
   ]
 
+  if (missingBranch) {
+    return (
+      <section className="flex w-full flex-col gap-6">
+        <PageHeader title={t('title')} description={t('description')} />
+        <p role="status" className="rounded-lg border border-border bg-card px-4 py-10 text-center text-sm text-muted-foreground">
+          {t('branchRequired')}
+        </p>
+      </section>
+    )
+  }
+
+  const pageList = priceLists.find((list) => list.id === page?.listId) ?? null
+  if (page && pageList) {
+    const toBreakdown = () => setPage({ kind: 'breakdown', listId: pageList.id })
+    if (page.kind === 'composition') {
+      const back = page.fromEditor
+        ? () => {
+            setPage(null)
+            setEditorListId(pageList.id)
+            setTab('edit')
+          }
+        : toBreakdown
+      return <CompositionForm priceList={pageList} onBack={back} onPublished={back} />
+    }
+    if (page.kind === 'copy') {
+      return (
+        <CopyPriceListForm
+          source={pageList}
+          priceLists={priceLists}
+          onBack={() => setPage(null)}
+          onCopied={(result) => {
+            setPriceLists((current) => [...current, result.priceList])
+            setPage({
+              kind: 'breakdown',
+              listId: result.priceList.id,
+              notice: t('breakdown.copied', { count: result.entriesCopied }),
+            })
+          }}
+        />
+      )
+    }
+    return (
+      <PriceListBreakdownPage
+        // Another list (after a copy) is a fresh page: its own date, history and floor state.
+        key={pageList.id}
+        priceList={pageList}
+        priceLists={priceLists}
+        notice={page.notice}
+        onBack={() => setPage(null)}
+        onEditComposition={() => setPage({ kind: 'composition', listId: pageList.id })}
+        onListChanged={(changed) =>
+          setPriceLists((current) => current.map((list) => (list.id === changed.id ? changed : list)))
+        }
+      />
+    )
+  }
+
   return (
     <section className="flex w-full flex-col gap-6">
       <PageHeader
-        title="Price lists"
-        description="Published prices per presentation, and the supplier import that feeds them."
+        title={t('title')}
+        description={t('description')}
         actions={
           !loading && loadError === null && defaultPriceList === null ? (
-            <Button onClick={() => void handleCreateDefault()}>Create default price list</Button>
+            <Button onClick={() => void handleCreateDefault()}>{t('createDefault')}</Button>
           ) : null
         }
       />
@@ -140,16 +232,21 @@ export function PriceListsScreen() {
         </p>
       )}
 
-      <nav aria-label="Price list sections" className="flex gap-2">
-        <Button variant={tab === 'prices' ? 'default' : 'outline'} size="sm" onClick={() => setTab('prices')}>
-          Prices
-        </Button>
-        <Button variant={tab === 'suppliers' ? 'default' : 'outline'} size="sm" onClick={() => setTab('suppliers')}>
-          Suppliers
-        </Button>
-        <Button variant={tab === 'import' ? 'default' : 'outline'} size="sm" onClick={() => setTab('import')}>
-          Import
-        </Button>
+      <nav aria-label={t('sectionsNav.label')} className="flex gap-2">
+        {VISIBLE_TABS.map((section) => (
+          <Button
+            key={section}
+            variant={tab === section ? 'default' : 'outline'}
+            size="sm"
+            aria-pressed={tab === section}
+            onClick={() => {
+              if (tab === 'edit' && section !== 'edit' && editorDirtyCount > 0) setPendingTab(section)
+              else setTab(section)
+            }}
+          >
+            {t(`sectionsNav.${section}`)}
+          </Button>
+        ))}
       </nav>
 
       {tab === 'prices' && (
@@ -157,8 +254,8 @@ export function PriceListsScreen() {
           <DataToolbar
             searchValue={search}
             onSearchChange={setSearch}
-            searchLabel="Search price lists"
-            searchPlaceholder="Search by name…"
+            searchLabel={t('search.label')}
+            searchPlaceholder={t('search.placeholder')}
             view={view}
             onViewChange={setView}
           />
@@ -169,196 +266,63 @@ export function PriceListsScreen() {
             getRowKey={(list) => list.id}
             view={view}
             loading={loading}
-            loadErrorMessage={loadError ? 'The price lists could not be loaded.' : null}
-            emptyMessage={
-              priceLists.length === 0 ? 'No price lists yet.' : 'No price lists match this search.'
-            }
-            renderActions={(list) =>
-              selectedList?.id === list.id ? (
-                <span className="text-xs text-muted-foreground">Prices shown below</span>
-              ) : (
+            loadErrorMessage={loadError ? t('empty.loadError') : null}
+            emptyMessage={priceLists.length === 0 ? t('empty.none') : t('empty.noMatch')}
+            renderActions={(list) => (
+              <>
+                <Button type="button" variant="outline" size="sm" onClick={() => setPage({ kind: 'breakdown', listId: list.id })}>
+                  {t('actions.composition')}
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => setPage({ kind: 'copy', listId: list.id })}>
+                  {t('actions.copy')}
+                </Button>
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
                   onClick={() => {
-                    setSelectedListId(list.id)
-                    setPublishingFor(null)
+                    setEditorListId(list.id)
+                    setTab('edit')
                   }}
                 >
-                  Manage prices
+                  {t('actions.managePrices')}
                 </Button>
-              )
-            }
+              </>
+            )}
           />
-
-          {selectedList && (
-            <PriceListEntries
-              priceList={selectedList}
-              presentations={presentations}
-              publishingFor={publishingFor}
-              setPublishingFor={setPublishingFor}
-            />
-          )}
         </>
+      )}
+
+      {tab === 'edit' && (
+        <PriceEditorTab
+          priceLists={priceLists}
+          presentations={presentations}
+          priceListId={editedListId}
+          onPriceListChange={setEditorListId}
+          onDirtyChange={setEditorDirtyCount}
+          onEditComposition={(listId) => setPage({ kind: 'composition', listId, fromEditor: true })}
+        />
+      )}
+
+      {pendingTab !== null && (
+        <DiscardEditsDialog
+          count={editorDirtyCount}
+          onDiscard={() => {
+            setTab(pendingTab)
+            setPendingTab(null)
+          }}
+          onKeepEditing={() => setPendingTab(null)}
+        />
       )}
 
       {tab === 'suppliers' && (
         <p className="text-sm text-muted-foreground">
-          Supplier mappings (column mapping for Excel imports) land here in a future release — the
-          `supplier_price_mappings` table does not exist yet.
+          {t('suppliersPlaceholder')}
         </p>
       )}
 
       {tab === 'import' && <ImportTab />}
     </section>
-  )
-}
-
-/**
- * The nested surface: the price entries (`PriceListEntryRecord`) the selected
- * list holds, reached per presentation through `PriceHistory`, plus the
- * publish form. Deliberately NOT a second `DataView` — see the screen's own
- * remark above.
- */
-function PriceListEntries({
-  priceList,
-  presentations,
-  publishingFor,
-  setPublishingFor,
-}: {
-  priceList: PriceListRecord
-  presentations: PresentationRecord[]
-  publishingFor: string | null
-  setPublishingFor: (presentationId: string | null) => void
-}) {
-  return (
-    <section
-      data-testid="price-list-entries"
-      className="flex w-full flex-col gap-3 rounded-lg border border-border bg-card p-4"
-    >
-      <div>
-        <h2 className="text-lg font-semibold">Prices in {priceList.name}</h2>
-        <p className="text-sm text-muted-foreground">
-          Each presentation&apos;s published entries, newest effective date first.
-        </p>
-      </div>
-
-      {presentations.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No presentations yet.</p>
-      ) : (
-        <ul className="flex flex-col gap-3">
-          {presentations.map((presentation) => (
-            <li key={presentation.id} className="border-b border-border pb-3 last:border-0 last:pb-0">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="font-medium break-words">{presentation.name}</p>
-                  <p className="text-xs text-muted-foreground">{presentation.identificationCode ?? 'No code'}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <PriceHistory priceListId={priceList.id} presentationId={presentation.id} />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setPublishingFor(publishingFor === presentation.id ? null : presentation.id)}
-                  >
-                    New price
-                  </Button>
-                </div>
-              </div>
-              {publishingFor === presentation.id && (
-                <NewPriceForm
-                  priceListId={priceList.id}
-                  presentationId={presentation.id}
-                  onCancel={() => setPublishingFor(null)}
-                  onPublished={() => setPublishingFor(null)}
-                />
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
-  )
-}
-
-function NewPriceForm({
-  priceListId,
-  presentationId,
-  onCancel,
-  onPublished,
-}: {
-  priceListId: string
-  presentationId: string
-  onCancel: () => void
-  onPublished: () => void
-}) {
-  const [unitPrice, setUnitPrice] = useState('')
-  const [effectiveFrom, setEffectiveFrom] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [submitting, setSubmitting] = useState(false)
-
-  const handleSubmit = async (event: FormEvent) => {
-    event.preventDefault()
-    setError(null)
-    setSubmitting(true)
-    try {
-      await appendEntry(priceListId, {
-        presentationId,
-        unitPrice: Number(unitPrice),
-        effectiveFrom,
-      })
-      onPublished()
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Unexpected error publishing the price.')
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  return (
-    <form className="mt-2 flex flex-wrap items-end gap-2" onSubmit={handleSubmit}>
-      <div className="flex flex-col gap-1.5">
-        {/* Neutral label on purpose. `openspec/changes/commerce-price-composition`
-            (proposed, NOT implemented) turns `PriceListEntry.unitPrice` into a
-            BASE price, with the sellable price derived from the list's rate
-            components (IVA, IB, freight, markup). When that lands, this label —
-            and `PriceHistory`'s rendering of the same field — is what has to
-            change. Until then the screen shows the stored figure only, with no
-            derived column, tax breakdown or total. */}
-        <Label htmlFor={`unitPrice-${presentationId}`}>Unit price</Label>
-        <Input
-          id={`unitPrice-${presentationId}`}
-          type="number"
-          step="0.01"
-          value={unitPrice}
-          onChange={(e) => setUnitPrice(e.target.value)}
-          required
-        />
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor={`effectiveFrom-${presentationId}`}>Effective from</Label>
-        <Input
-          id={`effectiveFrom-${presentationId}`}
-          type="date"
-          value={effectiveFrom}
-          onChange={(e) => setEffectiveFrom(e.target.value)}
-          required
-        />
-      </div>
-      {error && (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
-      )}
-      <Button type="submit" size="sm" disabled={submitting}>
-        {submitting ? 'Publishing…' : 'Publish'}
-      </Button>
-      <Button type="button" variant="outline" size="sm" onClick={onCancel} disabled={submitting}>
-        Cancel
-      </Button>
-    </form>
   )
 }
 
@@ -385,6 +349,7 @@ function toReviewRows(rows: { rowNumber: number; rawCode: string | null; present
  * a full Suppliers CRUD screen the design does not otherwise require here.
  */
 function ImportTab() {
+  const { t } = useTranslation('priceLists')
   const [mappings, setMappings] = useState<SupplierPriceMappingRecord[] | null>(null)
   const [selectedMappingId, setSelectedMappingId] = useState('')
   const [file, setFile] = useState<File | null>(null)
@@ -403,7 +368,10 @@ function ImportTab() {
           setSelectedMappingId(list[0].id)
         }
       })
-      .catch((err) => setError(err instanceof ApiError ? err.message : 'Unexpected error loading supplier mappings.'))
+      .catch((err) => setError(err instanceof ApiError ? err.message : t('errors.unexpectedLoadSupplierMappings')))
+    // Mount-only: matches the original one-shot fetch; `t` is a stable
+    // reference from react-i18next.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const handleUpload = async () => {
@@ -419,7 +387,7 @@ function ImportTab() {
       setBatchId(batch.id)
       setRows(toReviewRows(detail.rows))
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Unexpected error uploading the file.')
+      setError(err instanceof ApiError ? err.message : t('errors.unexpectedUpload'))
     } finally {
       setUploading(false)
     }
@@ -435,7 +403,7 @@ function ImportTab() {
       const result = await commitImport(batchId)
       setResolvedStatus(result.status)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Unexpected error committing the batch.')
+      setError(err instanceof ApiError ? err.message : t('errors.unexpectedCommit'))
     } finally {
       setCommitting(false)
     }
@@ -451,14 +419,14 @@ function ImportTab() {
       const result = await rejectImport(batchId)
       setResolvedStatus(result.status)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Unexpected error rejecting the batch.')
+      setError(err instanceof ApiError ? err.message : t('errors.unexpectedReject'))
     } finally {
       setCommitting(false)
     }
   }
 
   if (mappings === null) {
-    return <p>Loading…</p>
+    return <p>{t('import.loading')}</p>
   }
 
   return (
@@ -477,7 +445,7 @@ function ImportTab() {
       ) : (
         <div className="flex flex-wrap items-end gap-2">
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="import-supplier">Supplier</Label>
+            <Label htmlFor="import-supplier">{t('import.supplierLabel')}</Label>
             <select
               id="import-supplier"
               className="h-9 rounded-md border border-input px-2 text-sm"
@@ -492,7 +460,7 @@ function ImportTab() {
             </select>
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="import-file">File</Label>
+            <Label htmlFor="import-file">{t('import.fileLabel')}</Label>
             <input
               id="import-file"
               type="file"
@@ -501,12 +469,15 @@ function ImportTab() {
             />
           </div>
           <Button type="button" size="sm" onClick={() => void handleUpload()} disabled={!file || uploading}>
-            {uploading ? 'Uploading…' : 'Upload'}
+            {uploading ? t('import.uploading') : t('import.upload')}
           </Button>
         </div>
       )}
 
-      {resolvedStatus && <p>Batch {resolvedStatus.toLowerCase()}.</p>}
+      {/* `resolvedStatus` is the raw server-returned batch status word
+          (e.g. "Committed"/"Rejected"); left untranslated like other
+          server-driven values, only the surrounding sentence is localized. */}
+      {resolvedStatus && <p>{t('import.batchStatus', { status: resolvedStatus.toLowerCase() })}</p>}
 
       <ImportReviewTable
         rows={rows}
@@ -519,6 +490,7 @@ function ImportTab() {
 }
 
 function CreateSupplierMappingInline({ onCreated }: { onCreated: (created: SupplierPriceMappingRecord) => void }) {
+  const { t } = useTranslation('priceLists')
   const [supplierName, setSupplierName] = useState('')
   const [sheetName, setSheetName] = useState('')
   const [headerRow, setHeaderRow] = useState('1')
@@ -541,7 +513,7 @@ function CreateSupplierMappingInline({ onCreated }: { onCreated: (created: Suppl
       })
       onCreated(created)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Unexpected error saving the supplier mapping.')
+      setError(err instanceof ApiError ? err.message : t('errors.unexpectedSaveMapping'))
     } finally {
       setSubmitting(false)
     }
@@ -549,26 +521,26 @@ function CreateSupplierMappingInline({ onCreated }: { onCreated: (created: Suppl
 
   return (
     <form className="flex flex-col gap-3" onSubmit={handleSubmit}>
-      <p className="text-sm text-muted-foreground">No supplier mapping exists yet — configure one before importing.</p>
+      <p className="text-sm text-muted-foreground">{t('import.createMapping.explanation')}</p>
       <div className="flex flex-wrap gap-2">
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="supplier-name">Supplier name</Label>
+          <Label htmlFor="supplier-name">{t('import.createMapping.supplierNameLabel')}</Label>
           <Input id="supplier-name" value={supplierName} onChange={(e) => setSupplierName(e.target.value)} required />
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="sheet-name">Sheet name</Label>
+          <Label htmlFor="sheet-name">{t('import.createMapping.sheetNameLabel')}</Label>
           <Input id="sheet-name" value={sheetName} onChange={(e) => setSheetName(e.target.value)} required />
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="header-row">Header row</Label>
+          <Label htmlFor="header-row">{t('import.createMapping.headerRowLabel')}</Label>
           <Input id="header-row" type="number" min={1} value={headerRow} onChange={(e) => setHeaderRow(e.target.value)} required />
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="code-column">Code column</Label>
+          <Label htmlFor="code-column">{t('import.createMapping.codeColumnLabel')}</Label>
           <Input id="code-column" value={codeColumn} onChange={(e) => setCodeColumn(e.target.value)} required />
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="price-column">Price column</Label>
+          <Label htmlFor="price-column">{t('import.createMapping.priceColumnLabel')}</Label>
           <Input id="price-column" value={priceColumn} onChange={(e) => setPriceColumn(e.target.value)} required />
         </div>
       </div>
@@ -579,7 +551,7 @@ function CreateSupplierMappingInline({ onCreated }: { onCreated: (created: Suppl
       )}
       <div>
         <Button type="submit" size="sm" disabled={submitting}>
-          {submitting ? 'Saving…' : 'Save mapping'}
+          {submitting ? t('import.createMapping.saving') : t('import.createMapping.save')}
         </Button>
       </div>
     </form>

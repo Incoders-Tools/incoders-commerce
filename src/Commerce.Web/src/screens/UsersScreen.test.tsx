@@ -2,13 +2,30 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { UsersScreen } from './UsersScreen'
+import { AuthContext } from '@/auth/AuthContext'
+import { BranchContext } from '@/branch/BranchContext'
 import type { UserSummary } from '@/api/types'
+
+const ruta51 = { id: 'branch-a', name: 'Ruta 51', code: 1 }
+const centro = { id: 'branch-b', name: 'Centro', code: 2 }
+
+/** Renders the screen inside a branch context, as the app shell does. */
+function renderScreen(selected: { id: string; name: string; code: number } | null = ruta51) {
+  return render(
+    <BranchContext.Provider
+      value={{ selectedBranch: selected, selectableBranches: [ruta51, centro], selectBranch: () => {} }}
+    >
+      <UsersScreen />
+    </BranchContext.Provider>,
+  )
+}
 
 const seller: UserSummary = {
   userId: 'user-1',
   email: 'staff@example.com',
   roleNames: ['seller'],
   isRevoked: false,
+  branchIds: ['branch-a'],
 }
 
 // T4b: a second record with different values in every asserted column, so the
@@ -18,6 +35,7 @@ const revokedProvider: UserSummary = {
   email: 'supplier@vendor.test',
   roleNames: ['provider'],
   isRevoked: true,
+  branchIds: [],
 }
 
 describe('UsersScreen', () => {
@@ -37,11 +55,11 @@ describe('UsersScreen', () => {
     listOnce([seller]).mockResolvedValueOnce(new Response(null, { status: 204 }))
 
     const user = userEvent.setup()
-    render(<UsersScreen />)
+    renderScreen()
 
     await screen.findByText('staff@example.com')
-    await user.type(screen.getByLabelText('Replacement password for staff@example.com'), 'Unique-Password-42!')
-    await user.click(screen.getByRole('button', { name: 'Force reset' }))
+    await user.type(screen.getByLabelText('Contraseña de reemplazo para staff@example.com'), 'Unique-Password-42!')
+    await user.click(screen.getByRole('button', { name: 'Forzar restablecimiento' }))
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
     expect(fetchMock.mock.calls[1][0]).toBe('/account/users/user-1/reset-password')
@@ -52,27 +70,27 @@ describe('UsersScreen', () => {
     listOnce([seller])
 
     const user = userEvent.setup()
-    render(<UsersScreen />)
+    renderScreen()
 
     await screen.findByText('staff@example.com')
-    await user.click(screen.getByRole('button', { name: 'Force reset' }))
+    await user.click(screen.getByRole('button', { name: 'Forzar restablecimiento' }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/replacement password/i)
+    expect(await screen.findByRole('alert')).toHaveTextContent(/contraseña de reemplazo/i)
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
-  it('creates a user from the always-visible create form and refreshes the list', async () => {
+  it('creates a user with the selected branch from the always-visible create form and refreshes the list', async () => {
     listOnce([])
       .mockResolvedValueOnce(new Response(JSON.stringify({ userId: 'user-2' }), { status: 201 }))
     listOnce([seller])
 
     const user = userEvent.setup()
-    render(<UsersScreen />)
+    renderScreen()
 
-    await screen.findByText('No users yet.')
-    await user.type(screen.getByLabelText('User email'), 'staff@example.com')
-    await user.type(screen.getByLabelText('User password'), 'correct-horse-battery-staple')
-    await user.click(screen.getByRole('button', { name: 'Create user' }))
+    await screen.findByText('Todavía no hay usuarios.')
+    await user.type(screen.getByLabelText('Correo electrónico del usuario'), 'staff@example.com')
+    await user.type(screen.getByLabelText('Contraseña del usuario'), 'correct-horse-battery-staple')
+    await user.click(screen.getByRole('button', { name: 'Crear usuario' }))
 
     await screen.findByText('staff@example.com')
     expect(fetchMock.mock.calls[1][0]).toBe('/account/users')
@@ -80,8 +98,27 @@ describe('UsersScreen', () => {
       email: 'staff@example.com',
       password: 'correct-horse-battery-staple',
       roleNames: ['seller'],
-      branchIds: [],
+      branchIds: ['branch-a'],
     })
+  })
+
+  it('checks the new user email while typing and does not create while it is invalid', async () => {
+    listOnce([])
+
+    const user = userEvent.setup()
+    renderScreen()
+
+    await screen.findByText('Todavía no hay usuarios.')
+    const email = screen.getByLabelText('Correo electrónico del usuario')
+    await user.type(email, 'staff@example')
+    await user.type(screen.getByLabelText('Contraseña del usuario'), 'correct-horse-battery-staple')
+    await user.click(screen.getByRole('button', { name: 'Crear usuario' }))
+
+    expect(email).toHaveAttribute('aria-invalid', 'true')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    await user.type(email, '.com')
+    expect(email).toHaveAccessibleDescription('Correo electrónico válido')
   })
 
   it('saves the selected roles for a listed user', async () => {
@@ -89,10 +126,10 @@ describe('UsersScreen', () => {
     listOnce([seller])
 
     const user = userEvent.setup()
-    render(<UsersScreen />)
+    renderScreen()
 
     await screen.findByText('staff@example.com')
-    await user.click(screen.getByRole('button', { name: 'Save roles' }))
+    await user.click(screen.getByRole('button', { name: 'Guardar roles' }))
 
     // Three calls now, not two: a successful save re-reads the list so the
     // row cannot keep showing a selection the server may have adjusted.
@@ -109,16 +146,21 @@ describe('UsersScreen', () => {
   it('offers exactly the organization-assignable roles per row, never platform-admin', async () => {
     listOnce([seller])
 
-    render(<UsersScreen />)
+    renderScreen()
 
     const row = (await tableRows())[1]
     // Counting the real checkboxes rather than probing for one label: the
     // server's RoleCatalog deliberately excludes platform-admin from what an
     // organization can grant, so the row must offer that exact set.
-    expect(within(row).getAllByRole('checkbox').map((box) => box.getAttribute('aria-label'))).toEqual([
-      'business-admin for staff@example.com',
-      'seller for staff@example.com',
-      'provider for staff@example.com',
+    const roleBoxes = within(row)
+      .getAllByRole('checkbox')
+      .map((box) => box.getAttribute('aria-label'))
+      .filter((label) => !label?.startsWith('Sucursal'))
+    expect(roleBoxes).toEqual([
+      'Administrador para staff@example.com',
+      'Vendedor para staff@example.com',
+      'Cajero para staff@example.com',
+      'Proveedor para staff@example.com',
     ])
   })
 
@@ -127,14 +169,14 @@ describe('UsersScreen', () => {
     listOnce([seller, revokedProvider])
 
     const user = userEvent.setup()
-    render(<UsersScreen />)
+    renderScreen()
 
     await screen.findByText('staff@example.com')
     // Make the create form's selection differ from every row's own roles.
-    await user.click(screen.getByLabelText('provider for new user'))
+    await user.click(screen.getByLabelText('Proveedor para nuevo usuario'))
 
     const sellerRow = (await tableRows())[1]
-    await user.click(within(sellerRow).getByRole('button', { name: 'Save roles' }))
+    await user.click(within(sellerRow).getByRole('button', { name: 'Guardar roles' }))
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
     expect(fetchMock.mock.calls[1][0]).toBe('/account/users/user-1/roles')
@@ -148,24 +190,24 @@ describe('UsersScreen', () => {
     listOnce([{ ...seller, roleNames: ['business-admin'] }, revokedProvider])
 
     const user = userEvent.setup()
-    render(<UsersScreen />)
+    renderScreen()
 
     await screen.findByText('staff@example.com')
-    await user.click(screen.getByLabelText('business-admin for staff@example.com'))
-    await user.click(screen.getByLabelText('seller for staff@example.com'))
+    await user.click(screen.getByLabelText('Administrador para staff@example.com'))
+    await user.click(screen.getByLabelText('Vendedor para staff@example.com'))
 
     // The other row keeps its own, independent selection.
-    expect(screen.getByLabelText('provider for supplier@vendor.test')).toBeChecked()
-    expect(screen.getByLabelText('business-admin for supplier@vendor.test')).not.toBeChecked()
-    expect(screen.getByLabelText('seller for supplier@vendor.test')).not.toBeChecked()
+    expect(screen.getByLabelText('Proveedor para supplier@vendor.test')).toBeChecked()
+    expect(screen.getByLabelText('Administrador para supplier@vendor.test')).not.toBeChecked()
+    expect(screen.getByLabelText('Vendedor para supplier@vendor.test')).not.toBeChecked()
 
     const sellerRow = (await tableRows())[1]
-    await user.click(within(sellerRow).getByRole('button', { name: 'Save roles' }))
+    await user.click(within(sellerRow).getByRole('button', { name: 'Guardar roles' }))
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
     expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toEqual({ roleNames: ['business-admin'] })
     const refreshedCells = within((await tableRows())[1]).getAllByRole('cell')
-    expect(within(refreshedCells[1]).getByText('business-admin')).toBeInTheDocument()
+    expect(within(refreshedCells[1]).getByText('Administrador')).toBeInTheDocument()
   })
 
   it('surfaces a rejected role change and leaves the row showing the stored roles', async () => {
@@ -177,16 +219,16 @@ describe('UsersScreen', () => {
     )
 
     const user = userEvent.setup()
-    render(<UsersScreen />)
+    renderScreen()
 
     await screen.findByText('staff@example.com')
-    await user.click(screen.getByLabelText('business-admin for staff@example.com'))
-    await user.click(screen.getByRole('button', { name: 'Save roles' }))
+    await user.click(screen.getByLabelText('Administrador para staff@example.com'))
+    await user.click(screen.getByRole('button', { name: 'Guardar roles' }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/you cannot grant business-admin/i)
+    expect(await screen.findByRole('alert')).toHaveTextContent(/no tenés permiso para asignar esa sucursal o rol/i)
     // The grant cap rejected it, so the row must fall back to the stored roles.
-    expect(screen.getByLabelText('business-admin for staff@example.com')).not.toBeChecked()
-    expect(screen.getByLabelText('seller for staff@example.com')).toBeChecked()
+    expect(screen.getByLabelText('Administrador para staff@example.com')).not.toBeChecked()
+    expect(screen.getByLabelText('Vendedor para staff@example.com')).toBeChecked()
     // No refresh was issued: the PUT is the only call after the initial list.
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
@@ -197,14 +239,14 @@ describe('UsersScreen', () => {
     listOnce([{ ...seller, roleNames: ['seller', 'business-admin'] }])
 
     const user = userEvent.setup()
-    render(<UsersScreen />)
+    renderScreen()
 
     await screen.findByText('staff@example.com')
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
     expect(screen.getAllByTestId('data-view-card')).toHaveLength(1)
 
-    await user.click(screen.getByLabelText('business-admin for staff@example.com'))
-    await user.click(screen.getByRole('button', { name: 'Save roles' }))
+    await user.click(screen.getByLabelText('Administrador para staff@example.com'))
+    await user.click(screen.getByRole('button', { name: 'Guardar roles' }))
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
     expect(fetchMock.mock.calls[1][0]).toBe('/account/users/user-1/roles')
@@ -213,24 +255,176 @@ describe('UsersScreen', () => {
     })
   })
 
+  // ---- Staff branches and roles (T3) ----
+
+  it('preselects the currently selected branch in the create form', async () => {
+    listOnce([])
+    renderScreen(centro)
+
+    await screen.findByText('Todavía no hay usuarios.')
+    expect(screen.getByLabelText('Sucursal Centro para nuevo usuario')).toBeChecked()
+    expect(screen.getByLabelText('Sucursal Ruta 51 para nuevo usuario')).not.toBeChecked()
+  })
+
+  it('sends every branch ticked in the create form', async () => {
+    listOnce([]).mockResolvedValueOnce(new Response(JSON.stringify({ userId: 'user-9' }), { status: 201 }))
+    listOnce([])
+
+    const user = userEvent.setup()
+    renderScreen()
+
+    await screen.findByText('Todavía no hay usuarios.')
+    await user.click(screen.getByLabelText('Sucursal Centro para nuevo usuario'))
+    await user.type(screen.getByLabelText('Correo electrónico del usuario'), 'new@example.com')
+    await user.type(screen.getByLabelText('Contraseña del usuario'), 'correct-horse-battery-staple')
+    await user.click(screen.getByRole('button', { name: 'Crear usuario' }))
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body as string).branchIds).toEqual(['branch-a', 'branch-b'])
+  })
+
+  it('refuses to create a user with no branch and does not call the API', async () => {
+    listOnce([])
+
+    const user = userEvent.setup()
+    renderScreen()
+
+    await screen.findByText('Todavía no hay usuarios.')
+    await user.click(screen.getByLabelText('Sucursal Ruta 51 para nuevo usuario'))
+    await user.type(screen.getByLabelText('Correo electrónico del usuario'), 'new@example.com')
+    await user.type(screen.getByLabelText('Contraseña del usuario'), 'correct-horse-battery-staple')
+    await user.click(screen.getByRole('button', { name: 'Crear usuario' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/al menos una sucursal/i)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('offers the cashier role in the create form with role descriptions', async () => {
+    listOnce([])
+    renderScreen()
+
+    await screen.findByText('Todavía no hay usuarios.')
+    expect(screen.getByLabelText('Cajero para nuevo usuario')).toBeInTheDocument()
+    expect(screen.getByText('Opera el punto de venta')).toBeInTheDocument()
+    expect(screen.getByText('Toma pedidos desde la web')).toBeInTheDocument()
+  })
+
+  it('renders roles with Spanish labels, never the machine names', async () => {
+    listOnce([{ ...seller, roleNames: ['business-admin', 'cashier'] }])
+    renderScreen()
+
+    const cells = within((await tableRows())[1]).getAllByRole('cell')
+    expect(within(cells[1]).getByText('Administrador, Cajero')).toBeInTheDocument()
+  })
+
+  it("shows each user's branches by name", async () => {
+    listOnce([{ ...seller, branchIds: ['branch-a', 'branch-b'] }, revokedProvider])
+    renderScreen()
+
+    const rows = await tableRows()
+    expect(within(within(rows[1]).getAllByRole('cell')[2]).getByText('Ruta 51, Centro')).toBeInTheDocument()
+    expect(within(within(rows[2]).getAllByRole('cell')[2]).getByText('Sin sucursales')).toBeInTheDocument()
+  })
+
+  it("edits a user's branches and saves them with the branches endpoint", async () => {
+    listOnce([seller]).mockResolvedValueOnce(new Response(null, { status: 204 }))
+    listOnce([{ ...seller, branchIds: ['branch-a', 'branch-b'] }])
+
+    const user = userEvent.setup()
+    renderScreen()
+
+    await screen.findByText('staff@example.com')
+    await user.click(screen.getByLabelText('Sucursal Centro para staff@example.com'))
+    await user.click(screen.getByRole('button', { name: 'Guardar sucursales' }))
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
+    expect(fetchMock.mock.calls[1][0]).toBe('/account/users/user-1/branches')
+    expect(fetchMock.mock.calls[1][1].method).toBe('PUT')
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toEqual({ branchIds: ['branch-a', 'branch-b'] })
+  })
+
+  it('refuses to save a user with no branches and does not call the API', async () => {
+    listOnce([seller])
+
+    const user = userEvent.setup()
+    renderScreen()
+
+    await screen.findByText('staff@example.com')
+    await user.click(screen.getByLabelText('Sucursal Ruta 51 para staff@example.com'))
+    await user.click(screen.getByRole('button', { name: 'Guardar sucursales' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/al menos una sucursal/i)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  const failWith = (status: number, body: unknown) =>
+    new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+
+  it.each([
+    ['branch-required', /al menos una sucursal/i],
+    ['branch-not-in-organization', /no pertenece a la organización/i],
+  ])('shows a friendly message for the %s error code, not the raw code', async (code, expected) => {
+    listOnce([]).mockResolvedValueOnce(failWith(400, { error: code }))
+
+    const user = userEvent.setup()
+    renderScreen()
+
+    await screen.findByText('Todavía no hay usuarios.')
+    await user.type(screen.getByLabelText('Correo electrónico del usuario'), 'new@example.com')
+    await user.type(screen.getByLabelText('Contraseña del usuario'), 'correct-horse-battery-staple')
+    await user.click(screen.getByRole('button', { name: 'Crear usuario' }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(expected)
+    expect(alert).not.toHaveTextContent(code)
+  })
+
+  it('shows a friendly permission message when the server answers 403 to a create', async () => {
+    listOnce([]).mockResolvedValueOnce(new Response(null, { status: 403 }))
+
+    const user = userEvent.setup()
+    renderScreen()
+
+    await screen.findByText('Todavía no hay usuarios.')
+    await user.type(screen.getByLabelText('Correo electrónico del usuario'), 'new@example.com')
+    await user.type(screen.getByLabelText('Contraseña del usuario'), 'correct-horse-battery-staple')
+    await user.click(screen.getByRole('button', { name: 'Crear usuario' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('No tenés permiso para asignar esa sucursal o rol')
+  })
+
+  it('shows a friendly message when a branch edit is rejected', async () => {
+    listOnce([seller]).mockResolvedValueOnce(failWith(400, { error: 'branch-not-in-organization' }))
+
+    const user = userEvent.setup()
+    renderScreen()
+
+    await screen.findByText('staff@example.com')
+    await user.click(screen.getByRole('button', { name: 'Guardar sucursales' }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/no pertenece a la organización/i)
+    expect(alert).not.toHaveTextContent('branch-not-in-organization')
+  })
+
   it('surfaces a load failure as an alert', async () => {
     fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
 
-    render(<UsersScreen />)
+    renderScreen()
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/unable to load users/i)
+    expect(await screen.findByRole('alert')).toHaveTextContent(/no se pudieron cargar los usuarios/i)
   })
 
   it('does not claim there are no users when the load failed', async () => {
     fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
 
-    render(<UsersScreen />)
+    renderScreen()
 
     await screen.findByRole('alert')
     // "No users yet." is a real rendering of this screen (see the empty state
     // case below), so its absence here is a fact about this state.
-    expect(screen.queryByText('No users yet.')).not.toBeInTheDocument()
-    expect(screen.getByTestId('data-view-load-error')).toHaveTextContent(/users could not be loaded/i)
+    expect(screen.queryByText('Todavía no hay usuarios.')).not.toBeInTheDocument()
+    expect(screen.getByTestId('data-view-load-error')).toHaveTextContent(/no se pudieron cargar los usuarios/i)
   })
 
   it('keeps the load failure separate from a failed action', async () => {
@@ -242,17 +436,17 @@ describe('UsersScreen', () => {
     )
 
     const user = userEvent.setup()
-    render(<UsersScreen />)
+    renderScreen()
 
     await screen.findByText('staff@example.com')
-    await user.click(screen.getByLabelText('business-admin for staff@example.com'))
-    await user.click(screen.getByRole('button', { name: 'Save roles' }))
+    await user.click(screen.getByLabelText('Administrador para staff@example.com'))
+    await user.click(screen.getByRole('button', { name: 'Guardar roles' }))
 
     await screen.findByRole('alert')
     // The list loaded fine: a failed action must not make the list area
     // claim the users could not be loaded.
-    await user.type(screen.getByLabelText(/search users/i), 'zzzz')
-    expect(screen.getByText(/no users match/i)).toBeInTheDocument()
+    await user.type(screen.getByLabelText(/buscar usuarios/i), 'zzzz')
+    expect(screen.getByText(/ningún usuario coincide/i)).toBeInTheDocument()
     expect(screen.queryByTestId('data-view-load-error')).not.toBeInTheDocument()
   })
 
@@ -261,7 +455,7 @@ describe('UsersScreen', () => {
   it('uses the full width the shell gives it, with no centered narrow column', async () => {
     listOnce([seller])
 
-    const { container } = render(<UsersScreen />)
+    const { container } = renderScreen()
 
     await screen.findByText('staff@example.com')
     expect(container.querySelector('.mx-auto')).toBeNull()
@@ -271,23 +465,24 @@ describe('UsersScreen', () => {
   it('renders the real user columns for each listed record', async () => {
     listOnce([revokedProvider])
 
-    render(<UsersScreen />)
+    renderScreen()
 
     // Scoped to the data cells: the actions cell now also carries a
     // per-row role editor whose checkbox labels repeat the role names, so an
     // unscoped `getByText('provider')` would be ambiguous rather than wrong.
     const cells = within(within(await screen.findByRole('table')).getAllByRole('row')[1]).getAllByRole('cell')
     expect(within(cells[0]).getByText('supplier@vendor.test')).toBeInTheDocument()
-    expect(within(cells[1]).getByText('provider')).toBeInTheDocument()
-    expect(within(cells[2]).getByText('Revoked')).toBeInTheDocument()
+    expect(within(cells[1]).getByText('Proveedor')).toBeInTheDocument()
+    expect(within(cells[2]).getByText('Sin sucursales')).toBeInTheDocument()
+    expect(within(cells[3]).getByText('Revocado')).toBeInTheDocument()
   })
 
   it('shows an empty state when there are no users', async () => {
     listOnce([])
 
-    render(<UsersScreen />)
+    renderScreen()
 
-    expect(await screen.findByText('No users yet.')).toBeInTheDocument()
+    expect(await screen.findByText('Todavía no hay usuarios.')).toBeInTheDocument()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
   })
 
@@ -295,19 +490,19 @@ describe('UsersScreen', () => {
     listOnce([seller, revokedProvider])
 
     const user = userEvent.setup()
-    render(<UsersScreen />)
+    renderScreen()
 
     await screen.findByText('staff@example.com')
     expect(screen.getByText('supplier@vendor.test')).toBeInTheDocument()
 
-    await user.type(screen.getByLabelText(/search users/i), 'vendor')
+    await user.type(screen.getByLabelText(/buscar usuarios/i), 'vendor')
 
     expect(screen.getByText('supplier@vendor.test')).toBeInTheDocument()
     expect(screen.queryByText('staff@example.com')).not.toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledTimes(1)
 
-    await user.clear(screen.getByLabelText(/search users/i))
-    await user.type(screen.getByLabelText(/search users/i), 'provider')
+    await user.clear(screen.getByLabelText(/buscar usuarios/i))
+    await user.type(screen.getByLabelText(/buscar usuarios/i), 'provider')
 
     expect(screen.getByText('supplier@vendor.test')).toBeInTheDocument()
     expect(screen.queryByText('staff@example.com')).not.toBeInTheDocument()
@@ -317,12 +512,12 @@ describe('UsersScreen', () => {
     listOnce([seller, revokedProvider])
 
     const user = userEvent.setup()
-    render(<UsersScreen />)
+    renderScreen()
 
     await screen.findByText('staff@example.com')
-    await user.type(screen.getByLabelText(/search users/i), 'zzzz')
+    await user.type(screen.getByLabelText(/buscar usuarios/i), 'zzzz')
 
-    expect(screen.getByText(/no users match/i)).toBeInTheDocument()
+    expect(screen.getByText(/ningún usuario coincide/i)).toBeInTheDocument()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
     expect(screen.queryAllByTestId('data-view-card')).toHaveLength(0)
   })
@@ -332,24 +527,24 @@ describe('UsersScreen', () => {
     listOnce([seller, revokedProvider])
 
     const user = userEvent.setup()
-    const first = render(<UsersScreen />)
+    const first = renderScreen()
 
     await screen.findByText('staff@example.com')
     expect(screen.getByRole('table')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('radio', { name: /card view/i }))
+    await user.click(screen.getByRole('radio', { name: /vista de tarjetas/i }))
 
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
     expect(screen.getAllByTestId('data-view-card')).toHaveLength(2)
     expect(window.localStorage.getItem('view:users')).toBe('cards')
 
     first.unmount()
-    render(<UsersScreen />)
+    renderScreen()
 
     await screen.findByText('staff@example.com')
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
     expect(screen.getAllByTestId('data-view-card')).toHaveLength(2)
-    expect(screen.getByRole('radio', { name: /card view/i })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByRole('radio', { name: /vista de tarjetas/i })).toHaveAttribute('aria-checked', 'true')
   })
 
   it('still forces a password reset from the card view', async () => {
@@ -357,17 +552,138 @@ describe('UsersScreen', () => {
     listOnce([seller]).mockResolvedValueOnce(new Response(null, { status: 204 }))
 
     const user = userEvent.setup()
-    render(<UsersScreen />)
+    renderScreen()
 
     await screen.findByText('staff@example.com')
     // Prove we really are in the card layout, not just re-testing the table.
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
     expect(screen.getAllByTestId('data-view-card')).toHaveLength(1)
 
-    await user.type(screen.getByLabelText('Replacement password for staff@example.com'), 'Unique-Password-42!')
-    await user.click(screen.getByRole('button', { name: 'Force reset' }))
+    await user.type(screen.getByLabelText('Contraseña de reemplazo para staff@example.com'), 'Unique-Password-42!')
+    await user.click(screen.getByRole('button', { name: 'Forzar restablecimiento' }))
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
     expect(fetchMock.mock.calls[1][0]).toBe('/account/users/user-1/reset-password')
+  })
+
+  describe('deactivating and reactivating staff', () => {
+    const signedInAs = (userId: string) => ({
+      user: { organizationId: 'org', userId, displayName: 'me', permissions: 0, isSystemAdmin: false, selectableBranches: [] },
+      error: null,
+      signIn: async () => {},
+      signOut: async () => {},
+    })
+
+    const renderAs = (userId: string) =>
+      render(
+        <AuthContext.Provider value={signedInAs(userId)}>
+          <BranchContext.Provider
+            value={{ selectedBranch: ruta51, selectableBranches: [ruta51, centro], selectBranch: () => {} }}
+          >
+            <UsersScreen />
+          </BranchContext.Provider>
+        </AuthContext.Provider>,
+      )
+
+    const errorBody = (status: number, code?: string) =>
+      new Response(JSON.stringify(code ? { error: code } : {}), { status })
+
+    it('asks for confirmation, then deactivates the user and refreshes the list', async () => {
+      listOnce([seller]).mockResolvedValueOnce(new Response(null, { status: 204 }))
+      listOnce([{ ...seller, isRevoked: true }])
+
+      const user = userEvent.setup()
+      renderAs('someone-else')
+
+      await screen.findByText('staff@example.com')
+      await user.click(screen.getByRole('button', { name: 'Dar de baja' }))
+
+      expect(screen.getByText('¿Dar de baja a staff@example.com?')).toBeInTheDocument()
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+
+      await user.click(screen.getByRole('button', { name: 'Confirmar' }))
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
+      expect(fetchMock.mock.calls[1][0]).toBe('/account/users/user-1/status')
+      expect(fetchMock.mock.calls[1][1].method).toBe('PUT')
+      expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toEqual({ revoked: true })
+      expect(await screen.findByRole('button', { name: 'Reactivar' })).toBeInTheDocument()
+    })
+
+    it('does nothing when the confirmation is cancelled', async () => {
+      listOnce([seller])
+
+      const user = userEvent.setup()
+      renderAs('someone-else')
+
+      await screen.findByText('staff@example.com')
+      await user.click(screen.getByRole('button', { name: 'Dar de baja' }))
+      await user.click(screen.getByRole('button', { name: 'Cancelar' }))
+
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(screen.getByRole('button', { name: 'Dar de baja' })).toBeInTheDocument()
+    })
+
+    it('reactivates a revoked user after confirmation', async () => {
+      listOnce([revokedProvider]).mockResolvedValueOnce(new Response(null, { status: 204 }))
+      listOnce([{ ...revokedProvider, isRevoked: false }])
+
+      const user = userEvent.setup()
+      renderAs('someone-else')
+
+      await screen.findByText('supplier@vendor.test')
+      expect(screen.queryByRole('button', { name: 'Dar de baja' })).not.toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: 'Reactivar' }))
+      expect(screen.getByText('¿Reactivar a supplier@vendor.test?')).toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: 'Confirmar' }))
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
+      expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toEqual({ revoked: false })
+      expect(await screen.findByRole('button', { name: 'Dar de baja' })).toBeInTheDocument()
+    })
+
+    it('does not claim the change failed when it succeeded but the reload failed', async () => {
+      listOnce([seller]).mockResolvedValueOnce(new Response(null, { status: 204 }))
+      fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+
+      const user = userEvent.setup()
+      renderAs('someone-else')
+
+      await screen.findByText('staff@example.com')
+      await user.click(screen.getByRole('button', { name: 'Dar de baja' }))
+      await user.click(screen.getByRole('button', { name: 'Confirmar' }))
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(/no se pudieron cargar los usuarios/i)
+      expect(screen.queryByText(/no se pudo cambiar el estado/i)).not.toBeInTheDocument()
+    })
+
+    it('offers no deactivation on the signed-in user\'s own row', async () => {
+      listOnce([seller, revokedProvider])
+
+      renderAs('user-1')
+
+      await screen.findByText('staff@example.com')
+      expect(screen.queryByRole('button', { name: 'Dar de baja' })).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Reactivar' })).toBeInTheDocument()
+    })
+
+    it.each([
+      [400, 'cannot-revoke-self', /no podés darte de baja a vos mismo/i],
+      [403, 'permissions-exceed-caller', /no tenés permiso para dar de baja o reactivar/i],
+      [403, 'branch-not-in-scope', /no tenés permiso para dar de baja o reactivar/i],
+      [500, undefined, /no se pudo cambiar el estado de staff@example\.com/i],
+    ])('shows a friendly message when the server answers %s %s', async (status, code, message) => {
+      listOnce([seller]).mockResolvedValueOnce(errorBody(status, code))
+
+      const user = userEvent.setup()
+      renderAs('someone-else')
+
+      await screen.findByText('staff@example.com')
+      await user.click(screen.getByRole('button', { name: 'Dar de baja' }))
+      await user.click(screen.getByRole('button', { name: 'Confirmar' }))
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(message)
+      expect(screen.getByRole('button', { name: 'Dar de baja' })).toBeInTheDocument()
+    })
   })
 })

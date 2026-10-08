@@ -86,6 +86,7 @@ public sealed class CustomerRegistryTests : IClassFixture<WebApplicationFactory<
         Apply("0001_init_rls.sql", "__APP_RUNTIME_PASSWORD__", "dev-only-password");
         Apply("0002_users.sql");
         Apply("0003_organizations_branches.sql");
+        Apply("0021_branch_codes.sql");
         Apply("0004_device_credentials.sql");
         Apply("0005_password_recovery.sql");
         Apply("0006_role_taxonomy.sql");
@@ -236,9 +237,9 @@ public sealed class CustomerRegistryTests : IClassFixture<WebApplicationFactory<
         await store.CreateAsync(scope, NewRetail(customerId, "Jane Doe", createdByUserId: actorId), "org-user", actorId, CancellationToken.None);
 
         var update = new UpdateCustomer(
-            "Jane Smith", LegalName: null, TaxIdType.None, TaxId: null, TaxCondition.ConsumidorFinal,
+            "Jane Smith", TaxIdType.None, TaxId: null, TaxCondition.ConsumidorFinal,
             "555-0000", Email: null, AddressStreet: null, AddressNumber: null, Neighborhood: null,
-            Locality: null, Province: null, PostalCode: null, DeliveryNotes: null, DiscountPercentage: null,
+            PostalCode: null, DeliveryNotes: null, DiscountPercentage: null,
             PaymentTerms: null, Notes: null, IsEnabled: true);
 
         var updated = await store.UpdateAsync(scope, customerId, update, "org-user", actorId, CancellationToken.None);
@@ -265,8 +266,8 @@ public sealed class CustomerRegistryTests : IClassFixture<WebApplicationFactory<
         await store.CreateAsync(new CloudTenantScope(orgAId), NewRetail(customerId, "Jane Doe", createdByUserId: actorId), "org-user", actorId, CancellationToken.None);
 
         var update = new UpdateCustomer(
-            "Rogue Rename", LegalName: null, TaxIdType.None, TaxId: null, TaxCondition.ConsumidorFinal,
-            null, null, null, null, null, null, null, null, null, null, null, null, IsEnabled: true);
+            "Rogue Rename", TaxIdType.None, TaxId: null, TaxCondition.ConsumidorFinal,
+            null, null, null, null, null, null, null, null, null, null, IsEnabled: true);
 
         var result = await store.UpdateAsync(new CloudTenantScope(orgBId), customerId, update, "org-user", actorId, CancellationToken.None);
 
@@ -379,13 +380,13 @@ public sealed class CustomerRegistryTests : IClassFixture<WebApplicationFactory<
     }
 
     private static CreateCustomerRequest RetailRequest(string displayName = "Jane Doe", string? phone = "555-1234") =>
-        new("Retail", displayName, null, "None", null, "ConsumidorFinal", phone, null,
-            null, null, null, null, null, null, null, null, null, null);
+        new("Retail", displayName, "None", null, "ConsumidorFinal", phone, null,
+            null, null, null, null, null, null, null, null);
 
     private static CreateCustomerRequest WholesaleRequest() =>
-        new("Wholesale", "Acme Distribuidora", "Acme S.R.L.", "Cuit", "30-12345678-9", "ResponsableInscripto",
-            "555-9999", "wholesale@example.com", "Av. Siempreviva", "742", "Centro", "Springfield",
-            "Buenos Aires", "1000", "Ring twice", 10.5m, "Cuenta corriente 30 días", "VIP customer");
+        new("Wholesale", "Acme Distribuidora", "Cuit", "30-12345678-9", "ResponsableInscripto",
+            "555-9999", "wholesale@example.com", "Av. Siempreviva", "742", "Centro",
+            "1000", "Ring twice", 10.5m, "Cuenta corriente 30 días", "VIP customer", PartyType: "Company");
 
     [Fact]
     public async Task Post_ManageUsersHolder_CreatesRetailCustomer_WithMinimalFields_Returns201()
@@ -469,8 +470,8 @@ public sealed class CustomerRegistryTests : IClassFixture<WebApplicationFactory<
         var client = await SignedInClientAsync("admin-create-invalid@example.com", "admin-password");
 
         var invalid = new CreateCustomerRequest(
-            "Retail", "Invalid Customer", null, "Cuit", null, "ConsumidorFinal", null, null,
-            null, null, null, null, null, null, null, null, null, null);
+            "Retail", "Invalid Customer", "Cuit", null, "ConsumidorFinal", null, null,
+            null, null, null, null, null, null, null, null);
 
         var response = await client.PostAsJsonAsync("/customers", invalid);
 
@@ -502,8 +503,8 @@ public sealed class CustomerRegistryTests : IClassFixture<WebApplicationFactory<
         var createdBody = await created.Content.ReadFromJsonAsync<CreateCustomerResponse>();
 
         var update = new UpdateCustomerRequest(
-            "Updated Name", null, "None", null, "ConsumidorFinal", null, null,
-            null, null, null, null, null, null, null, null, null, null, true);
+            "Updated Name", "None", null, "ConsumidorFinal", null, null,
+            null, null, null, null, null, null, null, null, true);
 
         var response = await client.PutAsJsonAsync($"/customers/{createdBody!.CustomerId}", update);
 
@@ -529,8 +530,8 @@ public sealed class CustomerRegistryTests : IClassFixture<WebApplicationFactory<
 
         var clientB = await SignedInClientAsync("admin-crossorg-b@example.com", "admin-password");
         var update = new UpdateCustomerRequest(
-            "Rogue Rename", null, "None", null, "ConsumidorFinal", null, null,
-            null, null, null, null, null, null, null, null, null, null, true);
+            "Rogue Rename", "None", null, "ConsumidorFinal", null, null,
+            null, null, null, null, null, null, null, null, true);
 
         var crossOrgResponse = await clientB.PutAsJsonAsync($"/customers/{createdInABody!.CustomerId}", update);
         var nonexistentResponse = await clientB.PutAsJsonAsync($"/customers/{Guid.NewGuid()}", update);
@@ -707,5 +708,61 @@ public sealed class CustomerRegistryTests : IClassFixture<WebApplicationFactory<
             $"/account/users/{provisioned!.UserId}/roles", new AssignRolesRequest([RoleCatalog.Seller]));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task PutBranches_TargetHasCustomerId_Returns400_NotAStaffUser()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var orgId = Guid.NewGuid();
+        var adminId = Guid.NewGuid();
+        await SeedUserAsync(orgId, adminId, "admin-branches-guard@example.com", "admin-password", Permission.ManageUsers);
+        var client = await SignedInClientAsync("admin-branches-guard@example.com", "admin-password");
+
+        var customerId = Guid.NewGuid();
+        var customerStore = new PostgresCustomerStore(_dataSource!);
+        await customerStore.CreateAsync(
+            new CloudTenantScope(orgId), NewRetail(customerId, "Branches Guard Customer"), "org-user", adminId, CancellationToken.None);
+
+        var provisionResponse = await client.PostAsJsonAsync(
+            "/account/users",
+            new CreateUserRequest("customer-branches-guard@example.com", "customer-password", [], [], customerId));
+        Assert.Equal(HttpStatusCode.Created, provisionResponse.StatusCode);
+        var provisioned = await provisionResponse.Content.ReadFromJsonAsync<CreateUserResponse>();
+
+        // A REAL branch of the organization, inside the caller's own scope, so
+        // branch validation would pass: the 400 can only come from the
+        // customer-target guard.
+        var branchId = Guid.NewGuid();
+        using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            owner.Open();
+            using var branchCmd = new NpgsqlCommand("INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, 'In Scope')", owner);
+            branchCmd.Parameters.AddWithValue(branchId);
+            branchCmd.Parameters.AddWithValue(orgId);
+            branchCmd.ExecuteNonQuery();
+            using var scopeCmd = new NpgsqlCommand("UPDATE users SET branch_scope = ARRAY[$1::uuid] WHERE id = $2", owner);
+            scopeCmd.Parameters.AddWithValue(branchId);
+            scopeCmd.Parameters.AddWithValue(adminId);
+            scopeCmd.ExecuteNonQuery();
+        }
+
+        var response = await client.PutAsJsonAsync(
+            $"/account/users/{provisioned!.UserId}/branches", new ReplaceBranchesRequest([branchId]));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("a customer-linked account has no branch scope.", body);
+
+        using var check = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        check.Open();
+        using var auditCmd = new NpgsqlCommand(
+            "SELECT count(*) FROM audit_log WHERE entity_id = $1 AND action = 'user.branches.assigned'", check);
+        auditCmd.Parameters.AddWithValue(provisioned.UserId);
+        Assert.Equal(0L, (long)auditCmd.ExecuteScalar()!);
+        using var scopeRead = new NpgsqlCommand("SELECT cardinality(branch_scope) FROM users WHERE id = $1", check);
+        scopeRead.Parameters.AddWithValue(provisioned.UserId);
+        Assert.Equal(0, (int)scopeRead.ExecuteScalar()!);
     }
 }

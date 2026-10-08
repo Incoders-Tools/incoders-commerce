@@ -73,9 +73,19 @@ public sealed class CustomerSessionIsolationTests : IClassFixture<WebApplication
             cmd.ExecuteNonQuery();
         }
 
+        // B7 U5: guards against the shared/accumulating commerce_test
+        // database hazard (see PaymentEndpointTests) — 0009 own
+        // price_lists_one_default is ORG-scoped.
+        using (var truncatePricingCmd = new NpgsqlCommand(
+            "TRUNCATE TABLE price_list_entries, price_lists CASCADE", owner))
+        {
+            try { truncatePricingCmd.ExecuteNonQuery(); } catch (PostgresException) { /* first run: tables do not exist yet */ }
+        }
+
         Apply("0001_init_rls.sql", "__APP_RUNTIME_PASSWORD__", "dev-only-password");
         Apply("0002_users.sql");
         Apply("0003_organizations_branches.sql");
+        Apply("0021_branch_codes.sql");
         Apply("0004_device_credentials.sql");
         Apply("0005_password_recovery.sql");
         Apply("0006_role_taxonomy.sql");
@@ -135,8 +145,8 @@ public sealed class CustomerSessionIsolationTests : IClassFixture<WebApplication
     {
         var createCustomerResponse = await adminClient.PostAsJsonAsync(
             "/customers",
-            new CreateCustomerRequest("Retail", "Isolation Test Customer", null, "None", null, "ConsumidorFinal",
-                null, customerEmail, null, null, null, null, null, null, null, null, null, null));
+            new CreateCustomerRequest("Retail", "Isolation Test Customer", "None", null, "ConsumidorFinal",
+                null, customerEmail, null, null, null, null, null, null, null, null));
         createCustomerResponse.EnsureSuccessStatusCode();
         var createdCustomer = await createCustomerResponse.Content.ReadFromJsonAsync<CreateCustomerResponse>();
 

@@ -41,7 +41,7 @@ public sealed class CloudOrderStoreTests : IDisposable
     public void Submit_WithReachableDestination_DeliversRealOrderPayloadV1_NotDecorativePlaceholder()
     {
         using var branchStore = new BranchSyncStore(ConnectionString);
-        var cloudOrderStore = new CloudOrderStore(() => DateTimeOffset.UtcNow);
+        var cloudOrderStore = new InMemoryOrderStore(() => DateTimeOffset.UtcNow);
         var branchId = Guid.NewGuid();
         var organizationId = Guid.NewGuid();
         var scope = new CloudTenantScope(organizationId);
@@ -68,7 +68,7 @@ public sealed class CloudOrderStoreTests : IDisposable
     [Fact]
     public void Submit_WithNoDestination_StaysPending_NeverConfirmed()
     {
-        var cloudOrderStore = new CloudOrderStore(() => DateTimeOffset.UtcNow);
+        var cloudOrderStore = new InMemoryOrderStore(() => DateTimeOffset.UtcNow);
         var scope = new CloudTenantScope(Guid.NewGuid());
         var orderId = Guid.NewGuid();
 

@@ -26,7 +26,7 @@ public sealed class CloudInboxStore : ICloudInboxStore
     private readonly Dictionary<Guid, (Guid OrganizationId, SyncEnvelope Envelope)> _inbox = new();
     private readonly Dictionary<Guid, SyncOperationStatus> _status = new();
 
-    public InboundApplyResult TryApplyInbound(CloudTenantScope scope, SyncEnvelope envelope)
+    public InboundApplyResult TryApplyInbound(CloudTenantScope scope, SyncEnvelope envelope, Guid? installationId = null)
     {
         if (scope.OrganizationId != envelope.OrganizationId)
         {

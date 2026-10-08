@@ -76,4 +76,21 @@ public sealed class SyncPayloadTests
 
         Assert.Equal(saleId, payload.SaleId);
     }
+
+    [Fact]
+    public void OrderPayloadV1_CarriesTheOrderNumber_AndReadsOlderPayloadsWithoutOne()
+    {
+        var orderId = Guid.NewGuid();
+        var branchId = Guid.NewGuid();
+        var payload = new OrderPayloadV1(orderId, branchId, "Guest", Lines: [], OrderNumber: "P01-W-37");
+
+        var json = SyncPayloadCodec.Serialize(payload);
+
+        Assert.Contains("\"OrderNumber\":\"P01-W-37\"", json);
+        Assert.Equal("P01-W-37", SyncPayloadCodec.Deserialize<OrderPayloadV1>(json).OrderNumber);
+
+        // A payload written before the number existed (an older cloud, an offline replay) still reads.
+        var legacy = $$"""{"OrderId":"{{orderId}}","DestinationBranchId":"{{branchId}}","Origin":"Guest","Lines":[]}""";
+        Assert.Null(SyncPayloadCodec.Deserialize<OrderPayloadV1>(legacy).OrderNumber);
+    }
 }

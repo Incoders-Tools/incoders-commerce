@@ -31,19 +31,39 @@ public sealed class TenantAuthorizationService
 
         if (request.Action.IsSensitive)
         {
-            _auditSink.Record(new AuditEntry(
-                ActorId: actor.Id,
-                OrganizationId: actor.OrganizationId,
-                BranchId: request.TargetBranchId,
-                Action: request.Action.Name,
-                Outcome: result.Allowed ? "allowed" : "denied",
-                OccurredAtUtc: _clock(),
-                CorrelationId: request.CorrelationId,
-                Reason: result.Reason));
+            _auditSink.Record(AuditOf(actor, request, result));
         }
 
         return result;
     }
+
+    /// <summary>
+    /// Same decision as <see cref="Authorize"/> with an awaited audit write, for async callers (the cloud)
+    /// whose sink is durable: the request thread is not blocked on the database.
+    /// </summary>
+    public async Task<AccessResult> AuthorizeAsync(UserAccount actor, AccessRequest request, CancellationToken ct)
+    {
+        var result = Evaluate(actor, request);
+
+        if (request.Action.IsSensitive)
+        {
+            await _auditSink.RecordAsync(AuditOf(actor, request, result), ct);
+        }
+
+        return result;
+    }
+
+    private AuditEntry AuditOf(UserAccount actor, AccessRequest request, AccessResult result) =>
+        new(
+            ActorId: actor.Id,
+            ActorKind: AuditActorKind.OrgUser,
+            OrganizationId: actor.OrganizationId,
+            BranchId: request.TargetBranchId,
+            Action: request.Action.Name,
+            Outcome: result.Allowed ? "allowed" : "denied",
+            OccurredAtUtc: _clock(),
+            CorrelationId: request.CorrelationId,
+            Reason: result.Reason);
 
     private AccessResult Evaluate(UserAccount actor, AccessRequest request)
     {

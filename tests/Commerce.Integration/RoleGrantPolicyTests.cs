@@ -14,7 +14,7 @@ public sealed class RoleGrantPolicyTests
     [Fact]
     public void TryAuthorize_SubsetGrant_IsAllowed()
     {
-        var caller = Caller(new Role(RoleCatalog.BusinessAdmin, Permission.ViewSales | Permission.ManageUsers));
+        var caller = Caller(new Role(RoleCatalog.BusinessAdmin, Permission.ViewSales | Permission.TakeOrders | Permission.ManageUsers));
 
         var authorized = RoleGrantPolicy.TryAuthorize(caller, [RoleCatalog.Seller], out var roles, out var denial);
 
@@ -74,5 +74,29 @@ public sealed class RoleGrantPolicyTests
         Assert.True(authorized);
         Assert.Equal(GrantDenial.None, denial);
         Assert.Empty(roles!);
+    }
+
+    [Fact]
+    public void TryAuthorize_Cashier_ByCallerWithoutOperatePos_IsDenied_ExceedsCallerPermissions()
+    {
+        var caller = Caller(new Role(RoleCatalog.Seller, Permission.ViewSales | Permission.ManageUsers));
+
+        var authorized = RoleGrantPolicy.TryAuthorize(caller, [RoleCatalog.Cashier], out var roles, out var denial);
+
+        Assert.False(authorized);
+        Assert.Equal(GrantDenial.ExceedsCallerPermissions, denial);
+        Assert.Null(roles);
+    }
+
+    [Fact]
+    public void TryAuthorize_Cashier_ByBusinessAdminFromCatalog_IsAllowed()
+    {
+        RoleCatalog.TryResolve(RoleCatalog.BusinessAdmin, out var adminRole);
+        var caller = Caller(adminRole!);
+
+        var authorized = RoleGrantPolicy.TryAuthorize(caller, [RoleCatalog.Cashier], out var roles, out _);
+
+        Assert.True(authorized);
+        Assert.Equal(Permission.OperatePos, roles![0].Permissions);
     }
 }

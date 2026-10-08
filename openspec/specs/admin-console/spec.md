@@ -6,7 +6,7 @@ Give staff and cross-org sysadmins the UI to drive administrative
 capability that already exists server-side but has no interface today:
 staff/role management, branch management, and organization onboarding.
 Reuses the existing `CustomersScreen`/`RequireAdmin` (Web) and
-`CustomersWindow` (POS.Windows) precedents rather than introducing a new
+`CustomersView` (POS.Windows) precedents rather than introducing a new
 UI architecture, and exposes exactly one sign-in surface whose rendered
 capability is driven entirely by the signed-in identity's permissions.
 
@@ -105,30 +105,27 @@ The Users screen's role-reassignment control MUST NOT offer
 - WHEN the list of assignable roles renders
 - THEN `platform-admin` is not among the offered options
 
-### Requirement: POS Staff/Role Management Window
+### Requirement: POS Staff Management Section
 
-`Commerce.Pos.Windows` MUST expose a new modal window, following the
-`CustomersWindow` precedent exactly, that provides the same staff
-list/create/role-reassign/reset-password capability as the Web Users
-screen, scoped to the POS device's paired organization and branch. The
-window's entry point on `MainWindow` MUST be visible only when the
-current operator holds `Permission.ManageUsers`, MUST open via
-`ShowDialog()`, and MUST use a fresh per-window HTTP client whose cookie
-is discarded on close.
+`Commerce.Pos.Windows` MUST expose a "Personal" section inside the main window
+(not a modal window) that provides staff list, create, deactivate, reactivate and
+reset-password for the POS device's paired organization and branch, through the
+same API as the Web Users screen. Role reassignment stays on the Web Users screen.
+The section's navigation entry MUST be visible only when the current operator
+holds `Permission.ManageUsers`, and the section MUST use a fresh per-section HTTP
+client whose cookie is discarded when the operator leaves the section.
 
 #### Scenario: Operator without ManageUsers does not see the entry point
 
 - GIVEN a signed-in POS operator without `Permission.ManageUsers`
 - WHEN `MainWindow` renders
-- THEN no menu entry for the staff/role window is visible
+- THEN no navigation entry for Personal is visible
 
-#### Scenario: Staff window follows the CustomersWindow lifecycle
+#### Scenario: Staff section follows the Clientes lifecycle
 
-- GIVEN an operator with `Permission.ManageUsers` opens the staff/role
-  window
-- WHEN the window closes
-- THEN its per-window HTTP client and cookie are discarded, matching
-  `CustomersWindow`'s existing lifecycle
+- GIVEN an operator with `Permission.ManageUsers` opens Personal
+- WHEN they return to another section
+- THEN the section's HTTP client and cookie are discarded, matching Clientes
 
 ### Requirement: POS Application Branding Is Configurable Per Installation
 
@@ -204,3 +201,47 @@ permission-driven visibility defined above.
   name
 - THEN a new organization, branch, and business-admin are created, and
   the organization appears in the onboarding screen's list
+
+### Requirement: Top Navbar Branch Switcher
+
+`Commerce.Web` MUST show staff a top navbar containing a branch switcher
+populated from the session's selectable branches, and MUST send the
+selected branch with every branch-owned API request from the first request
+of every screen. When exactly one branch is selectable it MUST be selected
+automatically; when several are selectable the last selection MUST be
+restored if still selectable, otherwise the first listed branch is
+selected. Switching branch MUST reload the current screen's data for the
+new branch and MUST NOT show data from the previous branch. A staff member
+with no selectable branch MUST see a message that no branch is assigned
+instead of any branch-owned screen. For a sysadmin, the branch switcher
+appears only after an organization is selected and lists that
+organization's branches.
+
+#### Scenario: Vaca Verde admin lands on Ruta 51
+
+- GIVEN a Vaca Verde `business-admin` whose only selectable branch is
+  "Ruta 51"
+- WHEN they sign in
+- THEN the navbar shows "Ruta 51" as the selected branch and the first
+  screen's data is Ruta 51's
+
+#### Scenario: Switching branch replaces the screen's data
+
+- GIVEN a staff member with "Ruta 51" and "Centro" selectable, viewing
+  Ruta 51's customers
+- WHEN they switch to "Centro"
+- THEN the list shows only Centro's customers and none of Ruta 51's
+
+### Requirement: Users Screen Lists Staff Of The Selected Branch
+
+The Users screen MUST list the staff whose `BranchScope` contains the
+selected branch, and a user created from it MUST include the selected
+branch in their `BranchScope`. Users remain organization identities: a
+user scoped to several branches appears under each of them.
+
+#### Scenario: Ruta 51 staff only
+
+- GIVEN Vaca Verde staff scoped to "Ruta 51", to "Centro", and to both
+- WHEN a `business-admin` views Users with "Ruta 51" selected
+- THEN the "Ruta 51" and "both" staff are listed and the "Centro"-only
+  staff member is not

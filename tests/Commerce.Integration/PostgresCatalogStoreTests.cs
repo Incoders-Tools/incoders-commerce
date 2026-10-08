@@ -64,10 +64,34 @@ public sealed class PostgresCatalogStoreTests : IDisposable
         Apply("0001_init_rls.sql", "__APP_RUNTIME_PASSWORD__", "dev-only-password");
         Apply("0002_users.sql");
         Apply("0003_organizations_branches.sql");
+
+        // B7 U4: 0009's presentations_org_code_uk is ORG-scoped; a prior
+        // test method may have left presentations with the SAME
+        // identification_code in two different branches of one org (which
+        // 0016 legitimately allows), which would break 0009's own index
+        // recreation below on the shared/accumulating commerce_test
+        // database. Truncate first so 0009 recreates it against empty
+        // tables.
+        //
+        // B7 U5: same hazard, one migration later — 0009's
+        // price_lists_one_default is ORG-scoped too; 0017 replaces it with
+        // a BRANCH-scoped index, so a prior test elsewhere in the run may
+        // have left two branches of one org each with their own default
+        // price list (price-list-management "Branch-Owned Price Lists"),
+        // which 0009's own recreation below would refuse.
+        using (var truncateCatalogCmd = new NpgsqlCommand(
+            "TRUNCATE TABLE price_list_entries, price_lists, presentations, products CASCADE", owner))
+        {
+            try { truncateCatalogCmd.ExecuteNonQuery(); } catch (Npgsql.PostgresException) { /* first run: tables don't exist yet */ }
+        }
+
         Apply("0009_catalog_and_pricing.sql");
+        Apply("0016_catalog_branch_ownership.sql");
+        Apply("0036_product_soft_delete.sql");
+        Apply("0017_pricing_branch_ownership.sql");
 
         using var resetCmd = new NpgsqlCommand(
-            "TRUNCATE TABLE presentations, products, branches, organizations CASCADE", owner);
+            "TRUNCATE TABLE price_list_entries, price_lists, presentations, products, branches, organizations CASCADE", owner);
         resetCmd.ExecuteNonQuery();
     }
 
@@ -80,6 +104,24 @@ public sealed class PostgresCatalogStoreTests : IDisposable
         cmd.ExecuteNonQuery();
     }
 
+    /// <summary>
+    /// B7 U4: products/presentations are now branch-owned, so every scope
+    /// used against <see cref="PostgresCatalogStore"/> needs a REAL branch
+    /// row (the composite FK requires one) in addition to the organization.
+    /// </summary>
+    private static Guid SeedBranch(Guid organizationId, string name = "Main")
+    {
+        var branchId = Guid.NewGuid();
+        using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+        owner.Open();
+        using var cmd = new NpgsqlCommand("INSERT INTO branches (id, organization_id, name) VALUES ($1, $2, $3)", owner);
+        cmd.Parameters.AddWithValue(branchId);
+        cmd.Parameters.AddWithValue(organizationId);
+        cmd.Parameters.AddWithValue(name);
+        cmd.ExecuteNonQuery();
+        return branchId;
+    }
+
     [Fact]
     public async Task CreateAndFindProduct_RoundTrips()
     {
@@ -87,12 +129,13 @@ public sealed class PostgresCatalogStoreTests : IDisposable
 
         var organizationId = Guid.NewGuid();
         SeedOrganization(organizationId);
-        var scope = new CloudTenantScope(organizationId);
+        var branchId = SeedBranch(organizationId);
+        var scope = new CloudTenantScope(organizationId, BranchId: branchId);
         var store = new PostgresCatalogStore(_dataSource!);
         var actorId = Guid.NewGuid();
 
         var created = await store.CreateProductAsync(
-            scope, new NewProduct(Guid.NewGuid(), "Yerba Mate 1kg", Guid.NewGuid(), Guid.NewGuid(), actorId),
+            scope, new NewProduct(Guid.NewGuid(), "Yerba Mate 1kg", CategoryFixture.Create(scope), Guid.NewGuid(), actorId),
             "org-user", actorId, CancellationToken.None);
 
         var found = await store.FindProductAsync(scope, created.Id, CancellationToken.None);
@@ -111,15 +154,17 @@ public sealed class PostgresCatalogStoreTests : IDisposable
         var orgBId = Guid.NewGuid();
         SeedOrganization(orgAId);
         SeedOrganization(orgBId);
+        var branchAId = SeedBranch(orgAId);
+        var branchBId = SeedBranch(orgBId);
         var store = new PostgresCatalogStore(_dataSource!);
         var actorId = Guid.NewGuid();
 
         var created = await store.CreateProductAsync(
-            new CloudTenantScope(orgAId), new NewProduct(Guid.NewGuid(), "Org A Product", Guid.NewGuid(), Guid.NewGuid(), actorId),
+            new CloudTenantScope(orgAId, BranchId: branchAId), new NewProduct(Guid.NewGuid(), "Org A Product", CategoryFixture.Create(new CloudTenantScope(orgAId, BranchId: branchAId)), Guid.NewGuid(), actorId),
             "org-user", actorId, CancellationToken.None);
 
         var updated = await store.UpdateProductAsync(
-            new CloudTenantScope(orgBId), created.Id, new UpdateProduct("Rogue Name", Guid.NewGuid(), Guid.NewGuid()),
+            new CloudTenantScope(orgBId, BranchId: branchBId), created.Id, new UpdateProduct("Rogue Name", Guid.NewGuid(), Guid.NewGuid()),
             "org-user", actorId, CancellationToken.None);
 
         Assert.Null(updated);
@@ -132,12 +177,13 @@ public sealed class PostgresCatalogStoreTests : IDisposable
 
         var organizationId = Guid.NewGuid();
         SeedOrganization(organizationId);
-        var scope = new CloudTenantScope(organizationId);
+        var branchId = SeedBranch(organizationId);
+        var scope = new CloudTenantScope(organizationId, BranchId: branchId);
         var store = new PostgresCatalogStore(_dataSource!);
         var actorId = Guid.NewGuid();
 
         var product = await store.CreateProductAsync(
-            scope, new NewProduct(Guid.NewGuid(), "Yerba Mate", Guid.NewGuid(), Guid.NewGuid(), actorId),
+            scope, new NewProduct(Guid.NewGuid(), "Yerba Mate", CategoryFixture.Create(scope), Guid.NewGuid(), actorId),
             "org-user", actorId, CancellationToken.None);
 
         var presentation = await store.CreatePresentationAsync(
@@ -163,12 +209,13 @@ public sealed class PostgresCatalogStoreTests : IDisposable
 
         var organizationId = Guid.NewGuid();
         SeedOrganization(organizationId);
-        var scope = new CloudTenantScope(organizationId);
+        var branchId = SeedBranch(organizationId);
+        var scope = new CloudTenantScope(organizationId, BranchId: branchId);
         var store = new PostgresCatalogStore(_dataSource!);
         var actorId = Guid.NewGuid();
 
         var product = await store.CreateProductAsync(
-            scope, new NewProduct(Guid.NewGuid(), "Product A", Guid.NewGuid(), Guid.NewGuid(), actorId),
+            scope, new NewProduct(Guid.NewGuid(), "Product A", CategoryFixture.Create(scope), Guid.NewGuid(), actorId),
             "org-user", actorId, CancellationToken.None);
 
         await store.CreatePresentationAsync(
@@ -193,26 +240,72 @@ public sealed class PostgresCatalogStoreTests : IDisposable
         var orgBId = Guid.NewGuid();
         SeedOrganization(orgAId);
         SeedOrganization(orgBId);
+        var branchAId = SeedBranch(orgAId);
+        var branchBId = SeedBranch(orgBId);
         var store = new PostgresCatalogStore(_dataSource!);
         var actorId = Guid.NewGuid();
 
         var productA = await store.CreateProductAsync(
-            new CloudTenantScope(orgAId), new NewProduct(Guid.NewGuid(), "Product A", Guid.NewGuid(), Guid.NewGuid(), actorId),
+            new CloudTenantScope(orgAId, BranchId: branchAId), new NewProduct(Guid.NewGuid(), "Product A", CategoryFixture.Create(new CloudTenantScope(orgAId, BranchId: branchAId)), Guid.NewGuid(), actorId),
             "org-user", actorId, CancellationToken.None);
         var productB = await store.CreateProductAsync(
-            new CloudTenantScope(orgBId), new NewProduct(Guid.NewGuid(), "Product B", Guid.NewGuid(), Guid.NewGuid(), actorId),
+            new CloudTenantScope(orgBId, BranchId: branchBId), new NewProduct(Guid.NewGuid(), "Product B", CategoryFixture.Create(new CloudTenantScope(orgBId, BranchId: branchBId)), Guid.NewGuid(), actorId),
             "org-user", actorId, CancellationToken.None);
 
         await store.CreatePresentationAsync(
-            new CloudTenantScope(orgAId), new NewPresentation(Guid.NewGuid(), productA.Id, "Presentation A", QuantityBehavior.FixedQuantity, Guid.NewGuid(), "SHARED-EAN", actorId),
+            new CloudTenantScope(orgAId, BranchId: branchAId), new NewPresentation(Guid.NewGuid(), productA.Id, "Presentation A", QuantityBehavior.FixedQuantity, Guid.NewGuid(), "SHARED-EAN", actorId),
             "org-user", actorId, CancellationToken.None);
 
         var createdB = await store.CreatePresentationAsync(
-            new CloudTenantScope(orgBId), new NewPresentation(Guid.NewGuid(), productB.Id, "Presentation B", QuantityBehavior.FixedQuantity, Guid.NewGuid(), "SHARED-EAN", actorId),
+            new CloudTenantScope(orgBId, BranchId: branchBId), new NewPresentation(Guid.NewGuid(), productB.Id, "Presentation B", QuantityBehavior.FixedQuantity, Guid.NewGuid(), "SHARED-EAN", actorId),
             "org-user", actorId, CancellationToken.None);
 
         Assert.NotNull(createdB);
         Assert.Equal("SHARED-EAN", createdB.IdentificationCode);
+    }
+
+    /// <summary>
+    /// B7 U4, catalog-item-identification "Branch-Owned Catalog": the same
+    /// code MAY exist in two branches of the SAME organization (unlike two
+    /// different organizations, which was already covered above) — and is
+    /// still rejected twice within the SAME branch.
+    /// </summary>
+    [Fact]
+    public async Task CreatePresentation_SameCodeAcrossTwoBranchesOfSameOrganization_Succeeds()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var organizationId = Guid.NewGuid();
+        SeedOrganization(organizationId);
+        var branchAId = SeedBranch(organizationId, "Ruta 51");
+        var branchBId = SeedBranch(organizationId, "Centro");
+        var store = new PostgresCatalogStore(_dataSource!);
+        var actorId = Guid.NewGuid();
+
+        var scopeA = new CloudTenantScope(organizationId, BranchId: branchAId);
+        var scopeB = new CloudTenantScope(organizationId, BranchId: branchBId);
+
+        var productA = await store.CreateProductAsync(
+            scopeA, new NewProduct(Guid.NewGuid(), "Product A", CategoryFixture.Create(scopeA), Guid.NewGuid(), actorId),
+            "org-user", actorId, CancellationToken.None);
+        var productB = await store.CreateProductAsync(
+            scopeB, new NewProduct(Guid.NewGuid(), "Product B", CategoryFixture.Create(scopeB), Guid.NewGuid(), actorId),
+            "org-user", actorId, CancellationToken.None);
+
+        await store.CreatePresentationAsync(
+            scopeA, new NewPresentation(Guid.NewGuid(), productA.Id, "Presentation A", QuantityBehavior.FixedQuantity, Guid.NewGuid(), "7791234567890", actorId),
+            "org-user", actorId, CancellationToken.None);
+
+        var createdB = await store.CreatePresentationAsync(
+            scopeB, new NewPresentation(Guid.NewGuid(), productB.Id, "Presentation B", QuantityBehavior.FixedQuantity, Guid.NewGuid(), "7791234567890", actorId),
+            "org-user", actorId, CancellationToken.None);
+
+        Assert.NotNull(createdB);
+        Assert.Equal("7791234567890", createdB.IdentificationCode);
+
+        var foundInA = await store.FindByIdentificationCodeAsync(scopeA, "7791234567890", CancellationToken.None);
+        Assert.NotNull(foundInA);
+        Assert.NotEqual(createdB.Id, foundInA!.Id);
     }
 
     [Fact]
@@ -222,12 +315,13 @@ public sealed class PostgresCatalogStoreTests : IDisposable
 
         var organizationId = Guid.NewGuid();
         SeedOrganization(organizationId);
-        var scope = new CloudTenantScope(organizationId);
+        var branchId = SeedBranch(organizationId);
+        var scope = new CloudTenantScope(organizationId, BranchId: branchId);
         var store = new PostgresCatalogStore(_dataSource!);
         var actorId = Guid.NewGuid();
 
         var product = await store.CreateProductAsync(
-            scope, new NewProduct(Guid.NewGuid(), "Product", Guid.NewGuid(), Guid.NewGuid(), actorId),
+            scope, new NewProduct(Guid.NewGuid(), "Product", CategoryFixture.Create(scope), Guid.NewGuid(), actorId),
             "org-user", actorId, CancellationToken.None);
 
         var cursor = DateTimeOffset.UtcNow;

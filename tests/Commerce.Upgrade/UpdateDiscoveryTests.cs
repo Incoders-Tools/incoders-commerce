@@ -9,6 +9,9 @@ public sealed class UpdateDiscoveryTests : IDisposable
     private static readonly Version LocalVersion = new(1, 0, 0);
     private static readonly UpdateEnvironment CompatibleMachine = new(19045, "x64");
 
+    private UpdateCheckResult CheckLocal(Version local, string manifestPath, UpdateEnvironment environment) =>
+        new UpdateChecker(new LocalFileManifestSource(manifestPath), _discovery).CheckAsync(local, environment).GetAwaiter().GetResult();
+
     public void Dispose()
     {
         if (File.Exists(_manifestPath))
@@ -20,7 +23,7 @@ public sealed class UpdateDiscoveryTests : IDisposable
     [Fact]
     public void MissingManifest_ReturnsManifestNotConfigured()
     {
-        var result = _discovery.CheckForUpdates(LocalVersion, new LocalUpdateManifestSource(_manifestPath), CompatibleMachine);
+        var result = CheckLocal(LocalVersion, _manifestPath, CompatibleMachine);
 
         Assert.Equal(UpdateCheckStatus.ManifestNotConfigured, result.Status);
         Assert.Equal("Manifest de updates no configurado", ReleaseDiscovery.FormatCompactStatus(result));
@@ -31,7 +34,7 @@ public sealed class UpdateDiscoveryTests : IDisposable
     {
         WriteManifest("1.0.0");
 
-        var result = _discovery.CheckForUpdates(LocalVersion, new LocalUpdateManifestSource(_manifestPath), CompatibleMachine);
+        var result = CheckLocal(LocalVersion, _manifestPath, CompatibleMachine);
 
         Assert.Equal(UpdateCheckStatus.UpToDate, result.Status);
         Assert.Equal("Actualizado", ReleaseDiscovery.FormatCompactStatus(result));
@@ -42,7 +45,7 @@ public sealed class UpdateDiscoveryTests : IDisposable
     {
         WriteManifest("1.1.0");
 
-        var result = _discovery.CheckForUpdates(LocalVersion, new LocalUpdateManifestSource(_manifestPath), CompatibleMachine);
+        var result = CheckLocal(LocalVersion, _manifestPath, CompatibleMachine);
 
         Assert.Equal(UpdateCheckStatus.Available, result.Status);
         Assert.Equal(new Version(1, 1, 0), result.AvailableVersion);
@@ -54,7 +57,7 @@ public sealed class UpdateDiscoveryTests : IDisposable
     {
         WriteManifest("1.1.0", minimumWindowsBuild: 22621);
 
-        var result = _discovery.CheckForUpdates(LocalVersion, new LocalUpdateManifestSource(_manifestPath), CompatibleMachine);
+        var result = CheckLocal(LocalVersion, _manifestPath, CompatibleMachine);
 
         Assert.Equal(UpdateCheckStatus.IncompatibleWindows, result.Status);
     }
@@ -64,7 +67,7 @@ public sealed class UpdateDiscoveryTests : IDisposable
     {
         WriteManifest("1.1.0", architectures: "arm64");
 
-        var result = _discovery.CheckForUpdates(LocalVersion, new LocalUpdateManifestSource(_manifestPath), CompatibleMachine);
+        var result = CheckLocal(LocalVersion, _manifestPath, CompatibleMachine);
 
         Assert.Equal(UpdateCheckStatus.IncompatibleArchitecture, result.Status);
     }
@@ -74,7 +77,7 @@ public sealed class UpdateDiscoveryTests : IDisposable
     {
         File.WriteAllText(_manifestPath, "{ not json }");
 
-        var result = _discovery.CheckForUpdates(LocalVersion, new LocalUpdateManifestSource(_manifestPath), CompatibleMachine);
+        var result = CheckLocal(LocalVersion, _manifestPath, CompatibleMachine);
 
         Assert.Equal(UpdateCheckStatus.CheckFailedInvalid, result.Status);
     }
@@ -84,7 +87,7 @@ public sealed class UpdateDiscoveryTests : IDisposable
     {
         WriteManifest("1.1.0", schemaVersion: 2);
 
-        var result = _discovery.CheckForUpdates(LocalVersion, new LocalUpdateManifestSource(_manifestPath), CompatibleMachine);
+        var result = CheckLocal(LocalVersion, _manifestPath, CompatibleMachine);
 
         Assert.Equal(UpdateCheckStatus.UnsupportedSchema, result.Status);
     }
@@ -94,7 +97,7 @@ public sealed class UpdateDiscoveryTests : IDisposable
     {
         WriteManifest("1.1.0", packageArchitecture: "arm64");
 
-        var result = _discovery.CheckForUpdates(LocalVersion, new LocalUpdateManifestSource(_manifestPath), CompatibleMachine);
+        var result = CheckLocal(LocalVersion, _manifestPath, CompatibleMachine);
 
         Assert.Equal(UpdateCheckStatus.NoCompatiblePackage, result.Status);
     }
@@ -109,7 +112,7 @@ public sealed class UpdateDiscoveryTests : IDisposable
           "packages": null
         """);
 
-        var result = _discovery.CheckForUpdates(LocalVersion, new LocalUpdateManifestSource(_manifestPath), CompatibleMachine);
+        var result = CheckLocal(LocalVersion, _manifestPath, CompatibleMachine);
 
         Assert.Equal(UpdateCheckStatus.CheckFailedInvalid, result.Status);
     }
@@ -122,7 +125,7 @@ public sealed class UpdateDiscoveryTests : IDisposable
           "packages": [ { "format": "msi", "architecture": "x64", "minimumWindowsBuild": 0, "url": "file:///C:/u.msi", "sha256": "abc123", "publisherId": "trusted-publisher", "signatureRequired": true, "attestationRequired": true } ]
         """);
 
-        var result = _discovery.CheckForUpdates(LocalVersion, new LocalUpdateManifestSource(_manifestPath), CompatibleMachine);
+        var result = CheckLocal(LocalVersion, _manifestPath, CompatibleMachine);
 
         Assert.Equal(UpdateCheckStatus.Available, result.Status);
     }
@@ -135,7 +138,7 @@ public sealed class UpdateDiscoveryTests : IDisposable
           "packages": [ { "format": "msi", "architecture": null, "minimumWindowsBuild": 0, "url": "file:///C:/u.msi", "sha256": "abc123", "publisherId": "trusted-publisher", "signatureRequired": true, "attestationRequired": true } ]
         """);
 
-        var result = _discovery.CheckForUpdates(LocalVersion, new LocalUpdateManifestSource(_manifestPath), CompatibleMachine);
+        var result = CheckLocal(LocalVersion, _manifestPath, CompatibleMachine);
 
         Assert.Equal(UpdateCheckStatus.NoCompatiblePackage, result.Status);
     }
@@ -148,7 +151,7 @@ public sealed class UpdateDiscoveryTests : IDisposable
           "packages": [ null ]
         """);
 
-        var result = _discovery.CheckForUpdates(LocalVersion, new LocalUpdateManifestSource(_manifestPath), CompatibleMachine);
+        var result = CheckLocal(LocalVersion, _manifestPath, CompatibleMachine);
 
         Assert.Equal(UpdateCheckStatus.NoCompatiblePackage, result.Status);
     }

@@ -8,6 +8,7 @@ This directory is the versioned source of truth for Incoders Commerce architectu
 2. [Deployment profiles](./deployment-profiles.md) explain the initial notebook and future multi-station topology.
 3. [Synchronization](./synchronization.md) records the local/cloud constraints.
 4. [Decision index](./decisions/README.md) lists accepted decisions (ADR-001..011) and the topics that still require ADRs.
+5. [Document numbering](../document-numbering.md) explains the human numbers of branches, registers and sales (`V01-C2-125`).
 
 ## Architecture status
 

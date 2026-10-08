@@ -13,7 +13,10 @@ public enum UpdateCheckStatus
     UnsupportedSchema,
     IncompatibleWindows,
     IncompatibleArchitecture,
-    NoCompatiblePackage
+    NoCompatiblePackage,
+
+    /// <summary>The asynchronous startup or manual check has not completed yet.</summary>
+    Checking
 }
 
 public sealed record UpdateCheckResult(
@@ -33,11 +36,6 @@ public sealed record UpdateEnvironment(int WindowsBuild, string Architecture)
         RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant());
 }
 
-public sealed record LocalUpdateManifestSource(string? ManifestPath)
-{
-    public bool IsConfigured => !string.IsNullOrWhiteSpace(ManifestPath) && File.Exists(ManifestPath);
-}
-
 public sealed class ReleaseDiscovery
 {
     public const int SupportedManifestSchemaVersion = 1;
@@ -49,23 +47,18 @@ public sealed class ReleaseDiscovery
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }
     };
 
-    public UpdateCheckResult CheckForUpdates(
-        Version localVersion,
-        LocalUpdateManifestSource source,
-        UpdateEnvironment? environment = null)
+    /// <summary>
+    /// Pure evaluation of an already-fetched manifest document, shared by the
+    /// local-file and GitHub Releases sources (see <see cref="UpdateChecker"/>).
+    /// </summary>
+    public UpdateCheckResult Evaluate(Version localVersion, string manifestJson, UpdateEnvironment? environment = null)
     {
-        if (!source.IsConfigured || source.ManifestPath is null)
-        {
-            return new UpdateCheckResult(UpdateCheckStatus.ManifestNotConfigured, localVersion);
-        }
-
         ReleaseDiscoveryManifest? manifest;
         try
         {
-            var json = File.ReadAllText(source.ManifestPath);
-            manifest = JsonSerializer.Deserialize<ReleaseDiscoveryManifest>(json, JsonOptions);
+            manifest = JsonSerializer.Deserialize<ReleaseDiscoveryManifest>(manifestJson, JsonOptions);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+        catch (JsonException ex)
         {
             return new UpdateCheckResult(UpdateCheckStatus.CheckFailedInvalid, localVersion, Detail: ex.Message);
         }
@@ -135,6 +128,7 @@ public sealed class ReleaseDiscovery
         UpdateCheckStatus.IncompatibleWindows => "Update requiere una versión de Windows compatible",
         UpdateCheckStatus.IncompatibleArchitecture => "Update no compatible con esta arquitectura",
         UpdateCheckStatus.NoCompatiblePackage => "Update sin paquete compatible",
+        UpdateCheckStatus.Checking => "Comprobando actualizaciones...",
         _ => "No se pudo comprobar updates"
     };
 
@@ -174,6 +168,7 @@ public sealed record UpdatePackage
     public int MinimumWindowsBuild { get; init; }
     public string Url { get; init; } = string.Empty;
     public string Sha256 { get; init; } = string.Empty;
+    public long SizeBytes { get; init; }
     public string PublisherId { get; init; } = string.Empty;
     public bool SignatureRequired { get; init; }
     public bool AttestationRequired { get; init; }

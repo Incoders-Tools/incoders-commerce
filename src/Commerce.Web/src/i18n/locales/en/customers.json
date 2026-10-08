@@ -1,0 +1,155 @@
+{
+  "title": "Customers",
+  "description": "Accounts that can be sold to, and their ordering access.",
+  "newCustomer": "New customer",
+  "errors": {
+    "unexpectedLoad": "Unexpected error loading customers.",
+    "unexpectedIssueAccess": "Unexpected error issuing ordering access.",
+    "unexpectedSave": "Unexpected error saving customer."
+  },
+  "issuedCredential": "Ordering access credential (shown once): {{credential}}",
+  "search": {
+    "label": "Search customers",
+    "placeholder": "Search by name, legal name, contact or tax ID…"
+  },
+  "empty": {
+    "none": "No customers yet.",
+    "noMatch": "No customers match this search.",
+    "loadError": "Customers could not be loaded."
+  },
+  "columns": {
+    "name": "Name",
+    "contact": "Contact",
+    "city": "City",
+    "businessType": "Business type",
+    "phone": "Phone",
+    "taxId": "CUIT/CUIL/DNI",
+    "noTaxId": "No ID document",
+    "noValue": "—",
+    "kind": "Kind",
+    "status": "Status",
+    "priceList": "Price list",
+    "balance": "Balance",
+    "balanceHint": "What the customer owes on current account"
+  },
+  "kindOptions": {
+    "retail": "Retail",
+    "wholesale": "Wholesale"
+  },
+  "statusOptions": {
+    "enabled": "Enabled",
+    "disabled": "Disabled"
+  },
+  "actions": {
+    "edit": "Edit",
+    "issueAccess": "Issue ordering access",
+    "account": "Current account"
+  },
+  "form": {
+    "titleNew": "New customer",
+    "titleEdit": "Edit customer",
+    "backLabel": "Back to customers",
+    "sections": {
+      "identity": "Details",
+      "contact": "Contact",
+      "address": "Location",
+      "tax": "Tax",
+      "commercial": "Commercial",
+      "notes": "Notes",
+      "contacts": "Contact people"
+    },
+    "fields": {
+      "customerKind": "Customer kind",
+      "partyType": "Person or company",
+      "personName": "Full name",
+      "companyName": "Legal name",
+      "companyNameHint": "The name of the person you deal with goes in Contact persons.",
+      "taxIdType": "Tax ID type",
+      "taxId": "CUIT/CUIL",
+      "taxCondition": "Tax condition",
+      "phone": "Phone",
+      "email": "Email",
+      "addressStreet": "Address street",
+      "addressNumber": "Address number",
+      "neighborhood": "Neighborhood",
+      "province": "Province",
+      "postalCode": "Postal code",
+      "deliveryNotes": "Delivery notes",
+      "discountPercentage": "Discount percentage",
+      "paymentTerms": "Payment conditions note",
+      "notes": "Notes",
+      "enabled": "Enabled",
+      "city": "City",
+      "businessType": "Business type",
+      "dni": "DNI",
+      "priceList": "Price list",
+      "paymentTermsDays": "Payment term (days)"
+    },
+    "taxIdTypeOptions": {
+      "none": "None",
+      "dni": "DNI",
+      "cuit": "CUIT",
+      "cuil": "CUIL"
+    },
+    "save": "Save",
+    "saving": "Saving…",
+    "cancel": "Cancel",
+    "noCity": "No city",
+    "noBusinessType": "No business type",
+    "inactiveSuffix": "(inactive)",
+    "errors": {
+      "dniInvalid": "The DNI must have 7 or 8 digits.",
+      "cuitInvalid": "The CUIT/CUIL must have 11 digits."
+    },
+    "contacts": {
+      "empty": "There are no contact people yet.",
+      "add": "Add contact",
+      "rowLabel": "Contact {{position}}",
+      "firstName": "First name",
+      "lastName": "Last name",
+      "phone": "Phone",
+      "email": "Email",
+      "role": "Role",
+      "primary": "Primary",
+      "moveUp": "Move contact {{position}} up",
+      "moveDown": "Move contact {{position}} down",
+      "remove": "Remove contact {{position}}",
+      "firstNameRequired": "The contact first name is required."
+    },
+    "conflict": {
+      "message": "Someone else changed this customer while you were editing. Reload to see the latest changes; your unsaved changes will be lost.",
+      "reload": "Reload",
+      "reloadFailed": "The customer could not be reloaded."
+    },
+    "noPriceList": "No list (uses the default)",
+    "otherBranchList": "List of another branch",
+    "partyTypeOptions": {
+      "person": "Person",
+      "company": "Company"
+    },
+    "provincePlaceholder": "Choose a province",
+    "cityNeedsProvince": "Choose the province first",
+    "paymentTermsDays": {
+      "placeholder": "Empty = general term ({{days}} days)",
+      "placeholderUnknown": "Empty = the organization's general term",
+      "hint": "Days the customer has to pay a sale on current account. Due dates and days overdue are computed from it. Leave it empty to use the general term (Settings). 0 = due the same day.",
+      "invalid": "The payment term must be a whole number from 0 to 365 days, or empty."
+    },
+    "paymentTermsNote": {
+      "placeholder": "E.g.: pays on Fridays, by transfer",
+      "hint": "Informational only: it does not change the due date."
+    }
+  },
+  "filters": {
+    "city": "City",
+    "allCities": "All cities",
+    "businessType": "Business type",
+    "allBusinessTypes": "All business types",
+    "priceList": "Price list",
+    "allPriceLists": "All lists"
+  },
+  "balance": {
+    "inFavour": "In their favour: {{amount}}",
+    "overdue": "Overdue: {{amount}}"
+  }
+}

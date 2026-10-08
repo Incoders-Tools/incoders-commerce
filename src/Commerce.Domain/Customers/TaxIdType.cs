@@ -8,5 +8,6 @@ public enum TaxIdType
 {
     None,
     Cuit,
-    Cuil
+    Cuil,
+    Dni
 }

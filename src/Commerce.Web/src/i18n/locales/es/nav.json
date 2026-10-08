@@ -1,0 +1,49 @@
+{
+  "primary": "Principal",
+  "toggleNavigation": "Alternar navegación",
+  "items": {
+    "dashboard": "Tablero",
+    "catalog": "Catálogo",
+    "categories": "Categorías",
+    "orders": "Pedidos",
+    "customers": "Clientes",
+    "suppliers": "Proveedores",
+    "receptions": "Recepciones",
+    "stock": "Stock",
+    "supplierCategories": "Rubros de proveedor",
+    "cities": "Ciudades",
+    "businessTypes": "Tipos de negocio",
+    "users": "Usuarios",
+    "branches": "Sucursales",
+    "priceLists": "Listas de precios",
+    "organizations": "Organizaciones",
+    "settings": "Configuración",
+    "deliveries": "Repartos",
+    "treasury": "Tesorería",
+    "treasuryAccountTypes": "Tipos de cuenta",
+    "employees": "Personal",
+    "payroll": "Sueldos",
+    "employeeRoles": "Puestos"
+  },
+  "sections": {
+    "operations": "Operación",
+    "management": "Gestión",
+    "purchasing": "Compras",
+    "lookupTables": "Tablas auxiliares",
+    "system": "Sistema",
+    "platform": "Plataforma"
+  },
+  "account": {
+    "label": "Cuenta",
+    "changePassword": "Cambiar contraseña",
+    "signOut": "Cerrar sesión"
+  },
+  "organizationSwitcher": {
+    "label": "Organización",
+    "noOrganization": "Sin organización",
+    "loadError": "Error inesperado al cargar las organizaciones."
+  },
+  "branchSwitcher": {
+    "label": "Sucursal"
+  }
+}

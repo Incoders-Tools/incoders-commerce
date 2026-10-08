@@ -103,7 +103,7 @@ public sealed class ScannedSaleTests : IDisposable
         var auditSink = new Commerce.Application.Audit.InMemoryAuditSink();
         var authService = new Commerce.Application.Access.TenantAuthorizationService(auditSink);
         using var store = new BranchSyncStore(ConnectionString);
-        var service = new BranchNodeService(store, authService, auditSink);
+        var service = new BranchNodeService(store, authService, auditSink).WithOpenSession();
 
         var organizationId = Guid.NewGuid();
         var branchId = Guid.NewGuid();

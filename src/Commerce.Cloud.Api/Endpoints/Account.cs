@@ -3,6 +3,7 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Commerce.Cloud.Api.Auditing;
 using Commerce.Cloud.Api.Authentication;
 using Commerce.Cloud.Api.Email;
@@ -12,6 +13,7 @@ using Commerce.Domain.Identity;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Identity;
+using Npgsql;
 
 namespace Commerce.Cloud.Api.Endpoints;
 
@@ -39,6 +41,93 @@ public static class AccountEndpoints
             new UserAccount(Guid.Empty, Guid.Empty, [], []),
             "dummy-password-for-timing-parity-only");
 
+    /// <summary>T5a branding validation: `#rrggbb`, nothing looser (no 3-digit shorthand, no alpha channel).</summary>
+    private static readonly Regex HexColorPattern = new("^#[0-9a-fA-F]{6}$", RegexOptions.Compiled);
+
+    /// <summary>
+    /// Shared branch-scope validation for staff creation and branch
+    /// replacement. Returns null when the assignment is acceptable, otherwise
+    /// the denial: 400 <c>branch-required</c> (empty when required), 400
+    /// <c>branch-not-in-organization</c>, or 403 when a caller assigns a
+    /// branch outside their own scope. A system administrator acting on a
+    /// selected organization may assign any branch of it; the organization
+    /// check runs first so a foreign id never reveals cap details.
+    /// </summary>
+    private static async Task<IResult?> ValidateBranchAssignmentAsync(
+        CloudTenantScope scope, UserAccount caller, Guid[] branchIds, bool required,
+        PostgresUserAccountStore userStore, CancellationToken ct)
+    {
+        if (required && branchIds.Length == 0)
+        {
+            return Results.BadRequest(new { error = "branch-required" });
+        }
+
+        if (!await userStore.BranchesBelongToOrganizationAsync(scope, branchIds, ct))
+        {
+            return Results.BadRequest(new { error = "branch-not-in-organization" });
+        }
+
+        var actingSysadmin = caller.IsSystemAdmin && scope.IsActingOnSelectedOrganization;
+        if (!actingSysadmin && branchIds.Any(branchId => !caller.BranchScope.Contains(branchId)))
+        {
+            return Results.StatusCode(StatusCodes.Status403Forbidden);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The rule for acting on an existing user (revoke/restore, replace roles, reset password): the target may not
+    /// hold more than the caller may manage. Returns null when the caller may act, otherwise 403
+    /// <c>permissions-exceed-caller</c> (a system administrator target for a non-sysadmin caller, or any permission
+    /// the caller lacks) or 403 <c>branch-not-in-scope</c> (a target branch outside the caller's scope; a system
+    /// administrator acting on a selected organization reaches every branch of it). The same bodies for the browser
+    /// cookie and the device operator.
+    /// </summary>
+    private static IResult? AuthorizeTarget(CloudTenantScope scope, UserAccount caller, UserAccount target)
+    {
+        var callerPermissions = ActingPermissions.For(caller, scope);
+        if ((target.IsSystemAdmin && !caller.IsSystemAdmin)
+            || (target.EffectivePermissions & ~callerPermissions) != Permission.None)
+        {
+            return Results.Json(new { error = "permissions-exceed-caller" }, statusCode: StatusCodes.Status403Forbidden);
+        }
+
+        var actingSysadmin = caller.IsSystemAdmin && scope.IsActingOnSelectedOrganization;
+        if (!actingSysadmin && target.BranchScope.Any(branchId => !caller.BranchScope.Contains(branchId)))
+        {
+            return Results.Json(new { error = "branch-not-in-scope" }, statusCode: StatusCodes.Status403Forbidden);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The branch scope a new staff user gets from a paired terminal (admin-console-field-fixes T6): exactly the
+    /// terminal's branch. An empty or omitted list defaults to it; naming any other branch is refused with a
+    /// validation problem, even when the operator holds that branch. A customer-linked account keeps an empty scope.
+    /// </summary>
+    private static bool TryResolveDeviceBranches(
+        DeviceIdentity device, Guid[] requested, bool customerLinked, out Guid[] branchIds, out IResult? problem)
+    {
+        problem = null;
+        if (requested.Any(branchId => branchId != device.BranchId))
+        {
+            branchIds = [];
+            problem = Results.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["branchIds"] = ["a terminal can only assign its own branch."],
+            });
+            return false;
+        }
+
+        branchIds = requested.Length == 0 && !customerLinked ? [device.BranchId] : requested;
+        return true;
+    }
+
+    /// <summary>T5a branding validation: sensible upper bound on a caller-submitted URL, well above any real logo URL.</summary>
+    private const int LogoUrlMaxLength = 2048;
+
     public static RouteGroupBuilder MapAccountEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/account");
@@ -47,6 +136,7 @@ public static class AccountEndpoints
             SignInRequest request,
             HttpContext httpContext,
             PostgresUserAccountStore store,
+            PostgresOrganizationStore organizationStore,
             PasswordHasher<UserAccount> hasher,
             CancellationToken ct) =>
         {
@@ -97,6 +187,12 @@ public static class AccountEndpoints
             var signedInActor = await store.LoadActorAsync(scope, credential.Id, ct);
             var permissions = signedInActor is null ? 0 : (int)signedInActor.EffectivePermissions;
 
+            // No selected-organization concept exists yet at sign-in
+            // (no header, no filter) — always the caller's own BranchScope.
+            IReadOnlyList<BranchOption> selectableBranches = signedInActor is null
+                ? Array.Empty<BranchOption>()
+                : await organizationStore.ListBranchesAsync(scope, signedInActor.BranchScope.ToArray(), ct);
+
             var claims = new[]
             {
                 new Claim(TenantScopeResolver.OrganizationClaimType, credential.OrganizationId.ToString()),
@@ -109,7 +205,13 @@ public static class AccountEndpoints
 
             await httpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal);
 
-            return Results.Ok(new SignedInResponse(credential.OrganizationId, credential.Id, credential.Email, permissions, signedInActor?.IsSystemAdmin ?? false));
+            return Results.Ok(new SignedInResponse(
+                credential.OrganizationId,
+                credential.Id,
+                credential.Email,
+                permissions,
+                signedInActor?.IsSystemAdmin ?? false,
+                selectableBranches.Select(b => new SelectableBranch(b.Id, b.Name, b.Code)).ToList()));
         });
 
         // --- Renew: authenticated, self-service, known-current-password
@@ -314,9 +416,168 @@ public static class AccountEndpoints
             if (actor is null || !actor.IsSystemAdmin) return Results.StatusCode(StatusCodes.Status403Forbidden);
             var organizationId=Guid.NewGuid(); var branchId=Guid.NewGuid(); var userId=Guid.NewGuid(); var target=new CloudTenantScope(organizationId);
             var hash=hasher.HashPassword(new UserAccount(userId, organizationId, [], []),request.AdminPassword);
-            var outcome=await organizationStore.TryCreateBootstrapAsync(target,new NewOrganization(organizationId,request.OrganizationName.Trim()),new NewBranch(branchId,string.IsNullOrWhiteSpace(request.BranchName)?"Main":request.BranchName.Trim()),new NewUserAccount(userId,request.AdminEmail,hash,[branchId],[new RoleDto(RoleCatalog.BusinessAdmin,Permission.ViewSales|Permission.ManageCatalog|Permission.ManageUsers|Permission.ManageBranchSettings)]),new UserManagementAuditEntry("org-user",actorId,organizationId,"organization",organizationId,"organization.bootstrapped",null,JsonSerializer.Serialize(new { organizationName=request.OrganizationName.Trim(),adminEmail=request.AdminEmail.Trim().ToLowerInvariant()})),ct);
+            var outcome=await organizationStore.TryCreateBootstrapAsync(target,new NewOrganization(organizationId,request.OrganizationName.Trim()),new NewBranch(branchId,string.IsNullOrWhiteSpace(request.BranchName)?"Main":request.BranchName.Trim()),new NewUserAccount(userId,request.AdminEmail,hash,[branchId],[new RoleDto(RoleCatalog.BusinessAdmin,RoleCatalog.BusinessAdminPermissions)]),new UserManagementAuditEntry("org-user",actorId,organizationId,"organization",organizationId,"organization.bootstrapped",null,JsonSerializer.Serialize(new { organizationName=request.OrganizationName.Trim(),adminEmail=request.AdminEmail.Trim().ToLowerInvariant()})),ct);
             return outcome==BootstrapOutcome.Created ? Results.Created($"/account/organizations/{organizationId}",new CreateOrganizationResponse(organizationId,branchId,userId)) : Results.Conflict();
         });
+
+        // --- T5a: organization branding (organization-persistence spec
+        // "Organization Branding Fields"). System-admin-gated read/update by
+        // id, mirroring the manual IsSystemAdmin gate this file already uses
+        // for the two endpoints above (no [Authorize(Policy=...)] shape
+        // exists in this codebase for sysadmin — LoadActorAsync + the flag
+        // is the established pattern). A caller-submitted `id` is safe here
+        // because the store scopes strictly to it via `set_config` and the
+        // gate has already confirmed the CALLER is a system admin — the
+        // target organization id itself is never trusted beyond that.
+        organizationGroup.MapGet("/{id:guid}/branding", async (Guid id, HttpContext httpContext, PostgresUserAccountStore userStore, PostgresOrganizationStore organizationStore, CancellationToken ct) =>
+        {
+            if (!TenantScopeResolver.TryResolve(httpContext.User, out var scope, out _)) return Results.StatusCode(StatusCodes.Status403Forbidden);
+            var claim = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (claim is null || !Guid.TryParse(claim, out var actorId)) return Results.StatusCode(StatusCodes.Status403Forbidden);
+            var actor = await userStore.LoadActorAsync(scope!, actorId, ct);
+            if (actor is null || !actor.IsSystemAdmin) return Results.StatusCode(StatusCodes.Status403Forbidden);
+            var branding = await organizationStore.GetBrandingAsync(id, ct);
+            return branding is null ? Results.NotFound() : Results.Ok(new OrganizationBrandingResponse(branding.LogoUrl, branding.PrimaryColor));
+        });
+
+        organizationGroup.MapPut("/{id:guid}/branding", async (Guid id, UpdateOrganizationBrandingRequest request, HttpContext httpContext, PostgresUserAccountStore userStore, PostgresOrganizationStore organizationStore, CancellationToken ct) =>
+        {
+            if (!TenantScopeResolver.TryResolve(httpContext.User, out var scope, out _)) return Results.StatusCode(StatusCodes.Status403Forbidden);
+            var claim = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (claim is null || !Guid.TryParse(claim, out var actorId)) return Results.StatusCode(StatusCodes.Status403Forbidden);
+            var actor = await userStore.LoadActorAsync(scope!, actorId, ct);
+            if (actor is null || !actor.IsSystemAdmin) return Results.StatusCode(StatusCodes.Status403Forbidden);
+
+            // Empty/whitespace clears the field — no separate "clear" flag.
+            var logoUrl = string.IsNullOrWhiteSpace(request.LogoUrl) ? null : request.LogoUrl.Trim();
+            var primaryColor = string.IsNullOrWhiteSpace(request.PrimaryColor) ? null : request.PrimaryColor.Trim();
+
+            var errors = new Dictionary<string, string[]>();
+            if (logoUrl is not null)
+            {
+                if (logoUrl.Length > LogoUrlMaxLength)
+                {
+                    errors["logoUrl"] = [$"logoUrl must be {LogoUrlMaxLength} characters or fewer."];
+                }
+                else if (!Uri.TryCreate(logoUrl, UriKind.Absolute, out var parsedUrl) ||
+                         (parsedUrl.Scheme != Uri.UriSchemeHttp && parsedUrl.Scheme != Uri.UriSchemeHttps))
+                {
+                    errors["logoUrl"] = ["logoUrl must be an absolute http or https URL."];
+                }
+            }
+            if (primaryColor is not null && !HexColorPattern.IsMatch(primaryColor))
+            {
+                errors["primaryColor"] = ["primaryColor must be a #rrggbb hex color."];
+            }
+            if (errors.Count > 0) return Results.ValidationProblem(errors);
+
+            var audit = new UserManagementAuditEntry(
+                "org-user", actorId, id, "organization", id, "organization.branding_updated", null,
+                JsonSerializer.Serialize(new { logoUrl, primaryColor }));
+            var updated = await organizationStore.UpdateBrandingAsync(id, logoUrl, primaryColor, audit, ct);
+            return updated ? Results.NoContent() : Results.NotFound();
+        });
+
+        // --- T5a: the signed-in user's OWN organization's branding (feeds
+        // T6's "custom" theme). Scope comes ONLY from
+        // TenantScopeEndpointFilter (the authenticated claim), same as
+        // branchGroup below — never from a route/query parameter — so this
+        // can never return another tenant's branding.
+        var ownOrganizationGroup = app.MapGroup("/account/organization")
+            .RequireAuthorization()
+            .AddEndpointFilter<TenantScopeEndpointFilter>();
+
+        ownOrganizationGroup.MapGet("/branding", async (HttpContext httpContext, PostgresOrganizationStore organizationStore, CancellationToken ct) =>
+        {
+            var scope = TenantScopeEndpointFilter.GetScope(httpContext);
+            var branding = await organizationStore.GetBrandingAsync(scope.OrganizationId, ct);
+            return branding is null ? Results.NotFound() : Results.Ok(new OrganizationBrandingResponse(branding.LogoUrl, branding.PrimaryColor));
+        });
+
+        // --- purchases-receptions-and-stock T7: the signed-in user's OWN organization's settings (the number
+        // format). Any signed-in user reads them (the web needs them to parse and show quantities); writing needs
+        // ManageBranchSettings (business-admin; a sysadmin acting on a selected organization is covered by
+        // ActingPermissions) and is audited like branding.
+        ownOrganizationGroup.MapGet("/settings", async (HttpContext httpContext, PostgresOrganizationStore organizationStore, CancellationToken ct) =>
+        {
+            var scope = TenantScopeEndpointFilter.GetScope(httpContext);
+            var settings = await organizationStore.GetSettingsAsync(scope.OrganizationId, ct);
+            return settings is null
+                ? Results.NotFound()
+                : Results.Ok(new OrganizationSettingsResponse(
+                    settings.QuantityDecimalSeparator, settings.DefaultCustomerPriceListId, settings.CountryCode, settings.DefaultCustomerPaymentTermsDays));
+        });
+
+        ownOrganizationGroup.MapPut("/settings", async (UpdateOrganizationSettingsRequest request, HttpContext httpContext, PostgresUserAccountStore userStore, PostgresOrganizationStore organizationStore, CancellationToken ct) =>
+        {
+            var scope = TenantScopeEndpointFilter.GetScope(httpContext);
+            var claim = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (claim is null || !Guid.TryParse(claim, out var callerId)) return Results.StatusCode(StatusCodes.Status403Forbidden);
+            var caller = await userStore.LoadActorAsync(scope.IdentityScope, callerId, ct);
+            if (caller is null || caller.IsRevoked || !ActingPermissions.For(caller, scope).HasFlag(Permission.ManageBranchSettings)) return Results.StatusCode(StatusCodes.Status403Forbidden);
+
+            var current = await organizationStore.GetSettingsAsync(scope.OrganizationId, ct);
+            if (current is null) return Results.NotFound();
+
+            // The number format is required unless the call only changes other settings (the default customer price
+            // list, the country).
+            var changesOnlyOtherSettings = request.QuantityDecimalSeparator is null
+                && (request.DefaultCustomerPriceListId is not null || request.ClearDefaultCustomerPriceList || request.CountryCode is not null
+                    || request.DefaultCustomerPaymentTermsDays is not null);
+            if (!changesOnlyOtherSettings && !OrganizationSettings.IsValidQuantityDecimalSeparator(request.QuantityDecimalSeparator))
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]> { ["quantityDecimalSeparator"] = ["quantityDecimalSeparator must be Comma or Dot."] });
+            }
+
+            if (request.QuantityDecimalSeparator is not null && !OrganizationSettings.IsValidQuantityDecimalSeparator(request.QuantityDecimalSeparator))
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]> { ["quantityDecimalSeparator"] = ["quantityDecimalSeparator must be Comma or Dot."] });
+            }
+
+            // admin-console-field-fixes: the country. Absent = unchanged; otherwise two letters of a loaded country (foreign key).
+            string? countryCode = null;
+            if (request.CountryCode is not null && !OrganizationSettings.TryNormalizeCountryCode(request.CountryCode, out countryCode))
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]> { ["countryCode"] = ["countryCode must be a two-letter country code."] });
+            }
+
+            // customer-price-lists: the default list for customers. Absent = unchanged; a list id = set it;
+            // clearDefaultCustomerPriceList = true = no default. The list must belong to this organization (foreign key).
+            var priceListId = request.ClearDefaultCustomerPriceList ? null : request.DefaultCustomerPriceListId ?? current.DefaultCustomerPriceListId;
+
+            // The default payment terms of customers: absent = unchanged, otherwise 0 to 365 days.
+            if (request.DefaultCustomerPaymentTermsDays is { } termsDays && !Commerce.Domain.CurrentAccounts.PaymentTerms.IsValidDays(termsDays))
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["defaultCustomerPaymentTermsDays"] = ["defaultCustomerPaymentTermsDays is between 0 and 365 days."],
+                });
+            }
+
+            var settings = new OrganizationSettings(
+                request.QuantityDecimalSeparator ?? current.QuantityDecimalSeparator, priceListId, countryCode ?? current.CountryCode,
+                request.DefaultCustomerPaymentTermsDays ?? current.DefaultCustomerPaymentTermsDays);
+            var audit = new UserManagementAuditEntry(
+                "org-user", callerId, scope.OrganizationId, "organization", scope.OrganizationId, "organization.settings_updated", null,
+                JsonSerializer.Serialize(new
+                {
+                    quantityDecimalSeparator = settings.QuantityDecimalSeparator,
+                    defaultCustomerPriceListId = settings.DefaultCustomerPriceListId,
+                    countryCode = settings.CountryCode,
+                    defaultCustomerPaymentTermsDays = settings.DefaultCustomerPaymentTermsDays,
+                }));
+            try
+            {
+                return await organizationStore.UpdateSettingsAsync(scope.OrganizationId, settings, audit, ct) ? Results.NoContent() : Results.NotFound();
+            }
+            catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.ForeignKeyViolation)
+            {
+                return ex.ConstraintName == "organizations_country_fk"
+                    ? Results.ValidationProblem(new Dictionary<string, string[]> { ["countryCode"] = ["country-not-found"] })
+                    : Results.ValidationProblem(new Dictionary<string, string[]> { ["defaultCustomerPriceListId"] = ["price-list-not-found"] });
+            }
+        });
+
         var branchGroup = app.MapGroup("/account/branches")
             .RequireAuthorization()
             .AddEndpointFilter<TenantScopeEndpointFilter>();
@@ -327,11 +588,26 @@ public static class AccountEndpoints
             var scope = TenantScopeEndpointFilter.GetScope(httpContext);
             var claim = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             if (claim is null || !Guid.TryParse(claim, out var callerId)) return Results.StatusCode(StatusCodes.Status403Forbidden);
-            var caller = await userStore.LoadActorAsync(scope, callerId, ct);
-            if (caller is null || caller.IsRevoked || !caller.EffectivePermissions.HasFlag(Permission.ManageBranchSettings)) return Results.StatusCode(StatusCodes.Status403Forbidden);
+            var caller = await userStore.LoadActorAsync(scope.IdentityScope, callerId, ct);
+            if (caller is null || caller.IsRevoked || !ActingPermissions.For(caller, scope).HasFlag(Permission.ManageBranchSettings)) return Results.StatusCode(StatusCodes.Status403Forbidden);
             var branchId = Guid.NewGuid();
-            await organizationStore.CreateBranchAsync(scope, new NewBranch(branchId, request.BranchName), ct);
-            return Results.Created($"/account/branches/{branchId}", new CreateBranchResponse(branchId));
+            // A sysadmin acting on a selected organization audits the write
+            // with themselves as actor (platform-administration spec
+            // "Sysadmin Acts On A Selected Organization"); a same-org caller
+            // keeps today's behavior (no audit row for branch creation).
+            var audit = scope.IsActingOnSelectedOrganization
+                ? new UserManagementAuditEntry("org-user", callerId, scope.OrganizationId, "branch", branchId, "branch.created", null, JsonSerializer.Serialize(new { name = request.BranchName }))
+                : null;
+            int code;
+            try
+            {
+                code = await organizationStore.CreateBranchAsync(scope, new NewBranch(branchId, request.BranchName), audit, ct);
+            }
+            catch (Commerce.Domain.Tenancy.BranchCodesExhaustedException)
+            {
+                return Results.Conflict(new { error = "branch-codes-exhausted" });
+            }
+            return Results.Created($"/account/branches/{branchId}", new CreateBranchResponse(branchId, code));
         });
 
         branchGroup.MapGet("", async (HttpContext httpContext, PostgresUserAccountStore userStore, PostgresOrganizationStore organizationStore, CancellationToken ct) =>
@@ -339,10 +615,10 @@ public static class AccountEndpoints
             var scope = TenantScopeEndpointFilter.GetScope(httpContext);
             var claim = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             if (claim is null || !Guid.TryParse(claim, out var callerId)) return Results.StatusCode(StatusCodes.Status403Forbidden);
-            var caller = await userStore.LoadActorAsync(scope, callerId, ct);
-            if (caller is null || caller.IsRevoked || !caller.EffectivePermissions.HasFlag(Permission.ManageBranchSettings)) return Results.StatusCode(StatusCodes.Status403Forbidden);
+            var caller = await userStore.LoadActorAsync(scope.IdentityScope, callerId, ct);
+            if (caller is null || caller.IsRevoked || !ActingPermissions.For(caller, scope).HasFlag(Permission.ManageBranchSettings)) return Results.StatusCode(StatusCodes.Status403Forbidden);
             var branches = await organizationStore.ListBranchesAsync(scope, ct);
-            return Results.Ok(branches.Select(branch => new BranchSummaryDto(branch.Id, branch.Name)));
+            return Results.Ok(branches.Select(branch => new BranchSummaryDto(branch.Id, branch.Name, branch.Code)));
         });
         // --- Admin-forced reset: authenticated, ManageUsers-gated, same-org
         // only (commerce-password-recovery design.md "Admin-forced reset" /
@@ -350,6 +626,9 @@ public static class AccountEndpoints
         // RequireAuthorization + TenantScopeEndpointFilter, actor loaded from
         // the store, target loaded scoped to the CALLER's org so RLS makes a
         // cross-org target indistinguishable from "no such user".
+        // The routes the desktop Personal section uses (list, create, roles,
+        // status, reset password) also admit a paired terminal with a verified
+        // operator (AllowDeviceOperator, admin-console-field-fixes T5).
         var adminGroup = app.MapGroup("/account/users")
             .RequireAuthorization()
             .AddEndpointFilter<TenantScopeEndpointFilter>();
@@ -366,14 +645,14 @@ public static class AccountEndpoints
                 return Results.Forbid();
             }
 
-            var caller = await userStore.LoadActorAsync(scope, callerId, ct);
-            if (caller is null || caller.IsRevoked || !caller.EffectivePermissions.HasFlag(Permission.ManageUsers))
+            var caller = await userStore.LoadActorAsync(scope.IdentityScope, callerId, ct);
+            if (caller is null || caller.IsRevoked || !ActingPermissions.For(caller, scope).HasFlag(Permission.ManageUsers))
             {
                 return Results.StatusCode(StatusCodes.Status403Forbidden);
             }
 
             return Results.Ok(await userStore.ListStaffAsync(scope, ct));
-        });
+        }).AllowDeviceOperator();
         adminGroup.MapPost("/{userId:guid}/reset-password", async (
             Guid userId,
             AdminResetPasswordRequest request,
@@ -400,13 +679,13 @@ public static class AccountEndpoints
                 return Results.Forbid();
             }
 
-            var caller = await userStore.LoadActorAsync(scope, callerId, ct);
+            var caller = await userStore.LoadActorAsync(scope.IdentityScope, callerId, ct);
             if (caller is null || caller.IsRevoked)
             {
                 return Results.Forbid();
             }
 
-            if (!caller.EffectivePermissions.HasFlag(Permission.ManageUsers))
+            if (!ActingPermissions.For(caller, scope).HasFlag(Permission.ManageUsers))
             {
                 return Results.Forbid();
             }
@@ -421,13 +700,26 @@ public static class AccountEndpoints
                 return Results.NotFound();
             }
 
+            // admin-console-field-fixes T6: the same target rule as revoke/restore, so a branch manager cannot take
+            // over an account above them or outside their branches.
+            var targetDenial = AuthorizeTarget(scope, caller, target);
+            if (targetDenial is not null)
+            {
+                return targetDenial;
+            }
+
             var newPasswordHash = hasher.HashPassword(
                 new UserAccount(userId, scope.OrganizationId, [], []), request.NewPassword);
-            var newVersion = await recoveryStore.SetPasswordAsync(scope, userId, newPasswordHash, ct);
+            // Who reset whose password; never any password material.
+            var newVersion = await recoveryStore.SetPasswordAsync(
+                scope, userId, newPasswordHash,
+                new UserManagementAuditEntry(
+                    AuditActorKinds.OrgUser, callerId, scope.OrganizationId, "user", userId, "user.password.reset", null, null),
+                ct);
             sessionVersionCache.Set(userId, newVersion);
 
             return Results.NoContent();
-        });
+        }).AllowDeviceOperator();
 
         // --- Staff user creation and role assignment (commerce-role-taxonomy
         // design.md "Data Flow"): reuses adminGroup's exact authorization
@@ -453,6 +745,12 @@ public static class AccountEndpoints
                 });
             }
 
+            // admin-console-field-fixes: the shared email rule (the store normalizes case).
+            if (!CustomerEndpoints.TryNormalizeEmail(request.Email, out _, out var emailProblem))
+            {
+                return emailProblem!;
+            }
+
             var scope = TenantScopeEndpointFilter.GetScope(httpContext);
 
             var callerIdClaim = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
@@ -461,13 +759,13 @@ public static class AccountEndpoints
                 return Results.Forbid();
             }
 
-            var caller = await userStore.LoadActorAsync(scope, callerId, ct);
+            var caller = await userStore.LoadActorAsync(scope.IdentityScope, callerId, ct);
             if (caller is null || caller.IsRevoked)
             {
                 return Results.Forbid();
             }
 
-            if (!caller.EffectivePermissions.HasFlag(Permission.ManageUsers))
+            if (!ActingPermissions.For(caller, scope).HasFlag(Permission.ManageUsers))
             {
                 return Results.Forbid();
             }
@@ -490,7 +788,7 @@ public static class AccountEndpoints
             // location"): unknown role -> 400, reserved role or a grant that
             // exceeds the caller's own permissions -> 403, regardless of
             // what the caller otherwise holds.
-            if (!RoleGrantPolicy.TryAuthorize(caller, request.RoleNames ?? [], out var roles, out var denial))
+            if (!RoleGrantPolicy.TryAuthorize(ActingPermissions.EffectiveCaller(caller, scope), request.RoleNames ?? [], out var roles, out var denial))
             {
                 return denial == GrantDenial.UnknownRole
                     ? Results.ValidationProblem(new Dictionary<string, string[]>
@@ -500,13 +798,22 @@ public static class AccountEndpoints
                     : Results.Forbid();
             }
 
-            var branchIds = request.BranchIds ?? [];
-            if (!await userStore.BranchesBelongToOrganizationAsync(scope, branchIds, ct))
+            // A staff account (no customer link) is unusable without a branch
+            // (the POS rejects it with `branch-not-in-scope`), so an empty
+            // scope is refused for every client. Customer-linked accounts
+            // keep the empty scope they have always had.
+            var branchIds = (request.BranchIds ?? []).Distinct().ToArray();
+            if (DeviceIdentity.TryResolve(httpContext.User, out var device)
+                && !TryResolveDeviceBranches(device!, branchIds, request.CustomerId is not null, out branchIds, out var deviceProblem))
             {
-                return Results.ValidationProblem(new Dictionary<string, string[]>
-                {
-                    ["branchIds"] = ["one or more branches do not belong to the caller's organization."],
-                });
+                return deviceProblem!;
+            }
+
+            var branchDenial = await ValidateBranchAssignmentAsync(
+                scope, caller, branchIds, required: request.CustomerId is null, userStore, ct);
+            if (branchDenial is not null)
+            {
+                return branchDenial;
             }
 
             // commerce-customer-identity follow-up: the target Customer must
@@ -543,7 +850,7 @@ public static class AccountEndpoints
             }
 
             return Results.Created($"/account/users/{userId}", new CreateUserResponse(userId));
-        });
+        }).AllowDeviceOperator();
 
         adminGroup.MapPut("/{userId:guid}/roles", async (
             Guid userId,
@@ -560,13 +867,13 @@ public static class AccountEndpoints
                 return Results.Forbid();
             }
 
-            var caller = await userStore.LoadActorAsync(scope, callerId, ct);
+            var caller = await userStore.LoadActorAsync(scope.IdentityScope, callerId, ct);
             if (caller is null || caller.IsRevoked)
             {
                 return Results.Forbid();
             }
 
-            if (!caller.EffectivePermissions.HasFlag(Permission.ManageUsers))
+            if (!ActingPermissions.For(caller, scope).HasFlag(Permission.ManageUsers))
             {
                 return Results.Forbid();
             }
@@ -592,7 +899,15 @@ public static class AccountEndpoints
                 });
             }
 
-            if (!RoleGrantPolicy.TryAuthorize(caller, request.RoleNames ?? [], out var roles, out var denial))
+            // admin-console-field-fixes T6: the grant cap limits only the new roles; the target itself must also
+            // be within the caller's reach (same rule as revoke/restore).
+            var targetDenial = AuthorizeTarget(scope, caller, target);
+            if (targetDenial is not null)
+            {
+                return targetDenial;
+            }
+
+            if (!RoleGrantPolicy.TryAuthorize(ActingPermissions.EffectiveCaller(caller, scope), request.RoleNames ?? [], out var roles, out var denial))
             {
                 return denial == GrantDenial.UnknownRole
                     ? Results.ValidationProblem(new Dictionary<string, string[]>
@@ -606,7 +921,130 @@ public static class AccountEndpoints
             await userStore.ReplaceRolesAsync(scope, userId, roleDtos, "org-user", callerId, ct);
 
             return Results.NoContent();
+        }).AllowDeviceOperator();
+
+        // Replaces a staff user's branch scope. Same authorization shape as
+        // the roles endpoint, and the same branch validation as creation
+        // (non-empty, inside the organization, inside the caller's own cap).
+        adminGroup.MapPut("/{userId:guid}/branches", async (
+            Guid userId,
+            ReplaceBranchesRequest request,
+            HttpContext httpContext,
+            PostgresUserAccountStore userStore,
+            CancellationToken ct) =>
+        {
+            var scope = TenantScopeEndpointFilter.GetScope(httpContext);
+
+            var callerIdClaim = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (callerIdClaim is null || !Guid.TryParse(callerIdClaim, out var callerId))
+            {
+                return Results.Forbid();
+            }
+
+            var caller = await userStore.LoadActorAsync(scope.IdentityScope, callerId, ct);
+            if (caller is null || caller.IsRevoked)
+            {
+                return Results.Forbid();
+            }
+
+            if (!ActingPermissions.For(caller, scope).HasFlag(Permission.ManageUsers))
+            {
+                return Results.Forbid();
+            }
+
+            var target = await userStore.LoadActorAsync(scope, userId, ct);
+            if (target is null)
+            {
+                return Results.NotFound();
+            }
+
+            if (target.CustomerId is not null)
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["userId"] = ["a customer-linked account has no branch scope."],
+                });
+            }
+
+            var branchIds = (request.BranchIds ?? []).Distinct().ToArray();
+            var branchDenial = await ValidateBranchAssignmentAsync(scope, caller, branchIds, required: true, userStore, ct);
+            if (branchDenial is not null)
+            {
+                return branchDenial;
+            }
+
+            var updated = await userStore.ReplaceBranchScopeAsync(scope, userId, branchIds, "org-user", callerId, ct);
+
+            return updated == 0 ? Results.NotFound() : Results.NoContent();
         });
+
+        // Deactivates ("dar de baja") or reactivates a staff user. Same
+        // authorization shape as the roles and branches endpoints, plus: no
+        // self-revocation, staff only, and the target may not hold more than
+        // the caller may manage (permissions and branches). Idempotent.
+        adminGroup.MapPut("/{userId:guid}/status", async (
+            Guid userId,
+            UpdateUserStatusRequest request,
+            HttpContext httpContext,
+            PostgresUserAccountStore userStore,
+            SessionVersionCache sessionVersionCache,
+            CancellationToken ct) =>
+        {
+            if (request.Revoked is not { } revoked)
+            {
+                return Results.BadRequest(new { error = "revoked-required" });
+            }
+
+            var scope = TenantScopeEndpointFilter.GetScope(httpContext);
+
+            var callerIdClaim = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (callerIdClaim is null || !Guid.TryParse(callerIdClaim, out var callerId))
+            {
+                return Results.Forbid();
+            }
+
+            var caller = await userStore.LoadActorAsync(scope.IdentityScope, callerId, ct);
+            if (caller is null || caller.IsRevoked)
+            {
+                return Results.Forbid();
+            }
+
+            if (!ActingPermissions.For(caller, scope).HasFlag(Permission.ManageUsers))
+            {
+                return Results.Forbid();
+            }
+
+            var target = await userStore.LoadActorAsync(scope, userId, ct);
+            if (target is null)
+            {
+                return Results.NotFound();
+            }
+
+            if (target.Id == callerId)
+            {
+                return Results.BadRequest(new { error = "cannot-revoke-self" });
+            }
+
+            if (target.CustomerId is not null)
+            {
+                return Results.BadRequest(new { error = "not-a-staff-user" });
+            }
+
+            var targetDenial = AuthorizeTarget(scope, caller, target);
+            if (targetDenial is not null)
+            {
+                return targetDenial;
+            }
+
+            var version = await userStore.SetRevokedAsync(scope, userId, revoked, "org-user", callerId, ct);
+            if (version is null)
+            {
+                return Results.NotFound();
+            }
+
+            sessionVersionCache.Set(userId, version.Value);
+            return Results.NoContent();
+        }).AllowDeviceOperator();
 
         group.MapPost("/sign-out", async (HttpContext httpContext) =>
         {
@@ -614,12 +1052,15 @@ public static class AccountEndpoints
             return Results.Ok();
         });
 
-        group.MapGet("/me", async (HttpContext httpContext, PostgresUserAccountStore userStore, CancellationToken ct) =>
+        group.MapGet("/me", async (
+            HttpContext httpContext, PostgresUserAccountStore userStore, PostgresOrganizationStore organizationStore, CancellationToken ct) =>
         {
-            if (!TenantScopeResolver.TryResolve(httpContext.User, out var scope, out _))
-            {
-                return Results.Unauthorized();
-            }
+            // Routed through TenantScopeEndpointFilter (added below) so a
+            // system administrator's `X-Organization-Id` selector is in
+            // effect here too — organization-persistence spec "Selectable
+            // Branches In The Session" needs `IsActingOnSelectedOrganization`
+            // to decide which branches the caller may select.
+            var scope = TenantScopeEndpointFilter.GetScope(httpContext);
 
             var userIdClaim = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             var displayName = httpContext.User.FindFirst(ClaimTypes.Name)?.Value;
@@ -632,11 +1073,28 @@ public static class AccountEndpoints
             // store call so `permissions` is derived fresh, not baked into
             // the cookie (design.md "Session impact": none for existing
             // cookies — no claim change).
-            var actor = await userStore.LoadActorAsync(scope!, userId, ct);
+            var actor = await userStore.LoadActorAsync(scope.IdentityScope, userId, ct);
             var permissions = actor is null ? 0 : (int)actor.EffectivePermissions;
 
-            return Results.Ok(new SignedInResponse(scope!.OrganizationId, userId, displayName ?? string.Empty, permissions, actor?.IsSystemAdmin ?? false));
-        });
+            // organization-persistence "Selectable Branches In The Session":
+            // a sysadmin acting on a selected organization may pick any
+            // branch of it; everyone else (including a sysadmin with no
+            // selection, whose own BranchScope is always empty per B1) is
+            // limited to their own persisted BranchScope.
+            IReadOnlyList<BranchOption> selectableBranches = actor is null
+                ? Array.Empty<BranchOption>()
+                : scope.IsActingOnSelectedOrganization && actor.IsSystemAdmin
+                    ? await organizationStore.ListBranchesAsync(scope, ct)
+                    : await organizationStore.ListBranchesAsync(scope, actor.BranchScope.ToArray(), ct);
+
+            return Results.Ok(new SignedInResponse(
+                scope.OrganizationId,
+                userId,
+                displayName ?? string.Empty,
+                permissions,
+                actor?.IsSystemAdmin ?? false,
+                selectableBranches.Select(b => new SelectableBranch(b.Id, b.Name, b.Code)).ToList()));
+        }).AddEndpointFilter<TenantScopeEndpointFilter>();
 
         // --- Bootstrap: one-time first-admin creation gated by a log-only
         // token (design.md "Bootstrap token delivery") ------------------------
@@ -710,7 +1168,7 @@ public static class AccountEndpoints
                     request.Email,
                     passwordHash,
                     [branchId],
-                    [new RoleDto(RoleCatalog.BusinessAdmin, Permission.ViewSales | Permission.ManageCatalog | Permission.ManageUsers | Permission.ManageBranchSettings)]),
+                    [new RoleDto(RoleCatalog.BusinessAdmin, RoleCatalog.BusinessAdminPermissions)]),
                 ct);
 
             if (outcome != BootstrapOutcome.Created)
@@ -738,9 +1196,18 @@ public sealed record AdminResetPasswordRequest(string NewPassword);
 /// <summary>
 /// `Permissions` is server-derived (`actor.EffectivePermissions`), never a
 /// caller-supplied value — commerce-customer-identity design.md "Web admin
-/// gating".
+/// gating". `SelectableBranches` is the B7 U1 addition
+/// (organization-persistence spec "Selectable Branches In The Session").
 /// </summary>
-public sealed record SignedInResponse(Guid OrganizationId, Guid UserId, string DisplayName, int Permissions, bool IsSystemAdmin);
+public sealed record SignedInResponse(
+    Guid OrganizationId,
+    Guid UserId,
+    string DisplayName,
+    int Permissions,
+    bool IsSystemAdmin,
+    IReadOnlyList<SelectableBranch> SelectableBranches);
+
+public sealed record SelectableBranch(Guid Id, string Name, int Code);
 
 public sealed record BootstrapTokenRequest(Guid OrganizationId);
 
@@ -760,12 +1227,22 @@ public sealed record CreateUserRequest(string Email, string Password, string[] R
 
 public sealed record CreateUserResponse(Guid UserId);
 
-public sealed record UserSummaryDto(Guid UserId, string Email, IReadOnlyList<string> RoleNames, bool IsRevoked);
+public sealed record UserSummaryDto(Guid UserId, string Email, IReadOnlyList<string> RoleNames, bool IsRevoked, IReadOnlyList<Guid> BranchIds);
 public sealed record CreateBranchRequest(string BranchName);
-public sealed record CreateBranchResponse(Guid BranchId);
-public sealed record BranchSummaryDto(Guid BranchId, string BranchName);
+public sealed record CreateBranchResponse(Guid BranchId, int Code);
+public sealed record BranchSummaryDto(Guid BranchId, string BranchName, int Code);
 public sealed record OrganizationSummary(Guid Id, string Name, DateTimeOffset CreatedAt);
 public sealed record CreateOrganizationRequest(string OrganizationName, string? BranchName, string AdminEmail, string AdminPassword);
 public sealed record CreateOrganizationResponse(Guid OrganizationId, Guid BranchId, Guid UserId);
+public sealed record OrganizationBrandingResponse(string? LogoUrl, string? PrimaryColor);
+public sealed record UpdateOrganizationBrandingRequest(string? LogoUrl, string? PrimaryColor);
+public sealed record OrganizationSettingsResponse(
+    string QuantityDecimalSeparator, Guid? DefaultCustomerPriceListId = null, string CountryCode = OrganizationSettings.DefaultCountryCode,
+    int DefaultCustomerPaymentTermsDays = Commerce.Domain.CurrentAccounts.PaymentTerms.DefaultDays);
+public sealed record UpdateOrganizationSettingsRequest(
+    string? QuantityDecimalSeparator, Guid? DefaultCustomerPriceListId = null, bool ClearDefaultCustomerPriceList = false, string? CountryCode = null,
+    int? DefaultCustomerPaymentTermsDays = null);
 
 public sealed record AssignRolesRequest(string[] RoleNames);
+public sealed record ReplaceBranchesRequest(Guid[] BranchIds);
+public sealed record UpdateUserStatusRequest(bool? Revoked);

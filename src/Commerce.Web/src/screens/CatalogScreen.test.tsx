@@ -1,9 +1,11 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { AuthContext } from '@/auth/AuthContext'
+import { BranchContext } from '@/branch/BranchContext'
 import { CatalogScreen } from './CatalogScreen'
-import { QuantityBehavior } from '@/api/types'
-import type { PresentationRecord } from '@/api/types'
+import { Permission, QuantityBehavior } from '@/api/types'
+import type { CategoryRecord, PresentationRecord, ProductRecord, SignedInResponse } from '@/api/types'
 
 /**
  * design.md "Web: CatalogScreen rework": real presentation list +
@@ -17,6 +19,7 @@ describe('CatalogScreen', () => {
   const unlabelled: PresentationRecord = {
     id: '11111111-1111-1111-1111-111111111111',
     organizationId: 'org-1',
+    branchId: 'branch-1',
     productId: '22222222-2222-2222-2222-222222222222',
     name: '1.5L bottle',
     quantityBehavior: QuantityBehavior.FixedQuantity,
@@ -34,6 +37,45 @@ describe('CatalogScreen', () => {
     identificationCode: '7790000000001',
   }
 
+  // catalog-categories: the edit form also reads the product and the
+  // organization's categories, so the edit tests route by method + URL
+  // instead of relying on call order.
+  const product: ProductRecord = {
+    id: unlabelled.productId,
+    organizationId: 'org-1',
+    branchId: 'branch-1',
+    name: 'Soda',
+    categoryId: 'cat-1',
+    defaultUnitId: unlabelled.unitId,
+    createdAtUtc: '2024-01-01T00:00:00Z',
+    createdByUserId: 'user-1',
+    isActive: true,
+    deactivatedAtUtc: null,
+    updatedAtUtc: '2024-01-01T00:00:00Z',
+  }
+  const meat: CategoryRecord = {
+    id: 'cat-1',
+    organizationId: 'org-1',
+    name: 'Carnes',
+    iconKey: 'meat',
+    createdAtUtc: '2024-01-01T00:00:00Z',
+    updatedAtUtc: '2024-01-01T00:00:00Z',
+  }
+  const wine: CategoryRecord = { ...meat, id: 'cat-2', name: 'Vinos', iconKey: 'wine' }
+
+  const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status })
+
+  function routeFetch(routes: Record<string, () => Response>) {
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      const handler = routes[`${init?.method ?? 'GET'} ${url}`]
+      if (!handler) throw new TypeError(`unrouted ${init?.method ?? 'GET'} ${url}`)
+      return handler()
+    })
+  }
+
+  const callsTo = (key: string) =>
+    fetchMock.mock.calls.filter(([url, init]) => `${init?.method ?? 'GET'} ${url}` === key)
+
   beforeEach(() => {
     vi.stubGlobal('fetch', fetchMock)
   })
@@ -50,29 +92,31 @@ describe('CatalogScreen', () => {
     render(<CatalogScreen />)
 
     await screen.findByText('1.5L bottle')
-    expect(screen.getByText('No code')).toBeInTheDocument()
+    expect(screen.getByText('Sin código')).toBeInTheDocument()
     expect(fetchMock.mock.calls[0][0]).toBe('/catalog/presentations')
   })
 
   it("lets an admin set a Presentation's identification code via PUT", async () => {
-    fetchMock
-      .mockResolvedValueOnce(new Response(JSON.stringify([unlabelled]), { status: 200 })) // GET
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ ...unlabelled, identificationCode: '7791234567890' }), { status: 200 }),
-      ) // PUT
+    routeFetch({
+      'GET /catalog/presentations': () => json([unlabelled]),
+      'GET /catalog/products': () => json([product]),
+      'GET /catalog/categories': () => json([meat, wine]),
+      [`PUT /catalog/presentations/${unlabelled.id}`]: () =>
+        json({ ...unlabelled, identificationCode: '7791234567890' }),
+    })
 
     const user = userEvent.setup()
     render(<CatalogScreen />)
 
     await screen.findByText('1.5L bottle')
-    await user.click(screen.getByRole('button', { name: /edit code/i }))
-    await user.type(screen.getByLabelText(/identification code/i), '7791234567890')
-    await user.click(screen.getByRole('button', { name: /^save$/i }))
+    await user.click(screen.getByRole('button', { name: /^editar$/i }))
+    await user.type(screen.getByLabelText(/código de identificación/i), '7791234567890')
+    await user.click(screen.getByRole('button', { name: /^guardar$/i }))
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
-    const [url, init] = fetchMock.mock.calls[1]
-    expect(url).toBe(`/catalog/presentations/${unlabelled.id}`)
-    expect(init.method).toBe('PUT')
+    await waitFor(() => expect(callsTo(`PUT /catalog/presentations/${unlabelled.id}`)).toHaveLength(1))
+    // The category was not touched, so the product is left alone.
+    expect(callsTo(`PUT /catalog/products/${product.id}/category`)).toHaveLength(0)
+    const init = callsTo(`PUT /catalog/presentations/${unlabelled.id}`)[0][1]
     expect(JSON.parse(init.body as string)).toMatchObject({
       name: unlabelled.name,
       quantityBehavior: unlabelled.quantityBehavior,
@@ -81,7 +125,53 @@ describe('CatalogScreen', () => {
     })
 
     await screen.findByText('7791234567890')
-    expect(screen.queryByText('No code')).not.toBeInTheDocument()
+    expect(screen.queryByText('Sin código')).not.toBeInTheDocument()
+  })
+
+  it("edits the product's category from the same page, preselecting the current one", async () => {
+    routeFetch({
+      'GET /catalog/presentations': () => json([unlabelled]),
+      'GET /catalog/products': () => json([product]),
+      'GET /catalog/categories': () => json([meat, wine]),
+      [`PUT /catalog/presentations/${unlabelled.id}`]: () => json(unlabelled),
+      [`PUT /catalog/products/${product.id}/category`]: () => json({ ...product, categoryId: 'cat-2' }),
+    })
+
+    const user = userEvent.setup()
+    render(<CatalogScreen />)
+
+    await screen.findByText('1.5L bottle')
+    await user.click(screen.getByRole('button', { name: /^editar$/i }))
+
+    const select = await screen.findByLabelText('Categoría')
+    await waitFor(() => expect(select).toHaveValue('cat-1'))
+    expect(within(select).getAllByRole('option').map((option) => option.textContent)).toEqual(['Carnes', 'Vinos'])
+
+    await user.selectOptions(select, 'cat-2')
+    await user.click(screen.getByRole('button', { name: /^guardar$/i }))
+
+    await waitFor(() => expect(callsTo(`PUT /catalog/products/${product.id}/category`)).toHaveLength(1))
+    const init = callsTo(`PUT /catalog/products/${product.id}/category`)[0][1]
+    expect(JSON.parse(init.body as string)).toEqual({ categoryId: 'cat-2' })
+  })
+
+  it('still saves the identification code when the categories cannot be loaded', async () => {
+    routeFetch({
+      'GET /catalog/presentations': () => json([unlabelled]),
+      [`PUT /catalog/presentations/${unlabelled.id}`]: () =>
+        json({ ...unlabelled, identificationCode: '7791234567890' }),
+    })
+
+    const user = userEvent.setup()
+    render(<CatalogScreen />)
+
+    await screen.findByText('1.5L bottle')
+    await user.click(screen.getByRole('button', { name: /^editar$/i }))
+    await user.type(screen.getByLabelText(/código de identificación/i), '7791234567890')
+    await user.click(screen.getByRole('button', { name: /^guardar$/i }))
+
+    await screen.findByText('7791234567890')
+    expect(screen.queryByLabelText('Categoría')).not.toBeInTheDocument()
   })
 
   it('surfaces a visible error state when the API is unreachable, never stale/mock data', async () => {
@@ -90,7 +180,7 @@ describe('CatalogScreen', () => {
     render(<CatalogScreen />)
 
     const alert = await screen.findByRole('alert')
-    expect(alert).toHaveTextContent(/unreachable|error/i)
+    expect(alert).toHaveTextContent(/no está disponible/i)
   })
 
   // T4: the shared data-view layer (PageHeader + DataToolbar + DataView).
@@ -109,7 +199,7 @@ describe('CatalogScreen', () => {
 
     render(<CatalogScreen />)
 
-    expect(await screen.findByText(/no presentations/i)).toBeInTheDocument()
+    expect(await screen.findByText(/no hay presentaciones/i)).toBeInTheDocument()
   })
 
   it('filters the listed presentations client-side by name or identification code', async () => {
@@ -121,18 +211,95 @@ describe('CatalogScreen', () => {
     await screen.findByText('1.5L bottle')
     expect(screen.getByText('330ml can')).toBeInTheDocument()
 
-    await user.type(screen.getByLabelText(/search presentations/i), '330')
+    await user.type(screen.getByLabelText(/buscar presentaciones/i), '330')
 
     expect(screen.getByText('330ml can')).toBeInTheDocument()
     expect(screen.queryByText('1.5L bottle')).not.toBeInTheDocument()
     // Filtering is purely client-side over what was already loaded.
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).startsWith('/catalog/presentations'))).toHaveLength(1)
 
-    await user.clear(screen.getByLabelText(/search presentations/i))
-    await user.type(screen.getByLabelText(/search presentations/i), '7790000000001')
+    await user.clear(screen.getByLabelText(/buscar presentaciones/i))
+    await user.type(screen.getByLabelText(/buscar presentaciones/i), '7790000000001')
 
     expect(screen.getByText('330ml can')).toBeInTheDocument()
     expect(screen.queryByText('1.5L bottle')).not.toBeInTheDocument()
+  })
+
+  // operator-ux-adjustments T1: the owner saw "Por kg" instead of "Lengua".
+  describe('product name', () => {
+    const lenguaProduct: ProductRecord = { ...product, id: '77777777-7777-7777-7777-777777777777', name: 'Lengua' }
+    const porKg: PresentationRecord = {
+      ...unlabelled,
+      id: '88888888-8888-8888-8888-888888888888',
+      productId: lenguaProduct.id,
+      name: 'Por kg',
+      quantityBehavior: QuantityBehavior.Weighted,
+      identificationCode: '2000123',
+    }
+
+    it('shows the product name as the main text and the presentation as muted secondary text', async () => {
+      routeFetch({
+        'GET /catalog/presentations': () => json([porKg, unlabelled]),
+        'GET /catalog/products': () => json([lenguaProduct, product]),
+      })
+
+      render(<CatalogScreen />)
+
+      const productName = await screen.findByText('Lengua')
+      const row = productName.closest('tr')!
+      expect(within(row).getByText('Por kg')).toHaveClass('text-muted-foreground')
+      expect(screen.getByText('Soda')).toBeInTheDocument()
+    })
+
+    it('searches by product name, presentation name and code', async () => {
+      routeFetch({
+        'GET /catalog/presentations': () => json([porKg, unlabelled]),
+        'GET /catalog/products': () => json([lenguaProduct, product]),
+      })
+
+      const user = userEvent.setup()
+      render(<CatalogScreen />)
+      await screen.findByText('Lengua')
+      const search = screen.getByLabelText(/buscar presentaciones/i)
+
+      await user.type(search, 'lengua')
+      expect(screen.getByText('Lengua')).toBeInTheDocument()
+      expect(screen.queryByText('Soda')).not.toBeInTheDocument()
+
+      await user.clear(search)
+      await user.type(search, 'por kg')
+      expect(screen.getByText('Lengua')).toBeInTheDocument()
+      expect(screen.queryByText('Soda')).not.toBeInTheDocument()
+
+      await user.clear(search)
+      await user.type(search, '2000123')
+      expect(screen.getByText('Lengua')).toBeInTheDocument()
+      expect(screen.queryByText('Soda')).not.toBeInTheDocument()
+    })
+
+    it('falls back to the presentation name when the products cannot be loaded', async () => {
+      routeFetch({ 'GET /catalog/presentations': () => json([porKg]) })
+
+      render(<CatalogScreen />)
+
+      expect(await screen.findByText('Por kg')).toBeInTheDocument()
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    })
+
+    it('names the product in the deactivation confirmation', async () => {
+      routeFetch({
+        'GET /catalog/presentations': () => json([porKg]),
+        'GET /catalog/products': () => json([lenguaProduct]),
+      })
+
+      const user = userEvent.setup()
+      render(<CatalogScreen />)
+      await screen.findByText('Lengua')
+
+      await user.click(screen.getByRole('button', { name: /^desactivar$/i }))
+
+      expect(screen.getByRole('heading', { name: /lengua/i })).toBeInTheDocument()
+    })
   })
 
   it('shows a helpful empty state when the filter matches nothing', async () => {
@@ -142,15 +309,13 @@ describe('CatalogScreen', () => {
     render(<CatalogScreen />)
 
     await screen.findByText('1.5L bottle')
-    await user.type(screen.getByLabelText(/search presentations/i), 'zzzz')
+    await user.type(screen.getByLabelText(/buscar presentaciones/i), 'zzzz')
 
-    expect(screen.getByText(/no presentations match/i)).toBeInTheDocument()
+    expect(screen.getByText(/ninguna presentación coincide/i)).toBeInTheDocument()
   })
 
   it('switches to the card view and restores that preference on remount', async () => {
-    fetchMock
-      .mockResolvedValueOnce(new Response(JSON.stringify([unlabelled]), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify([unlabelled]), { status: 200 }))
+    routeFetch({ 'GET /catalog/presentations': () => json([unlabelled]) })
 
     const user = userEvent.setup()
     const first = render(<CatalogScreen />)
@@ -158,7 +323,7 @@ describe('CatalogScreen', () => {
     await screen.findByText('1.5L bottle')
     expect(screen.getByRole('table')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('radio', { name: /card view/i }))
+    await user.click(screen.getByRole('radio', { name: /vista de tarjetas/i }))
 
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
     expect(screen.getAllByTestId('data-view-card')).toHaveLength(1)
@@ -169,25 +334,393 @@ describe('CatalogScreen', () => {
 
     await screen.findByText('1.5L bottle')
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
-    expect(screen.getByRole('radio', { name: /card view/i })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByRole('radio', { name: /vista de tarjetas/i })).toHaveAttribute('aria-checked', 'true')
   })
 
   it('still edits the identification code from the card view', async () => {
     window.localStorage.setItem('view:catalog', 'cards')
-    fetchMock
-      .mockResolvedValueOnce(new Response(JSON.stringify([unlabelled]), { status: 200 })) // GET
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ ...unlabelled, identificationCode: '7791234567890' }), { status: 200 }),
-      ) // PUT
+    routeFetch({
+      'GET /catalog/presentations': () => json([unlabelled]),
+      'GET /catalog/products': () => json([product]),
+      'GET /catalog/categories': () => json([meat, wine]),
+      [`PUT /catalog/presentations/${unlabelled.id}`]: () =>
+        json({ ...unlabelled, identificationCode: '7791234567890' }),
+    })
 
     const user = userEvent.setup()
     render(<CatalogScreen />)
 
     await screen.findByText('1.5L bottle')
-    await user.click(screen.getByRole('button', { name: /edit code/i }))
-    await user.type(screen.getByLabelText(/identification code/i), '7791234567890')
-    await user.click(screen.getByRole('button', { name: /^save$/i }))
+    await user.click(screen.getByRole('button', { name: /^editar$/i }))
+    await user.type(screen.getByLabelText(/código de identificación/i), '7791234567890')
+    await user.click(screen.getByRole('button', { name: /^guardar$/i }))
 
     await screen.findByText('7791234567890')
+  })
+
+  it('replaces the list with a full-screen edit page instead of expanding the row inline', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify([unlabelled, labelled]), { status: 200 }))
+
+    const user = userEvent.setup()
+    render(<CatalogScreen />)
+
+    await screen.findByText('1.5L bottle')
+    await user.click(screen.getAllByRole('button', { name: /^editar$/i })[0])
+
+    // The list (and the other presentation's row) is gone, not just a form
+    // appended under this row.
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    expect(screen.queryByText('330ml can')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Editar presentación' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /volver al catálogo/i }))
+
+    expect(screen.getByText('1.5L bottle')).toBeInTheDocument()
+    expect(screen.getByText('330ml can')).toBeInTheDocument()
+  })
+
+  it('keeps the search text and view preference after returning from the edit page', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify([unlabelled, labelled]), { status: 200 }))
+
+    const user = userEvent.setup()
+    render(<CatalogScreen />)
+
+    await screen.findByText('1.5L bottle')
+    await user.click(screen.getByRole('radio', { name: /vista de tarjetas/i }))
+    await user.type(screen.getByLabelText(/buscar presentaciones/i), '330')
+    expect(screen.getByText('330ml can')).toBeInTheDocument()
+    expect(screen.queryByText('1.5L bottle')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /^editar$/i }))
+    await user.click(screen.getByRole('button', { name: /volver al catálogo/i }))
+
+    expect(screen.getByLabelText(/buscar presentaciones/i)).toHaveValue('330')
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    expect(screen.getByText('330ml can')).toBeInTheDocument()
+    expect(screen.queryByText('1.5L bottle')).not.toBeInTheDocument()
+  })
+
+  // vaca-verde T1: product soft deletion. Inactive products leave the default list; the "Estado" filter brings them back.
+  describe('soft deletion', () => {
+    const inactiveProduct: ProductRecord = { ...product, id: '55555555-5555-5555-5555-555555555555', name: 'Retirado', isActive: false }
+    const retired: PresentationRecord = { ...labelled, id: '66666666-6666-6666-6666-666666666666', productId: inactiveProduct.id, name: 'Corte retirado' }
+    const activeProduct: ProductRecord = { ...product }
+
+    it('shows only active products by default and asks the API for no inactive ones', async () => {
+      routeFetch({ 'GET /catalog/presentations': () => json([unlabelled]) })
+
+      render(<CatalogScreen />)
+
+      await screen.findByText('1.5L bottle')
+      expect(callsTo('GET /catalog/presentations')).toHaveLength(1)
+      expect(screen.getByLabelText('Estado')).toHaveValue('active')
+      expect(screen.queryByText('Inactivo')).not.toBeInTheDocument()
+    })
+
+    it('the Inactivos filter lists only inactive products, flagged with an Inactivo badge', async () => {
+      routeFetch({
+        'GET /catalog/presentations': () => json([unlabelled]),
+        'GET /catalog/presentations?includeInactive=true': () => json([unlabelled, retired]),
+        'GET /catalog/products?includeInactive=true': () => json([activeProduct, inactiveProduct]),
+      })
+
+      const user = userEvent.setup()
+      render(<CatalogScreen />)
+      await screen.findByText('1.5L bottle')
+
+      await user.selectOptions(screen.getByLabelText('Estado'), 'inactive')
+
+      await screen.findByText('Corte retirado')
+      expect(screen.queryByText('1.5L bottle')).not.toBeInTheDocument()
+      expect(screen.getByText('Inactivo')).toBeInTheDocument()
+
+      await user.selectOptions(screen.getByLabelText('Estado'), 'all')
+      expect(await screen.findByText('1.5L bottle')).toBeInTheDocument()
+      expect(screen.getByText('Corte retirado')).toBeInTheDocument()
+    })
+
+    it('deactivating asks for confirmation, then posts and removes the product from the default list', async () => {
+      routeFetch({
+        'GET /catalog/presentations': () => json([unlabelled, labelled]),
+        [`POST /catalog/products/${product.id}/deactivate`]: () => json({ ...product, isActive: false }),
+      })
+
+      const user = userEvent.setup()
+      render(<CatalogScreen />)
+      await screen.findByText('1.5L bottle')
+
+      await user.click(screen.getAllByRole('button', { name: /^desactivar$/i })[0])
+      expect(screen.getByText(/el producto deja de aparecer en el pos y en las listas; su historial se conserva/i)).toBeInTheDocument()
+      expect(callsTo(`POST /catalog/products/${product.id}/deactivate`)).toHaveLength(0)
+
+      await user.click(screen.getByRole('button', { name: /^desactivar producto$/i }))
+
+      await waitFor(() => expect(callsTo(`POST /catalog/products/${product.id}/deactivate`)).toHaveLength(1))
+      // Both presentations belong to the same product, so both leave the active list.
+      await waitFor(() => expect(screen.queryByText('1.5L bottle')).not.toBeInTheDocument())
+      expect(screen.queryByText('330ml can')).not.toBeInTheDocument()
+    })
+
+    it('cancelling the confirmation changes nothing', async () => {
+      routeFetch({ 'GET /catalog/presentations': () => json([unlabelled]) })
+
+      const user = userEvent.setup()
+      render(<CatalogScreen />)
+      await screen.findByText('1.5L bottle')
+
+      await user.click(screen.getByRole('button', { name: /^desactivar$/i }))
+      await user.click(screen.getByRole('button', { name: /^cancelar$/i }))
+
+      expect(screen.getByText('1.5L bottle')).toBeInTheDocument()
+      expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(0)
+    })
+
+    it('reactivating an inactive product posts and clears its badge', async () => {
+      routeFetch({
+        'GET /catalog/presentations': () => json([unlabelled]),
+        'GET /catalog/presentations?includeInactive=true': () => json([retired]),
+        'GET /catalog/products?includeInactive=true': () => json([inactiveProduct]),
+        [`POST /catalog/products/${inactiveProduct.id}/reactivate`]: () => json({ ...inactiveProduct, isActive: true }),
+      })
+
+      const user = userEvent.setup()
+      render(<CatalogScreen />)
+      await screen.findByText('1.5L bottle')
+      await user.selectOptions(screen.getByLabelText('Estado'), 'all')
+      await screen.findByText('Corte retirado')
+
+      await user.click(screen.getByRole('button', { name: /^reactivar$/i }))
+
+      await waitFor(() => expect(callsTo(`POST /catalog/products/${inactiveProduct.id}/reactivate`)).toHaveLength(1))
+      await waitFor(() => expect(screen.queryByText('Inactivo')).not.toBeInTheDocument())
+    })
+  })
+
+  // Seller (ViewSales | TakeOrders): the catalog is read-only for them, the server refuses changes anyway.
+  describe('read-only for a seller', () => {
+    const seller: SignedInResponse = {
+      organizationId: 'org-1',
+      userId: 'seller-1',
+      displayName: 'Vendedor',
+      permissions: Permission.ViewSales | Permission.TakeOrders,
+      isSystemAdmin: false,
+      selectableBranches: [],
+    }
+
+    it('lists the products without offering create, edit, deactivate or the status filter', async () => {
+      routeFetch({
+        'GET /catalog/presentations': () => json([unlabelled, labelled]),
+        'GET /catalog/products': () => json([product]),
+        'GET /catalog/categories': () => json([meat, wine]),
+      })
+
+      render(
+        <AuthContext.Provider value={{ user: seller, error: null, signIn: async () => {}, signOut: async () => {} }}>
+          <CatalogScreen />
+        </AuthContext.Provider>,
+      )
+
+      expect((await screen.findAllByText('Soda')).length).toBeGreaterThan(0)
+      expect(screen.queryByRole('button', { name: /nuevo producto/i })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /^editar$/i })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /^desactivar$/i })).not.toBeInTheDocument()
+      expect(screen.queryByLabelText('Estado')).not.toBeInTheDocument()
+      expect(screen.getByText(/solo lectura/i)).toBeInTheDocument()
+    })
+  })
+
+  describe('creating and fully editing a product', () => {
+    it('creates the product and then its presentation, sold by kilo with the kg unit of the catalog', async () => {
+      const created: ProductRecord = { ...product, id: 'p-new', name: 'Vacío', categoryId: 'cat-2' }
+      routeFetch({
+        'GET /catalog/presentations': () =>
+          json([{ ...labelled, quantityBehavior: QuantityBehavior.Weighted, unitId: 'kg-unit' }]),
+        'GET /catalog/products': () => json([product]),
+        'GET /catalog/categories': () => json([meat, wine]),
+        'POST /catalog/products': () => json(created, 201),
+        'POST /catalog/presentations': () =>
+          json(
+            {
+              ...unlabelled,
+              id: 'pres-new',
+              productId: 'p-new',
+              name: 'Por kg',
+              quantityBehavior: QuantityBehavior.Weighted,
+              identificationCode: '0042',
+            },
+            201,
+          ),
+      })
+
+      const user = userEvent.setup()
+      render(<CatalogScreen />)
+
+      await user.click(await screen.findByRole('button', { name: /nuevo producto/i }))
+      await user.type(screen.getByLabelText('Nombre del producto'), 'Vacío')
+      await user.selectOptions(screen.getByLabelText('Categoría'), 'cat-2')
+      await user.type(screen.getByLabelText(/código de identificación/i), '0042')
+      await user.click(screen.getByRole('button', { name: /crear producto/i }))
+
+      await waitFor(() => expect(callsTo('POST /catalog/presentations')).toHaveLength(1))
+      expect(JSON.parse(callsTo('POST /catalog/products')[0][1].body as string)).toEqual({
+        name: 'Vacío',
+        categoryId: 'cat-2',
+        defaultUnitId: 'kg-unit',
+      })
+      expect(JSON.parse(callsTo('POST /catalog/presentations')[0][1].body as string)).toEqual({
+        productId: 'p-new',
+        name: 'Por kg',
+        quantityBehavior: QuantityBehavior.Weighted,
+        unitId: 'kg-unit',
+        identificationCode: '0042',
+      })
+      // Back on the list, with the new product in it.
+      expect(await screen.findByText('Vacío')).toBeInTheDocument()
+    })
+
+    it('proposes the code after the last internal one, which the operator can keep or change', async () => {
+      routeFetch({
+        'GET /catalog/presentations': () =>
+          json([
+            { ...unlabelled, id: 'a', identificationCode: '001' },
+            { ...labelled, id: 'b', identificationCode: '090' },
+          ]),
+        'GET /catalog/products': () => json([product]),
+        'GET /catalog/categories': () => json([meat, wine]),
+      })
+
+      const user = userEvent.setup()
+      render(<CatalogScreen />)
+      await user.click(await screen.findByRole('button', { name: /nuevo producto/i }))
+
+      const code = screen.getByLabelText(/código de identificación/i)
+      await waitFor(() => expect(code).toHaveValue('091'))
+      expect(screen.getByText(/último código cargado: 090/i)).toBeInTheDocument()
+
+      await user.clear(code)
+      await user.type(code, '500')
+      await user.click(screen.getByRole('button', { name: 'Usar 091' }))
+      expect(code).toHaveValue('091')
+    })
+
+    it('edits the quantity behavior and the product name, renaming through the rename endpoint', async () => {
+      routeFetch({
+        'GET /catalog/presentations': () => json([unlabelled]),
+        'GET /catalog/products': () => json([product]),
+        'GET /catalog/categories': () => json([meat, wine]),
+        [`PUT /catalog/presentations/${unlabelled.id}`]: () =>
+          json({ ...unlabelled, name: 'Por kg', quantityBehavior: QuantityBehavior.Weighted }),
+        [`POST /catalog/products/${product.id}/rename`]: () =>
+          json({ status: 0, reason: '', updatedProduct: { ...product, name: 'Soda grande' } }),
+      })
+
+      const user = userEvent.setup()
+      render(<CatalogScreen />)
+
+      await user.click(await screen.findByRole('button', { name: /^editar$/i }))
+      const name = screen.getByLabelText('Nombre del producto')
+      await user.clear(name)
+      await user.type(name, 'Soda grande')
+      await user.selectOptions(screen.getByLabelText('Comportamiento de cantidad'), String(QuantityBehavior.Weighted))
+      await user.clear(screen.getByLabelText('Presentación'))
+      await user.type(screen.getByLabelText('Presentación'), 'Por kg')
+      await user.click(screen.getByRole('button', { name: /^guardar$/i }))
+
+      await waitFor(() => expect(callsTo(`POST /catalog/products/${product.id}/rename`)).toHaveLength(1))
+      expect(JSON.parse(callsTo(`PUT /catalog/presentations/${unlabelled.id}`)[0][1].body as string)).toMatchObject({
+        name: 'Por kg',
+        quantityBehavior: QuantityBehavior.Weighted,
+      })
+      expect(JSON.parse(callsTo(`POST /catalog/products/${product.id}/rename`)[0][1].body as string)).toMatchObject({
+        newName: 'Soda grande',
+        isOffline: false,
+      })
+      expect(await screen.findByText('Soda grande')).toBeInTheDocument()
+      expect(screen.getByText('Pesable')).toBeInTheDocument()
+    })
+
+    it('explains a code already used in the branch', async () => {
+      routeFetch({
+        'GET /catalog/presentations': () => json([unlabelled]),
+        'GET /catalog/products': () => json([product]),
+        'GET /catalog/categories': () => json([meat]),
+        [`PUT /catalog/presentations/${unlabelled.id}`]: () => json({ error: 'identification-code-in-use' }, 409),
+      })
+
+      const user = userEvent.setup()
+      render(<CatalogScreen />)
+
+      await user.click(await screen.findByRole('button', { name: /^editar$/i }))
+      await user.type(screen.getByLabelText(/código de identificación/i), '001')
+      await user.click(screen.getByRole('button', { name: /^guardar$/i }))
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(/ya lo usa otro producto/i)
+    })
+  })
+
+  describe('category filter and sorting', () => {
+    const steak: ProductRecord = { ...product, id: 'p-steak', name: 'Asado', categoryId: 'cat-1' }
+    const malbec: ProductRecord = { ...product, id: 'p-wine', name: 'Malbec', categoryId: 'cat-2' }
+    const steakKg: PresentationRecord = {
+      ...unlabelled,
+      id: 'pr-steak',
+      productId: steak.id,
+      name: 'Por kg',
+      identificationCode: '200',
+      updatedAtUtc: '2024-03-01T00:00:00Z',
+    }
+    const malbecBottle: PresentationRecord = {
+      ...unlabelled,
+      id: 'pr-wine',
+      productId: malbec.id,
+      name: 'Botella',
+      identificationCode: '100',
+      updatedAtUtc: '2024-05-01T00:00:00Z',
+    }
+
+    const rowNames = () =>
+      screen
+        .getAllByRole('row')
+        .slice(1)
+        .map((row) => (within(row).queryByText('Asado') ? 'Asado' : 'Malbec'))
+
+    it('filters by category and sorts by name, code and last update', async () => {
+      routeFetch({
+        'GET /catalog/presentations': () => json([malbecBottle, steakKg]),
+        'GET /catalog/products': () => json([steak, malbec]),
+        'GET /catalog/categories': () => json([meat, wine]),
+      })
+
+      const user = userEvent.setup()
+      render(<CatalogScreen />)
+
+      await screen.findByText('Asado')
+      expect(rowNames()).toEqual(['Asado', 'Malbec'])
+
+      await user.selectOptions(screen.getByLabelText('Ordenar por'), 'name-desc')
+      expect(rowNames()).toEqual(['Malbec', 'Asado'])
+
+      await user.selectOptions(screen.getByLabelText('Ordenar por'), 'code')
+      expect(rowNames()).toEqual(['Malbec', 'Asado'])
+
+      await user.selectOptions(screen.getByLabelText('Ordenar por'), 'updated-desc')
+      expect(rowNames()).toEqual(['Malbec', 'Asado'])
+
+      await user.selectOptions(screen.getByLabelText('Ordenar por'), 'name-asc')
+      await user.selectOptions(screen.getByLabelText('Categoría'), 'cat-2')
+      expect(rowNames()).toEqual(['Malbec'])
+    })
+  })
+
+  it('asks for a branch instead of loading when none is selected', async () => {
+    render(
+      <BranchContext.Provider value={{ selectedBranch: null, selectableBranches: [], selectBranch: () => {} }}>
+        <CatalogScreen />
+      </BranchContext.Provider>,
+    )
+
+    expect(await screen.findByRole('status')).toHaveTextContent(/Elegí una sucursal/)
+    expect(screen.getByRole('heading', { name: 'Catálogo' })).toBeInTheDocument()
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 })

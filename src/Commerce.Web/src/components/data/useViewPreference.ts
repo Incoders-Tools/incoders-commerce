@@ -11,14 +11,14 @@ function storageKeyFor(screenKey: string): string {
   return `view:${screenKey}`
 }
 
-function readStoredView(storageKey: string): DataViewMode {
+function readStoredView(storageKey: string, defaultView: DataViewMode): DataViewMode {
   try {
     const stored = window.localStorage.getItem(storageKey)
-    return isViewMode(stored) ? stored : DEFAULT_VIEW
+    return isViewMode(stored) ? stored : defaultView
   } catch {
     // localStorage unavailable (private browsing, disabled storage, …) —
     // same tolerant fallback ThemeProvider uses.
-    return DEFAULT_VIEW
+    return defaultView
   }
 }
 
@@ -27,9 +27,12 @@ function readStoredView(storageKey: string): DataViewMode {
  * (e.g. `view:catalog`). Read/write are both best-effort and corrupt values
  * fall back to the default, following `theme/ThemeProvider.tsx`.
  */
-export function useViewPreference(screenKey: string): [DataViewMode, (view: DataViewMode) => void] {
+export function useViewPreference(
+  screenKey: string,
+  defaultView: DataViewMode = DEFAULT_VIEW,
+): [DataViewMode, (view: DataViewMode) => void] {
   const storageKey = storageKeyFor(screenKey)
-  const [view, setViewState] = useState<DataViewMode>(() => readStoredView(storageKey))
+  const [view, setViewState] = useState<DataViewMode>(() => readStoredView(storageKey, defaultView))
 
   const setView = (next: DataViewMode) => {
     setViewState(next)

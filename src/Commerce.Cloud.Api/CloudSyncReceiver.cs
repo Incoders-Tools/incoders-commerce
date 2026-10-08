@@ -31,7 +31,7 @@ public sealed class CloudSyncReceiver
         _paymentEffectApplier = paymentEffectApplier;
     }
 
-    public InboundApplyResult Receive(CloudTenantScope scope, SyncEnvelope envelope)
+    public InboundApplyResult Receive(CloudTenantScope scope, SyncEnvelope envelope, Guid? installationId = null)
     {
         if (envelope.PayloadKind == PaymentRecordedPayloadKind && _paymentEffectApplier is not null)
         {
@@ -40,7 +40,7 @@ public sealed class CloudSyncReceiver
 
         // Unchanged path: every existing (sale) envelope kind dispatches
         // exactly as before this change.
-        return _store.TryApplyInbound(scope, envelope);
+        return _store.TryApplyInbound(scope, envelope, installationId);
     }
 
     public bool Acknowledge(CloudTenantScope scope, Guid operationId) =>

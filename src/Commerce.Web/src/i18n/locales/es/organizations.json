@@ -1,0 +1,83 @@
+{
+  "title": "Organizaciones",
+  "description": "Clientes incorporados a esta plataforma, cada uno con su propio administrador y sucursal.",
+  "newOrganization": "Nueva organización",
+  "errors": {
+    "unexpectedLoad": "Error inesperado al cargar las organizaciones."
+  },
+  "search": {
+    "label": "Buscar organizaciones",
+    "placeholder": "Buscar por nombre…"
+  },
+  "empty": {
+    "none": "Todavía no hay organizaciones.",
+    "noMatch": "Ninguna organización coincide con esta búsqueda.",
+    "loadError": "No se pudieron cargar las organizaciones."
+  },
+  "columns": {
+    "name": "Nombre",
+    "created": "Creada"
+  },
+  "actions": {
+    "open": "Abrir",
+    "editBranding": "Editar marca"
+  },
+  "createForm": {
+    "title": "Nueva organización",
+    "description": "Incorporar un nuevo cliente con su primera sucursal y administrador.",
+    "backLabel": "Volver a organizaciones",
+    "organizationNameLabel": "Nombre de la organización",
+    "branchNameLabel": "Nombre de la sucursal",
+    "adminEmailLabel": "Correo electrónico del administrador",
+    "adminPasswordLabel": "Contraseña del administrador",
+    "creating": "Creando…",
+    "submit": "Crear organización",
+    "cancel": "Cancelar",
+    "unableToCreate": "No se pudo crear la organización."
+  },
+  "brandingForm": {
+    "title": "Editar marca",
+    "description": "Logotipo y color primario de {{name}}.",
+    "backLabel": "Volver a organizaciones",
+    "logoUrlLabel": "URL del logotipo",
+    "logoPreviewAlt": "Vista previa del logotipo de la organización",
+    "primaryColorLabel": "Color primario",
+    "primaryColorPickerLabel": "Selector de color primario",
+    "unableToLoad": "No se pudo cargar la marca de la organización.",
+    "unableToSave": "No se pudo guardar la marca de la organización.",
+    "retry": "Reintentar",
+    "saving": "Guardando…",
+    "save": "Guardar",
+    "cancel": "Cancelar"
+  },
+  "settings": {
+    "title": "Configuración de la organización",
+    "description": "Preferencias de la organización que aplican a todas sus sucursales.",
+    "numberFormat": {
+      "label": "Formato de números",
+      "hint": "Cómo se escriben y se muestran las cantidades (kilos, unidades). No afecta los importes en pesos.",
+      "comma": "Coma decimal (1,5)",
+      "point": "Punto decimal (1.5)"
+    },
+    "save": "Guardar",
+    "saving": "Guardando…",
+    "saved": "Configuración guardada.",
+    "unableToLoad": "No se pudo cargar la configuración.",
+    "unableToSave": "No se pudo guardar la configuración.",
+    "retry": "Reintentar",
+    "defaultCustomerPriceList": {
+      "label": "Lista por defecto para clientes nuevos",
+      "hint": "Los clientes nuevos empiezan con esta lista de precios; después se puede cambiar cliente por cliente.",
+      "none": "Sin lista"
+    },
+    "country": {
+      "label": "País",
+      "hint": "Las provincias y ciudades de los formularios son las de este país."
+    },
+    "paymentTerms": {
+      "label": "Plazo general de pago (días)",
+      "hint": "Cuántos días tiene un cliente para pagar una venta a cuenta corriente. Se usa para todos los clientes que no tienen un plazo propio (se carga en la ficha del cliente). Con 0 la venta vence el mismo día. Con este plazo se calculan los vencimientos y los días de atraso.",
+      "invalid": "El plazo general de pago tiene que ser un número entero de 0 a 365 días."
+    }
+  }
+}

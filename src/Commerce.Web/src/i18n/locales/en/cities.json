@@ -1,0 +1,73 @@
+{
+  "title": "Cities",
+  "description": "Core city catalog, shared by every organization. Managed by the system administrator only.",
+  "columns": {
+    "name": "Name",
+    "province": "Province",
+    "department": "Department",
+    "postalCode": "Postal code",
+    "indecId": "INDEC code",
+    "status": "Status",
+    "updatedAt": "Last modified"
+  },
+  "status": {
+    "active": "Active",
+    "inactive": "Inactive",
+    "onlyActive": "Active only",
+    "includeInactive": "Include inactive",
+    "filterLabel": "Status"
+  },
+  "actions": {
+    "create": "New city",
+    "edit": "Edit",
+    "deactivate": "Deactivate",
+    "activate": "Activate",
+    "loadMore": "Load more"
+  },
+  "search": {
+    "label": "Search cities",
+    "placeholder": "Search by name…"
+  },
+  "filters": {
+    "province": "Province",
+    "allProvinces": "All provinces"
+  },
+  "empty": {
+    "none": "There are no cities yet.",
+    "noMatch": "No city matches this search.",
+    "loadError": "The cities could not be loaded."
+  },
+  "form": {
+    "createTitle": "New city",
+    "editTitle": "Edit city",
+    "description": "Name, province and department. The INDEC code comes from the official source and is not editable.",
+    "backLabel": "Back to cities",
+    "name": "Name",
+    "province": "Province",
+    "provincePlaceholder": "Choose a province",
+    "department": "Department",
+    "postalCode": "Postal code",
+    "postalCodeHint": "Optional: 4 digits (2000) or CPA (S2000ABC).",
+    "isActive": "Active",
+    "indecId": "INDEC code: {{code}}",
+    "updatedAt": "Updated: {{date}}",
+    "save": "Save",
+    "saving": "Saving…",
+    "cancel": "Cancel"
+  },
+  "picker": {
+    "noResults": "No city matches.",
+    "searching": "Searching…",
+    "loadError": "The cities could not be searched.",
+    "clear": "Remove city"
+  },
+  "errors": {
+    "unableToLoad": "The cities could not be loaded.",
+    "unableToSave": "The city could not be saved.",
+    "unableToUpdate": "The status could not be updated.",
+    "nameInUse": "A city with that name already exists in that province.",
+    "forbidden": "Only the system administrator can change cities.",
+    "invalid": "Check the name and the province.",
+    "postalCodeInvalid": "The postal code must have 4 digits (2000) or be a CPA (S2000ABC)."
+  }
+}

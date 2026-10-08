@@ -27,8 +27,8 @@ describe('ForgotPasswordScreen', () => {
     const user = userEvent.setup()
     render(<ForgotPasswordScreen onBackToSignIn={() => {}} />)
 
-    await user.type(screen.getByLabelText('Email'), 'known@example.com')
-    await user.click(screen.getByRole('button', { name: /send reset link/i }))
+    await user.type(screen.getByLabelText('Correo electrónico'), 'known@example.com')
+    await user.click(screen.getByRole('button', { name: /enviar enlace de restablecimiento/i }))
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
     const [url, init] = fetchMock.mock.calls[0]
@@ -36,7 +36,7 @@ describe('ForgotPasswordScreen', () => {
     expect(JSON.parse(init.body as string)).toEqual({ email: 'known@example.com' })
 
     expect(await screen.findByRole('status')).toHaveTextContent(
-      'If that address exists, check your inbox for a reset link.',
+      'Si esa dirección existe, revise su bandeja de entrada para encontrar el enlace de restablecimiento.',
     )
   })
 
@@ -46,11 +46,11 @@ describe('ForgotPasswordScreen', () => {
     const user = userEvent.setup()
     render(<ForgotPasswordScreen onBackToSignIn={() => {}} />)
 
-    await user.type(screen.getByLabelText('Email'), 'unreachable@example.com')
-    await user.click(screen.getByRole('button', { name: /send reset link/i }))
+    await user.type(screen.getByLabelText('Correo electrónico'), 'unreachable@example.com')
+    await user.click(screen.getByRole('button', { name: /enviar enlace de restablecimiento/i }))
 
     expect(await screen.findByRole('status')).toHaveTextContent(
-      'If that address exists, check your inbox for a reset link.',
+      'Si esa dirección existe, revise su bandeja de entrada para encontrar el enlace de restablecimiento.',
     )
   })
 })

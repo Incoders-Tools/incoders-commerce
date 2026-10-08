@@ -144,6 +144,8 @@ public sealed class AdminConsoleTests : IClassFixture<WebApplicationFactory<Prog
         var create = await client.PostAsJsonAsync("/account/branches", new CreateBranchRequest("Downtown"));
         Assert.Equal(HttpStatusCode.Created, create.StatusCode);
         var created = await create.Content.ReadFromJsonAsync<CreateBranchResponse>();
+        // The bootstrap branch holds code 1, so the first created branch is 2.
+        Assert.Equal(2, created!.Code);
 
         var otherOrganizationId = Guid.NewGuid(); var otherBranchId = Guid.NewGuid();
         using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
@@ -157,8 +159,30 @@ public sealed class AdminConsoleTests : IClassFixture<WebApplicationFactory<Prog
         var list = await client.GetAsync("/account/branches");
         Assert.Equal(HttpStatusCode.OK, list.StatusCode);
         var branches = await list.Content.ReadFromJsonAsync<List<BranchSummaryDto>>();
-        Assert.Contains(branches!, branch => branch.BranchId == created!.BranchId && branch.BranchName == "Downtown");
+        Assert.Contains(branches!, branch => branch.BranchId == created!.BranchId && branch.BranchName == "Downtown" && branch.Code == 2);
+        Assert.Contains(branches!, branch => branch.Code == 1);
         Assert.DoesNotContain(branches!, branch => branch.BranchId == otherBranchId);
+    }
+
+    [Fact]
+    public async Task Branches_WhenTheOrganizationRanOutOfCodes_Returns409WithTypedError()
+    {
+        if (!_postgresAvailable) return;
+        const string email = "branch-exhausted-admin@example.com"; const string password = "correct-password";
+        var (organizationId, _) = await BootstrapAsync(email, password);
+        using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            owner.Open();
+            using var top = new NpgsqlCommand("INSERT INTO branches (id, organization_id, name, code) VALUES ($1, $2, 'Last', 999)", owner);
+            top.Parameters.AddWithValue(Guid.NewGuid()); top.Parameters.AddWithValue(organizationId); top.ExecuteNonQuery();
+        }
+        var client = await SignInAsync(email, password);
+
+        var response = await client.PostAsJsonAsync("/account/branches", new CreateBranchRequest("Overflow"));
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal("branch-codes-exhausted", body.RootElement.GetProperty("error").GetString());
     }
 
     [Fact]
@@ -211,6 +235,10 @@ public sealed class AdminConsoleTests : IClassFixture<WebApplicationFactory<Prog
 Assert.Equal(created!.OrganizationId, (await (await SignInAsync("new-admin@example.com", password)).GetFromJsonAsync<SignedInResponse>("/account/me"))!.OrganizationId);
         using var auditOwner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
         auditOwner.Open();
+        // The new organization's admin is created with the full catalog set, OperatePos included.
+        using var rolesCmd = new NpgsqlCommand("SELECT roles::text FROM users WHERE email = 'new-admin@example.com' AND organization_id = $1", auditOwner);
+        rolesCmd.Parameters.AddWithValue(created.OrganizationId);
+        Assert.Contains($"\"permissions\": {(int)RoleCatalog.BusinessAdminPermissions}", (string)rolesCmd.ExecuteScalar()!);
         using var audit = new NpgsqlCommand("SELECT count(*) FROM audit_log WHERE actor_id = $1 AND organization_id = $2 AND action = 'organization.bootstrapped'", auditOwner);
         audit.Parameters.AddWithValue(userId);
         audit.Parameters.AddWithValue(created.OrganizationId);
@@ -236,6 +264,137 @@ Assert.Equal(created!.OrganizationId, (await (await SignInAsync("new-admin@examp
         using var client = noReadFactory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = true, AllowAutoRedirect = false, BaseAddress = new Uri("https://localhost") });
         Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/account/sign-in", new SignInRequest(email, password))).StatusCode);
         Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client.GetAsync("/account/organizations")).StatusCode);
+    }
+
+    // --- T5a: organization branding (organization-persistence spec
+    // "Organization Branding Fields") ---------------------------------------
+
+    [Fact]
+    public async Task Organizations_Branding_SystemAdminSetsReadsAndClears()
+    {
+        if (!_postgresAvailable) return;
+        const string email = "branding-sysadmin@example.com"; const string password = "correct-password";
+        var (organizationId, userId) = await BootstrapAsync(email, password);
+        using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString)) { owner.Open(); using var flag = new NpgsqlCommand("UPDATE users SET is_system_admin = true WHERE id = $1", owner); flag.Parameters.AddWithValue(userId); flag.ExecuteNonQuery(); }
+        var sysadmin = await SignInAsync(email, password);
+
+        var initial = await (await sysadmin.GetAsync($"/account/organizations/{organizationId}/branding")).Content.ReadFromJsonAsync<OrganizationBrandingResponse>();
+        Assert.Null(initial!.LogoUrl);
+        Assert.Null(initial.PrimaryColor);
+
+        var setResponse = await sysadmin.PutAsJsonAsync(
+            $"/account/organizations/{organizationId}/branding",
+            new UpdateOrganizationBrandingRequest("https://cdn.example.com/logo.png", "#336699"));
+        Assert.Equal(HttpStatusCode.NoContent, setResponse.StatusCode);
+
+        var afterSet = await (await sysadmin.GetAsync($"/account/organizations/{organizationId}/branding")).Content.ReadFromJsonAsync<OrganizationBrandingResponse>();
+        Assert.Equal("https://cdn.example.com/logo.png", afterSet!.LogoUrl);
+        Assert.Equal("#336699", afterSet.PrimaryColor);
+
+        using (var auditOwner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            auditOwner.Open();
+            using var audit = new NpgsqlCommand(
+                "SELECT count(*) FROM audit_log WHERE actor_id = $1 AND organization_id = $2 AND action = 'organization.branding_updated'", auditOwner);
+            audit.Parameters.AddWithValue(userId);
+            audit.Parameters.AddWithValue(organizationId);
+            Assert.Equal(1L, (long)audit.ExecuteScalar()!);
+        }
+
+        var clearResponse = await sysadmin.PutAsJsonAsync(
+            $"/account/organizations/{organizationId}/branding",
+            new UpdateOrganizationBrandingRequest("", ""));
+        Assert.Equal(HttpStatusCode.NoContent, clearResponse.StatusCode);
+
+        var afterClear = await (await sysadmin.GetAsync($"/account/organizations/{organizationId}/branding")).Content.ReadFromJsonAsync<OrganizationBrandingResponse>();
+        Assert.Null(afterClear!.LogoUrl);
+        Assert.Null(afterClear.PrimaryColor);
+    }
+
+    [Fact]
+    public async Task Organizations_Branding_NonSystemAdminIsDeniedAndUnknownOrganizationIs404()
+    {
+        if (!_postgresAvailable) return;
+        const string sysadminEmail = "branding-gate-sysadmin@example.com";
+        const string ordinaryEmail = "branding-gate-ordinary@example.com";
+        const string password = "correct-password";
+        var (organizationId, sysadminUserId) = await BootstrapAsync(sysadminEmail, password);
+        using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString)) { owner.Open(); using var flag = new NpgsqlCommand("UPDATE users SET is_system_admin = true WHERE id = $1", owner); flag.Parameters.AddWithValue(sysadminUserId); flag.ExecuteNonQuery(); }
+        var sysadmin = await SignInAsync(sysadminEmail, password);
+
+        var ordinaryId = Guid.NewGuid();
+        SeedUser(organizationId, ordinaryId, ordinaryEmail, Hash(ordinaryId, organizationId, password), Permission.ManageUsers);
+        var ordinary = await SignInAsync(ordinaryEmail, password);
+
+        Assert.Equal(HttpStatusCode.Forbidden, (await ordinary.GetAsync($"/account/organizations/{organizationId}/branding")).StatusCode);
+        Assert.Equal(
+            HttpStatusCode.Forbidden,
+            (await ordinary.PutAsJsonAsync($"/account/organizations/{organizationId}/branding", new UpdateOrganizationBrandingRequest("https://example.com/logo.png", "#abcdef"))).StatusCode);
+
+        var unknownId = Guid.NewGuid();
+        Assert.Equal(HttpStatusCode.NotFound, (await sysadmin.GetAsync($"/account/organizations/{unknownId}/branding")).StatusCode);
+        Assert.Equal(
+            HttpStatusCode.NotFound,
+            (await sysadmin.PutAsJsonAsync($"/account/organizations/{unknownId}/branding", new UpdateOrganizationBrandingRequest("https://example.com/logo.png", "#abcdef"))).StatusCode);
+    }
+
+    [Fact]
+    public async Task Organizations_Branding_ValidationRejectsBadUrlAndColor_AndPersistsNothing()
+    {
+        if (!_postgresAvailable) return;
+        const string email = "branding-validation@example.com"; const string password = "correct-password";
+        var (organizationId, userId) = await BootstrapAsync(email, password);
+        using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString)) { owner.Open(); using var flag = new NpgsqlCommand("UPDATE users SET is_system_admin = true WHERE id = $1", owner); flag.Parameters.AddWithValue(userId); flag.ExecuteNonQuery(); }
+        var sysadmin = await SignInAsync(email, password);
+
+        Assert.Equal(
+            HttpStatusCode.BadRequest,
+            (await sysadmin.PutAsJsonAsync($"/account/organizations/{organizationId}/branding", new UpdateOrganizationBrandingRequest("ftp://example.com/logo.png", null))).StatusCode);
+        Assert.Equal(
+            HttpStatusCode.BadRequest,
+            (await sysadmin.PutAsJsonAsync($"/account/organizations/{organizationId}/branding", new UpdateOrganizationBrandingRequest("/logo.png", null))).StatusCode);
+        Assert.Equal(
+            HttpStatusCode.BadRequest,
+            (await sysadmin.PutAsJsonAsync($"/account/organizations/{organizationId}/branding", new UpdateOrganizationBrandingRequest("https://example.com/" + new string('a', 2100), null))).StatusCode);
+        Assert.Equal(
+            HttpStatusCode.BadRequest,
+            (await sysadmin.PutAsJsonAsync($"/account/organizations/{organizationId}/branding", new UpdateOrganizationBrandingRequest(null, "#fff"))).StatusCode);
+        Assert.Equal(
+            HttpStatusCode.BadRequest,
+            (await sysadmin.PutAsJsonAsync($"/account/organizations/{organizationId}/branding", new UpdateOrganizationBrandingRequest(null, "336699"))).StatusCode);
+
+        var stillUnset = await (await sysadmin.GetAsync($"/account/organizations/{organizationId}/branding")).Content.ReadFromJsonAsync<OrganizationBrandingResponse>();
+        Assert.Null(stillUnset!.LogoUrl);
+        Assert.Null(stillUnset.PrimaryColor);
+    }
+
+    [Fact]
+    public async Task Organizations_Branding_OwnOrganizationEndpointReturnsOnlyTheCallersOrg()
+    {
+        if (!_postgresAvailable) return;
+        const string sysadminEmail = "branding-own-sysadmin@example.com"; const string password = "correct-password";
+        var (organizationAId, sysadminUserId) = await BootstrapAsync(sysadminEmail, password);
+        using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString)) { owner.Open(); using var flag = new NpgsqlCommand("UPDATE users SET is_system_admin = true WHERE id = $1", owner); flag.Parameters.AddWithValue(sysadminUserId); flag.ExecuteNonQuery(); }
+        var sysadmin = await SignInAsync(sysadminEmail, password);
+        Assert.Equal(
+            HttpStatusCode.NoContent,
+            (await sysadmin.PutAsJsonAsync($"/account/organizations/{organizationAId}/branding", new UpdateOrganizationBrandingRequest("https://a.example.com/logo.png", "#111111"))).StatusCode);
+
+        var (organizationBId, _) = await BootstrapAsync("branding-own-org-b-admin@example.com", password);
+        Assert.Equal(
+            HttpStatusCode.NoContent,
+            (await sysadmin.PutAsJsonAsync($"/account/organizations/{organizationBId}/branding", new UpdateOrganizationBrandingRequest("https://b.example.com/logo.png", "#222222"))).StatusCode);
+
+        var staffId = Guid.NewGuid();
+        SeedUser(organizationBId, staffId, "branding-own-org-b-staff@example.com", Hash(staffId, organizationBId, password), Permission.ViewSales);
+        var staffInB = await SignInAsync("branding-own-org-b-staff@example.com", password);
+
+        var response = await staffInB.GetAsync("/account/organization/branding");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<OrganizationBrandingResponse>();
+        Assert.Equal("https://b.example.com/logo.png", body!.LogoUrl);
+        Assert.Equal("#222222", body.PrimaryColor);
+        Assert.NotEqual("https://a.example.com/logo.png", body.LogoUrl);
     }
 
     [Fact]

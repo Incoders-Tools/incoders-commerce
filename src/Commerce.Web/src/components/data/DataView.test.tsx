@@ -39,7 +39,7 @@ describe('DataView', () => {
   it('renders a busy status while loading and no table', () => {
     renderView({ loading: true, items: [] })
 
-    expect(screen.getByRole('status')).toHaveTextContent(/loading/i)
+    expect(screen.getByRole('status')).toHaveTextContent(/cargando/i)
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
     expect(screen.queryByText('No rows yet.')).not.toBeInTheDocument()
   })
@@ -90,13 +90,6 @@ describe('DataView', () => {
     expect(screen.getByRole('button', { name: 'Edit Beta' })).toBeInTheDocument()
   })
 
-  it('renders expanded content for every item that returns it', () => {
-    renderView({ renderExpanded: (row) => <p>expanded {row.name}</p> })
-
-    expect(screen.getByText('expanded Alpha')).toBeInTheDocument()
-    expect(screen.getByText('expanded Beta')).toBeInTheDocument()
-  })
-
   it('says the load failed instead of claiming the collection is empty', () => {
     renderView({ items: [], loadErrorMessage: 'Rows could not be loaded.' })
 
@@ -115,15 +108,16 @@ describe('DataView', () => {
   it('prefers the loading state over the load-failure message', () => {
     renderView({ items: [], loading: true, loadErrorMessage: 'Rows could not be loaded.' })
 
-    expect(screen.getByRole('status')).toHaveTextContent(/loading/i)
+    expect(screen.getByRole('status')).toHaveTextContent(/cargando/i)
     expect(screen.queryByTestId('data-view-load-error')).not.toBeInTheDocument()
   })
 
-  it('renders expanded content under the matching item only', () => {
-    renderView({ renderExpanded: (row) => (row.id === 'a' ? <p>expanded alpha</p> : null) })
+  it('puts the optional row id on table rows and on cards, so a row can be linked to', () => {
+    const { unmount } = renderView({ getRowId: (row) => `row-${row.id}` })
+    expect(document.getElementById('row-a')?.tagName).toBe('TR')
+    unmount()
 
-    // Counting matches rather than probing for text the callback never
-    // returns: a scoping bug would repeat this same node under every row.
-    expect(screen.getAllByText(/^expanded /)).toHaveLength(1)
+    renderView({ view: 'cards', getRowId: (row) => `row-${row.id}` })
+    expect(document.getElementById('row-b')?.tagName).toBe('ARTICLE')
   })
 })
