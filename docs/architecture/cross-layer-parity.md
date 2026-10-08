@@ -16,7 +16,7 @@ Status: **Aligned** (same operations, same wording), **Partial** (shared core, l
 
 | Feature | Web | POS | Status | Notes |
 |---|---|---|---|---|
-| Customers: list, search, create, edit, contacts | `screens/CustomersScreen.tsx`, `CustomerForm.tsx`, `ContactsEditor.tsx` | `CustomersView.xaml(.cs)`, `CustomerAdminClient.cs` | Aligned | Same `/customers` endpoints. |
+| Customers: list, search, create, edit, contacts | `screens/CustomersScreen.tsx`, `CustomerForm.tsx`, `ContactsEditor.tsx` | `CustomersView.xaml(.cs)`, `CustomerList.cs`, `CustomerAdminClient.cs` | Aligned | Same `/customers` endpoints. Same list columns in the same order: Nombre, Tipo (Persona/Empresa), CUIT/DNI, Teléfono, Ubicación ("Ciudad — Provincia"), Tipo de negocio, Lista de precios, Estado; the web adds Saldo (accounting). Both forms edit the business type (`/customers/business-types`, read by the POS). Intentional differences: contacts, price list and payment terms are edited in the web only; the POS hides the secondary columns while its form is open. |
 | Customer current account | `SupplierAccountScreen.tsx` (`CustomerAccountScreen`) | `CustomerPaymentWindow` (collect), sale tender "Cuenta corriente" | Partial | POS collects payments and sells on account; statement and manual movements are web only. |
 | Staff (employees): list, create, edit, deactivate, advance, account | `EmployeesScreen.tsx`, `SupplierAccountScreen.tsx` (`EmployeeAccountScreen`) | `PersonalView.xaml(.cs)` tab "Empleados": `EmployeesView.xaml(.cs)`, `EmployeeList.cs`, `EmployeeAdminClient.cs` | Aligned | Same `/employees`, `/employees/roles` and `/treasury/accounts` endpoints; same columns, texts and input rules (`EmployeeFormRules` mirrors the web's `parseAmount`). Intentional differences: the POS lists and creates staff in its own branch only (the web picks the branch, and an edit at the POS keeps the stored one); the POS reads the account statement, while manual movements and reversals stay web only (accounting). Tests: `PosEmployeesTests`, `DeviceOperatorManagementTests`. |
 | System users: create, role, deactivate, reset password | `UsersScreen.tsx` (Sistema → Usuarios) | `PersonalView` tab "Usuarios y acceso": `StaffView.xaml(.cs)`, `UserAdminClient.cs` | Aligned | Same `/account/users` endpoints. |
@@ -30,6 +30,12 @@ Status: **Aligned** (same operations, same wording), **Partial** (shared core, l
 | Cash sessions, drawer movements, cash count | Treasury shows their effect (`TreasuryScreen.tsx`) | `OpenCashWindow`, `CashMovementWindow`, `CloseCashWindow` | Intentional difference | The drawer is operated at the POS; the web administers the money. |
 | Treasury: accounts, manual and recurring movements, transfers | `TreasuryScreen.tsx`, `TreasuryForms.tsx`, `TreasuryRecurrences.tsx` | — | One layer | Administration. |
 | Payroll | `PayrollScreen.tsx`, `PayrollRunScreen.tsx`, `PayslipsPrintScreen.tsx` | — | One layer | Administration; staff goods are sold at the POS to the employee's linked customer. |
+
+## Shared conventions
+
+- **Location**: a place is shown as "Ciudad — Provincia" under the header "Ubicación" (customers, suppliers), never "Ciudad".
+- **Row actions (web)**: up to two actions are buttons; with three or more the main one stays a button and the rest go to
+  the "…" menu (`components/data/RowActions.tsx`). The POS rows use icon buttons (`EntityListView`).
 
 ## Shared wording
 

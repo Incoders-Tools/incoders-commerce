@@ -19,7 +19,7 @@
     "name": "Name",
     "category": "Category",
     "contact": "Contact",
-    "city": "City",
+    "location": "Location",
     "taxId": "CUIT/CUIL/DNI",
     "balance": "Balance",
     "balanceHint": "What we owe the supplier",

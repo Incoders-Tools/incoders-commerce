@@ -10,15 +10,16 @@ public sealed class PosCustomerListTests
 {
     private static CustomerAdminRecordDto Customer(
         string name, string partyType = "Person", bool enabled = true, string? taxId = null, string? phone = null,
-        string? city = null, string? priceList = null) =>
+        string? city = null, string? priceList = null, string? businessType = null) =>
         new(Guid.NewGuid(), Guid.NewGuid(), "Retail", name, taxId is null ? "None" : "Cuit", taxId, "ConsumidorFinal",
             phone, "ana@correo.com", "San Martín", "123", "Centro", "9410", "Timbre 2", 5m, "30 días", "Nota",
             enabled, DateTimeOffset.UnixEpoch, Guid.NewGuid(), DateTimeOffset.UnixEpoch,
             CityId: city is null ? null : Guid.NewGuid(), CityName: city, ProvinceId: "94", ProvinceName: "Tierra del Fuego",
-            PartyType: partyType, PriceListName: priceList);
+            PartyType: partyType, PriceListName: priceList,
+            BusinessTypeId: businessType is null ? null : Guid.NewGuid(), BusinessTypeName: businessType);
 
     private static readonly CustomerAdminRecordDto Ana =
-        Customer("Ana Pérez", taxId: "27-11122233-4", phone: "2901 444555", city: "Ushuaia", priceList: "Minorista");
+        Customer("Ana Pérez", taxId: "27-11122233-4", phone: "2901 444555", city: "Ushuaia", priceList: "Minorista", businessType: "Almacén");
 
     private static readonly CustomerAdminRecordDto Frigorifico =
         Customer("Frigorífico Sur SA", partyType: "Company", enabled: false, taxId: "30-99887766-5", phone: "2964 111222", city: "Río Grande");
@@ -36,7 +37,11 @@ public sealed class PosCustomerListTests
         var model = Model();
         var columns = ((IEntityListModel)model).Columns;
 
-        Assert.Equal(["Nombre", "Tipo", "CUIT/DNI", "Teléfono", "Ciudad", "Lista de precios", "Estado"], columns.Select(c => c.Header));
+        // The web's Clientes order (docs/architecture/cross-layer-parity.md); the web adds Saldo.
+        Assert.Equal(["Nombre", "Tipo", "CUIT/DNI", "Teléfono", "Ubicación", "Tipo de negocio", "Lista de precios", "Estado"],
+            columns.Select(c => c.Header));
+        Assert.Equal(["Tipo", "Teléfono", "Tipo de negocio", "Lista de precios"],
+            columns.Where(c => c.HideWhileEditing).Select(c => c.Header));
         Assert.All(columns, c => Assert.True(c.Sortable, c.Header));
         Assert.Equal("▲", columns[0].SortIndicator);
         Assert.Equal(["Ana Pérez", "Frigorífico Sur SA"], model.Visible.Select(c => c.DisplayName));
@@ -47,8 +52,10 @@ public sealed class PosCustomerListTests
     {
         var rows = ((IEntityListModel)Model()).Rows;
 
-        Assert.Equal(["Ana Pérez", "Persona", "27-11122233-4", "2901 444555", "Ushuaia", "Minorista", "Habilitado"], rows[0].Cells);
-        Assert.Equal(["Frigorífico Sur SA", "Empresa", "30-99887766-5", "2964 111222", "Río Grande", string.Empty, "Deshabilitado"], rows[1].Cells);
+        Assert.Equal(["Ana Pérez", "Persona", "27-11122233-4", "2901 444555", "Ushuaia — Tierra del Fuego", "Almacén", "Minorista", "Habilitado"],
+            rows[0].Cells);
+        Assert.Equal(["Frigorífico Sur SA", "Empresa", "30-99887766-5", "2964 111222", "Río Grande — Tierra del Fuego", string.Empty, string.Empty,
+            "Deshabilitado"], rows[1].Cells);
     }
 
     [Theory]
@@ -56,13 +63,37 @@ public sealed class PosCustomerListTests
     [InlineData("30998877665")]
     [InlineData("2964111222")]
     [InlineData("rio grande")]
-    public void Search_CoversNameTaxIdPhoneAndCity(string search)
+    public void Search_CoversNameTaxIdPhoneAndLocation(string search)
     {
         var model = Model();
 
         model.SearchText = search;
 
         Assert.Equal(["Frigorífico Sur SA"], model.Visible.Select(c => c.DisplayName));
+    }
+
+    [Fact]
+    public void Search_CoversTheBusinessType_AndTheProvince()
+    {
+        var model = Model();
+
+        model.SearchText = "almacen";
+        Assert.Equal(["Ana Pérez"], model.Visible.Select(c => c.DisplayName));
+
+        model.SearchText = "tierra del fuego";
+        Assert.Equal(2, model.Visible.Count);
+    }
+
+    [Fact]
+    public void BusinessTypeOptions_StartWithSinTipo_KeepTheActiveOnes_AndTheCurrentEvenIfDeactivated()
+    {
+        var (active, inactive, current) = (new BusinessTypeOptionDto(Guid.NewGuid(), "Almacén"),
+            new BusinessTypeOptionDto(Guid.NewGuid(), "Kiosco", false), new BusinessTypeOptionDto(Guid.NewGuid(), "Bodegón", false));
+
+        var options = CustomerFormRules.BusinessTypeOptions([active, inactive, current], current.Id);
+
+        Assert.Equal(["Sin tipo", "Almacén", "Bodegón"], options.Select(o => o.Name));
+        Assert.Equal(Guid.Empty, options[0].Id);
     }
 
     [Fact]

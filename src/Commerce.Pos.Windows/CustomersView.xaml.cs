@@ -35,6 +35,7 @@ public partial class CustomersView : UserControl, ISectionView
     private readonly BusyController _busy;
     private readonly Dictionary<string, IReadOnlyList<CityOptionDto>> _citiesByProvince = new();
     private readonly EntityListModel<CustomerAdminRecordDto> _list;
+    private IReadOnlyList<BusinessTypeOptionDto> _businessTypes = [];
     private Guid? _selectedCustomerId;
 
     // The UpdatedAtUtc of the record the form was filled from: Guardar sends it so the server refuses a stale update (T7).
@@ -78,6 +79,11 @@ public partial class CustomersView : UserControl, ISectionView
             }
 
             ProvinceComboBox.ItemsSource = provinces;
+
+            // Unreadable business types leave the combo empty: an update then keeps the stored one.
+            _businessTypes = await _adminClient.ListBusinessTypesAsync(_busy.Token) ?? [];
+            BusinessTypeComboBox.ItemsSource = CustomerFormRules.BusinessTypeOptions(_businessTypes, null);
+            BusinessTypeComboBox.SelectedValue = Guid.Empty;
             await LoadCustomersAsync();
         });
     }
@@ -189,6 +195,11 @@ public partial class CustomersView : UserControl, ISectionView
         _fillingForm = false;
         TaxIdTextBox.Text = selected.TaxId ?? string.Empty;
         TaxConditionComboBox.SelectedValue = selected.TaxCondition;
+        if (_businessTypes.Count > 0)
+        {
+            BusinessTypeComboBox.ItemsSource = CustomerFormRules.BusinessTypeOptions(_businessTypes, selected.BusinessTypeId);
+            BusinessTypeComboBox.SelectedValue = selected.BusinessTypeId ?? Guid.Empty;
+        }
         PhoneTextBox.Text = selected.Phone ?? string.Empty;
         EmailTextBox.Text = selected.Email ?? string.Empty;
         AddressStreetTextBox.Text = selected.AddressStreet ?? string.Empty;
@@ -353,6 +364,8 @@ public partial class CustomersView : UserControl, ISectionView
         var partyType = PartyTypeComboBox.SelectedValue as string ?? "Person";
         var cityId = CityComboBox.SelectedValue as Guid?;
         var cityChange = CustomerFormRules.CityChange(cityId, _cityChanged);
+        // Guid.Empty ("Sin tipo") clears it on an update; null (types not loaded) keeps the stored one.
+        var businessTypeId = BusinessTypeComboBox.SelectedValue as Guid?;
         var selectedCustomerId = _selectedCustomerId;
         var loadedUpdatedAtUtc = _loadedUpdatedAtUtc;
         var isEnabled = IsEnabledCheckBox.IsChecked ?? true;
@@ -368,7 +381,7 @@ public partial class CustomersView : UserControl, ISectionView
                     form.DisplayName, taxIdType, form.TaxId, taxCondition, form.Phone, form.Email,
                     form.AddressStreet, form.AddressNumber, form.Neighborhood, form.PostalCode,
                     form.DeliveryNotes, discountPercentage, form.PaymentTerms, form.Notes, isEnabled,
-                    cityChange, partyType), _busy.Token);
+                    cityChange, partyType, BusinessTypeId: businessTypeId), _busy.Token);
                 outcome = result.Outcome;
                 if (result.Current is { } current && _selectedCustomerId == id)
                 {
@@ -392,7 +405,8 @@ public partial class CustomersView : UserControl, ISectionView
                 outcome = await _adminClient.CreateCustomerAsync(new CreateCustomerAdminRequestDto(
                     customerKind, form.DisplayName, taxIdType, form.TaxId, taxCondition, form.Phone, form.Email,
                     form.AddressStreet, form.AddressNumber, form.Neighborhood, form.PostalCode,
-                    form.DeliveryNotes, discountPercentage, form.PaymentTerms, form.Notes, cityId, partyType), _busy.Token);
+                    form.DeliveryNotes, discountPercentage, form.PaymentTerms, form.Notes, cityId, partyType,
+                    businessTypeId == Guid.Empty ? null : businessTypeId), _busy.Token);
             }
 
             if (outcome.Kind == CustomerAdminMutationKind.Succeeded)
@@ -435,6 +449,12 @@ public partial class CustomersView : UserControl, ISectionView
         TaxIdTypeComboBox.SelectedValue = "None";
         _fillingForm = false;
         TaxConditionComboBox.SelectedValue = "NoAplica";
+        if (_businessTypes.Count > 0)
+        {
+            BusinessTypeComboBox.ItemsSource = CustomerFormRules.BusinessTypeOptions(_businessTypes, null);
+            BusinessTypeComboBox.SelectedValue = Guid.Empty;
+        }
+
         DisplayNameTextBox.Text = string.Empty;
         TaxIdTextBox.Text = string.Empty;
         PhoneTextBox.Text = string.Empty;

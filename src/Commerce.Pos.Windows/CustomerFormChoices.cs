@@ -46,6 +46,13 @@ public enum EmailFieldState
 /// </summary>
 public static class CustomerFormRules
 {
+    /// <summary>
+    /// The "Tipo de negocio" choices: "Sin tipo" (<see cref="Guid.Empty"/>, which clears it on an update), then the active
+    /// types, plus the customer's current one even when it was deactivated, so the form never drops it silently.
+    /// </summary>
+    public static IReadOnlyList<BusinessTypeOptionDto> BusinessTypeOptions(IEnumerable<BusinessTypeOptionDto> types, Guid? currentId) =>
+        [new BusinessTypeOptionDto(Guid.Empty, "Sin tipo"), .. types.Where(type => type.IsActive || type.Id == currentId)];
+
     /// <summary>A person stores "Nombre y apellido", a company its "Razón social", always in the one name field.</summary>
     public static string NameLabel(string? partyType) =>
         partyType == "Company" ? "Razón social" : "Nombre y apellido";

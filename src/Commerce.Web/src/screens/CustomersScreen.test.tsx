@@ -191,7 +191,8 @@ describe('CustomersScreen', () => {
     render(<MemoryRouter><CustomersScreen /></MemoryRouter>)
 
     await screen.findByText('Jane Doe')
-    await user.click(screen.getByRole('button', { name: /emitir acceso para pedidos/i }))
+    await user.click(screen.getByRole('button', { name: 'Acciones de Jane Doe' }))
+    await user.click(screen.getByRole('menuitem', { name: /emitir acceso para pedidos/i }))
 
     const credential = await screen.findByTestId('issued-credential')
     expect(credential).toHaveTextContent('one-time-secret')
@@ -224,7 +225,8 @@ describe('CustomersScreen', () => {
     render(<MemoryRouter><CustomersScreen /></MemoryRouter>)
 
     await screen.findByText('Jane Doe')
-    await user.click(screen.getByRole('button', { name: /emitir acceso para pedidos/i }))
+    await user.click(screen.getByRole('button', { name: 'Acciones de Jane Doe' }))
+    await user.click(screen.getByRole('menuitem', { name: /emitir acceso para pedidos/i }))
     expect(await screen.findByRole('alert')).toHaveTextContent(/already issued/i)
 
     customers = []
@@ -247,30 +249,25 @@ describe('CustomersScreen', () => {
 
     const row = within(await screen.findByRole('table')).getAllByRole('row')[1]
     expect(within(row).getByText('Acme Supplies')).toBeInTheDocument()
-    expect(within(row).getByText('Roberto')).toBeInTheDocument()
+    expect(within(row).getByText('Empresa')).toBeInTheDocument()
     expect(within(row).getByText('Rosario — Santa Fe')).toBeInTheDocument()
     expect(within(row).getByText('Bar')).toBeInTheDocument()
-    expect(within(row).getByText('Mayorista')).toBeInTheDocument()
     expect(within(row).getByText('Deshabilitado')).toBeInTheDocument()
     expect(within(row).getByText('30-12345678-9')).toBeInTheDocument()
   })
 
-  it('shows the primary contact (first and last name) in the contact column', async () => {
+  it('lists the same columns as the POS, in the same order, plus the balance, and no contact column', async () => {
     customers = [listedCustomer]
     render(<MemoryRouter><CustomersScreen /></MemoryRouter>)
 
-    const row = within(await screen.findByRole('table')).getAllByRole('row')[1]
-    expect(within(row).getByText('Juana Pérez')).toBeInTheDocument()
-    expect(within(row).queryByText('Ana Gómez')).not.toBeInTheDocument()
-  })
-
-  it('shows a placeholder when the customer has no contacts', async () => {
-    customers = [{ ...listedCustomer, contacts: [] }]
-    render(<MemoryRouter><CustomersScreen /></MemoryRouter>)
-
-    const row = within(await screen.findByRole('table')).getAllByRole('row')[1]
-    expect(within(row).getAllByText('—').length).toBeGreaterThan(0)
-    expect(within(row).queryByText(/Juana/)).not.toBeInTheDocument()
+    const headers = within(await screen.findByRole('table'))
+      .getAllByRole('columnheader')
+      .map((header) => header.textContent)
+    expect(headers.slice(0, 9)).toEqual([
+      'Nombre', 'Tipo', 'CUIT/CUIL/DNI', 'Teléfono', 'Ubicación', 'Tipo de negocio', 'Lista de precios', 'Saldo', 'Estado',
+    ])
+    const row = within(screen.getByRole('table')).getAllByRole('row')[1]
+    expect(within(row).queryByText('Juana Pérez')).not.toBeInTheDocument()
   })
 
   it('reloads the edited customer after a modification conflict and shows the fresh data', async () => {

@@ -168,6 +168,7 @@ public sealed class DeviceOperatorManagementTests : IClassFixture<WebApplication
         Assert.Equal("Cliente editado", fresh.GetProperty("displayName").GetString());
 
         // Reference data of the customer form.
+        Assert.Equal(HttpStatusCode.OK, (await device.GetAsync("/customers/business-types?includeInactive=true")).StatusCode);
         var provinces = await device.GetFromJsonAsync<JsonElement>("/geo/provinces");
         Assert.Equal(24, provinces.GetArrayLength());
         Assert.Equal(HttpStatusCode.OK, (await device.GetAsync("/geo/cities?provinceId=82&limit=5")).StatusCode);
@@ -370,6 +371,7 @@ public sealed class DeviceOperatorManagementTests : IClassFixture<WebApplication
             await device.PostAsJsonAsync($"/employees/{Guid.NewGuid()}/advances", new { amount = 1m, accountId = Guid.NewGuid() }),
             await device.GetAsync($"/employees/{Guid.NewGuid()}/account/statement"),
             await device.GetAsync("/employees/roles"),
+            await device.GetAsync("/customers/business-types"),
             await device.GetAsync("/treasury/accounts"),
         };
 
@@ -410,6 +412,7 @@ public sealed class DeviceOperatorManagementTests : IClassFixture<WebApplication
     [InlineData("PUT", "/geo/cities/{customer}")]
     [InlineData("GET", "/payroll/runs")]
     [InlineData("POST", "/employees/roles")]
+    [InlineData("POST", "/customers/business-types")]
     [InlineData("POST", "/treasury/accounts")]
     [InlineData("POST", "/employees/{customer}/account/movements")]
     public async Task DeviceCredential_OnAnEndpointThatDidNotOptIn_IsRefusedLikeAnAnonymousCall(string method, string pathTemplate)

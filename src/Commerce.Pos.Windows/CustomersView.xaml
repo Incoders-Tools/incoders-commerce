@@ -61,8 +61,8 @@
 
         <!-- List and form side by side over the full width; only the form scrolls, inside its panel. -->
         <Grid x:Name="FormPanel" Grid.Row="3">
-            <!-- A fixed editor width: at 1366 px the list keeps room for its seven columns; wider screens widen the list. -->
-            <controls:EntityListView x:Name="CustomersList" EditorWidth="480">
+            <!-- The list takes the full width until a customer is opened; then the form (fixed width) opens beside it. -->
+            <controls:EntityListView x:Name="CustomersList" EditorWidth="480" HidesClosedEditor="True">
                 <controls:EntityListView.EditorContent>
                     <Grid>
                         <Grid.RowDefinitions>
@@ -104,6 +104,11 @@
                                     <StackPanel Style="{StaticResource FormCell}">
                                         <TextBlock Text="Condición frente al IVA" Style="{StaticResource FieldLabel}" />
                                         <ComboBox x:Name="TaxConditionComboBox" Style="{StaticResource FieldCombo}" AutomationProperties.Name="Condición frente al IVA" />
+                                    </StackPanel>
+                                    <!-- The business types are a web catalog (Tablas auxiliares); here they are only picked. -->
+                                    <StackPanel Style="{StaticResource FormCell}">
+                                        <TextBlock Text="Tipo de negocio" Style="{StaticResource FieldLabel}" />
+                                        <ComboBox x:Name="BusinessTypeComboBox" Style="{StaticResource RowCombo}" AutomationProperties.Name="Tipo de negocio" />
                                     </StackPanel>
                                 </UniformGrid>
 

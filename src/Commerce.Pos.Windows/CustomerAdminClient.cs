@@ -52,6 +52,29 @@ public sealed class CustomerAdminClient
         }
     }
 
+    /// <summary>The business types ("Tipo de negocio", <c>GET /customers/business-types</c>), inactive ones included; null when unreadable.</summary>
+    public async Task<IReadOnlyList<BusinessTypeOptionDto>?> ListBusinessTypesAsync(CancellationToken ct = default)
+    {
+        const string path = "/customers/business-types";
+        var endpoint = PosHttp.Endpoint(HttpMethod.Get, path);
+        try
+        {
+            using var response = await _httpClient.GetAsync(path + "?includeInactive=true", ct);
+            if (!response.IsSuccessStatusCode)
+            {
+                await PosHttp.LogFailureWithBodyAsync(endpoint, response, ct);
+                return null;
+            }
+
+            return await PosHttp.TryReadJsonAsync<List<BusinessTypeOptionDto>>(response, endpoint, ct);
+        }
+        catch (Exception ex) when (PosHttp.IsTransportFailure(ex, ct))
+        {
+            PosHttp.LogTransportFailure(endpoint, ex);
+            return null;
+        }
+    }
+
     /// <summary>The provinces of the organization's country (<c>GET /geo/provinces</c>); null when they could not be read.</summary>
     public async Task<IReadOnlyList<ProvinceOptionDto>?> ListProvincesAsync(CancellationToken ct = default)
     {
@@ -199,7 +222,8 @@ public sealed record CustomerAdminRecordDto(
     decimal? DiscountPercentage, string? PaymentTerms, string? Notes, bool IsEnabled, DateTimeOffset CreatedAtUtc,
     Guid CreatedByUserId, DateTimeOffset UpdatedAtUtc,
     Guid? CityId = null, string? CityName = null, string? ProvinceId = null, string? ProvinceName = null,
-    string PartyType = "Person", string? PriceListName = null);
+    string PartyType = "Person", string? PriceListName = null,
+    Guid? BusinessTypeId = null, string? BusinessTypeName = null);
 
 /// <summary>
 /// Mirrors `Commerce.Cloud.Api.Endpoints.CreateCustomerRequest`: one name (`DisplayName`, a person's full name or a
@@ -211,12 +235,13 @@ public sealed record CreateCustomerAdminRequestDto(
     string? Phone, string? Email,
     string? AddressStreet, string? AddressNumber, string? Neighborhood, string? PostalCode,
     string? DeliveryNotes, decimal? DiscountPercentage, string? PaymentTerms, string? Notes,
-    Guid? CityId, string PartyType);
+    Guid? CityId, string PartyType, Guid? BusinessTypeId = null);
 
 /// <summary>
 /// Mirrors `Commerce.Cloud.Api.Endpoints.UpdateCustomerRequest`. `CityId`: null keeps the stored city,
 /// <see cref="Guid.Empty"/> clears it (see <see cref="CustomerFormRules.CityChange"/>). `ExpectedUpdatedAtUtc`, when
 /// sent, makes the server refuse the update (409 `customer-modified`) if the customer was saved after that time.
+/// `BusinessTypeId` follows the city's rule: null keeps the stored one, <see cref="Guid.Empty"/> clears it.
 /// </summary>
 public sealed record UpdateCustomerAdminRequestDto(
     string DisplayName,
@@ -224,7 +249,10 @@ public sealed record UpdateCustomerAdminRequestDto(
     string? Phone, string? Email,
     string? AddressStreet, string? AddressNumber, string? Neighborhood, string? PostalCode,
     string? DeliveryNotes, decimal? DiscountPercentage, string? PaymentTerms, string? Notes,
-    bool IsEnabled, Guid? CityId, string PartyType, DateTimeOffset? ExpectedUpdatedAtUtc = null);
+    bool IsEnabled, Guid? CityId, string PartyType, DateTimeOffset? ExpectedUpdatedAtUtc = null, Guid? BusinessTypeId = null);
+
+/// <summary>One business type of `GET /customers/business-types` (a master-data entry).</summary>
+public sealed record BusinessTypeOptionDto(Guid Id, string Name, bool IsActive = true);
 
 /// <summary>One row of `GET /geo/provinces`.</summary>
 public sealed record ProvinceOptionDto(string Id, string Name);

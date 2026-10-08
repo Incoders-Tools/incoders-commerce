@@ -19,8 +19,7 @@
   },
   "columns": {
     "name": "Name",
-    "contact": "Contact",
-    "city": "City",
+    "location": "Location",
     "businessType": "Business type",
     "phone": "Phone",
     "taxId": "CUIT/CUIL/DNI",

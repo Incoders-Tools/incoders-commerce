@@ -17,6 +17,9 @@ public sealed record EntityColumn<T>(string Key, string Header, Func<T, string?>
 
     /// <summary>Value to sort by instead of <see cref="Text"/>; it must be <see cref="IComparable"/> or null.</summary>
     public Func<T, object?>? SortKey { get; init; }
+
+    /// <summary>A secondary column, hidden while the editor is open beside the list so the main ones keep room to read.</summary>
+    public bool HideWhileEditing { get; init; }
 }
 
 /// <summary>One choice of a filter; a null <paramref name="Matches"/> lets every row through ("Todos").</summary>

@@ -1,8 +1,9 @@
 namespace Commerce.Pos.Windows;
 
 /// <summary>
-/// The Clientes list on the reusable entity list (operator-ux-adjustments T4): the columns, the search over name, tax
-/// id, phone and city, the Estado and Tipo filters, and the Editar / Habilitar-Deshabilitar row actions. UI-free; the
+/// The Clientes list on the reusable entity list (operator-ux-adjustments T4): the columns, in the same order as the
+/// web's Clientes (docs/architecture/cross-layer-parity.md), the search over name, tax id, phone, location and business
+/// type, the Estado and Tipo filters, and the Editar / Habilitar-Deshabilitar row actions. UI-free; the
 /// screen supplies the toggle (it needs the connection and its busy controller) and runs it through
 /// <see cref="ToggleEnabledAsync"/>.
 /// </summary>
@@ -14,14 +15,15 @@ public static class CustomerList
         customer => customer.Id,
         [
             new("name", "Nombre", customer => customer.DisplayName),
-            new("partyType", "Tipo", PartyTypeLabel) { Width = 80 },
+            new("partyType", "Tipo", PartyTypeLabel) { Width = 80, HideWhileEditing = true },
             new("taxId", "CUIT/DNI", customer => customer.TaxId) { Width = 116 },
-            new("phone", "Teléfono", customer => customer.Phone) { Width = 108 },
-            new("city", "Ciudad", customer => customer.CityName),
-            new("priceList", "Lista de precios", customer => customer.PriceListName) { Width = 116 },
-            new("state", "Estado", StateLabel) { Width = 104 },
+            new("phone", "Teléfono", customer => customer.Phone) { Width = 112, HideWhileEditing = true },
+            new("location", "Ubicación", LocationLabel),
+            new("businessType", "Tipo de negocio", customer => customer.BusinessTypeName) { Width = 130, HideWhileEditing = true },
+            new("priceList", "Lista de precios", customer => customer.PriceListName) { Width = 150, HideWhileEditing = true },
+            new("state", "Estado", StateLabel) { Width = 110 },
         ],
-        customer => [customer.DisplayName, customer.TaxId, customer.Phone, customer.CityName])
+        customer => [customer.DisplayName, customer.TaxId, customer.Phone, customer.CityName, customer.ProvinceName, customer.BusinessTypeName])
     {
         Filters =
         [
@@ -48,7 +50,7 @@ public static class CustomerList
             },
         ],
         InitialSortKey = "name",
-        SearchPlaceholder = "Buscar por nombre, CUIT/DNI, teléfono o ciudad…",
+        SearchPlaceholder = "Buscar por nombre, CUIT/DNI, teléfono, ubicación o tipo de negocio…",
         NewTitle = "Nuevo cliente",
         EditTitle = customer => customer.DisplayName,
         EmptyEditorHint = "Elegí un cliente de la lista o tocá «Nuevo».",
@@ -100,6 +102,12 @@ public static class CustomerList
 
     private static string PartyTypeLabel(CustomerAdminRecordDto customer) =>
         CustomerFormChoices.PartyTypes.FirstOrDefault(c => c.Value == customer.PartyType)?.Label ?? customer.PartyType;
+
+    /// <summary>"Ushuaia — Tierra del Fuego": the city and its province, as the web's <c>cityLabel</c>.</summary>
+    public static string? LocationLabel(CustomerAdminRecordDto customer) =>
+        customer.CityName is null ? null
+        : string.IsNullOrEmpty(customer.ProvinceName) ? customer.CityName
+        : $"{customer.CityName} — {customer.ProvinceName}";
 
     private static string StateLabel(CustomerAdminRecordDto customer) => customer.IsEnabled ? "Habilitado" : "Deshabilitado";
 
