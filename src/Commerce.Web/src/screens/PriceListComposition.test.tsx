@@ -115,7 +115,9 @@ describe('price list composition screens', () => {
     const user = userEvent.setup()
     render(<PriceListsScreen />)
     const row = await screen.findByRole('row', { name: /Mostrador/ })
-    await user.click(within(row).getByRole('button', { name: buttonName }))
+    // "Gestionar precios" stays a button; the other list actions live in the row's "…" menu.
+    await user.click(within(row).getByRole('button', { name: /^Acciones de/ }))
+    await user.click(screen.getByRole('menuitem', { name: buttonName }))
     return user
   }
 

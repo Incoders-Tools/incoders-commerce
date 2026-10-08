@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
-import { Link } from 'react-router'
 import { useTranslation } from 'react-i18next'
-import { Button, buttonVariants } from '@/components/ui/button'
+import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { DataView, type DataViewColumn } from '@/components/data/DataView'
 import { PageHeader } from '@/components/data/PageHeader'
+import { RowActions } from '@/components/data/RowActions'
 import { FormPage } from '@/components/layout/FormPage'
 import { ApiError } from '@/api/client'
 import {
@@ -205,22 +205,20 @@ export function EmployeesScreen() {
         loadErrorMessage={loadError}
         emptyMessage={t('empty')}
         renderActions={(employee) => (
-          <>
-            <Button type="button" variant="outline" size="sm" onClick={() => setPage({ kind: 'form', employee })}>
-              {t('actions.edit')}
-            </Button>
-            <Link to={`/app/employees/${employee.id}/account`} className={buttonVariants({ variant: 'outline', size: 'sm' })}>
-              {t('actions.account')}
-            </Link>
-            {employee.isActive && (
-              <Button type="button" variant="outline" size="sm" onClick={() => setPage({ kind: 'advance', employee })}>
-                {t('actions.advance')}
-              </Button>
-            )}
-            <Button type="button" variant="outline" size="sm" onClick={() => void toggleActive(employee)}>
-              {employee.isActive ? t('actions.deactivate') : t('actions.activate')}
-            </Button>
-          </>
+          <RowActions
+            label={employee.fullName}
+            actions={[
+              { key: 'edit', label: t('actions.edit'), onSelect: () => setPage({ kind: 'form', employee }) },
+              { key: 'account', label: t('actions.account'), to: `/app/employees/${employee.id}/account` },
+              { key: 'advance', label: t('actions.advance'), onSelect: () => setPage({ kind: 'advance', employee }), hidden: !employee.isActive },
+              {
+                key: 'toggle',
+                label: employee.isActive ? t('actions.deactivate') : t('actions.activate'),
+                onSelect: () => void toggleActive(employee),
+                destructive: employee.isActive,
+              },
+            ]}
+          />
         )}
       />
     </section>

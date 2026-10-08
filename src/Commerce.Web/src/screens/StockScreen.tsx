@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router'
 import { useTranslation } from 'react-i18next'
-import { Button, buttonVariants } from '@/components/ui/button'
+import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { DataToolbar } from '@/components/data/DataToolbar'
 import { DataView, type DataViewColumn } from '@/components/data/DataView'
 import { PageHeader } from '@/components/data/PageHeader'
+import { RowActions } from '@/components/data/RowActions'
 import { useViewPreference } from '@/components/data/useViewPreference'
 import { presentationLabel, type PresentationOption } from '@/components/purchasing/presentationOptions'
 import { listStock, setStockMinimum } from '@/api/stock'
@@ -262,32 +262,29 @@ export function StockScreen() {
             )
           }
           return (
-            <>
-              <Link
-                to={`/app/stock/${row.presentationId}/movements`}
-                state={{ label: presentationLabel(row), behavior: row.quantityBehavior }}
-                className={buttonVariants({ variant: 'outline', size: 'sm' })}
-              >
-                {t('actions.movements')}
-              </Link>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  setEditing({
-                    presentationId: row.presentationId,
-                    value: row.minimumQuantity === null ? '' : String(row.minimumQuantity).replace('.', ','),
-                    error: null,
-                    saving: false,
-                  })
-                }
-              >
-                {t('actions.minimum')}
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => setAdjusting(optionOf(row))}>
-                {t('actions.adjust')}
-              </Button>
-            </>
+            <RowActions
+              label={presentationLabel(row)}
+              actions={[
+                { key: 'adjust', label: t('actions.adjust'), onSelect: () => setAdjusting(optionOf(row)) },
+                {
+                  key: 'movements',
+                  label: t('actions.movements'),
+                  to: `/app/stock/${row.presentationId}/movements`,
+                  state: { label: presentationLabel(row), behavior: row.quantityBehavior },
+                },
+                {
+                  key: 'minimum',
+                  label: t('actions.minimum'),
+                  onSelect: () =>
+                    setEditing({
+                      presentationId: row.presentationId,
+                      value: row.minimumQuantity === null ? '' : String(row.minimumQuantity).replace('.', ','),
+                      error: null,
+                      saving: false,
+                    }),
+                },
+              ]}
+            />
           )
         }}
       />

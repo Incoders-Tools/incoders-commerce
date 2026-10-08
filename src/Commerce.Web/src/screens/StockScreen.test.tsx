@@ -117,7 +117,8 @@ describe('StockScreen', () => {
     renderScreen()
 
     const media = await rowOf('Media res')
-    await user.click(within(media).getByRole('button', { name: 'Mínimo' }))
+    await user.click(within(media).getByRole('button', { name: 'Acciones de Media res — Kilo' }))
+    await user.click(screen.getByRole('menuitem', { name: 'Mínimo' }))
     fireEvent.change(screen.getByLabelText('Mínimo de Media res — Kilo'), { target: { value: '50' } })
     await user.click(screen.getByRole('button', { name: 'Guardar mínimo' }))
 
@@ -126,7 +127,8 @@ describe('StockScreen', () => {
     await waitFor(() => expect(screen.queryByLabelText('Mínimo de Media res — Kilo')).not.toBeInTheDocument())
 
     const chorizo = await rowOf('Chorizo')
-    await user.click(within(chorizo).getByRole('button', { name: 'Mínimo' }))
+    await user.click(within(chorizo).getByRole('button', { name: 'Acciones de Chorizo — Paquete' }))
+    await user.click(screen.getByRole('menuitem', { name: 'Mínimo' }))
     fireEvent.change(screen.getByLabelText('Mínimo de Chorizo — Paquete'), { target: { value: '' } })
     await user.click(screen.getByRole('button', { name: 'Guardar mínimo' }))
     await waitFor(() => expect(calls('PUT', (url) => url === '/stock/minimums/pr-2')).toHaveLength(1))
@@ -137,7 +139,8 @@ describe('StockScreen', () => {
     const user = userEvent.setup()
     renderScreen()
 
-    await user.click(within(await rowOf('Media res')).getByRole('button', { name: 'Mínimo' }))
+    await user.click(within(await rowOf('Media res')).getByRole('button', { name: 'Acciones de Media res — Kilo' }))
+    await user.click(screen.getByRole('menuitem', { name: 'Mínimo' }))
     fireEvent.change(screen.getByLabelText('Mínimo de Media res — Kilo'), { target: { value: '-3' } })
     await user.click(screen.getByRole('button', { name: 'Guardar mínimo' }))
 
@@ -146,10 +149,11 @@ describe('StockScreen', () => {
   })
 
   it('links each row to the movements of its presentation', async () => {
+    const user = userEvent.setup()
     renderScreen()
 
-    const link = within(await rowOf('Media res')).getByRole('link', { name: 'Movimientos' })
-    expect(link).toHaveAttribute('href', '/app/stock/pr-1/movements')
+    await user.click(within(await rowOf('Media res')).getByRole('button', { name: 'Acciones de Media res — Kilo' }))
+    expect(screen.getByRole('menuitem', { name: 'Movimientos' })).toHaveAttribute('href', '/app/stock/pr-1/movements')
   })
 
   it('registers a shrinkage as a negative quantity with its reason', async () => {

@@ -112,7 +112,8 @@ describe('staff and payroll screens', () => {
     const user = userEvent.setup()
     renderEmployees()
 
-    await user.click(await screen.findByRole('button', { name: 'Adelanto' }))
+    await user.click(await screen.findByRole('button', { name: 'Acciones de Pérez, Juan' }))
+    await user.click(screen.getByRole('menuitem', { name: 'Adelanto' }))
     await user.type(screen.getByLabelText('Importe'), '50000')
     await waitFor(() => expect(screen.getByLabelText('Sale de')).toHaveValue('acc-cash'))
     await user.click(screen.getByRole('button', { name: 'Registrar adelanto' }))

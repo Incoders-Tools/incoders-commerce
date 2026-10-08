@@ -33,7 +33,9 @@
     "tableView": "Table view",
     "cardView": "Card view",
     "view": "View",
-    "searchPlaceholder": "Search…"
+    "searchPlaceholder": "Search…",
+    "moreActions": "More actions",
+    "actionsMenu": "Actions for {{name}}"
   },
   "numberFormat": {
     "example": {
