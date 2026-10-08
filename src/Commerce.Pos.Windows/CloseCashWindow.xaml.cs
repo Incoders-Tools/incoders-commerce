@@ -8,8 +8,9 @@ namespace Commerce.Pos.Windows;
 
 /// <summary>
 /// The close-cash dialog (pos-cash-session "Closing a Cash Session"): shows what
-/// the system expects (expected cash, card and QR totals, sale count), asks for
-/// the counted cash and shows the difference live. It only decides and reports
+/// the system recorded (<see cref="CloseCashLines"/>: sales by tender, payments
+/// collected, drawer movements, and the expected cash as a sum), asks for the
+/// counted cash and shows the difference live. It only decides and reports
 /// the <see cref="CountedCash"/>; the host closes the session.
 /// </summary>
 public partial class CloseCashWindow : Window
@@ -22,24 +23,10 @@ public partial class CloseCashWindow : Window
 
         _expectedCash = summary.ExpectedCash;
         OpenedText.Text = $"Abierta a las {session.OpenedAtUtc.ToLocalTime().ToString("HH:mm", CultureInfo.InvariantCulture)} con {session.OpeningFloat.ToString("C", CultureInfo.CurrentCulture)} iniciales.";
-        SaleCountText.Text = summary.SaleCount.ToString(CultureInfo.CurrentCulture);
-        CardTotalText.Text = summary.CardTotal.ToString("C", CultureInfo.CurrentCulture);
-        QrTotalText.Text = summary.QrTotal.ToString("C", CultureInfo.CurrentCulture);
-        AccountTotalText.Text = summary.AccountTotal.ToString("C", CultureInfo.CurrentCulture);
-        CashMovementsText.Text = summary.CashMovementCount == 0
-            ? "—"
-            : $"retiros −{summary.CashWithdrawn.ToString("C", CultureInfo.CurrentCulture)} · ingresos +{summary.CashDeposited.ToString("C", CultureInfo.CurrentCulture)}";
-        var collected = summary.CollectedCash + summary.CollectedCard + summary.CollectedQr;
-        CollectionsText.Text = summary.CollectionCount == 0
-            ? collected.ToString("C", CultureInfo.CurrentCulture)
-            : $"{collected.ToString("C", CultureInfo.CurrentCulture)} ({summary.CollectionCount}: efectivo {summary.CollectedCash.ToString("C", CultureInfo.CurrentCulture)})";
+        SalesItems.ItemsSource = CloseCashLines.Sales(summary);
+        OtherMoneyItems.ItemsSource = CloseCashLines.OtherMoney(summary);
+        ExpectedLinesItems.ItemsSource = CloseCashLines.ExpectedCash(summary);
         ExpectedCashText.Text = _expectedCash.ToString("C", CultureInfo.CurrentCulture);
-        ExpectedBreakdownText.Text =
-            $"Iniciales {summary.OpeningFloat.ToString("C", CultureInfo.CurrentCulture)} + efectivo de ventas {summary.CashKept.ToString("C", CultureInfo.CurrentCulture)}" +
-            (summary.CollectedCash > 0m ? $" + cobros en efectivo {summary.CollectedCash.ToString("C", CultureInfo.CurrentCulture)}" : string.Empty) +
-            (summary.CashDeposited > 0m ? $" + ingresos {summary.CashDeposited.ToString("C", CultureInfo.CurrentCulture)}" : string.Empty) +
-            (summary.CashWithdrawn > 0m ? $" − retiros {summary.CashWithdrawn.ToString("C", CultureInfo.CurrentCulture)}" : string.Empty) +
-            " (ya descontado el vuelto). Las ventas a cuenta corriente no suman: no entró dinero.";
         ConfirmButton.IsEnabled = false;
         Loaded += (_, _) => CountedCashTextBox.Focus();
     }
