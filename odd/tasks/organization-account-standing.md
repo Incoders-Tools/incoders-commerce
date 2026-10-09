@@ -124,7 +124,7 @@ so it changes on its own when a day passes and needs no scheduled job.
 ## Tasks
 
 - [x] T1 Domain: `AccountStanding` rule (`Active`/`Overdue`/`Suspended`, `SuspendsOn`, `DaysLeft`) with boundary tests: no due date, due date today, first overdue day, last grace day, first suspended day, grace 0, manual suspension overriding a future due date, reactivation. RED: `AccountStandingRulesTests` did not compile (no `AccountStandingRules`); GREEN: 17/17. `src/Commerce.Domain/Tenancy/AccountStanding.cs`.
-- [ ] T2 Migration `0052`: due date, grace days (CHECK 0-90, default 30), manual suspension timestamp; mirrored in `init-rls.sql`; migration tests including a re-run.
+- [x] T2 Migration `0052`: due date, grace days (CHECK 0-90, default 30), manual suspension timestamp; mirrored in `init-rls.sql`; migration tests including a re-run. RED: 6 `OrganizationAccountStandingTests` failed (migration file missing); GREEN: 6/6, plus 95/95 with the migration, RLS and organization settings suites. Columns `billing_due_on`, `billing_grace_days`, `suspended_at`; constraint `organizations_billing_grace_days_ck`. Applied to local `commerce_dev`.
 - [ ] T3 API sysadmin: standing in the organizations list; `PUT /account/organizations/{id}/standing` (due date, grace days), `POST .../standing/suspend`, `POST .../standing/reactivate` (requires a new due date); audited; non-sysadmin gets 403.
 - [ ] T4 API enforcement: standing cache with write-through; suspension filter with the allowlist; `/account/me` gains `accountStanding`. Tests: a suspended organization's admin gets 403 `organization-suspended` on a business endpoint and 200 on `/account/me`; a sysadmin acting on a suspended organization is not blocked; an overdue organization is not blocked; a POS sale push from a suspended organization is accepted.
 - [ ] T5 API device: `GET /device/organization/settings` gains `accountStanding { dueOn, graceDays, suspended }` (the rule's inputs; additive, an older POS ignores it).
@@ -158,6 +158,21 @@ so it changes on its own when a day passes and needs no scheduled job.
   operator, in red, in the footer.
 - 2026-10-09: T1 done. The device payload carries the rule's inputs instead
   of a computed status, so the POS evaluates the same domain rule offline.
+- 2026-10-09: T2 done.
+
+## Reviews
+
+- T1 domain rule `42408bb..b3cc244`: approved, reliability lens
+  (`review-f42c6d2691110ef7`).
+
+## Follow-ups (non-blocking review findings)
+
+- [ ] A1 `Evaluate` validates grace days before the manual suspension, so a
+  manually suspended organization with invalid grace days throws instead of
+  returning Suspended. The `0052` CHECK keeps such data out; revisit if the
+  inputs ever come from somewhere else (`AccountStanding.cs:41-48`).
+- [ ] A2 The last-grace-day test does not assert `SuspendsOn`
+  (`AccountStandingRulesTests.cs:46-52`).
 
 ## Next step
 
