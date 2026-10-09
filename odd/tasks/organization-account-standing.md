@@ -1,0 +1,159 @@
+# Organization Account Standing
+
+## Objective
+
+Let a system administrator mark an organization as overdue on its payment to
+Incoders, give it a 30-day tolerance with a visible countdown, and suspend web
+access when the tolerance runs out, without ever stopping a branch from
+selling.
+
+## Why
+
+There is no way today to stop an organization that does not pay from using
+the product. Cutting access has to be predictable, auditable and fair: the
+business owner gets warned every day with the exact number of days left, the
+staff is not exposed to a commercial matter, and no sale, cash session or
+piece of data is ever lost.
+
+## Owner decisions (2026-10-09)
+
+- The POS only warns. It never blocks sales, cash sessions or sync, in any
+  state. This keeps ADR-002 ("local sales are never blocked") and the
+  `pos-installation-identity` spec intact, so no new ADR is needed.
+- Tolerance is 30 days after the due date, with a countdown of the days left.
+- Web: only administrators see the warnings and the countdown: holders of
+  `Permission.ManageUsers`, the same check `RequireAdmin` already uses.
+  Other web users see nothing while the account is overdue.
+- POS: EVERY signed-in operator sees the warning, in red, in the footer
+  status bar, so cashiers relay it to the owner. The closing line differs by
+  role (`ManageUsers` in `MainWindow.xaml.cs` nav gating decides "admin").
+- Lightweight ODD, not SDD.
+
+## Standing model
+
+The standing is DERIVED from dates on every read, never stored as a status,
+so it changes on its own when a day passes and needs no scheduled job.
+
+| Standing | Rule (business day, `IBusinessClock`) | Web | POS |
+|---|---|---|---|
+| `Active` | no due date set, or today <= due date | normal | normal |
+| `Overdue` | due date < today <= due date + grace days | normal; admins see a banner with the days left | normal; every signed-in operator sees a red footer notice with the days left |
+| `Suspended` | today > due date + grace days, or manually suspended | organization users get the suspended screen; the sysadmin is exempt | normal; every signed-in operator sees a red footer notice |
+
+- `SuspendsOn` = due date + grace days + 1. `DaysLeft` = `SuspendsOn` - today.
+- An organization with no due date is never overdue, so every existing
+  organization stays `Active` after the migration.
+- Proposed UI copy (Spanish, product convention):
+  - Web, overdue, admins (banner): "Hay un pago vencido. El acceso web se
+    suspende en N días (el DD/MM/AAAA). Comuníquese con Incoders para
+    regularizar."
+  - Web, suspended, admins (screen): "La cuenta está suspendida por falta de
+    pago. Comuníquese con Incoders para reactivarla."
+  - Web, suspended, non-admins (screen): "El acceso está suspendido.
+    Contacte al administrador de su empresa."
+  - POS footer, overdue: "Pago pendiente: el acceso web se suspende en N
+    días." followed by "Informe al administrador." (cashier) or
+    "Comuníquese con Incoders." (admin). "en 1 día" in singular.
+  - POS footer, suspended: "Acceso web suspendido por pago pendiente." with
+    the same role-based closing line.
+  - POS tooltip: "Fecha de suspensión: DD/MM/AAAA".
+  - The POS says "acceso web" on purpose: the POS itself keeps working, so
+    "servicio suspendido" would be false for the person reading it.
+
+## Scope
+
+- Organization fields: billing due date (nullable), grace days (default 30,
+  0-90) and a manual suspension timestamp (nullable).
+- Domain rule that derives `Status`, `SuspendsOn` and `DaysLeft`.
+- Sysadmin actions on an organization: set due date and grace days (also how a
+  payment is recorded: move the due date to the next period), suspend now,
+  reactivate. Every action is audited.
+- Web enforcement for cookie-authenticated organization users while
+  `Suspended`.
+- Standing exposed to the web (`/account/me`) and to the POS
+  (`/device/organization/settings`, read on every sync).
+- Web: standing column and manage dialog in the sysadmin Organizations screen;
+  admin banner; suspended screen.
+- POS: red footer notice for every signed-in operator, computed from the
+  last synced standing, so it keeps counting offline.
+
+## Out of scope (later features)
+
+- Email reminders before and after the due date (`EmailOptions` exists).
+- Invoicing, payment gateway, automatic payment detection.
+- Public and customer ordering surfaces (`PublicOrdering`, `CustomerSession`):
+  unchanged in every state until the owner decides otherwise.
+- Data export for a suspended organization.
+
+## Constraints
+
+- Clean domain: the standing rule lives in `src/Commerce.Domain`, pure, with
+  `today` passed in; "today" comes from `IBusinessClock`
+  (`America/Argentina/Buenos_Aires`), never `DateTime.Now`.
+- Business rules on the server; web and POS only render what the API returns
+  (AGENTS.md). The POS computes `DaysLeft` locally from the synced
+  `SuspendsOn` only to keep the countdown accurate offline.
+- Migration `0052_organization_account_standing.sql`: forward-only,
+  idempotent (`ADD COLUMN IF NOT EXISTS`, constraints added only when
+  missing), appended verbatim to `deploy/dev/db/init-rls.sql`. The
+  `organizations` RLS policy is unchanged; writes go through the existing
+  sysadmin store path that scopes with `set_config` to the target id.
+- Enforcement never touches the `DeviceBearer` scheme: POS sales push, pulls
+  and admin calls keep working while suspended.
+- Allowlist while suspended: sign-in, sign-out, `/account/me`, password
+  recovery. Everything else returns 403 with
+  `{ "code": "organization-suspended" }` so the SPA can tell it apart from a
+  permission 403.
+- Standing reads go through a 60s-TTL cache with write-through on every
+  sysadmin change, the same pattern and staleness bound as
+  `SessionVersionCache`.
+- `/account/me` returns `status` to every user, but `suspendsOn` and
+  `daysLeft` only to `ManageUsers` holders and the sysadmin.
+- Audit with the existing `UserManagementAuditEntry`
+  (`organization.standing.updated`, `organization.suspended`,
+  `organization.reactivated`).
+- Cross-layer: the banner texts exist in both layers; record them in
+  `docs/architecture/cross-layer-parity.md` (skill `cross-layer-parity`).
+- TDD: Strict (RED -> GREEN -> REFACTOR). Runners: `dotnet test`, `npm test`
+  (Vitest), `npm run lint`, `npm run build` in `src/Commerce.Web`.
+- Commit straight to `dev`, Conventional Commits, no AI attribution.
+
+## Tasks
+
+- [ ] T1 Domain: `AccountStanding` rule (`Active`/`Overdue`/`Suspended`, `SuspendsOn`, `DaysLeft`) with boundary tests: no due date, due date today, first overdue day, last grace day, first suspended day, grace 0, manual suspension overriding a future due date, reactivation.
+- [ ] T2 Migration `0052`: due date, grace days (CHECK 0-90, default 30), manual suspension timestamp; mirrored in `init-rls.sql`; migration tests including a re-run.
+- [ ] T3 API sysadmin: standing in the organizations list; `PUT /account/organizations/{id}/standing` (due date, grace days), `POST .../standing/suspend`, `POST .../standing/reactivate` (requires a new due date); audited; non-sysadmin gets 403.
+- [ ] T4 API enforcement: standing cache with write-through; suspension filter with the allowlist; `/account/me` gains `accountStanding`. Tests: a suspended organization's admin gets 403 `organization-suspended` on a business endpoint and 200 on `/account/me`; a sysadmin acting on a suspended organization is not blocked; an overdue organization is not blocked; a POS sale push from a suspended organization is accepted.
+- [ ] T5 API device: `GET /device/organization/settings` gains `accountStanding { status, suspendsOn }` (additive; an older POS ignores it).
+- [ ] T6 Web sysadmin: standing badge and due date column in `OrganizationsScreen`; manage dialog (due date, grace days, suspend now, reactivate with confirmation).
+- [ ] T7 Web tenant: admin banner in `AppLayout` with the countdown; suspended screen (admin and non-admin copy); `apiFetch` routes a 403 `organization-suspended` to that screen.
+- [ ] T8 POS: persist the synced standing in `BranchSyncStore` next to the organization settings; red notice in the footer status bar (`MainWindow.xaml` row 2, `DangerBrush`/`DangerSurfaceBrush`) for every signed-in operator, hidden while locked; countdown computed from `SuspendsOn` and the local business day; role-based closing line; tooltip with the date. Test that a sale completes while `Suspended`.
+- [ ] T9 Docs: cross-layer parity entry for the banners; update this document's progress.
+
+## Acceptance criteria
+
+- A sysadmin sets a due date for Vaca Verde of yesterday: its admin sees the
+  30-day countdown in the web banner and the POS footer; a cashier sees it in
+  red in the POS footer with "Informe al administrador." and sees nothing in
+  the web.
+- One business day later both banners show 29 days, including on a POS that
+  has been offline since the previous sync.
+- When the grace runs out, the Vaca Verde admin signs in to the web and sees
+  only the suspended screen; any business endpoint returns 403
+  `organization-suspended`.
+- The POS of a suspended organization opens a cash session, completes a sale,
+  closes the cash session and syncs the sale.
+- "Suspend now" suspends immediately; "reactivate" with a new due date
+  restores web access within 60 seconds. Every change has an audit entry.
+- An organization with no due date behaves exactly as before.
+- All checks pass.
+
+## Progress
+
+- Feature document created 2026-10-09.
+- 2026-10-09: owner approved the model; POS notice widened to every signed-in
+  operator, in red, in the footer.
+
+## Next step
+
+Owner: review the standing model and the proposed copy, then start T1.

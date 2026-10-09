@@ -27,3 +27,11 @@ Make `deploy/dev/run-all.ps1` the repository-side entrypoint for a transparent l
 - The launcher no longer starts the Vite dev server. The browser path is the built SPA served by `Commerce.Cloud.Api` and fronted by HTTPS, matching the E2E/prod-like local shape required by Secure cookies.
 - `C:\shortcuts\run-incoders-commerce-all.bat` calls `pwsh -NoProfile -ExecutionPolicy Bypass -File C:\repositories\incoders\incoders-commerce\deploy\dev\run-all.ps1`, validates Docker/.NET/npm/pwsh first, and stays open on errors.
 - Postgres remains running in Docker after process windows are closed; stop it with `docker compose -f deploy/dev/compose.yaml down`.
+
+## Follow-up 2026-10-09: launcher in the repository, free ports
+
+- [x] `deploy/dev/run-all.bat` is the versioned double-click entry point (the `C:\shortcuts` file is now a one-line wrapper that calls it). It checks pwsh, the .NET 10 SDK, Node 20.19+/22.12+, npm and Docker, starts Docker Desktop when the engine is down (waits up to 180s), runs `npm ci` when `node_modules` is older than `package-lock.json`, restores Cloud.Api and the POS, then runs `run-all.ps1` with the same arguments -- 5676726.
+- [x] `run-all.ps1` treats 5432, 8080 and 5443 as preferred ports: a taken one moves to the next free port with a warning naming its holder; a running project Postgres container keeps its port; the POS gets the API URL through `Commerce__CloudApiBaseUrl`. `-PostgresPort`, `-ApiPort`, `-ProxyPort` pin them -- 5676726.
+- [x] `.gitattributes` keeps `*.bat`/`*.cmd` in CRLF -- 5676726.
+
+The URLs and the shortcut notes above describe the original version; `deploy/README.md` "Local stack launcher" is the current reference. `tests/Commerce.Integration` still needs Postgres on 5432.
