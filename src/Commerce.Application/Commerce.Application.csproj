@@ -19,7 +19,7 @@
       pre-parse magic-byte/row-count checks, which run before ClosedXML ever
       opens the workbook.
     -->
-    <PackageReference Include="ClosedXML" Version="0.104.0" />
+    <PackageReference Include="ClosedXML" Version="0.105.1" />
   </ItemGroup>
 
   <ItemGroup>
