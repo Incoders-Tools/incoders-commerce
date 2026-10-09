@@ -1,5 +1,36 @@
 # Deploy notes
 
+## Local stack launcher
+
+Double-click `deploy/dev/run-all.bat` (or point a desktop shortcut at it). It:
+
+1. checks the tooling: PowerShell 7, the .NET 10 SDK, Node.js 20.19+/22.12+,
+   npm and Docker, and prints the `winget install` command for anything
+   missing;
+2. starts Docker Desktop when the engine is not running and waits up to 180s;
+3. runs `npm ci` when `src/Commerce.Web/node_modules` is missing or older than
+   `package-lock.json`, and `dotnet restore` for Cloud.Api and the POS;
+4. hands off to `deploy/dev/run-all.ps1`, which starts Postgres, Cloud.Api,
+   the HTTPS proxy and the POS, and prints the URLs to use.
+
+Ports are preferences, not requirements:
+
+| Service | Preferred | When it is taken |
+|---|---|---|
+| Postgres | 5432 | next free port; an already running `incoders-commerce-postgres-1` keeps its port |
+| Cloud.Api | 8080 | next free port; the POS gets it through `Commerce__CloudApiBaseUrl` |
+| HTTPS proxy | 5443 | next free port; the printed browser URL follows it |
+
+The launcher warns about every port it moves and names the process holding
+the preferred one. Pin ports with `run-all.bat -ApiPort 9080 -ProxyPort 9443
+-PostgresPort 15432`; any other `run-all.ps1` switch (`-NoPos`, `-NoBrowser`,
+...) is forwarded too.
+
+`tests/Commerce.Integration` always connects to Postgres on **5432**. If the
+launcher had to move Postgres, free 5432 and run
+`docker compose -f deploy/dev/compose.yaml up -d postgres` before running the
+tests; the data lives in the `postgres-data` volume and survives the move.
+
 ## Test database isolation (`commerce_test`)
 
 The integration suite and the app you are signed in to do **not** share a

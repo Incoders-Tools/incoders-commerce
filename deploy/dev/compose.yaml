@@ -22,7 +22,10 @@ services:
       POSTGRES_USER: commerce_owner
       POSTGRES_PASSWORD: dev-only-password
     ports:
-      - "5432:5432"
+      # Host port is overridable so deploy/dev/run-all.ps1 can move Postgres
+      # off 5432 when something else already holds it. tests/Commerce.Integration
+      # still connects to 5432, so leave it unset for test runs.
+      - "${COMMERCE_POSTGRES_PORT:-5432}:5432"
     volumes:
       - ./db/init-rls.sql:/docker-entrypoint-initdb.d/init-rls.sql:ro
       # Creates `commerce_test` and applies the SAME init-rls.sql to it. The
