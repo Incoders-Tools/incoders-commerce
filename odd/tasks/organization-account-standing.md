@@ -90,9 +90,12 @@ so it changes on its own when a day passes and needs no scheduled job.
 - Clean domain: the standing rule lives in `src/Commerce.Domain`, pure, with
   `today` passed in; "today" comes from `IBusinessClock`
   (`America/Argentina/Buenos_Aires`), never `DateTime.Now`.
-- Business rules on the server; web and POS only render what the API returns
-  (AGENTS.md). The POS computes `DaysLeft` locally from the synced
-  `SuspendsOn` only to keep the countdown accurate offline.
+- Business rules on the server; the web only renders what the API returns
+  (AGENTS.md). The POS receives the rule's INPUTS (due date, grace days,
+  manual suspension) and runs the same `AccountStandingRules.Evaluate` from
+  `Commerce.Domain` (already referenced) on the local business day, so it
+  also catches the Active -> Overdue -> Suspended transitions while offline
+  and the rule exists once.
 - Migration `0052_organization_account_standing.sql`: forward-only,
   idempotent (`ADD COLUMN IF NOT EXISTS`, constraints added only when
   missing), appended verbatim to `deploy/dev/db/init-rls.sql`. The
@@ -120,14 +123,14 @@ so it changes on its own when a day passes and needs no scheduled job.
 
 ## Tasks
 
-- [ ] T1 Domain: `AccountStanding` rule (`Active`/`Overdue`/`Suspended`, `SuspendsOn`, `DaysLeft`) with boundary tests: no due date, due date today, first overdue day, last grace day, first suspended day, grace 0, manual suspension overriding a future due date, reactivation.
+- [x] T1 Domain: `AccountStanding` rule (`Active`/`Overdue`/`Suspended`, `SuspendsOn`, `DaysLeft`) with boundary tests: no due date, due date today, first overdue day, last grace day, first suspended day, grace 0, manual suspension overriding a future due date, reactivation. RED: `AccountStandingRulesTests` did not compile (no `AccountStandingRules`); GREEN: 17/17. `src/Commerce.Domain/Tenancy/AccountStanding.cs`.
 - [ ] T2 Migration `0052`: due date, grace days (CHECK 0-90, default 30), manual suspension timestamp; mirrored in `init-rls.sql`; migration tests including a re-run.
 - [ ] T3 API sysadmin: standing in the organizations list; `PUT /account/organizations/{id}/standing` (due date, grace days), `POST .../standing/suspend`, `POST .../standing/reactivate` (requires a new due date); audited; non-sysadmin gets 403.
 - [ ] T4 API enforcement: standing cache with write-through; suspension filter with the allowlist; `/account/me` gains `accountStanding`. Tests: a suspended organization's admin gets 403 `organization-suspended` on a business endpoint and 200 on `/account/me`; a sysadmin acting on a suspended organization is not blocked; an overdue organization is not blocked; a POS sale push from a suspended organization is accepted.
-- [ ] T5 API device: `GET /device/organization/settings` gains `accountStanding { status, suspendsOn }` (additive; an older POS ignores it).
+- [ ] T5 API device: `GET /device/organization/settings` gains `accountStanding { dueOn, graceDays, suspended }` (the rule's inputs; additive, an older POS ignores it).
 - [ ] T6 Web sysadmin: standing badge and due date column in `OrganizationsScreen`; manage dialog (due date, grace days, suspend now, reactivate with confirmation).
 - [ ] T7 Web tenant: admin banner in `AppLayout` with the countdown; suspended screen (admin and non-admin copy); `apiFetch` routes a 403 `organization-suspended` to that screen.
-- [ ] T8 POS: persist the synced standing in `BranchSyncStore` next to the organization settings; red notice in the footer status bar (`MainWindow.xaml` row 2, `DangerBrush`/`DangerSurfaceBrush`) for every signed-in operator, hidden while locked; countdown computed from `SuspendsOn` and the local business day; role-based closing line; tooltip with the date. Test that a sale completes while `Suspended`.
+- [ ] T8 POS: persist the synced standing inputs in `BranchSyncStore` next to the organization settings and evaluate them with `AccountStandingRules`; red notice in the footer status bar (`MainWindow.xaml` row 2, `DangerBrush`/`DangerSurfaceBrush`) for every signed-in operator, hidden while locked; countdown computed from `SuspendsOn` and the local business day; role-based closing line; tooltip with the date. Test that a sale completes while `Suspended`.
 - [ ] T9 Docs: cross-layer parity entry for the banners; update this document's progress.
 
 ## Acceptance criteria
@@ -153,6 +156,8 @@ so it changes on its own when a day passes and needs no scheduled job.
 - Feature document created 2026-10-09.
 - 2026-10-09: owner approved the model; POS notice widened to every signed-in
   operator, in red, in the footer.
+- 2026-10-09: T1 done. The device payload carries the rule's inputs instead
+  of a computed status, so the POS evaluates the same domain rule offline.
 
 ## Next step
 
