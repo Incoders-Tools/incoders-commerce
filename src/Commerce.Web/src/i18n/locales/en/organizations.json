@@ -16,11 +16,14 @@
   },
   "columns": {
     "name": "Name",
-    "created": "Created"
+    "created": "Created",
+    "standing": "Account standing",
+    "dueOn": "Due date"
   },
   "actions": {
     "open": "Open",
-    "editBranding": "Edit branding"
+    "editBranding": "Edit branding",
+    "editStanding": "Account standing"
   },
   "createForm": {
     "title": "New organization",
@@ -79,5 +82,43 @@
       "hint": "How many days a customer has to pay a sale on current account. It applies to every customer without a term of their own (set on the customer form). With 0 the sale is due the same day. Due dates and days overdue are computed from it.",
       "invalid": "The general payment term must be a whole number from 0 to 365 days."
     }
+  },
+  "standing": {
+    "active": "In good standing",
+    "overdue_one": "Overdue · {{count}} day",
+    "overdue_other": "Overdue · {{count}} days",
+    "suspended": "Suspended",
+    "noDueDate": "—"
+  },
+  "standingForm": {
+    "title": "Account standing",
+    "description": "Payment due date of {{name}} to the platform, grace days and suspension.",
+    "backLabel": "Back to organizations",
+    "statusLabel": "Current standing",
+    "statusActive": "In good standing",
+    "statusActiveUntracked": "In good standing · no due date set",
+    "statusOverdue_one": "Overdue · suspends on {{date}} ({{count}} day)",
+    "statusOverdue_other": "Overdue · suspends on {{date}} ({{count}} days)",
+    "statusSuspended": "Suspended since {{date}}",
+    "suspendedManually": "Suspended by hand on {{date}}",
+    "dueOnLabel": "Due date",
+    "dueOnHint": "To record a payment, set the next period’s due date. Empty: billing is not tracked.",
+    "graceDaysLabel": "Grace days",
+    "graceDaysHint": "Days after the due date when everything keeps working, with a warning. Then web access is suspended.",
+    "graceInvalid": "Grace days must be a whole number from 0 to 90.",
+    "reactivateDueOnInvalid": "To reactivate, the due date must be today or later.",
+    "save": "Save",
+    "saving": "Saving…",
+    "cancel": "Cancel",
+    "suspendNow": "Suspend now",
+    "suspendTitle": "Suspend web access",
+    "suspendMessage": "{{name}} will lose web access immediately. The point of sale keeps selling, with a warning. Continue?",
+    "suspendConfirm": "Suspend",
+    "suspending": "Suspending…",
+    "reactivate": "Reactivate",
+    "reactivating": "Reactivating…",
+    "unableToLoad": "Could not load the account standing.",
+    "unableToSave": "Could not save the account standing.",
+    "retry": "Retry"
   }
 }

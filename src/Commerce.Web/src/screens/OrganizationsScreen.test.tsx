@@ -377,4 +377,40 @@ describe('OrganizationsScreen', () => {
     expect(screen.getByRole('button', { name: 'Editar marca' })).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
+
+  // organization-account-standing T6: the sysadmin sees each organization's account standing and manages it.
+  it("shows each organization's account standing and due date", async () => {
+    listOnce([
+      { ...acme, standing: { dueOn: null, graceDays: 30, suspendedAt: null, status: 'Active', suspendsOn: null, daysLeft: null } },
+      { ...vacaVerde, standing: { dueOn: '2026-10-08', graceDays: 30, suspendedAt: null, status: 'Overdue', suspendsOn: '2026-11-08', daysLeft: 12 } },
+      {
+        id: '33333333-3333-3333-3333-333333333333', name: 'Moroso SA', createdAt: '2024-03-01T00:00:00Z',
+        standing: { dueOn: '2026-08-01', graceDays: 30, suspendedAt: null, status: 'Suspended', suspendsOn: '2026-09-01', daysLeft: null },
+      },
+    ])
+
+    renderScreen()
+
+    const acmeRow = (await screen.findByText('Acme Co')).closest('tr')!
+    const vacaRow = screen.getByText('Vaca Verde').closest('tr')!
+    const morosoRow = screen.getByText('Moroso SA').closest('tr')!
+    expect(within(acmeRow).getByText('Al día')).toBeInTheDocument()
+    expect(within(vacaRow).getByText('Vencida · 12 días')).toBeInTheDocument()
+    expect(within(vacaRow).getByText('08/10/2026')).toBeInTheDocument()
+    expect(within(morosoRow).getByText('Suspendida')).toBeInTheDocument()
+  })
+
+  it('opens the account standing form from the row action', async () => {
+    listOnce([acme]).mockResolvedValueOnce(new Response(JSON.stringify(
+      { dueOn: null, graceDays: 30, suspendedAt: null, status: 'Active', suspendsOn: null, daysLeft: null }), { status: 200 }))
+
+    const user = userEvent.setup()
+    renderScreen()
+
+    await screen.findByText('Acme Co')
+    await user.click(screen.getByRole('button', { name: 'Estado de cuenta' }))
+
+    expect(await screen.findByLabelText('Días de tolerancia')).toHaveValue(30)
+    expect(fetchMock.mock.calls[1][0]).toBe(`/account/organizations/${acme.id}/standing`)
+  })
 })

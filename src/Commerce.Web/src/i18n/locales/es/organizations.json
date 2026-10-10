@@ -16,11 +16,14 @@
   },
   "columns": {
     "name": "Nombre",
-    "created": "Creada"
+    "created": "Creada",
+    "standing": "Estado de cuenta",
+    "dueOn": "Vencimiento"
   },
   "actions": {
     "open": "Abrir",
-    "editBranding": "Editar marca"
+    "editBranding": "Editar marca",
+    "editStanding": "Estado de cuenta"
   },
   "createForm": {
     "title": "Nueva organización",
@@ -79,5 +82,43 @@
       "hint": "Cuántos días tiene un cliente para pagar una venta a cuenta corriente. Se usa para todos los clientes que no tienen un plazo propio (se carga en la ficha del cliente). Con 0 la venta vence el mismo día. Con este plazo se calculan los vencimientos y los días de atraso.",
       "invalid": "El plazo general de pago tiene que ser un número entero de 0 a 365 días."
     }
+  },
+  "standing": {
+    "active": "Al día",
+    "overdue_one": "Vencida · {{count}} día",
+    "overdue_other": "Vencida · {{count}} días",
+    "suspended": "Suspendida",
+    "noDueDate": "—"
+  },
+  "standingForm": {
+    "title": "Estado de cuenta",
+    "description": "Vencimiento del pago de {{name}} a la plataforma, tolerancia y suspensión.",
+    "backLabel": "Volver a organizaciones",
+    "statusLabel": "Situación actual",
+    "statusActive": "Al día",
+    "statusActiveUntracked": "Al día · sin vencimiento cargado",
+    "statusOverdue_one": "Vencida · se suspende el {{date}} ({{count}} día)",
+    "statusOverdue_other": "Vencida · se suspende el {{date}} ({{count}} días)",
+    "statusSuspended": "Suspendida desde el {{date}}",
+    "suspendedManually": "Suspendida manualmente el {{date}}",
+    "dueOnLabel": "Vencimiento",
+    "dueOnHint": "Para registrar un pago, cargue el vencimiento del próximo período. Vacío: sin seguimiento de pagos.",
+    "graceDaysLabel": "Días de tolerancia",
+    "graceDaysHint": "Días después del vencimiento en los que todo sigue funcionando, con aviso. Después se suspende el acceso web.",
+    "graceInvalid": "Los días de tolerancia tienen que ser un número entero de 0 a 90.",
+    "reactivateDueOnInvalid": "Para reactivar, el vencimiento tiene que ser hoy o una fecha posterior.",
+    "save": "Guardar",
+    "saving": "Guardando…",
+    "cancel": "Cancelar",
+    "suspendNow": "Suspender ahora",
+    "suspendTitle": "Suspender el acceso web",
+    "suspendMessage": "{{name}} dejará de acceder a la web de inmediato. El punto de venta sigue vendiendo con un aviso. ¿Continuar?",
+    "suspendConfirm": "Suspender",
+    "suspending": "Suspendiendo…",
+    "reactivate": "Reactivar",
+    "reactivating": "Reactivando…",
+    "unableToLoad": "No se pudo cargar el estado de cuenta.",
+    "unableToSave": "No se pudo guardar el estado de cuenta.",
+    "retry": "Reintentar"
   }
 }

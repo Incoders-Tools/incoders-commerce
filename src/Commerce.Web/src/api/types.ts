@@ -640,7 +640,23 @@ export interface CreateUserResponse { userId: string }
 export interface BranchSummary { branchId: string; branchName: string; code: number }
 export interface CreateBranchRequest { branchName: string }
 export interface CreateBranchResponse { branchId: string; code: number }
-export interface OrganizationSummary { id: string; name: string; createdAt: string }
+// `standing` comes only on the system-administrator list (organization-account-standing T3).
+export interface OrganizationSummary { id: string; name: string; createdAt: string; standing?: OrganizationAccountStanding | null }
+/** Endpoints/OrganizationAccountStanding.cs `OrganizationAccountStandingResponse`: the stored inputs and what they mean today. */
+export interface OrganizationAccountStanding {
+  /** `yyyy-MM-dd`; null = billing not tracked. */
+  dueOn: string | null
+  graceDays: number
+  /** Set while suspended by hand. */
+  suspendedAt: string | null
+  status: AccountStandingStatus
+  suspendsOn: string | null
+  daysLeft: number | null
+}
+/** `graceDays` is required: the server rejects an omitted value instead of reading it as 0. */
+export interface UpdateOrganizationAccountStandingRequest { dueOn: string | null; graceDays: number }
+/** `graceDays` null keeps the organization's current grace days. */
+export interface ReactivateOrganizationRequest { dueOn: string; graceDays: number | null }
 export interface CreateOrganizationRequest { organizationName: string; branchName?: string | null; adminEmail: string; adminPassword: string }
 export interface CreateOrganizationResponse { organizationId: string; branchId: string; userId: string }
 // T5b: minimal organization branding — logoUrl + primaryColor only (no upload, no other fields).

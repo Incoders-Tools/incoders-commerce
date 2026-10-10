@@ -137,7 +137,7 @@ so it changes on its own when a day passes and needs no scheduled job.
 - [x] T3 API sysadmin: standing in the organizations list; `PUT /account/organizations/{id}/standing` (due date, grace days), `POST .../standing/suspend`, `POST .../standing/reactivate` (requires a new due date); audited; non-sysadmin gets 403. RED: `OrganizationAccountStandingEndpointTests` did not compile (no contracts); GREEN: 11/11, and 35/35 with `AdminConsoleTests` and the treasury recurrence suites. Also `GET .../standing`; unknown organization 404; reactivation rejects a due date before today and keeps the current grace days when none is sent; a second suspension keeps the first time. `Endpoints/OrganizationAccountStanding.cs`.
 - [x] T4 API enforcement: standing cache with write-through; suspension filter with the allowlist; `/account/me` gains `accountStanding`. Tests: a suspended organization's admin gets 403 `organization-suspended` on a business endpoint and 200 on `/account/me`; a sysadmin acting on a suspended organization is not blocked; an overdue organization is not blocked; a POS sale push from a suspended organization is accepted. RED: `OrganizationSuspensionEnforcementTests` did not compile (no `AccountStanding` on `SignedInResponse`); GREEN: 8/8, 44/44 with the T1-T3 suites. Control run with the middleware disabled: the 3 blocking tests fail. `Authentication/OrganizationStandingCache.cs` (60s TTL, invalidated by every T3 write), `Authentication/OrganizationSuspensionMiddleware.cs`. The POS check sends a device-bearer `/sync/inbox` push and `/device/organization/settings` read, both 200 while suspended. Also A6: the reactivation audit records the grace days actually stored (`RETURNING billing_grace_days`); RED showed `null`.
 - [x] T5 API device: `GET /device/organization/settings` gains `accountStanding { dueOn, graceDays, suspended }` (the rule's inputs; additive, an older POS ignores it). RED: `DeviceOrganizationSettingsTests` did not compile (no `AccountStanding`); GREEN: 5/5. Read straight from the store, not the T4 cache: it runs once per sync sweep and the terminal never sees an older standing than the database.
-- [ ] T6 Web sysadmin: standing badge and due date column in `OrganizationsScreen`; manage dialog (due date, grace days, suspend now, reactivate with confirmation).
+- [x] T6 Web sysadmin: standing badge and due date column in `OrganizationsScreen`; manage dialog (due date, grace days, suspend now, reactivate with confirmation). RED: 2 `OrganizationsScreen` tests failed and `OrganizationStandingForm.test.tsx` could not resolve its module; GREEN: 27/27; full type check (`tsc -b --force`) clean, lint clean, web suite 752 passed (one A10 timeout, passes alone). `screens/OrganizationStandingForm.tsx`: not suspended by hand = Save (due date, empty = not tracked; grace 0-90 required) + "Suspender ahora" behind `ConfirmDialog`; suspended by hand = "Reactivar" (due date today or later, as the server enforces). `noValidate` so the form's own Spanish message shows instead of the browser's `max` bubble. Copy in `organizations.json` (es/en).
 - [x] T7 Web tenant: admin banner in `AppLayout` with the countdown; suspended screen (admin and non-admin copy); `apiFetch` routes a 403 `organization-suspended` to that screen. The SPA's session is the SIGN-IN response kept in memory (not `/account/me`), so the server now returns `accountStanding` on sign-in too (shared `OrganizationAccountStandingEndpoints.SummaryForAsync`; RED: sign-in carried none). A suspension during an open session: `apiFetch` dispatches `commerce:organization-suspended` on `window` and `AuthProvider` marks the session Suspended. RED: 6 web tests (client, AuthContext, AppLayout) failed; GREEN: web suite 740 passed, lint clean, build passes. `components/layout/AccountStanding.tsx`; copy in `common.json` (es/en) with `_one`/`_other` for "1 día".
 - [ ] T8 POS: persist the synced standing inputs in `BranchSyncStore` next to the organization settings and evaluate them with `AccountStandingRules`; red notice in the footer status bar (`MainWindow.xaml` row 2, `DangerBrush`/`DangerSurfaceBrush`) for every signed-in operator, hidden while locked; countdown computed from `SuspendsOn` and the local business day; role-based closing line; tooltip with the date. Test that a sale completes while `Suspended`.
 - [ ] T9 Docs: cross-layer parity entry for the banners; update this document's progress.
@@ -176,6 +176,7 @@ so it changes on its own when a day passes and needs no scheduled job.
   nothing; T2-T4 were re-run with the container checked healthy before and
   after.
 - 2026-10-10: T5 done; A9 fixed.
+- 2026-10-10: T6 done.
 - 2026-10-10: T7 done.
 - 2026-10-10: T7 review fixes (`review-5daed399ddad7724`, approved): the
   banner counts the days left from today against `suspendsOn` (the session
@@ -254,6 +255,11 @@ so it changes on its own when a day passes and needs no scheduled job.
   customers) time out at 5s in each full run (13, 1, 1, 0 failures across
   runs), with or without this feature's changes (checked against `3a89937`);
   each passes when run alone.
+- [ ] A11 T7 fix review: the web countdown counts from the browser's date,
+  not the server's business day (Buenos Aires); a wrong PC clock shows a
+  wrong count (the block itself is always the server's). A malformed
+  `suspendsOn` would render NaN; the "Volver a verificar" failure path has no
+  test.
 - [ ] A7 Repository-wide, not this feature: Postgres-backed tests `return`
   when `TryPing` fails and are reported as Passed. A stopped container turns
   a red suite green. Make them skip visibly (or fail in CI) instead.
