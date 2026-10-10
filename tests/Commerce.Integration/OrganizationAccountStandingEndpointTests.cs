@@ -196,6 +196,9 @@ public sealed class OrganizationAccountStandingEndpointTests : IClassFixture<Web
         var standing = await sysadmin.GetFromJsonAsync<OrganizationAccountStandingResponse>($"/account/organizations/{targetId}/standing");
         Assert.Equal("Active", standing!.Status);
         Assert.Equal(45, standing.GraceDays);
+        // The audit row records the grace days actually stored, not the omitted value.
+        Assert.Equal(45, (int)OwnerScalar(
+            "SELECT (new_value->>'graceDays')::int FROM audit_log WHERE organization_id = $1 AND action = 'organization.reactivated'", targetId)!);
     }
 
     [Theory]

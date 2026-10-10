@@ -97,6 +97,8 @@ builder.Services.AddSingleton<BootstrapTokenRegistry>();
 // round-trip on every authenticated request. ---------------------------
 builder.Services.AddSingleton<SessionVersionCache>();
 builder.Services.AddSingleton<SessionVersionValidator>();
+// organization-account-standing T4: cached standing inputs behind the web suspension block and /account/me.
+builder.Services.AddSingleton<OrganizationStandingCache>();
 
 // --- Anti-abuse (commerce-password-recovery design.md "Anti-abuse
 // mechanism"): in-memory fixed-window throttle, accepted single-Railway-
@@ -343,6 +345,8 @@ var app = builder.Build();
 
 app.UseAuthentication();
 app.UseAuthorization();
+// organization-account-standing T4: a suspended organization gets 403 organization-suspended on the web; the POS is never touched.
+app.UseMiddleware<OrganizationSuspensionMiddleware>();
 app.UseRateLimiter();
 
 app.MapHealthChecks("/health", new HealthCheckOptions

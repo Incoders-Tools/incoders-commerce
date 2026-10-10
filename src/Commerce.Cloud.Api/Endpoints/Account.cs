@@ -11,6 +11,7 @@ using Commerce.Cloud.Api.Email;
 using Commerce.Cloud.Api.Persistence;
 using Commerce.Cloud.Api.Tenancy;
 using Commerce.Domain.Identity;
+using Commerce.Domain.Tenancy;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Identity;
@@ -279,7 +280,7 @@ public static class AccountEndpoints
             await httpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(refreshedIdentity));
 
             return Results.NoContent();
-        }).RequireAuthorization();
+        }).RequireAuthorization().AllowWhileOrganizationSuspended();
 
         // --- Reset-request: anonymous, uniform-response forgot-password
         // start (commerce-password-recovery design.md "Reset request
@@ -1063,10 +1064,11 @@ public static class AccountEndpoints
         {
             await httpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
             return Results.Ok();
-        });
+        }).AllowWhileOrganizationSuspended();
 
         group.MapGet("/me", async (
-            HttpContext httpContext, PostgresUserAccountStore userStore, PostgresOrganizationStore organizationStore, CancellationToken ct) =>
+            HttpContext httpContext, PostgresUserAccountStore userStore, PostgresOrganizationStore organizationStore,
+            OrganizationStandingCache standings, IBusinessClock clock, CancellationToken ct) =>
         {
             // Routed through TenantScopeEndpointFilter (added below) so a
             // system administrator's `X-Organization-Id` selector is in
@@ -1100,14 +1102,27 @@ public static class AccountEndpoints
                     ? await organizationStore.ListBranchesAsync(scope, ct)
                     : await organizationStore.ListBranchesAsync(scope, actor.BranchScope.ToArray(), ct);
 
+            // organization-account-standing T4: every user learns the status (the SPA shows the suspended screen
+            // from it); only administrators and the system administrator get the dates behind the countdown.
+            var inputs = await standings.GetAsync(scope.OrganizationId, ct);
+            AccountStandingSummary? accountStanding = null;
+            if (inputs is not null)
+            {
+                var standing = AccountStandingRules.Evaluate(inputs.DueOn, inputs.GraceDays, inputs.SuspendedAt is not null, clock.Today);
+                var seesDates = actor is not null && (actor.IsSystemAdmin || actor.EffectivePermissions.HasFlag(Permission.ManageUsers));
+                accountStanding = new AccountStandingSummary(
+                    standing.Status.ToString(), seesDates ? standing.SuspendsOn : null, seesDates ? standing.DaysLeft : null);
+            }
+
             return Results.Ok(new SignedInResponse(
                 scope.OrganizationId,
                 userId,
                 displayName ?? string.Empty,
                 permissions,
                 actor?.IsSystemAdmin ?? false,
-                selectableBranches.Select(b => new SelectableBranch(b.Id, b.Name, b.Code)).ToList()));
-        }).AddEndpointFilter<TenantScopeEndpointFilter>();
+                selectableBranches.Select(b => new SelectableBranch(b.Id, b.Name, b.Code)).ToList(),
+                accountStanding));
+        }).AddEndpointFilter<TenantScopeEndpointFilter>().AllowWhileOrganizationSuspended();
 
         // --- Bootstrap: one-time first-admin creation gated by a log-only
         // token (design.md "Bootstrap token delivery") ------------------------
@@ -1218,7 +1233,15 @@ public sealed record SignedInResponse(
     string DisplayName,
     int Permissions,
     bool IsSystemAdmin,
-    IReadOnlyList<SelectableBranch> SelectableBranches);
+    IReadOnlyList<SelectableBranch> SelectableBranches,
+    AccountStandingSummary? AccountStanding = null);
+
+/// <summary>
+/// The caller organization's account standing on <c>/account/me</c> (organization-account-standing T4).
+/// <see cref="Status"/>: Active | Overdue | Suspended, for every user. <see cref="SuspendsOn"/> and
+/// <see cref="DaysLeft"/> only for administrators (<c>ManageUsers</c>) and the system administrator.
+/// </summary>
+public sealed record AccountStandingSummary(string Status, DateOnly? SuspendsOn, int? DaysLeft);
 
 public sealed record SelectableBranch(Guid Id, string Name, int Code);
 

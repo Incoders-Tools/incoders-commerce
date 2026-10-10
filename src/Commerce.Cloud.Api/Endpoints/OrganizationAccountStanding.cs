@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Text.Json;
 using Commerce.Application.Time;
 using Commerce.Cloud.Api.Auditing;
+using Commerce.Cloud.Api.Authentication;
 using Commerce.Cloud.Api.Persistence;
 using Commerce.Cloud.Api.Tenancy;
 using Commerce.Domain.Tenancy;
@@ -13,7 +14,8 @@ namespace Commerce.Cloud.Api.Endpoints;
 /// T3): read the standing, set the billing due date and grace days (also how a payment is recorded: move the due date to
 /// the next period), suspend now, and reactivate with a new due date. Gated exactly like the branding routes: the caller
 /// must be a system administrator, checked against the store; the route id is trusted only after that. Every write is
-/// audited in its own transaction. The standing is derived on the business day (<see cref="IBusinessClock"/>).
+/// audited in its own transaction and invalidates <see cref="OrganizationStandingCache"/>, so the web block (T4) follows
+/// on the very next request. The standing is derived on the business day (<see cref="IBusinessClock"/>).
 /// </summary>
 public static class OrganizationAccountStandingEndpoints
 {
@@ -28,28 +30,24 @@ public static class OrganizationAccountStandingEndpoints
             return inputs is null ? Results.NotFound() : Results.Ok(ToResponse(inputs, clock.Today));
         });
 
-        group.MapPut("", async (Guid id, UpdateOrganizationAccountStandingRequest request, HttpContext httpContext, PostgresUserAccountStore userStore, PostgresOrganizationStore organizationStore, CancellationToken ct) =>
+        group.MapPut("", async (Guid id, UpdateOrganizationAccountStandingRequest request, HttpContext httpContext, PostgresUserAccountStore userStore, PostgresOrganizationStore organizationStore, OrganizationStandingCache standings, CancellationToken ct) =>
         {
             if (await SystemAdminIdAsync(httpContext, userStore, ct) is not { } actorId) return Results.StatusCode(StatusCodes.Status403Forbidden);
             // Required: an omitted value must never be read as 0, which would suspend an overdue organization at once.
             if (request.GraceDays is not { } graceDays || !AccountStandingRules.IsValidGraceDays(graceDays)) return GraceDaysProblem();
 
             var audit = Audit(actorId, id, "organization.standing_updated", new { dueOn = request.DueOn, graceDays });
-            return await organizationStore.UpdateBillingAsync(id, request.DueOn, graceDays, audit, ct)
-                ? Results.NoContent()
-                : Results.NotFound();
+            return Written(await organizationStore.UpdateBillingAsync(id, request.DueOn, graceDays, audit, ct), id, standings);
         });
 
-        group.MapPost("/suspend", async (Guid id, HttpContext httpContext, PostgresUserAccountStore userStore, PostgresOrganizationStore organizationStore, CancellationToken ct) =>
+        group.MapPost("/suspend", async (Guid id, HttpContext httpContext, PostgresUserAccountStore userStore, PostgresOrganizationStore organizationStore, OrganizationStandingCache standings, CancellationToken ct) =>
         {
             if (await SystemAdminIdAsync(httpContext, userStore, ct) is not { } actorId) return Results.StatusCode(StatusCodes.Status403Forbidden);
 
-            return await organizationStore.SuspendAsync(id, Audit(actorId, id, "organization.suspended", new { }), ct)
-                ? Results.NoContent()
-                : Results.NotFound();
+            return Written(await organizationStore.SuspendAsync(id, Audit(actorId, id, "organization.suspended", new { }), ct), id, standings);
         });
 
-        group.MapPost("/reactivate", async (Guid id, ReactivateOrganizationRequest request, HttpContext httpContext, PostgresUserAccountStore userStore, PostgresOrganizationStore organizationStore, IBusinessClock clock, CancellationToken ct) =>
+        group.MapPost("/reactivate", async (Guid id, ReactivateOrganizationRequest request, HttpContext httpContext, PostgresUserAccountStore userStore, PostgresOrganizationStore organizationStore, OrganizationStandingCache standings, IBusinessClock clock, CancellationToken ct) =>
         {
             if (await SystemAdminIdAsync(httpContext, userStore, ct) is not { } actorId) return Results.StatusCode(StatusCodes.Status403Forbidden);
             if (request.GraceDays is { } requested && !AccountStandingRules.IsValidGraceDays(requested)) return GraceDaysProblem();
@@ -59,14 +57,22 @@ public static class OrganizationAccountStandingEndpoints
                 return Results.ValidationProblem(new Dictionary<string, string[]> { ["dueOn"] = ["dueOn must be today or later."] });
             }
 
-            // A null GraceDays keeps the current value inside the same UPDATE, so no read races the write.
-            var audit = Audit(actorId, id, "organization.reactivated", new { dueOn = request.DueOn, graceDays = request.GraceDays });
-            return await organizationStore.ReactivateAsync(id, request.DueOn, request.GraceDays, audit, ct)
-                ? Results.NoContent()
-                : Results.NotFound();
+            // A null GraceDays keeps the current value inside the same UPDATE, so no read races the write; the audit row
+            // records the grace days actually stored.
+            var written = await organizationStore.ReactivateAsync(id, request.DueOn, request.GraceDays,
+                storedGraceDays => Audit(actorId, id, "organization.reactivated", new { dueOn = request.DueOn, graceDays = storedGraceDays }), ct);
+            return Written(written, id, standings);
         });
 
         return group;
+    }
+
+    /// <summary>204 after a write, dropping the cached standing so the web block follows at once; 404 when nothing was written.</summary>
+    private static IResult Written(bool written, Guid organizationId, OrganizationStandingCache standings)
+    {
+        if (!written) return Results.NotFound();
+        standings.Invalidate(organizationId);
+        return Results.NoContent();
     }
 
     /// <summary>The standing derived from the stored inputs on <paramref name="today"/>, plus the inputs themselves.</summary>

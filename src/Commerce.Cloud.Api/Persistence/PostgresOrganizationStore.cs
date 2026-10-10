@@ -363,27 +363,28 @@ public sealed class PostgresOrganizationStore
     /// <summary>Sets the billing due date (null = not tracked) and grace days; audited in the same transaction.</summary>
     public Task<bool> UpdateBillingAsync(Guid organizationId, DateOnly? dueOn, int graceDays, UserManagementAuditEntry audit, CancellationToken ct) =>
         UpdateAccountStandingAsync(organizationId,
-            "UPDATE organizations SET billing_due_on = $2, billing_grace_days = $3 WHERE id = $1",
+            "UPDATE organizations SET billing_due_on = $2, billing_grace_days = $3 WHERE id = $1 RETURNING billing_grace_days",
             parameters =>
             {
                 parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Date, (object?)dueOn ?? DBNull.Value);
                 parameters.AddWithValue(graceDays);
             },
-            audit, ct);
+            _ => audit, ct);
 
     /// <summary>Suspends by hand. A second call keeps the first suspension time; both are audited.</summary>
     public Task<bool> SuspendAsync(Guid organizationId, UserManagementAuditEntry audit, CancellationToken ct) =>
         UpdateAccountStandingAsync(organizationId,
-            "UPDATE organizations SET suspended_at = COALESCE(suspended_at, now()) WHERE id = $1",
-            _ => { }, audit, ct);
+            "UPDATE organizations SET suspended_at = COALESCE(suspended_at, now()) WHERE id = $1 RETURNING billing_grace_days",
+            _ => { }, _ => audit, ct);
 
     /// <summary>
     /// Lifts a manual suspension and sets the next due date; <paramref name="graceDays"/> null keeps the current value,
-    /// resolved inside the same UPDATE so no separate read can race it. Audited.
+    /// resolved inside the same UPDATE so no separate read can race it. <paramref name="audit"/> receives the grace days
+    /// actually stored, so the audit row records the effective value, not the omitted one.
     /// </summary>
-    public Task<bool> ReactivateAsync(Guid organizationId, DateOnly dueOn, int? graceDays, UserManagementAuditEntry audit, CancellationToken ct) =>
+    public Task<bool> ReactivateAsync(Guid organizationId, DateOnly dueOn, int? graceDays, Func<int, UserManagementAuditEntry> audit, CancellationToken ct) =>
         UpdateAccountStandingAsync(organizationId,
-            "UPDATE organizations SET suspended_at = NULL, billing_due_on = $2, billing_grace_days = COALESCE($3, billing_grace_days) WHERE id = $1",
+            "UPDATE organizations SET suspended_at = NULL, billing_due_on = $2, billing_grace_days = COALESCE($3, billing_grace_days) WHERE id = $1 RETURNING billing_grace_days",
             parameters =>
             {
                 parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Date, dueOn);
@@ -393,31 +394,33 @@ public sealed class PostgresOrganizationStore
 
     /// <summary>
     /// One account-standing write plus its audit row in the SAME transaction. <c>$1</c> is always the organization id;
-    /// <paramref name="addParameters"/> adds <c>$2</c> onwards. Returns <c>false</c> (nothing written) when it does not exist.
+    /// <paramref name="addParameters"/> adds <c>$2</c> onwards. Every statement ends in <c>RETURNING billing_grace_days</c>:
+    /// no row means the organization does not exist (returns <c>false</c>, nothing written); otherwise
+    /// <paramref name="audit"/> is built from the stored grace days.
     /// </summary>
     private async Task<bool> UpdateAccountStandingAsync(
-        Guid organizationId, string sql, Action<NpgsqlParameterCollection> addParameters, UserManagementAuditEntry audit, CancellationToken ct)
+        Guid organizationId, string sql, Action<NpgsqlParameterCollection> addParameters, Func<int, UserManagementAuditEntry> audit, CancellationToken ct)
     {
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
 
         await TenantScopeSql.ApplyAsync(connection, tx, organizationId, branchId: null, ct);
 
-        int rowsAffected;
+        object? storedGraceDays;
         await using (var cmd = new NpgsqlCommand(sql, connection, tx))
         {
             cmd.Parameters.AddWithValue(organizationId);
             addParameters(cmd.Parameters);
-            rowsAffected = await cmd.ExecuteNonQueryAsync(ct);
+            storedGraceDays = await cmd.ExecuteScalarAsync(ct);
         }
 
-        if (rowsAffected == 0)
+        if (storedGraceDays is not int graceDays)
         {
             await tx.RollbackAsync(ct);
             return false;
         }
 
-        await AuditLogWriter.InsertAsync(connection, tx, audit, ct);
+        await AuditLogWriter.InsertAsync(connection, tx, audit(graceDays), ct);
         await tx.CommitAsync(ct);
         return true;
     }
