@@ -547,9 +547,14 @@ public static class DeviceEndpoints
             }
 
             var settings = await organizationStore.GetSettingsAsync(scope.OrganizationId, ct);
-            return settings is null
-                ? Results.NotFound()
-                : Results.Ok(new DeviceOrganizationSettingsResponse(settings.QuantityDecimalSeparator));
+            if (settings is null) return Results.NotFound();
+
+            // organization-account-standing T5: read straight from the store (this runs once per sync sweep), so the
+            // terminal never sees an older standing than the database holds.
+            var standing = await organizationStore.GetAccountStandingInputsAsync(scope.OrganizationId, ct);
+            return Results.Ok(new DeviceOrganizationSettingsResponse(
+                settings.QuantityDecimalSeparator,
+                standing is null ? null : new DeviceAccountStanding(standing.DueOn, standing.GraceDays, standing.SuspendedAt is not null)));
         });
 
         return group;
@@ -597,7 +602,14 @@ public sealed record CategoryReplicaRow(Guid Id, string Name, string IconKey, bo
 /// `GET /device/organization/settings` response (operator-ux-adjustments T5): the organization's quantity decimal
 /// separator, `Comma` or `Dot` (<see cref="OrganizationSettings.Comma"/>, <see cref="OrganizationSettings.Dot"/>).
 /// </summary>
-public sealed record DeviceOrganizationSettingsResponse(string QuantityDecimalSeparator);
+public sealed record DeviceOrganizationSettingsResponse(string QuantityDecimalSeparator, DeviceAccountStanding? AccountStanding = null);
+
+/// <summary>
+/// The INPUTS of the organization's account standing (organization-account-standing T5), not a computed status: the
+/// terminal runs <c>AccountStandingRules.Evaluate</c> on them with its own business day, so the countdown and the
+/// Active -> Overdue -> Suspended moves keep happening while offline. Additive; a terminal that predates it ignores it.
+/// </summary>
+public sealed record DeviceAccountStanding(DateOnly? DueOn, int GraceDays, bool Suspended);
 
 public sealed record PriceListReplicaRow(Guid Id, string Name, bool IsDefault, Guid? FloorPriceListId);
 

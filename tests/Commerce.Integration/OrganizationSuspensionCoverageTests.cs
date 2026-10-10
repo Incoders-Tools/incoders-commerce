@@ -29,7 +29,7 @@ public sealed class OrganizationSuspensionCoverageTests : IClassFixture<WebAppli
             .OfType<RouteEndpoint>()
             .Where(endpoint => endpoint.RoutePattern.RawText is { } route
                 && !route.StartsWith("{", StringComparison.Ordinal) // the SPA fallback (index.html) must load while suspended
-                && !SurfacesOutsideTheBlock.Any(prefix => route.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+                && !SurfacesOutsideTheBlock.Any(surface => IsUnder(route, surface)))
             .Where(endpoint =>
                 endpoint.Metadata.GetMetadata<IAuthorizeData>() is null
                 && endpoint.Metadata.GetMetadata<IAllowAnonymous>() is null
@@ -40,4 +40,22 @@ public sealed class OrganizationSuspensionCoverageTests : IClassFixture<WebAppli
         Assert.True(uncovered.Count == 0,
             "Routes that neither require authorization nor opt out of the suspension block:\n" + string.Join("\n", uncovered));
     }
+
+    [Theory]
+    [InlineData("/customer", true)]
+    [InlineData("/customer/me", true)]
+    [InlineData("/customers", false)]
+    [InlineData("/customers/{id:guid}", false)]
+    [InlineData("/devices", false)]
+    public void ASurfaceMatchesWholeSegmentsOnly(string route, bool under)
+    {
+        Assert.Equal(under, IsUnder(route, route.StartsWith("/dev", StringComparison.Ordinal) ? "/device" : "/customer"));
+    }
+
+    /// <summary>
+    /// Whole path segments only: "/customer" covers "/customer" and "/customer/...", never the staff "/customers" routes.
+    /// </summary>
+    private static bool IsUnder(string route, string surface) =>
+        route.Equals(surface, StringComparison.OrdinalIgnoreCase)
+        || route.StartsWith(surface + "/", StringComparison.OrdinalIgnoreCase);
 }

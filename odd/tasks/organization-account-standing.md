@@ -136,7 +136,7 @@ so it changes on its own when a day passes and needs no scheduled job.
 - [x] T2 Migration `0052`: due date, grace days (CHECK 0-90, default 30), manual suspension timestamp; mirrored in `init-rls.sql`; migration tests including a re-run. RED: 6 `OrganizationAccountStandingTests` failed (migration file missing); GREEN: 6/6, plus 95/95 with the migration, RLS and organization settings suites. Columns `billing_due_on`, `billing_grace_days`, `suspended_at`; constraint `organizations_billing_grace_days_ck`. Applied to local `commerce_dev`.
 - [x] T3 API sysadmin: standing in the organizations list; `PUT /account/organizations/{id}/standing` (due date, grace days), `POST .../standing/suspend`, `POST .../standing/reactivate` (requires a new due date); audited; non-sysadmin gets 403. RED: `OrganizationAccountStandingEndpointTests` did not compile (no contracts); GREEN: 11/11, and 35/35 with `AdminConsoleTests` and the treasury recurrence suites. Also `GET .../standing`; unknown organization 404; reactivation rejects a due date before today and keeps the current grace days when none is sent; a second suspension keeps the first time. `Endpoints/OrganizationAccountStanding.cs`.
 - [x] T4 API enforcement: standing cache with write-through; suspension filter with the allowlist; `/account/me` gains `accountStanding`. Tests: a suspended organization's admin gets 403 `organization-suspended` on a business endpoint and 200 on `/account/me`; a sysadmin acting on a suspended organization is not blocked; an overdue organization is not blocked; a POS sale push from a suspended organization is accepted. RED: `OrganizationSuspensionEnforcementTests` did not compile (no `AccountStanding` on `SignedInResponse`); GREEN: 8/8, 44/44 with the T1-T3 suites. Control run with the middleware disabled: the 3 blocking tests fail. `Authentication/OrganizationStandingCache.cs` (60s TTL, invalidated by every T3 write), `Authentication/OrganizationSuspensionMiddleware.cs`. The POS check sends a device-bearer `/sync/inbox` push and `/device/organization/settings` read, both 200 while suspended. Also A6: the reactivation audit records the grace days actually stored (`RETURNING billing_grace_days`); RED showed `null`.
-- [ ] T5 API device: `GET /device/organization/settings` gains `accountStanding { dueOn, graceDays, suspended }` (the rule's inputs; additive, an older POS ignores it).
+- [x] T5 API device: `GET /device/organization/settings` gains `accountStanding { dueOn, graceDays, suspended }` (the rule's inputs; additive, an older POS ignores it). RED: `DeviceOrganizationSettingsTests` did not compile (no `AccountStanding`); GREEN: 5/5. Read straight from the store, not the T4 cache: it runs once per sync sweep and the terminal never sees an older standing than the database.
 - [ ] T6 Web sysadmin: standing badge and due date column in `OrganizationsScreen`; manage dialog (due date, grace days, suspend now, reactivate with confirmation).
 - [ ] T7 Web tenant: admin banner in `AppLayout` with the countdown; suspended screen (admin and non-admin copy); `apiFetch` routes a 403 `organization-suspended` to that screen.
 - [ ] T8 POS: persist the synced standing inputs in `BranchSyncStore` next to the organization settings and evaluate them with `AccountStandingRules`; red notice in the footer status bar (`MainWindow.xaml` row 2, `DangerBrush`/`DangerSurfaceBrush`) for every signed-in operator, hidden while locked; countdown computed from `SuspendsOn` and the local business day; role-based closing line; tooltip with the date. Test that a sale completes while `Suspended`.
@@ -175,6 +175,7 @@ so it changes on its own when a day passes and needs no scheduled job.
   Postgres and count as passed, so a run without a healthy container proves
   nothing; T2-T4 were re-run with the container checked healthy before and
   after.
+- 2026-10-10: T5 done; A9 fixed.
 - 2026-10-09: T4 done. Full `Commerce.Integration` with Postgres healthy
   throughout: 2676/2677 in 52 min; the one failure is the pre-existing
   `PublicRateLimitTests` case. Found a failure
@@ -225,6 +226,9 @@ so it changes on its own when a day passes and needs no scheduled job.
   one query if organizations grow to the thousands.
 - [x] A6 The reactivation audit logged `graceDays: null` when the current
   value was kept; it now records the stored value (T4).
+- [x] A9 T4 fix review: the coverage guard matched surfaces by text prefix,
+  so `/customer` also excluded the staff `/customers` routes from the check;
+  it now matches whole path segments (with its own test).
 - [ ] A8 T4 review suggestion: `UpdateAccountStandingAsync` treats any
   non-int scalar as "not found" (`PostgresOrganizationStore.cs`, the
   `storedGraceDays is not int` check); fine for the `integer` column, but a
