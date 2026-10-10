@@ -83,11 +83,13 @@ public sealed class OrganizationSuspensionEnforcementTests : IClassFixture<WebAp
     }
 
     /// <summary>A system administrator, from an organization of its own.</summary>
-    private async Task<HttpClient> SysadminAsync()
+    private async Task<HttpClient> SysadminAsync() => (await SysadminWithOrganizationAsync()).Client;
+
+    private async Task<(HttpClient Client, Guid OrganizationId)> SysadminWithOrganizationAsync()
     {
         var tenant = await NewTenantAsync();
         Owner("UPDATE users SET is_system_admin = true WHERE email = $1", tenant.AdminEmail);
-        return await SignInAsync(tenant.AdminEmail);
+        return (await SignInAsync(tenant.AdminEmail), tenant.OrganizationId);
     }
 
     private HttpClient NewBrowser() =>
@@ -176,12 +178,15 @@ public sealed class OrganizationSuspensionEnforcementTests : IClassFixture<WebAp
     }
 
     [Fact]
-    public async Task Sysadmin_ActingOnASuspendedOrganization_IsNotBlocked()
+    public async Task Sysadmin_ActingOnASuspendedOrganization_IsNotBlocked_EvenWhenItsOwnOrganizationIsSuspended()
     {
         if (!_postgresAvailable) return;
         var tenant = await NewTenantAsync();
         SetStanding(tenant.OrganizationId, null, suspended: true);
-        var sysadmin = await SysadminAsync();
+        var (sysadmin, sysadminOrganizationId) = await SysadminWithOrganizationAsync();
+        // The block reads the organization of the caller's cookie, so suspend the sysadmin's own one too: only the
+        // system-administrator exemption can let this request through.
+        SetStanding(sysadminOrganizationId, null, suspended: true);
 
         var request = new HttpRequestMessage(HttpMethod.Get, BusinessEndpoint);
         request.Headers.Add(TenantScopeEndpointFilter.OrganizationSelectorHeader, tenant.OrganizationId.ToString());

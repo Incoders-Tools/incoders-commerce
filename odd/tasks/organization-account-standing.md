@@ -175,7 +175,9 @@ so it changes on its own when a day passes and needs no scheduled job.
   Postgres and count as passed, so a run without a healthy container proves
   nothing; T2-T4 were re-run with the container checked healthy before and
   after.
-- 2026-10-09: T4 done. Found a failure
+- 2026-10-09: T4 done. Full `Commerce.Integration` with Postgres healthy
+  throughout: 2676/2677 in 52 min; the one failure is the pre-existing
+  `PublicRateLimitTests` case. Found a failure
   that predates this feature (fails with these changes stashed):
   `PublicRateLimitTests.WithGuestOrderingConfigAbsent_EveryPublicRoute_IsUnreachable_AndAppStillStarts`
   expects 404 and gets 200.
@@ -193,6 +195,18 @@ so it changes on its own when a day passes and needs no scheduled job.
   the current grace days inside the UPDATE (`COALESCE`, no read-then-write
   race); the keep-current-grace and suspend-twice tests now use values that
   can actually fail (45 days; a suspension time in the past).
+- T4 web enforcement `79d828e..480ae4c`: approved, reliability lens
+  (`review-5163af7bdcb1ca7a`). Fixed right after: (1) a read loading while a
+  write committed could cache the pre-write standing for 60s after the
+  invalidation; the cache now keeps a per-organization generation and stores
+  a load only if no invalidation happened meanwhile (deterministic RED in
+  `OrganizationStandingCacheTests`, plus TTL coverage); (2) the block covers
+  only endpoints that declare authorization, so
+  `OrganizationSuspensionCoverageTests` now fails on any route that neither
+  requires authorization nor opts out, which flagged `POST /account/sign-in`
+  (now explicitly `AllowAnonymous`); (3) the sysadmin test never reached the
+  exemption because the sysadmin's own organization was active; it is
+  suspended now, and a control run with the exemption disabled fails.
 
 ## Follow-ups (non-blocking review findings)
 
@@ -211,6 +225,10 @@ so it changes on its own when a day passes and needs no scheduled job.
   one query if organizations grow to the thousands.
 - [x] A6 The reactivation audit logged `graceDays: null` when the current
   value was kept; it now records the stored value (T4).
+- [ ] A8 T4 review suggestion: `UpdateAccountStandingAsync` treats any
+  non-int scalar as "not found" (`PostgresOrganizationStore.cs`, the
+  `storedGraceDays is not int` check); fine for the `integer` column, but a
+  type change would read as 404.
 - [ ] A7 Repository-wide, not this feature: Postgres-backed tests `return`
   when `TryPing` fails and are reported as Passed. A stopped container turns
   a red suite green. Make them skip visibly (or fail in CI) instead.

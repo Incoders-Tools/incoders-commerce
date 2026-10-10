@@ -214,7 +214,7 @@ public static class AccountEndpoints
                 permissions,
                 signedInActor?.IsSystemAdmin ?? false,
                 selectableBranches.Select(b => new SelectableBranch(b.Id, b.Name, b.Code)).ToList()));
-        });
+        }).AllowAnonymous(); // Explicit, so OrganizationSuspensionCoverageTests can tell it from a forgotten RequireAuthorization.
 
         // --- Renew: authenticated, self-service, known-current-password
         // change (commerce-password-recovery design.md "Renew (authenticated)").
