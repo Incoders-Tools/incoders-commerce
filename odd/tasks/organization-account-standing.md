@@ -260,6 +260,12 @@ so it changes on its own when a day passes and needs no scheduled job.
   wrong count (the block itself is always the server's). A malformed
   `suspendsOn` would render NaN; the "Volver a verificar" failure path has no
   test.
+- [ ] A12 T6 review (`review-ccaaee1519e6854f`, approved; locations only,
+  read as): the list falls back to "Al día" for an Overdue standing without
+  `daysLeft` (should say Vencida); suspending reloads the form and silently
+  drops unsaved due date / grace edits; "Suspender ahora" is offered when the
+  organization is already suspended by its dates; the manual suspension date
+  is shown in the browser's time zone.
 - [ ] A7 Repository-wide, not this feature: Postgres-backed tests `return`
   when `TryPing` fails and are reported as Passed. A stopped container turns
   a red suite green. Make them skip visibly (or fail in CI) instead.
