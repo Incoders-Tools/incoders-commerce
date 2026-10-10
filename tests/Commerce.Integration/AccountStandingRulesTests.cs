@@ -48,6 +48,7 @@ public sealed class AccountStandingRulesTests
         var standing = AccountStandingRules.Evaluate(DueOn, 30, false, new DateOnly(2026, 11, 7));
 
         Assert.Equal(AccountStandingStatus.Overdue, standing.Status);
+        Assert.Equal(new DateOnly(2026, 11, 8), standing.SuspendsOn);
         Assert.Equal(1, standing.DaysLeft);
     }
 
@@ -103,6 +104,14 @@ public sealed class AccountStandingRulesTests
     public void GraceDays_AreValidFromZeroToNinety(int graceDays, bool valid)
     {
         Assert.Equal(valid, AccountStandingRules.IsValidGraceDays(graceDays));
+    }
+
+    [Fact]
+    public void AManualSuspension_IsSuspended_EvenWithGraceDaysOutOfRange()
+    {
+        // The POS evaluates inputs that arrive over the wire; a manual suspension must never turn into an exception.
+        Assert.Equal(AccountStandingStatus.Suspended, AccountStandingRules.Evaluate(DueOn, 91, true, DueOn).Status);
+        Assert.Equal(AccountStandingStatus.Suspended, AccountStandingRules.Evaluate(null, -1, true, DueOn).Status);
     }
 
     [Fact]

@@ -414,11 +414,14 @@ public sealed class PostgresOrganizationStore
             storedGraceDays = await cmd.ExecuteScalarAsync(ct);
         }
 
-        if (storedGraceDays is not int graceDays)
+        // No row comes back as null: the organization does not exist. Any other value is the stored grace days; a
+        // type mismatch throws here instead of passing for "not found".
+        if (storedGraceDays is null or DBNull)
         {
             await tx.RollbackAsync(ct);
             return false;
         }
+        var graceDays = Convert.ToInt32(storedGraceDays, System.Globalization.CultureInfo.InvariantCulture);
 
         await AuditLogWriter.InsertAsync(connection, tx, audit(graceDays), ct);
         await tx.CommitAsync(ct);

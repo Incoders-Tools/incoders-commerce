@@ -131,10 +131,12 @@ public sealed class DeviceOrganizationSettingsTests : IClassFixture<WebApplicati
             Exec(owner, "UPDATE organizations SET billing_due_on = DATE '2026-10-08', billing_grace_days = 45, suspended_at = now() WHERE id = $1", device.Org);
         }
 
-        var standing = (await (await GetAsync(device.Token)).Content.ReadFromJsonAsync<DeviceOrganizationSettingsResponse>())!.AccountStanding;
+        // The POS reads this with a DTO of its own, so pin the wire names and shapes, not this project's record.
+        using var body = System.Text.Json.JsonDocument.Parse(await (await GetAsync(device.Token)).Content.ReadAsStringAsync());
+        var standing = body.RootElement.GetProperty("accountStanding");
 
-        Assert.Equal(new DateOnly(2026, 10, 8), standing!.DueOn);
-        Assert.Equal(45, standing.GraceDays);
-        Assert.True(standing.Suspended);
+        Assert.Equal("2026-10-08", standing.GetProperty("dueOn").GetString());
+        Assert.Equal(45, standing.GetProperty("graceDays").GetInt32());
+        Assert.True(standing.GetProperty("suspended").GetBoolean());
     }
 }

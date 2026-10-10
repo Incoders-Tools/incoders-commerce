@@ -119,6 +119,8 @@ public sealed class OrganizationAccountStandingEndpointTests : IClassFixture<Web
         if (!_postgresAvailable) return;
         var (sysadmin, _, targetId, _) = await ArrangeAsync();
         await sysadmin.PutAsJsonAsync($"/account/organizations/{targetId}/standing", new UpdateOrganizationAccountStandingRequest(Today.AddDays(-40), 30));
+        // Precondition: 40 days past due with 30 of grace is already suspended, so "Active" below is the clearing's doing.
+        Assert.Equal("Suspended", (await sysadmin.GetFromJsonAsync<OrganizationAccountStandingResponse>($"/account/organizations/{targetId}/standing"))!.Status);
 
         await sysadmin.PutAsJsonAsync($"/account/organizations/{targetId}/standing", new UpdateOrganizationAccountStandingRequest(null, 30));
 
@@ -214,6 +216,9 @@ public sealed class OrganizationAccountStandingEndpointTests : IClassFixture<Web
 
         Assert.Equal(HttpStatusCode.BadRequest, put.StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, reactivate.StatusCode);
+        var unchanged = await sysadmin.GetFromJsonAsync<OrganizationAccountStandingResponse>($"/account/organizations/{targetId}/standing");
+        Assert.Null(unchanged!.DueOn);
+        Assert.Equal(30, unchanged.GraceDays);
     }
 
     [Fact]

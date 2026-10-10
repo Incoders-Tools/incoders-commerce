@@ -176,6 +176,12 @@ so it changes on its own when a day passes and needs no scheduled job.
   nothing; T2-T4 were re-run with the container checked healthy before and
   after.
 - 2026-10-10: T5 done; A9 fixed.
+- 2026-10-10: follow-ups A1, A2, A3, A5, A8 closed, plus the T5 review
+  notes (device DTO doc, explicit surface in the segment test, the device
+  test now pins the JSON names the POS reads). A1 mattered more than it
+  looked: the POS evaluates inputs from the wire, so a manual suspension must
+  never become an exception (RED: `ArgumentOutOfRangeException`). Open: A4
+  (scale, not needed yet) and A7 (repository-wide, owner's call).
 - 2026-10-09: T4 done. Full `Commerce.Integration` with Postgres healthy
   throughout: 2676/2677 in 52 min; the one failure is the pre-existing
   `PublicRateLimitTests` case. Found a failure
@@ -211,13 +217,13 @@ so it changes on its own when a day passes and needs no scheduled job.
 
 ## Follow-ups (non-blocking review findings)
 
-- [ ] A1 `Evaluate` validates grace days before the manual suspension, so a
+- [x] A1 `Evaluate` validates grace days before the manual suspension, so a
   manually suspended organization with invalid grace days throws instead of
   returning Suspended. The `0052` CHECK keeps such data out; revisit if the
   inputs ever come from somewhere else (`AccountStanding.cs:41-48`).
-- [ ] A2 The last-grace-day test does not assert `SuspendsOn`
+- [x] A2 The last-grace-day test does not assert `SuspendsOn`
   (`AccountStandingRulesTests.cs:46-52`).
-- [ ] A3 T2 review flagged, location only: the 0-90 acceptance test has no
+- [x] A3 T2 review flagged, location only: the 0-90 acceptance test has no
   explicit assertion (`OrganizationAccountStandingTests.cs:67-75`, warning);
   suggestions at `OrganizationAccountStandingTests.cs:46-61` and on the
   name-only guard of the CHECK (`0052...sql:34-36`, the repository-wide
@@ -229,14 +235,14 @@ so it changes on its own when a day passes and needs no scheduled job.
 - [x] A9 T4 fix review: the coverage guard matched surfaces by text prefix,
   so `/customer` also excluded the staff `/customers` routes from the check;
   it now matches whole path segments (with its own test).
-- [ ] A8 T4 review suggestion: `UpdateAccountStandingAsync` treats any
+- [x] A8 T4 review suggestion: `UpdateAccountStandingAsync` treats any
   non-int scalar as "not found" (`PostgresOrganizationStore.cs`, the
   `storedGraceDays is not int` check); fine for the `integer` column, but a
   type change would read as 404.
 - [ ] A7 Repository-wide, not this feature: Postgres-backed tests `return`
   when `TryPing` fails and are reported as Passed. A stopped container turns
   a red suite green. Make them skip visibly (or fail in CI) instead.
-- [ ] A5 T3 review suggestions: the clear-due-date test does not assert the
+- [x] A5 T3 review suggestions: the clear-due-date test does not assert the
   Overdue precondition (`OrganizationAccountStandingEndpointTests.cs`
   "Sysadmin_ClearsTheDueDate"); the grace rejection test checks only the
   status code, not that nothing changed.

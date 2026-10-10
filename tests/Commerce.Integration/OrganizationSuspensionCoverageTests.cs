@@ -42,14 +42,14 @@ public sealed class OrganizationSuspensionCoverageTests : IClassFixture<WebAppli
     }
 
     [Theory]
-    [InlineData("/customer", true)]
-    [InlineData("/customer/me", true)]
-    [InlineData("/customers", false)]
-    [InlineData("/customers/{id:guid}", false)]
-    [InlineData("/devices", false)]
-    public void ASurfaceMatchesWholeSegmentsOnly(string route, bool under)
+    [InlineData("/customer", "/customer", true)]
+    [InlineData("/customer/me", "/customer", true)]
+    [InlineData("/customers", "/customer", false)]
+    [InlineData("/customers/{id:guid}", "/customer", false)]
+    [InlineData("/devices", "/device", false)]
+    public void ASurfaceMatchesWholeSegmentsOnly(string route, string surface, bool under)
     {
-        Assert.Equal(under, IsUnder(route, route.StartsWith("/dev", StringComparison.Ordinal) ? "/device" : "/customer"));
+        Assert.Equal(under, IsUnder(route, surface));
     }
 
     /// <summary>

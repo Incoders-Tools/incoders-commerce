@@ -72,6 +72,10 @@ public sealed class OrganizationAccountStandingTests
         var id = InsertOrganization(owner);
 
         SetGraceDays(owner, id, graceDays);
+
+        using var read = new NpgsqlCommand("SELECT billing_grace_days FROM organizations WHERE id = $1", owner);
+        read.Parameters.AddWithValue(id);
+        Assert.Equal(graceDays, (int)read.ExecuteScalar()!);
     }
 
     [Theory]

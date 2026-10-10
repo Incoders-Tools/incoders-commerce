@@ -38,14 +38,16 @@ public static class AccountStandingRules
     /// <param name="today">The business day (<c>IBusinessClock</c>), never the machine's UTC date.</param>
     public static AccountStanding Evaluate(DateOnly? dueOn, int graceDays, bool manuallySuspended, DateOnly today)
     {
-        if (!IsValidGraceDays(graceDays))
-        {
-            throw new ArgumentOutOfRangeException(nameof(graceDays), graceDays, $"Grace days must be between 0 and {MaxGraceDays}.");
-        }
-
+        // Before the validation: a manual suspension does not depend on the grace days, and the POS evaluates inputs
+        // that arrive over the wire, where a bad value must never turn a suspension into an exception.
         if (manuallySuspended)
         {
             return new AccountStanding(AccountStandingStatus.Suspended, null, null);
+        }
+
+        if (!IsValidGraceDays(graceDays))
+        {
+            throw new ArgumentOutOfRangeException(nameof(graceDays), graceDays, $"Grace days must be between 0 and {MaxGraceDays}.");
         }
 
         if (dueOn is not { } due || today <= due)

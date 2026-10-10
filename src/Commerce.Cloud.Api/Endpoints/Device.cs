@@ -600,7 +600,8 @@ public sealed record CategoryReplicaRow(Guid Id, string Name, string IconKey, bo
 
 /// <summary>
 /// `GET /device/organization/settings` response (operator-ux-adjustments T5): the organization's quantity decimal
-/// separator, `Comma` or `Dot` (<see cref="OrganizationSettings.Comma"/>, <see cref="OrganizationSettings.Dot"/>).
+/// separator, `Comma` or `Dot` (<see cref="OrganizationSettings.Comma"/>, <see cref="OrganizationSettings.Dot"/>), and
+/// (organization-account-standing T5) the inputs of its account standing, <see cref="DeviceAccountStanding"/>.
 /// </summary>
 public sealed record DeviceOrganizationSettingsResponse(string QuantityDecimalSeparator, DeviceAccountStanding? AccountStanding = null);
 
