@@ -145,4 +145,40 @@ describe('OrganizationStandingForm', () => {
     expect(fetchMock.mock.calls[1][0]).toBe(`/account/organizations/${vacaVerde.id}/standing/reactivate`)
     expect(sentBody(1)).toEqual({ dueOn: '2026-11-09', graceDays: 30 })
   })
+
+  it('keeps the edits being typed when suspending, instead of reloading over them', async () => {
+    respond(overdue)
+    respond(undefined, 204)
+    respond(suspendedByHand)
+    const user = userEvent.setup()
+    renderForm()
+
+    const dueOn = await screen.findByLabelText('Vencimiento')
+    await user.clear(dueOn)
+    await user.type(dueOn, '2026-11-20')
+    await user.click(screen.getByRole('button', { name: 'Suspender ahora' }))
+    await user.click(screen.getByRole('button', { name: 'Suspender' }))
+
+    await screen.findByRole('button', { name: 'Reactivar' })
+    expect(screen.getByLabelText('Vencimiento')).toHaveValue('2026-11-20')
+  })
+
+  it('does not offer to suspend an organization its dates already suspended', async () => {
+    respond({ dueOn: '2026-08-01', graceDays: 30, suspendedAt: null, status: 'Suspended', suspendsOn: '2026-09-01', daysLeft: null })
+
+    renderForm()
+
+    await screen.findByText('Suspendida desde el 01/09/2026')
+    expect(screen.queryByRole('button', { name: 'Suspender ahora' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Guardar' })).toBeInTheDocument()
+  })
+
+  it('shows the manual suspension date on the business day (Buenos Aires), not the browser time zone', async () => {
+    // 02:00 UTC on the 10th is still the 9th, 23:00, in Buenos Aires.
+    respond({ ...suspendedByHand, suspendedAt: '2026-10-10T02:00:00Z' })
+
+    renderForm()
+
+    expect(await screen.findByText('Suspendida manualmente el 09/10/2026')).toBeInTheDocument()
+  })
 })

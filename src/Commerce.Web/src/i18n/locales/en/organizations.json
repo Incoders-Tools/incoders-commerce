@@ -87,6 +87,7 @@
     "active": "In good standing",
     "overdue_one": "Overdue · {{count}} day",
     "overdue_other": "Overdue · {{count}} days",
+    "overdueNoCount": "Overdue",
     "suspended": "Suspended",
     "noDueDate": "—"
   },

@@ -121,6 +121,22 @@ public sealed class PosAccountStandingTests : IDisposable
         Assert.Equal(new AccountStandingReplica(new DateOnly(2026, 10, 8), 30, true), store.GetAccountStanding());
     }
 
+    [Fact]
+    public async Task AFullyOfflineSweep_Completes_AndKeepsTheLastKnownStanding()
+    {
+        // Every endpoint unreachable, the settings one included: the 60s sweep still runs to the end, which is what lets
+        // the shell refresh the notice when the business day changes offline.
+        using var store = new BranchSyncStore(ConnectionString);
+        store.ApplyAccountStanding(new AccountStandingReplica(new DateOnly(2026, 10, 8), 30, false));
+        var offline = new OrganizationSettingsReplicaClient(
+            new HttpClient { BaseAddress = new Uri("http://127.0.0.1:1"), Timeout = TimeSpan.FromSeconds(2) });
+
+        var result = await NewRunner(store, offline).RunAsync(SyncTrigger.Timer);
+
+        Assert.NotNull(result);
+        Assert.Equal(new AccountStandingReplica(new DateOnly(2026, 10, 8), 30, false), store.GetAccountStanding());
+    }
+
     // ---- notice -------------------------------------------------------------
 
     [Fact]
@@ -192,11 +208,15 @@ public sealed class PosAccountStandingTests : IDisposable
         Assert.True(notice.Success, "AccountStandingPill not found");
         Assert.Contains("DangerSurfaceBrush", notice.Value);
         Assert.Contains(@"Visibility=""Collapsed""", notice.Value);
-        // In the footer (the status bar row), not in a screen that may be hidden.
-        Assert.True(xaml.IndexOf(@"x:Name=""AccountStandingPill""", StringComparison.Ordinal) > xaml.IndexOf(@"x:Name=""LockHost""", StringComparison.Ordinal));
+        // In the footer status bar (the 18px-high grid that holds the sync status), not in a screen that may be hidden.
+        var footer = Regex.Match(xaml, @"<Grid Height=""18"">[\s\S]*?</Grid>");
+        Assert.True(footer.Success, "footer status bar not found");
+        Assert.Contains(@"x:Name=""AccountStandingPill""", footer.Value);
+        Assert.Contains(@"x:Name=""BottomSyncStatusText""", footer.Value);
 
         var code = Read("MainWindow.xaml.cs");
-        Assert.Contains("await Dispatcher.InvokeAsync(RefreshAccountStandingNotice);", code);
+        // In a finally: even a sweep that throws refreshes the notice, so it follows a day change offline.
+        Assert.Matches(@"finally\s*\{[^}]*?await Dispatcher\.InvokeAsync\(RefreshAccountStandingNotice\);", code);
         Assert.Matches(@"private void ApplyLockState\(\)[\s\S]*?RefreshAccountStandingNotice\(\);", code);
         Assert.Matches(@"private void LockScreen_SignedIn\([\s\S]*?RefreshAccountStandingNotice\(\);", code);
     }

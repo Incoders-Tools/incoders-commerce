@@ -35,6 +35,11 @@ export interface AccountStandingSummary {
   /** `yyyy-MM-dd`, the first suspended business day. */
   suspendsOn: string | null
   daysLeft: number | null
+  /**
+   * Client-only, never sent by the server: the local `yyyy-MM-dd` the SPA received this standing on (`AuthProvider`).
+   * The countdown subtracts the days elapsed since then from `daysLeft`, so a wrong PC clock does not skew it.
+   */
+  receivedOn?: string
 }
 
 export interface SelectableBranch {

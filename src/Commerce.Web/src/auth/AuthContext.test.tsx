@@ -61,6 +61,16 @@ describe('AuthProvider and a mid-session suspension', () => {
     )
   }
 
+  function ReceivedProbe() {
+    const { user, signIn } = useAuth()
+    return (
+      <>
+        <button type="button" onClick={() => void signIn({ email: 'a@example.com', password: 'p' })}>sign in</button>
+        <p data-testid="receivedOn">{user?.accountStanding?.receivedOn ?? 'none'}</p>
+      </>
+    )
+  }
+
   it('marks the signed-in session Suspended when the API announces it, keeping the known date', async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
       organizationId: 'org-1', userId: 'user-1', displayName: 'Jane', permissions: Permission.ManageUsers,
@@ -77,6 +87,24 @@ describe('AuthProvider and a mid-session suspension', () => {
 
     expect(screen.getByTestId('status')).toHaveTextContent('Suspended')
     expect(screen.getByTestId('suspendsOn')).toHaveTextContent('2026-11-08')
+  })
+
+  it('stamps the standing with the local date it was received, for the countdown', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 9, 9, 10, 0, 0))
+    try {
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+        organizationId: 'org-1', userId: 'user-1', displayName: 'Jane', permissions: Permission.ManageUsers,
+        isSystemAdmin: false, selectableBranches: [],
+        accountStanding: { status: 'Overdue', suspendsOn: '2026-11-08', daysLeft: 30 },
+      }), { status: 200 }))
+      render(<AuthProvider><ReceivedProbe /></AuthProvider>)
+      fireEvent.click(screen.getByRole('button', { name: 'sign in' }))
+
+      await waitFor(() => expect(screen.getByTestId('receivedOn')).toHaveTextContent('2026-10-09'))
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('checks again with /account/me and lifts the suspended screen once the organization is reactivated', async () => {

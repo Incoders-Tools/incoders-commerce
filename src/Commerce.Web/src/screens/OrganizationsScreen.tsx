@@ -126,9 +126,17 @@ export function OrganizationsScreen() {
   const describeStanding = (organization: OrganizationSummary): string => {
     const standing = organization.standing
     if (!standing) return '—'
-    if (standing.status === 'Suspended') return t('standing.suspended')
-    if (standing.status === 'Overdue' && standing.daysLeft != null) return t('standing.overdue', { count: standing.daysLeft })
-    return t('standing.active')
+    switch (standing.status) {
+      case 'Suspended':
+        return t('standing.suspended')
+      case 'Overdue':
+        // Never fall back to "Al día" for an overdue organization when the count is missing.
+        return standing.daysLeft != null ? t('standing.overdue', { count: standing.daysLeft }) : t('standing.overdueNoCount')
+      case 'Active':
+        return t('standing.active')
+      default:
+        return '—'
+    }
   }
 
   const columns: DataViewColumn<OrganizationSummary>[] = [

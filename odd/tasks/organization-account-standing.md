@@ -176,6 +176,15 @@ so it changes on its own when a day passes and needs no scheduled job.
   nothing; T2-T4 were re-run with the container checked healthy before and
   after.
 - 2026-10-10: T5 done; A9 fixed.
+- 2026-10-10: polish commit closed A11, A12, A13 and the A8 comment. The web
+  countdown now subtracts the days elapsed since the standing was received
+  (`receivedOn`, stamped by `AuthProvider`) from the server's `daysLeft`, so
+  only a RELATIVE use of the PC clock remains; an unreadable date shows no
+  banner. The sysadmin list says "Vencida" for an Overdue standing without a
+  count; suspending keeps unsaved edits; "Suspender ahora" is hidden once the
+  dates suspended the organization; the manual suspension date is formatted
+  in Buenos Aires time (its test passes on this machine either way, since the
+  machine is in Argentina's time zone; the code sets the zone explicitly).
 - 2026-10-10: T8 and T9 done.
 - 2026-10-10: T6 done.
 - 2026-10-10: T7 done.
@@ -256,17 +265,26 @@ so it changes on its own when a day passes and needs no scheduled job.
   customers) time out at 5s in each full run (13, 1, 1, 0 failures across
   runs), with or without this feature's changes (checked against `3a89937`);
   each passes when run alone.
-- [ ] A11 T7 fix review: the web countdown counts from the browser's date,
+- [x] A11 T7 fix review: the web countdown counts from the browser's date,
   not the server's business day (Buenos Aires); a wrong PC clock shows a
   wrong count (the block itself is always the server's). A malformed
   `suspendsOn` would render NaN; the "Volver a verificar" failure path has no
   test.
-- [ ] A12 T6 review (`review-ccaaee1519e6854f`, approved; locations only,
+- [x] A12 T6 review (`review-ccaaee1519e6854f`, approved; locations only,
   read as): the list falls back to "Al día" for an Overdue standing without
   `daysLeft` (should say Vencida); suspending reloads the form and silently
   drops unsaved due date / grace edits; "Suspender ahora" is offered when the
   organization is already suspended by its dates; the manual suspension date
   is shown in the browser's time zone.
+- [x] A13 T8 review (`review-8da608c2c37f6ff6`, approved; locations only):
+  the offline day change relied on the 60s sweep running offline (true: the
+  `DispatcherTimer` runs regardless and `RunAsync` tolerates unreachable
+  endpoints, now pinned by `AFullyOfflineSweep_Completes...`), and the notice
+  refresh now sits in a `finally` so even a sweep that throws moves it; the
+  footer test now requires the pill inside the status-bar grid. Kept by
+  decision: grace days the rule rejects, without a manual suspension, show no
+  notice rather than throw (the 0052 CHECK keeps such values out; only
+  corrupt data could carry one, and the POS must keep selling).
 - [ ] A7 Repository-wide, not this feature: Postgres-backed tests `return`
   when `TryPing` fails and are reported as Passed. A stopped container turns
   a red suite green. Make them skip visibly (or fail in CI) instead.

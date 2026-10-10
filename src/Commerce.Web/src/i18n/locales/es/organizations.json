@@ -87,6 +87,7 @@
     "active": "Al día",
     "overdue_one": "Vencida · {{count}} día",
     "overdue_other": "Vencida · {{count}} días",
+    "overdueNoCount": "Vencida",
     "suspended": "Suspendida",
     "noDueDate": "—"
   },

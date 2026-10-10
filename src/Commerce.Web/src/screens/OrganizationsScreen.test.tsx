@@ -413,4 +413,14 @@ describe('OrganizationsScreen', () => {
     expect(await screen.findByLabelText('Días de tolerancia')).toHaveValue(30)
     expect(fetchMock.mock.calls[1][0]).toBe(`/account/organizations/${acme.id}/standing`)
   })
+
+  it('never shows an overdue organization as up to date when the count is missing', async () => {
+    listOnce([{ ...acme, standing: { dueOn: '2026-10-08', graceDays: 30, suspendedAt: null, status: 'Overdue', suspendsOn: '2026-11-08', daysLeft: null } }])
+
+    renderScreen()
+
+    const row = (await screen.findByText('Acme Co')).closest('tr')!
+    expect(within(row).getByText('Vencida')).toBeInTheDocument()
+    expect(within(row).queryByText('Al día')).not.toBeInTheDocument()
+  })
 })

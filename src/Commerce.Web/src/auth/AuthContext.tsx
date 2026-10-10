@@ -1,7 +1,8 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import * as accountApi from '@/api/account'
 import { ORGANIZATION_SUSPENDED_EVENT } from '@/api/client'
-import type { SignedInResponse, SignInRequest } from '@/api/types'
+import { todayIso } from '@/lib/isoDate'
+import type { AccountStandingSummary, SignedInResponse, SignInRequest } from '@/api/types'
 import { Permission } from '@/api/types'
 
 interface AuthContextValue {
@@ -17,6 +18,11 @@ interface AuthContextValue {
 }
 
 export const AuthContext = createContext<AuthContextValue | undefined>(undefined)
+
+/** Stamps a standing with the local date it was received on (see `AccountStandingSummary.receivedOn`). */
+function received(standing: AccountStandingSummary | null | undefined): AccountStandingSummary | null {
+  return standing ? { ...standing, receivedOn: todayIso() } : null
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<SignedInResponse | null>(null)
@@ -42,7 +48,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setError(null)
     try {
       const signedIn = await accountApi.signIn(request)
-      setUser(signedIn)
+      setUser({ ...signedIn, accountStanding: received(signedIn.accountStanding) })
     } catch (err) {
       setUser(null)
       setError(err instanceof Error ? err.message : 'Sign-in failed.')
@@ -52,7 +58,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refreshStanding = async () => {
     const me = await accountApi.currentUser()
-    setUser((current) => (current === null ? current : { ...current, accountStanding: me.accountStanding ?? null }))
+    setUser((current) => (current === null ? current : { ...current, accountStanding: received(me.accountStanding) }))
   }
 
   const signOut = async () => {

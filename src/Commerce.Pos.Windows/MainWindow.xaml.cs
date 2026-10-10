@@ -1257,14 +1257,23 @@ public partial class MainWindow : Window
             RefreshStatus();
         }
 
-        var result = await _syncRunner.RunAsync(trigger);
+        SyncRunResult? result;
+        try
+        {
+            result = await _syncRunner.RunAsync(trigger);
+        }
+        finally
+        {
+            // organization-account-standing: even a sweep that throws moves the notice to today's business day, so it
+            // follows a day change offline (the 60s timer runs with or without a connection).
+            await Dispatcher.InvokeAsync(RefreshAccountStandingNotice);
+        }
 
         // The status check may have dropped operators: follow it (the active one is signed out, the lock returns).
         await Dispatcher.InvokeAsync(ReconcileOperatorsAfterSync);
         // Any trigger: the replica may have changed, the cards and the open sale follow without being rebuilt.
         await Dispatcher.InvokeAsync(ApplyStockToCards);
         await Dispatcher.InvokeAsync(ApplyQuantityFormat);
-        await Dispatcher.InvokeAsync(RefreshAccountStandingNotice);
 
         if (trigger != SyncTrigger.Button)
         {

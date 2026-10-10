@@ -9,7 +9,7 @@ import { getOrganizationStanding, reactivateOrganization, suspendOrganization, u
 import { ApiError } from '@/api/client'
 import type { OrganizationAccountStanding, OrganizationSummary } from '@/api/types'
 import { formatIsoDate } from '@/dashboard/format'
-import { toIsoDate, todayIso } from '@/lib/isoDate'
+import { todayIso } from '@/lib/isoDate'
 
 interface OrganizationStandingFormProps {
   organization: OrganizationSummary
@@ -107,8 +107,9 @@ export function OrganizationStandingForm({ organization, onSaved, onCancel }: Or
     setSubmitError(null)
     try {
       await suspendOrganization(organization.id)
+      // Only the standing is re-read: the fields keep what is being typed (a suspension does not change them).
+      setStanding(await getOrganizationStanding(organization.id))
       setConfirmingSuspend(false)
-      setReloadToken((token) => token + 1)
     } catch (err) {
       setConfirmingSuspend(false)
       setSubmitError(err instanceof ApiError ? err.message : t('standingForm.unableToSave'))
@@ -197,7 +198,7 @@ export function OrganizationStandingForm({ organization, onSaved, onCancel }: Or
           <Button type="button" variant="outline" onClick={onCancel} disabled={submitting}>
             {t('standingForm.cancel')}
           </Button>
-          {standing !== null && !suspendedByHand && (
+          {standing !== null && standing.status !== 'Suspended' && (
             <Button
               type="button"
               variant="destructive"
@@ -227,9 +228,17 @@ export function OrganizationStandingForm({ organization, onSaved, onCancel }: Or
   )
 }
 
+/** A timestamp's calendar date on the business day (Buenos Aires, like the server's `IBusinessClock`), `dd/MM/yyyy`. */
+const businessDate = new Intl.DateTimeFormat('es-AR', {
+  timeZone: 'America/Argentina/Buenos_Aires',
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+})
+
 function describeStanding(standing: OrganizationAccountStanding, t: (key: string, options?: Record<string, unknown>) => string): string {
   if (standing.suspendedAt != null) {
-    return t('standingForm.suspendedManually', { date: formatIsoDate(toIsoDate(new Date(standing.suspendedAt))) })
+    return t('standingForm.suspendedManually', { date: businessDate.format(new Date(standing.suspendedAt)) })
   }
   if (standing.status === 'Suspended') {
     return t('standingForm.statusSuspended', { date: standing.suspendsOn ? formatIsoDate(standing.suspendsOn) : '—' })

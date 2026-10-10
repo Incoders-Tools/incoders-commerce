@@ -4,13 +4,15 @@ import { AlertTriangle, Lock } from 'lucide-react'
 import type { AccountStandingSummary } from '@/api/types'
 import { Button } from '@/components/ui/button'
 import { formatIsoDate } from '@/dashboard/format'
+import { todayIso } from '@/lib/isoDate'
 
-/** Whole calendar days from `today` (local) to the `yyyy-MM-dd` date; negative once it has passed. */
-function daysUntil(isoDate: string, today: Date): number {
-  const [year, month, day] = isoDate.split('-').map(Number)
-  const target = Date.UTC(year, month - 1, day)
-  const start = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())
-  return Math.round((target - start) / 86_400_000)
+/** Whole calendar days from `from` to `to` (both `yyyy-MM-dd`); NaN when either cannot be read. */
+function daysBetween(from: string, to: string): number {
+  const utc = (isoDate: string) => {
+    const [year, month, day] = isoDate.split('-').map(Number)
+    return Date.UTC(year, month - 1, day)
+  }
+  return Math.round((utc(to) - utc(from)) / 86_400_000)
 }
 
 /**
@@ -18,16 +20,22 @@ function daysUntil(isoDate: string, today: Date): number {
  * only to administrators (`ManageUsers`) and the system administrator; everyone else sees nothing while the account
  * is overdue (owner decision: a commercial matter is not shown to the staff on the web).
  *
- * The days left are counted from today against `suspendsOn`, not taken from the sign-in response: the session lives
- * in memory, and a tab left open for days must not keep showing the count of the day it signed in. Once the date is
- * reached the banner hides; the server then answers 403 organization-suspended and the suspended screen takes over.
+ * The count moves with the days: the session lives in memory, and a tab left open for days must not keep showing the
+ * count of the day it signed in. Once it reaches zero the banner hides; the server then answers 403
+ * organization-suspended and the suspended screen takes over. A date it cannot read shows nothing, never NaN.
  */
 export function AccountOverdueBanner({ standing }: { standing: AccountStandingSummary | null | undefined }) {
   const { t } = useTranslation('common')
   if (standing?.status !== 'Overdue' || standing.suspendsOn == null) return null
 
-  const daysLeft = daysUntil(standing.suspendsOn, new Date())
-  if (daysLeft < 1) return null
+  // Preferred: the server's count minus the days elapsed since it arrived (only a RELATIVE use of the PC clock, so a
+  // clock set to the wrong date does not skew it). Without that stamp, count to `suspendsOn` from today.
+  const today = todayIso()
+  const daysLeft =
+    standing.daysLeft != null && standing.receivedOn
+      ? standing.daysLeft - daysBetween(standing.receivedOn, today)
+      : daysBetween(today, standing.suspendsOn)
+  if (!Number.isFinite(daysLeft) || daysLeft < 1 || !Number.isFinite(daysBetween(today, standing.suspendsOn))) return null
 
   return (
     <div

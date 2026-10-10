@@ -414,8 +414,8 @@ public sealed class PostgresOrganizationStore
             storedGraceDays = await cmd.ExecuteScalarAsync(ct);
         }
 
-        // No row comes back as null: the organization does not exist. Any other value is the stored grace days; a
-        // type mismatch throws here instead of passing for "not found".
+        // No row comes back as null: the organization does not exist. Anything else is the stored grace days (an
+        // `integer` column), converted rather than type-tested, so only a missing row ever reads as "not found".
         if (storedGraceDays is null or DBNull)
         {
             await tx.RollbackAsync(ct);
