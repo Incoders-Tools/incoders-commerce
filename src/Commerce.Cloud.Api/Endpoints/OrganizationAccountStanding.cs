@@ -31,10 +31,11 @@ public static class OrganizationAccountStandingEndpoints
         group.MapPut("", async (Guid id, UpdateOrganizationAccountStandingRequest request, HttpContext httpContext, PostgresUserAccountStore userStore, PostgresOrganizationStore organizationStore, CancellationToken ct) =>
         {
             if (await SystemAdminIdAsync(httpContext, userStore, ct) is not { } actorId) return Results.StatusCode(StatusCodes.Status403Forbidden);
-            if (!AccountStandingRules.IsValidGraceDays(request.GraceDays)) return GraceDaysProblem();
+            // Required: an omitted value must never be read as 0, which would suspend an overdue organization at once.
+            if (request.GraceDays is not { } graceDays || !AccountStandingRules.IsValidGraceDays(graceDays)) return GraceDaysProblem();
 
-            var audit = Audit(actorId, id, "organization.standing_updated", new { dueOn = request.DueOn, graceDays = request.GraceDays });
-            return await organizationStore.UpdateBillingAsync(id, request.DueOn, request.GraceDays, audit, ct)
+            var audit = Audit(actorId, id, "organization.standing_updated", new { dueOn = request.DueOn, graceDays });
+            return await organizationStore.UpdateBillingAsync(id, request.DueOn, graceDays, audit, ct)
                 ? Results.NoContent()
                 : Results.NotFound();
         });
@@ -58,12 +59,9 @@ public static class OrganizationAccountStandingEndpoints
                 return Results.ValidationProblem(new Dictionary<string, string[]> { ["dueOn"] = ["dueOn must be today or later."] });
             }
 
-            var current = await organizationStore.GetAccountStandingInputsAsync(id, ct);
-            if (current is null) return Results.NotFound();
-
-            var graceDays = request.GraceDays ?? current.GraceDays;
-            var audit = Audit(actorId, id, "organization.reactivated", new { dueOn = request.DueOn, graceDays });
-            return await organizationStore.ReactivateAsync(id, request.DueOn, graceDays, audit, ct)
+            // A null GraceDays keeps the current value inside the same UPDATE, so no read races the write.
+            var audit = Audit(actorId, id, "organization.reactivated", new { dueOn = request.DueOn, graceDays = request.GraceDays });
+            return await organizationStore.ReactivateAsync(id, request.DueOn, request.GraceDays, audit, ct)
                 ? Results.NoContent()
                 : Results.NotFound();
         });
@@ -95,7 +93,7 @@ public static class OrganizationAccountStandingEndpoints
     private static IResult GraceDaysProblem() =>
         Results.ValidationProblem(new Dictionary<string, string[]>
         {
-            ["graceDays"] = [$"graceDays must be between 0 and {AccountStandingRules.MaxGraceDays}."],
+            ["graceDays"] = [$"graceDays is required and must be between 0 and {AccountStandingRules.MaxGraceDays}."],
         });
 }
 
@@ -107,8 +105,11 @@ public static class OrganizationAccountStandingEndpoints
 public sealed record OrganizationAccountStandingResponse(
     DateOnly? DueOn, int GraceDays, DateTimeOffset? SuspendedAt, string Status, DateOnly? SuspendsOn, int? DaysLeft);
 
-/// <summary><see cref="DueOn"/> null stops tracking billing for the organization.</summary>
-public sealed record UpdateOrganizationAccountStandingRequest(DateOnly? DueOn, int GraceDays);
+/// <summary>
+/// <see cref="DueOn"/> null stops tracking billing for the organization. <see cref="GraceDays"/> is required; it is
+/// nullable only so an omitted value is rejected instead of defaulting to 0.
+/// </summary>
+public sealed record UpdateOrganizationAccountStandingRequest(DateOnly? DueOn, int? GraceDays);
 
 /// <summary><see cref="GraceDays"/> null keeps the organization's current grace days.</summary>
 public sealed record ReactivateOrganizationRequest(DateOnly DueOn, int? GraceDays);

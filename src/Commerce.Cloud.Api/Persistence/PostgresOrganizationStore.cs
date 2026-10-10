@@ -377,14 +377,17 @@ public sealed class PostgresOrganizationStore
             "UPDATE organizations SET suspended_at = COALESCE(suspended_at, now()) WHERE id = $1",
             _ => { }, audit, ct);
 
-    /// <summary>Lifts a manual suspension and sets the next due date and grace days together; audited.</summary>
-    public Task<bool> ReactivateAsync(Guid organizationId, DateOnly dueOn, int graceDays, UserManagementAuditEntry audit, CancellationToken ct) =>
+    /// <summary>
+    /// Lifts a manual suspension and sets the next due date; <paramref name="graceDays"/> null keeps the current value,
+    /// resolved inside the same UPDATE so no separate read can race it. Audited.
+    /// </summary>
+    public Task<bool> ReactivateAsync(Guid organizationId, DateOnly dueOn, int? graceDays, UserManagementAuditEntry audit, CancellationToken ct) =>
         UpdateAccountStandingAsync(organizationId,
-            "UPDATE organizations SET suspended_at = NULL, billing_due_on = $2, billing_grace_days = $3 WHERE id = $1",
+            "UPDATE organizations SET suspended_at = NULL, billing_due_on = $2, billing_grace_days = COALESCE($3, billing_grace_days) WHERE id = $1",
             parameters =>
             {
                 parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Date, dueOn);
-                parameters.AddWithValue(graceDays);
+                parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Integer, (object?)graceDays ?? DBNull.Value);
             },
             audit, ct);
 

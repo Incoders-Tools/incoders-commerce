@@ -175,6 +175,13 @@ so it changes on its own when a day passes and needs no scheduled job.
   (`review-f42c6d2691110ef7`).
 - T2 migration `b3cc244..35e7b55`: approved, reliability lens
   (`review-a0c3a69078bbaf87`).
+- T3 sysadmin API `35e7b55..dc0be74`: approved, reliability lens
+  (`review-03529b634f97a2ed`). Fixed right after: an omitted `graceDays` on
+  `PUT .../standing` was read as 0 and would have suspended an overdue
+  organization at once (now 400, test proves it was 204); reactivation keeps
+  the current grace days inside the UPDATE (`COALESCE`, no read-then-write
+  race); the keep-current-grace and suspend-twice tests now use values that
+  can actually fail (45 days; a suspension time in the past).
 
 ## Follow-ups (non-blocking review findings)
 
@@ -191,6 +198,10 @@ so it changes on its own when a day passes and needs no scheduled job.
   idiom).
 - [ ] A4 The sysadmin list does one scoped read per organization; move to
   one query if organizations grow to the thousands.
+- [ ] A5 T3 review suggestions: the clear-due-date test does not assert the
+  Overdue precondition (`OrganizationAccountStandingEndpointTests.cs`
+  "Sysadmin_ClearsTheDueDate"); the grace rejection test checks only the
+  status code, not that nothing changed.
 
 ## Next step
 

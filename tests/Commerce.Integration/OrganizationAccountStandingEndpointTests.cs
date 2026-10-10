@@ -152,16 +152,50 @@ public sealed class OrganizationAccountStandingEndpointTests : IClassFixture<Web
     }
 
     [Fact]
-    public async Task SuspendingTwice_KeepsTheFirstSuspensionTime()
+    public async Task SuspendingAnAlreadySuspendedOrganization_KeepsTheOriginalSuspensionTime()
     {
         if (!_postgresAvailable) return;
         var (sysadmin, _, targetId, _) = await ArrangeAsync();
-        await sysadmin.PostAsync($"/account/organizations/{targetId}/standing/suspend", null);
-        var first = (await sysadmin.GetFromJsonAsync<OrganizationAccountStandingResponse>($"/account/organizations/{targetId}/standing"))!.SuspendedAt;
+        // A suspension well in the past, so a second call that overwrote it with now() could not compare equal.
+        var original = new DateTimeOffset(2026, 1, 15, 12, 0, 0, TimeSpan.Zero);
+        OwnerScalar("UPDATE organizations SET suspended_at = $2 WHERE id = $1", targetId, original);
 
+        Assert.Equal(HttpStatusCode.NoContent, (await sysadmin.PostAsync($"/account/organizations/{targetId}/standing/suspend", null)).StatusCode);
+
+        Assert.Equal(original, (await sysadmin.GetFromJsonAsync<OrganizationAccountStandingResponse>($"/account/organizations/{targetId}/standing"))!.SuspendedAt);
+    }
+
+    [Fact]
+    public async Task SettingTheStanding_WithoutGraceDays_IsRejected_AndLeavesTheGraceDaysAlone()
+    {
+        if (!_postgresAvailable) return;
+        var (sysadmin, _, targetId, _) = await ArrangeAsync();
+        await sysadmin.PutAsJsonAsync($"/account/organizations/{targetId}/standing", new UpdateOrganizationAccountStandingRequest(Today.AddDays(-1), 45));
+
+        // A body without graceDays must not be read as 0, which would suspend an overdue organization on the spot.
+        var put = await sysadmin.PutAsync($"/account/organizations/{targetId}/standing",
+            JsonContent.Create(new { dueOn = Today.AddDays(-1) }));
+
+        Assert.Equal(HttpStatusCode.BadRequest, put.StatusCode);
+        var standing = await sysadmin.GetFromJsonAsync<OrganizationAccountStandingResponse>($"/account/organizations/{targetId}/standing");
+        Assert.Equal(45, standing!.GraceDays);
+        Assert.Equal("Overdue", standing.Status);
+    }
+
+    [Fact]
+    public async Task Reactivating_WithoutGraceDays_KeepsTheOrganizationsCurrentGraceDays()
+    {
+        if (!_postgresAvailable) return;
+        var (sysadmin, _, targetId, _) = await ArrangeAsync();
+        // 45, not the default 30, so keeping the current value is distinguishable from falling back to the default.
+        await sysadmin.PutAsJsonAsync($"/account/organizations/{targetId}/standing", new UpdateOrganizationAccountStandingRequest(null, 45));
         await sysadmin.PostAsync($"/account/organizations/{targetId}/standing/suspend", null);
 
-        Assert.Equal(first, (await sysadmin.GetFromJsonAsync<OrganizationAccountStandingResponse>($"/account/organizations/{targetId}/standing"))!.SuspendedAt);
+        await sysadmin.PostAsJsonAsync($"/account/organizations/{targetId}/standing/reactivate", new ReactivateOrganizationRequest(Today.AddDays(30), null));
+
+        var standing = await sysadmin.GetFromJsonAsync<OrganizationAccountStandingResponse>($"/account/organizations/{targetId}/standing");
+        Assert.Equal("Active", standing!.Status);
+        Assert.Equal(45, standing.GraceDays);
     }
 
     [Theory]
