@@ -174,11 +174,29 @@ describe('OrganizationStandingForm', () => {
   })
 
   it('shows the manual suspension date on the business day (Buenos Aires), not the browser time zone', async () => {
-    // 02:00 UTC on the 10th is still the 9th, 23:00, in Buenos Aires.
+    // 02:00 UTC on the 10th is still the 9th, 23:00, in Buenos Aires. On a machine set to Argentina's time this cannot
+    // tell the business zone from the browser's (changing TZ has no effect on Windows' Node); `lib/businessDate.test.ts`
+    // is the discriminating test, with an explicit zone.
     respond({ ...suspendedByHand, suspendedAt: '2026-10-10T02:00:00Z' })
 
     renderForm()
 
     expect(await screen.findByText('Suspendida manualmente el 09/10/2026')).toBeInTheDocument()
+  })
+
+  it('says the organization was suspended even when re-reading its standing fails afterwards', async () => {
+    respond(overdue)
+    respond(undefined, 204)
+    respond({ title: 'boom' }, 500)
+    const user = userEvent.setup()
+    renderForm()
+
+    await user.click(await screen.findByRole('button', { name: 'Suspender ahora' }))
+    await user.click(screen.getByRole('button', { name: 'Suspender' }))
+
+    expect(await screen.findByText('La organización quedó suspendida, pero no se pudo recargar su estado.')).toBeInTheDocument()
+    expect(screen.queryByText('No se pudo guardar el estado de cuenta.')).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Reintentar' })).toBeInTheDocument()
   })
 })

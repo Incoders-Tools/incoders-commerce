@@ -9,6 +9,7 @@ import { getOrganizationStanding, reactivateOrganization, suspendOrganization, u
 import { ApiError } from '@/api/client'
 import type { OrganizationAccountStanding, OrganizationSummary } from '@/api/types'
 import { formatIsoDate } from '@/dashboard/format'
+import { formatInstantDate } from '@/lib/businessDate'
 import { todayIso } from '@/lib/isoDate'
 
 interface OrganizationStandingFormProps {
@@ -107,12 +108,20 @@ export function OrganizationStandingForm({ organization, onSaved, onCancel }: Or
     setSubmitError(null)
     try {
       await suspendOrganization(organization.id)
-      // Only the standing is re-read: the fields keep what is being typed (a suspension does not change them).
-      setStanding(await getOrganizationStanding(organization.id))
-      setConfirmingSuspend(false)
     } catch (err) {
       setConfirmingSuspend(false)
+      setSuspending(false)
       setSubmitError(err instanceof ApiError ? err.message : t('standingForm.unableToSave'))
+      return
+    }
+
+    // The suspension is in place. A failed re-read must not read as a failed suspension: it is reported as a load
+    // problem, with Retry. Only the standing is re-read; the fields keep what is being typed.
+    setConfirmingSuspend(false)
+    try {
+      setStanding(await getOrganizationStanding(organization.id))
+    } catch {
+      setLoadError(t('standingForm.suspendedButUnableToLoad'))
     } finally {
       setSuspending(false)
     }
@@ -228,17 +237,9 @@ export function OrganizationStandingForm({ organization, onSaved, onCancel }: Or
   )
 }
 
-/** A timestamp's calendar date on the business day (Buenos Aires, like the server's `IBusinessClock`), `dd/MM/yyyy`. */
-const businessDate = new Intl.DateTimeFormat('es-AR', {
-  timeZone: 'America/Argentina/Buenos_Aires',
-  day: '2-digit',
-  month: '2-digit',
-  year: 'numeric',
-})
-
 function describeStanding(standing: OrganizationAccountStanding, t: (key: string, options?: Record<string, unknown>) => string): string {
   if (standing.suspendedAt != null) {
-    return t('standingForm.suspendedManually', { date: businessDate.format(new Date(standing.suspendedAt)) })
+    return t('standingForm.suspendedManually', { date: formatInstantDate(standing.suspendedAt) })
   }
   if (standing.status === 'Suspended') {
     return t('standingForm.statusSuspended', { date: standing.suspendsOn ? formatIsoDate(standing.suspendsOn) : '—' })

@@ -120,6 +120,7 @@
     "reactivating": "Reactivando…",
     "unableToLoad": "No se pudo cargar el estado de cuenta.",
     "unableToSave": "No se pudo guardar el estado de cuenta.",
+    "suspendedButUnableToLoad": "La organización quedó suspendida, pero no se pudo recargar su estado.",
     "retry": "Reintentar"
   }
 }

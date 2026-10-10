@@ -176,6 +176,15 @@ so it changes on its own when a day passes and needs no scheduled job.
   nothing; T2-T4 were re-run with the container checked healthy before and
   after.
 - 2026-10-10: T5 done; A9 fixed.
+- 2026-10-10: polish review (`review-56c395c2f8a73ebf`, approved) fixed
+  after: a failed re-read after a successful "Suspender ahora" said "No se
+  pudo guardar" as if the suspension had failed; it now says the organization
+  is suspended and offers Retry. The time zone test could not fail here:
+  changing `TZ` (even at process start) has no effect on Windows' Node, and
+  the explicit Buenos Aires zone canonicalizes to the system one, so the date
+  is formatted by `lib/businessDate.ts` `formatInstantDate(instant, zone)`,
+  whose unit test passes an explicit zone (Madrid vs Buenos Aires) and does
+  discriminate.
 - 2026-10-10: polish commit closed A11, A12, A13 and the A8 comment. The web
   countdown now subtracts the days elapsed since the standing was received
   (`receivedOn`, stamped by `AuthProvider`) from the server's `daysLeft`, so
@@ -285,6 +294,10 @@ so it changes on its own when a day passes and needs no scheduled job.
   decision: grace days the rule rejects, without a manual suspension, show no
   notice rather than throw (the 0052 CHECK keeps such values out; only
   corrupt data could carry one, and the POS must keep selling).
+- [ ] A14 Suspend re-read fix review (`review-7a59b07c5699097f`,
+  approved): while the re-read failure is shown, the form keeps the previous
+  standing (e.g. "Vencida") and "Suspender ahora" stays enabled (a second
+  suspension is a no-op on the server); no test proves that Retry recovers.
 - [ ] A7 Repository-wide, not this feature: Postgres-backed tests `return`
   when `TryPing` fails and are reported as Passed. A stopped container turns
   a red suite green. Make them skip visibly (or fail in CI) instead.

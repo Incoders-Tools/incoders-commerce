@@ -120,6 +120,7 @@
     "reactivating": "Reactivating…",
     "unableToLoad": "Could not load the account standing.",
     "unableToSave": "Could not save the account standing.",
+    "suspendedButUnableToLoad": "The organization is suspended, but its standing could not be reloaded.",
     "retry": "Retry"
   }
 }
