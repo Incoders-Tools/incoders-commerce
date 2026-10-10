@@ -589,3 +589,57 @@ describe('AppLayout', () => {
     })
   })
 })
+
+// organization-account-standing T7: web admins see the countdown; a suspended organization's users see only the
+// suspended screen (with the account menu to sign out); the system administrator is never blocked.
+describe('AppLayout account standing', () => {
+  afterEach(() => cleanup())
+
+  const overdue = (daysLeft: number | null, suspendsOn: string | null) =>
+    ({ status: 'Overdue', daysLeft, suspendsOn }) as const
+  const suspended = { status: 'Suspended', daysLeft: null, suspendsOn: null } as const
+
+  it('shows an overdue admin the days left and the suspension date', () => {
+    renderLayout(buildUser({ permissions: Permission.ManageUsers, accountStanding: overdue(30, '2026-11-08') }))
+
+    const banner = screen.getByRole('status')
+    expect(banner).toHaveTextContent('El acceso web se suspende en 30 días (el 08/11/2026)')
+    expect(screen.getByText('Catalog content')).toBeInTheDocument()
+  })
+
+  it('says one day in singular', () => {
+    renderLayout(buildUser({ permissions: Permission.ManageUsers, accountStanding: overdue(1, '2026-11-08') }))
+
+    expect(screen.getByRole('status')).toHaveTextContent('se suspende en 1 día (el 08/11/2026)')
+  })
+
+  it('shows nothing to an overdue user without the dates (not an admin)', () => {
+    renderLayout(buildUser({ permissions: Permission.ViewSales, accountStanding: overdue(null, null) }))
+
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(screen.getByText('Catalog content')).toBeInTheDocument()
+  })
+
+  it('shows a suspended admin only the suspended screen, with Incoders as the contact', () => {
+    renderLayout(buildUser({ permissions: Permission.ManageUsers, accountStanding: suspended }))
+
+    expect(screen.getByRole('heading', { name: 'Cuenta suspendida' })).toBeInTheDocument()
+    expect(screen.getByText(/suspendida por falta de pago\. Comuníquese con Incoders/)).toBeInTheDocument()
+    expect(screen.queryByText('Catalog content')).not.toBeInTheDocument()
+    expect(screen.queryByRole('navigation')).not.toBeInTheDocument()
+  })
+
+  it('tells a suspended non-admin to contact their administrator, not why', () => {
+    renderLayout(buildUser({ permissions: Permission.ViewSales, accountStanding: suspended }))
+
+    expect(screen.getByText('El acceso está suspendido. Contacte al administrador de su empresa.')).toBeInTheDocument()
+    expect(screen.queryByText(/falta de pago/)).not.toBeInTheDocument()
+  })
+
+  it('never blocks the system administrator', () => {
+    renderLayout(buildUser({ isSystemAdmin: true, accountStanding: suspended }))
+
+    expect(screen.queryByRole('heading', { name: 'Cuenta suspendida' })).not.toBeInTheDocument()
+    expect(screen.getByText('Catalog content')).toBeInTheDocument()
+  })
+})

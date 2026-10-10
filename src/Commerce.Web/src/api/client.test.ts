@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { apiFetch, apiFetchForm, apiFetchOutcome } from './client'
+import { ApiError, apiFetch, apiFetchForm, apiFetchOutcome, ORGANIZATION_SUSPENDED_EVENT } from './client'
 
 vi.mock('@/branch/BranchContext', () => ({ getSelectedBranchId: () => 'branch-1' }))
 vi.mock('@/organization/OrganizationContext', () => ({ getSelectedOrganizationId: () => 'org-1' }))
@@ -43,5 +43,41 @@ describe('tenant headers', () => {
     await apiFetchOutcome('/orders/', { method: 'POST', body: '{}' })
 
     expect(sentHeaders()).toMatchObject({ 'X-Organization-Id': 'org-1', 'X-Branch-Id': 'branch-1' })
+  })
+})
+
+// organization-account-standing T7: a suspended organization's API answers 403 { code: "organization-suspended" };
+// apiFetch announces it so the session (AuthProvider) can switch to the suspended screen mid-session.
+describe('organization suspension', () => {
+  const fetchMock = vi.fn()
+  const listener = vi.fn()
+
+  beforeEach(() => {
+    vi.stubGlobal('fetch', fetchMock)
+    window.addEventListener(ORGANIZATION_SUSPENDED_EVENT, listener)
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    fetchMock.mockReset()
+    listener.mockReset()
+    window.removeEventListener(ORGANIZATION_SUSPENDED_EVENT, listener)
+  })
+
+  it('announces a 403 organization-suspended and throws it with its code', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ code: 'organization-suspended' }), { status: 403 }))
+
+    const error = await apiFetch('/account/branches').catch((err: unknown) => err)
+
+    expect(listener).toHaveBeenCalledTimes(1)
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as ApiError).code).toBe('organization-suspended')
+  })
+
+  it('does not announce a permission 403', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ title: 'Forbidden' }), { status: 403 }))
+
+    await apiFetch('/account/users').catch(() => undefined)
+
+    expect(listener).not.toHaveBeenCalled()
   })
 })

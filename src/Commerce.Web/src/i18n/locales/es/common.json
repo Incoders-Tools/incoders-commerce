@@ -55,5 +55,12 @@
     "title": "Cambios sin guardar",
     "discard": "Descartar",
     "keepEditing": "Seguir editando"
+  },
+  "accountStanding": {
+    "overdue_one": "Hay un pago vencido. El acceso web se suspende en {{count}} día (el {{date}}). Comuníquese con Incoders para regularizar.",
+    "overdue_other": "Hay un pago vencido. El acceso web se suspende en {{count}} días (el {{date}}). Comuníquese con Incoders para regularizar.",
+    "suspendedTitle": "Cuenta suspendida",
+    "suspendedAdmin": "La cuenta está suspendida por falta de pago. Comuníquese con Incoders para reactivarla.",
+    "suspendedStaff": "El acceso está suspendido. Contacte al administrador de su empresa."
   }
 }

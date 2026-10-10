@@ -1,5 +1,6 @@
-import { createContext, useContext, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import * as accountApi from '@/api/account'
+import { ORGANIZATION_SUSPENDED_EVENT } from '@/api/client'
 import type { SignedInResponse, SignInRequest } from '@/api/types'
 import { Permission } from '@/api/types'
 
@@ -15,6 +16,22 @@ export const AuthContext = createContext<AuthContextValue | undefined>(undefined
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<SignedInResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  // organization-account-standing T7: the organization was suspended while this session was open. The session is
+  // the sign-in response, so it is updated here rather than re-fetched; the known suspension date is kept.
+  useEffect(() => {
+    const markSuspended = () =>
+      setUser((current) =>
+        current === null || current.accountStanding?.status === 'Suspended'
+          ? current
+          : {
+              ...current,
+              accountStanding: { status: 'Suspended', suspendsOn: current.accountStanding?.suspendsOn ?? null, daysLeft: null },
+            },
+      )
+    window.addEventListener(ORGANIZATION_SUSPENDED_EVENT, markSuspended)
+    return () => window.removeEventListener(ORGANIZATION_SUSPENDED_EVENT, markSuspended)
+  }, [])
 
   const signIn = async (request: SignInRequest) => {
     setError(null)

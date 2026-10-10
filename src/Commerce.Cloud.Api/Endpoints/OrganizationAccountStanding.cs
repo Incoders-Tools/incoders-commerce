@@ -5,6 +5,7 @@ using Commerce.Cloud.Api.Auditing;
 using Commerce.Cloud.Api.Authentication;
 using Commerce.Cloud.Api.Persistence;
 using Commerce.Cloud.Api.Tenancy;
+using Commerce.Domain.Identity;
 using Commerce.Domain.Tenancy;
 
 namespace Commerce.Cloud.Api.Endpoints;
@@ -73,6 +74,23 @@ public static class OrganizationAccountStandingEndpoints
         if (!written) return Results.NotFound();
         standings.Invalidate(organizationId);
         return Results.NoContent();
+    }
+
+    /// <summary>
+    /// The caller's view of its organization's standing, for sign-in and <c>/account/me</c> (T4): every user gets the
+    /// status (the SPA shows the suspended screen from it); only administrators (<c>ManageUsers</c>) and the system
+    /// administrator get the dates behind the countdown. <c>null</c> when the organization does not exist.
+    /// </summary>
+    public static async Task<AccountStandingSummary?> SummaryForAsync(
+        Guid organizationId, UserAccount? actor, OrganizationStandingCache standings, IBusinessClock clock, CancellationToken ct)
+    {
+        var inputs = await standings.GetAsync(organizationId, ct);
+        if (inputs is null) return null;
+
+        var standing = AccountStandingRules.Evaluate(inputs.DueOn, inputs.GraceDays, inputs.SuspendedAt is not null, clock.Today);
+        var seesDates = actor is not null && (actor.IsSystemAdmin || actor.EffectivePermissions.HasFlag(Permission.ManageUsers));
+        return new AccountStandingSummary(
+            standing.Status.ToString(), seesDates ? standing.SuspendsOn : null, seesDates ? standing.DaysLeft : null);
     }
 
     /// <summary>The standing derived from the stored inputs on <paramref name="today"/>, plus the inputs themselves.</summary>

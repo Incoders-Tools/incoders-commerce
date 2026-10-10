@@ -167,6 +167,29 @@ public sealed class OrganizationSuspensionEnforcementTests : IClassFixture<WebAp
     }
 
     [Fact]
+    public async Task SignIn_CarriesTheSameStandingAsMe_BecauseTheSpaKeepsTheSignInResponseAsItsSession()
+    {
+        if (!_postgresAvailable) return;
+        var overdue = await NewTenantAsync();
+        SetStanding(overdue.OrganizationId, Today.AddDays(-1), suspended: false);
+        var suspended = await NewTenantAsync();
+        SetStanding(suspended.OrganizationId, null, suspended: true);
+
+        var adminSignIn = await (await NewBrowser().PostAsJsonAsync("/account/sign-in", new SignInRequest(overdue.AdminEmail, Password)))
+            .Content.ReadFromJsonAsync<SignedInResponse>();
+        var cashierSignIn = await (await NewBrowser().PostAsJsonAsync("/account/sign-in", new SignInRequest(overdue.CashierEmail, Password)))
+            .Content.ReadFromJsonAsync<SignedInResponse>();
+        var suspendedSignIn = await NewBrowser().PostAsJsonAsync("/account/sign-in", new SignInRequest(suspended.AdminEmail, Password));
+
+        Assert.Equal("Overdue", adminSignIn!.AccountStanding!.Status);
+        Assert.Equal(30, adminSignIn.AccountStanding.DaysLeft);
+        Assert.Equal("Overdue", cashierSignIn!.AccountStanding!.Status);
+        Assert.Null(cashierSignIn.AccountStanding.DaysLeft);
+        Assert.Equal(HttpStatusCode.OK, suspendedSignIn.StatusCode);
+        Assert.Equal("Suspended", (await suspendedSignIn.Content.ReadFromJsonAsync<SignedInResponse>())!.AccountStanding!.Status);
+    }
+
+    [Fact]
     public async Task ActiveOrganization_MeReportsActive()
     {
         if (!_postgresAvailable) return;

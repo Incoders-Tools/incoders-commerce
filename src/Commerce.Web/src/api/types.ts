@@ -22,6 +22,19 @@ export interface SignedInResponse {
   // system administrator acting on one. Returned by both sign-in and
   // `/account/me`.
   selectableBranches: SelectableBranch[]
+  // organization-account-standing T4/T7: the organization's standing, on sign-in and `/account/me` alike (this
+  // response IS the SPA's session). `suspendsOn`/`daysLeft` come only to administrators and the system administrator.
+  accountStanding?: AccountStandingSummary | null
+}
+
+export type AccountStandingStatus = 'Active' | 'Overdue' | 'Suspended'
+
+/** Endpoints/Account.cs `AccountStandingSummary`. */
+export interface AccountStandingSummary {
+  status: AccountStandingStatus
+  /** `yyyy-MM-dd`, the first suspended business day. */
+  suspendsOn: string | null
+  daysLeft: number | null
 }
 
 export interface SelectableBranch {

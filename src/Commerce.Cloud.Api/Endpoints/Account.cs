@@ -11,7 +11,6 @@ using Commerce.Cloud.Api.Email;
 using Commerce.Cloud.Api.Persistence;
 using Commerce.Cloud.Api.Tenancy;
 using Commerce.Domain.Identity;
-using Commerce.Domain.Tenancy;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Identity;
@@ -140,6 +139,8 @@ public static class AccountEndpoints
             PostgresUserAccountStore store,
             PostgresOrganizationStore organizationStore,
             PasswordHasher<UserAccount> hasher,
+            OrganizationStandingCache standings,
+            IBusinessClock clock,
             CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.Password))
@@ -213,7 +214,9 @@ public static class AccountEndpoints
                 credential.Email,
                 permissions,
                 signedInActor?.IsSystemAdmin ?? false,
-                selectableBranches.Select(b => new SelectableBranch(b.Id, b.Name, b.Code)).ToList()));
+                selectableBranches.Select(b => new SelectableBranch(b.Id, b.Name, b.Code)).ToList(),
+                // The SPA keeps this response as its session, so it carries the standing exactly like /account/me.
+                await OrganizationAccountStandingEndpoints.SummaryForAsync(credential.OrganizationId, signedInActor, standings, clock, ct)));
         }).AllowAnonymous(); // Explicit, so OrganizationSuspensionCoverageTests can tell it from a forgotten RequireAuthorization.
 
         // --- Renew: authenticated, self-service, known-current-password
@@ -1102,17 +1105,7 @@ public static class AccountEndpoints
                     ? await organizationStore.ListBranchesAsync(scope, ct)
                     : await organizationStore.ListBranchesAsync(scope, actor.BranchScope.ToArray(), ct);
 
-            // organization-account-standing T4: every user learns the status (the SPA shows the suspended screen
-            // from it); only administrators and the system administrator get the dates behind the countdown.
-            var inputs = await standings.GetAsync(scope.OrganizationId, ct);
-            AccountStandingSummary? accountStanding = null;
-            if (inputs is not null)
-            {
-                var standing = AccountStandingRules.Evaluate(inputs.DueOn, inputs.GraceDays, inputs.SuspendedAt is not null, clock.Today);
-                var seesDates = actor is not null && (actor.IsSystemAdmin || actor.EffectivePermissions.HasFlag(Permission.ManageUsers));
-                accountStanding = new AccountStandingSummary(
-                    standing.Status.ToString(), seesDates ? standing.SuspendsOn : null, seesDates ? standing.DaysLeft : null);
-            }
+            var accountStanding = await OrganizationAccountStandingEndpoints.SummaryForAsync(scope.OrganizationId, actor, standings, clock, ct);
 
             return Results.Ok(new SignedInResponse(
                 scope.OrganizationId,
