@@ -356,6 +356,7 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions
 });
 
 app.MapAccountEndpoints();
+app.MapOrganizationAccountStandingEndpoints();
 app.MapDeviceEndpoints();
 app.MapSyncEndpoints();
 app.MapCatalogEndpoints();

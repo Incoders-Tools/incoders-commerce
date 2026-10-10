@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Commerce.Application.Time;
 using Commerce.Cloud.Api.Auditing;
 using Commerce.Cloud.Api.Authentication;
 using Commerce.Cloud.Api.Email;
@@ -396,7 +397,7 @@ public static class AccountEndpoints
         }).AllowAnonymous();
 
         var organizationGroup = app.MapGroup("/account/organizations").RequireAuthorization();
-        organizationGroup.MapGet("", async (HttpContext httpContext, PostgresUserAccountStore userStore, PostgresOrganizationStore organizationStore, CancellationToken ct) =>
+        organizationGroup.MapGet("", async (HttpContext httpContext, PostgresUserAccountStore userStore, PostgresOrganizationStore organizationStore, IBusinessClock clock, CancellationToken ct) =>
         {
             if (!TenantScopeResolver.TryResolve(httpContext.User, out var scope, out _)) return Results.StatusCode(StatusCodes.Status403Forbidden);
             var claim = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
@@ -404,7 +405,19 @@ public static class AccountEndpoints
             var actor = await userStore.LoadActorAsync(scope!, userId, ct);
             if (actor is null || !actor.IsSystemAdmin) return Results.StatusCode(StatusCodes.Status403Forbidden);
             if (!organizationStore.CanListOrganizations) return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
-            return Results.Ok(await organizationStore.ListOrganizationsAsync(ct));
+
+            // organization-account-standing T3: each organization's standing is read scoped to that organization
+            // through `app_runtime`; `platform_readonly` keeps its `(id, name, created_at)` column grant (0007).
+            var today = clock.Today;
+            var organizations = new List<OrganizationSummary>();
+            foreach (var organization in await organizationStore.ListOrganizationsAsync(ct))
+            {
+                var inputs = await organizationStore.GetAccountStandingInputsAsync(organization.Id, ct);
+                organizations.Add(inputs is null
+                    ? organization
+                    : organization with { Standing = OrganizationAccountStandingEndpoints.ToResponse(inputs, today) });
+            }
+            return Results.Ok(organizations);
         });
         organizationGroup.MapPost("", async (CreateOrganizationRequest request, HttpContext httpContext, PostgresUserAccountStore userStore, PostgresOrganizationStore organizationStore, PasswordHasher<UserAccount> hasher, CancellationToken ct) =>
         {
@@ -1231,7 +1244,8 @@ public sealed record UserSummaryDto(Guid UserId, string Email, IReadOnlyList<str
 public sealed record CreateBranchRequest(string BranchName);
 public sealed record CreateBranchResponse(Guid BranchId, int Code);
 public sealed record BranchSummaryDto(Guid BranchId, string BranchName, int Code);
-public sealed record OrganizationSummary(Guid Id, string Name, DateTimeOffset CreatedAt);
+/// <summary><see cref="Standing"/> is filled by the system-admin list endpoint only (organization-account-standing T3).</summary>
+public sealed record OrganizationSummary(Guid Id, string Name, DateTimeOffset CreatedAt, OrganizationAccountStandingResponse? Standing = null);
 public sealed record CreateOrganizationRequest(string OrganizationName, string? BranchName, string AdminEmail, string AdminPassword);
 public sealed record CreateOrganizationResponse(Guid OrganizationId, Guid BranchId, Guid UserId);
 public sealed record OrganizationBrandingResponse(string? LogoUrl, string? PrimaryColor);

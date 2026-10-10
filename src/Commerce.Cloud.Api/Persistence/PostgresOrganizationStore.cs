@@ -329,6 +329,97 @@ public sealed class PostgresOrganizationStore
     }
 
     /// <summary>
+    /// Reads the inputs of one organization's account standing (organization-account-standing T3). Same trust note as
+    /// <see cref="GetBrandingAsync"/>: a system-admin-gated route id or the caller's own organization. Read through
+    /// `app_runtime` scoped to that one organization, never through `platform_readonly`, whose column grant stays
+    /// `(id, name, created_at)` (0007). Returns <c>null</c> when the organization does not exist.
+    /// </summary>
+    public async Task<OrganizationAccountStandingInputs?> GetAccountStandingInputsAsync(Guid organizationId, CancellationToken ct)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+
+        await TenantScopeSql.ApplyAsync(connection, tx, organizationId, branchId: null, ct);
+
+        OrganizationAccountStandingInputs? inputs = null;
+        await using (var cmd = new NpgsqlCommand(
+            "SELECT billing_due_on, billing_grace_days, suspended_at FROM organizations WHERE id = $1", connection, tx))
+        {
+            cmd.Parameters.AddWithValue(organizationId);
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            if (await reader.ReadAsync(ct))
+            {
+                inputs = new OrganizationAccountStandingInputs(
+                    reader.IsDBNull(0) ? null : reader.GetFieldValue<DateOnly>(0),
+                    reader.GetInt32(1),
+                    reader.IsDBNull(2) ? null : reader.GetFieldValue<DateTimeOffset>(2));
+            }
+        }
+
+        await tx.CommitAsync(ct);
+        return inputs;
+    }
+
+    /// <summary>Sets the billing due date (null = not tracked) and grace days; audited in the same transaction.</summary>
+    public Task<bool> UpdateBillingAsync(Guid organizationId, DateOnly? dueOn, int graceDays, UserManagementAuditEntry audit, CancellationToken ct) =>
+        UpdateAccountStandingAsync(organizationId,
+            "UPDATE organizations SET billing_due_on = $2, billing_grace_days = $3 WHERE id = $1",
+            parameters =>
+            {
+                parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Date, (object?)dueOn ?? DBNull.Value);
+                parameters.AddWithValue(graceDays);
+            },
+            audit, ct);
+
+    /// <summary>Suspends by hand. A second call keeps the first suspension time; both are audited.</summary>
+    public Task<bool> SuspendAsync(Guid organizationId, UserManagementAuditEntry audit, CancellationToken ct) =>
+        UpdateAccountStandingAsync(organizationId,
+            "UPDATE organizations SET suspended_at = COALESCE(suspended_at, now()) WHERE id = $1",
+            _ => { }, audit, ct);
+
+    /// <summary>Lifts a manual suspension and sets the next due date and grace days together; audited.</summary>
+    public Task<bool> ReactivateAsync(Guid organizationId, DateOnly dueOn, int graceDays, UserManagementAuditEntry audit, CancellationToken ct) =>
+        UpdateAccountStandingAsync(organizationId,
+            "UPDATE organizations SET suspended_at = NULL, billing_due_on = $2, billing_grace_days = $3 WHERE id = $1",
+            parameters =>
+            {
+                parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Date, dueOn);
+                parameters.AddWithValue(graceDays);
+            },
+            audit, ct);
+
+    /// <summary>
+    /// One account-standing write plus its audit row in the SAME transaction. <c>$1</c> is always the organization id;
+    /// <paramref name="addParameters"/> adds <c>$2</c> onwards. Returns <c>false</c> (nothing written) when it does not exist.
+    /// </summary>
+    private async Task<bool> UpdateAccountStandingAsync(
+        Guid organizationId, string sql, Action<NpgsqlParameterCollection> addParameters, UserManagementAuditEntry audit, CancellationToken ct)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+
+        await TenantScopeSql.ApplyAsync(connection, tx, organizationId, branchId: null, ct);
+
+        int rowsAffected;
+        await using (var cmd = new NpgsqlCommand(sql, connection, tx))
+        {
+            cmd.Parameters.AddWithValue(organizationId);
+            addParameters(cmd.Parameters);
+            rowsAffected = await cmd.ExecuteNonQueryAsync(ct);
+        }
+
+        if (rowsAffected == 0)
+        {
+            await tx.RollbackAsync(ct);
+            return false;
+        }
+
+        await AuditLogWriter.InsertAsync(connection, tx, audit, ct);
+        await tx.CommitAsync(ct);
+        return true;
+    }
+
+    /// <summary>
     /// Reads one organization's settings (the number format). Same trust note as <see cref="GetBrandingAsync"/>:
     /// the caller passes its own authenticated organization id. Returns <c>null</c> when it does not exist.
     /// </summary>

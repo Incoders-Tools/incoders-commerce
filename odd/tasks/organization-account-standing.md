@@ -113,8 +113,12 @@ so it changes on its own when a day passes and needs no scheduled job.
 - `/account/me` returns `status` to every user, but `suspendsOn` and
   `daysLeft` only to `ManageUsers` holders and the sysadmin.
 - Audit with the existing `UserManagementAuditEntry`
-  (`organization.standing.updated`, `organization.suspended`,
-  `organization.reactivated`).
+  (`organization.standing_updated`, `organization.suspended`,
+  `organization.reactivated`; underscore form like
+  `organization.branding_updated`).
+- `platform_readonly` keeps its `(id, name, created_at)` column grant (0007:
+  the only cross-organization read). The sysadmin list reads each
+  organization's standing through `app_runtime` scoped to that organization.
 - Cross-layer: the banner texts exist in both layers; record them in
   `docs/architecture/cross-layer-parity.md` (skill `cross-layer-parity`).
 - TDD: Strict (RED -> GREEN -> REFACTOR). Runners: `dotnet test`, `npm test`
@@ -125,7 +129,7 @@ so it changes on its own when a day passes and needs no scheduled job.
 
 - [x] T1 Domain: `AccountStanding` rule (`Active`/`Overdue`/`Suspended`, `SuspendsOn`, `DaysLeft`) with boundary tests: no due date, due date today, first overdue day, last grace day, first suspended day, grace 0, manual suspension overriding a future due date, reactivation. RED: `AccountStandingRulesTests` did not compile (no `AccountStandingRules`); GREEN: 17/17. `src/Commerce.Domain/Tenancy/AccountStanding.cs`.
 - [x] T2 Migration `0052`: due date, grace days (CHECK 0-90, default 30), manual suspension timestamp; mirrored in `init-rls.sql`; migration tests including a re-run. RED: 6 `OrganizationAccountStandingTests` failed (migration file missing); GREEN: 6/6, plus 95/95 with the migration, RLS and organization settings suites. Columns `billing_due_on`, `billing_grace_days`, `suspended_at`; constraint `organizations_billing_grace_days_ck`. Applied to local `commerce_dev`.
-- [ ] T3 API sysadmin: standing in the organizations list; `PUT /account/organizations/{id}/standing` (due date, grace days), `POST .../standing/suspend`, `POST .../standing/reactivate` (requires a new due date); audited; non-sysadmin gets 403.
+- [x] T3 API sysadmin: standing in the organizations list; `PUT /account/organizations/{id}/standing` (due date, grace days), `POST .../standing/suspend`, `POST .../standing/reactivate` (requires a new due date); audited; non-sysadmin gets 403. RED: `OrganizationAccountStandingEndpointTests` did not compile (no contracts); GREEN: 11/11, and 35/35 with `AdminConsoleTests` and the treasury recurrence suites. Also `GET .../standing`; unknown organization 404; reactivation rejects a due date before today and keeps the current grace days when none is sent; a second suspension keeps the first time. `Endpoints/OrganizationAccountStanding.cs`.
 - [ ] T4 API enforcement: standing cache with write-through; suspension filter with the allowlist; `/account/me` gains `accountStanding`. Tests: a suspended organization's admin gets 403 `organization-suspended` on a business endpoint and 200 on `/account/me`; a sysadmin acting on a suspended organization is not blocked; an overdue organization is not blocked; a POS sale push from a suspended organization is accepted.
 - [ ] T5 API device: `GET /device/organization/settings` gains `accountStanding { dueOn, graceDays, suspended }` (the rule's inputs; additive, an older POS ignores it).
 - [ ] T6 Web sysadmin: standing badge and due date column in `OrganizationsScreen`; manage dialog (due date, grace days, suspend now, reactivate with confirmation).
@@ -159,11 +163,18 @@ so it changes on its own when a day passes and needs no scheduled job.
 - 2026-10-09: T1 done. The device payload carries the rule's inputs instead
   of a computed status, so the POS evaluates the same domain rule offline.
 - 2026-10-09: T2 done.
+- 2026-10-09: T3 done. The full `Commerce.Integration` run did not finish
+  within an hour and was stopped; the affected suites pass. Found a failure
+  that predates this feature (fails with these changes stashed):
+  `PublicRateLimitTests.WithGuestOrderingConfigAbsent_EveryPublicRoute_IsUnreachable_AndAppStillStarts`
+  expects 404 and gets 200.
 
 ## Reviews
 
 - T1 domain rule `42408bb..b3cc244`: approved, reliability lens
   (`review-f42c6d2691110ef7`).
+- T2 migration `b3cc244..35e7b55`: approved, reliability lens
+  (`review-a0c3a69078bbaf87`).
 
 ## Follow-ups (non-blocking review findings)
 
@@ -173,6 +184,13 @@ so it changes on its own when a day passes and needs no scheduled job.
   inputs ever come from somewhere else (`AccountStanding.cs:41-48`).
 - [ ] A2 The last-grace-day test does not assert `SuspendsOn`
   (`AccountStandingRulesTests.cs:46-52`).
+- [ ] A3 T2 review flagged, location only: the 0-90 acceptance test has no
+  explicit assertion (`OrganizationAccountStandingTests.cs:67-75`, warning);
+  suggestions at `OrganizationAccountStandingTests.cs:46-61` and on the
+  name-only guard of the CHECK (`0052...sql:34-36`, the repository-wide
+  idiom).
+- [ ] A4 The sysadmin list does one scoped read per organization; move to
+  one query if organizations grow to the thousands.
 
 ## Next step
 
