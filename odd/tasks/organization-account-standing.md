@@ -105,7 +105,7 @@ so it changes on its own when a day passes and needs no scheduled job.
   and admin calls keep working while suspended.
 - Allowlist while suspended: sign-in, sign-out, `/account/me`, password
   recovery and `renew-password`. Everything else returns 403 with
-  `{ "code": "organization-suspended" }` so the SPA can tell it apart from a
+  `{ "error": "organization-suspended" }` so the SPA can tell it apart from a
   permission 403. Implemented as `OrganizationSuspensionMiddleware` after
   `UseAuthorization`: it acts only on endpoints that require authorization,
   only for the staff cookie, skips the `DeviceBearer` and `Customer`
@@ -177,6 +177,15 @@ so it changes on its own when a day passes and needs no scheduled job.
   after.
 - 2026-10-10: T5 done; A9 fixed.
 - 2026-10-10: T7 done.
+- 2026-10-10: T7 review fixes (`review-5daed399ddad7724`, approved): the
+  banner counts the days left from today against `suspendsOn` (the session
+  lives in memory; a tab open for days showed the sign-in day's count) and
+  hides once the date is reached; the suspended screen has "Volver a
+  verificar" (`refreshStanding`, re-reads `/account/me`) so a reactivation is
+  picked up without signing in again; the 403 body is now
+  `{ "error": "organization-suspended" }`, the repository's typed-error
+  shape, so the client needs no special case; the moved doc comment in
+  `client.ts` is back on `ApiError`; sign-in test asserts `SuspendsOn`.
 - 2026-10-10: follow-ups A1, A2, A3, A5, A8 closed, plus the T5 review
   notes (device DTO doc, explicit surface in the segment test, the device
   test now pins the JSON names the POS reads). A1 mattered more than it
@@ -240,6 +249,11 @@ so it changes on its own when a day passes and needs no scheduled job.
   non-int scalar as "not found" (`PostgresOrganizationStore.cs`, the
   `storedGraceDays is not int` check); fine for the `integer` column, but a
   type change would read as 404.
+- [ ] A10 Repository-wide, not this feature: the web suite has timing
+  flakiness. Under load, different screen tests (treasury, orders, catalog,
+  customers) time out at 5s in each full run (13, 1, 1, 0 failures across
+  runs), with or without this feature's changes (checked against `3a89937`);
+  each passes when run alone.
 - [ ] A7 Repository-wide, not this feature: Postgres-backed tests `return`
   when `TryPing` fails and are reported as Passed. A stopped container turns
   a red suite green. Make them skip visibly (or fail in CI) instead.

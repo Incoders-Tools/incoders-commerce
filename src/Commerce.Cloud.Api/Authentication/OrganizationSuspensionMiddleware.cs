@@ -11,8 +11,8 @@ namespace Commerce.Cloud.Api.Authentication;
 /// <summary>
 /// Blocks the web while an organization is <see cref="AccountStandingStatus.Suspended"/>
 /// (odd/tasks/organization-account-standing.md T4): a staff request to an endpoint that requires authorization answers
-/// 403 <c>{ "code": "organization-suspended" }</c>, so the SPA can tell it apart from a permission 403 and show the
-/// suspended screen.
+/// 403 <c>{ "error": "organization-suspended" }</c> (the repository's typed-error shape), so the SPA can tell it apart
+/// from a permission 403 and show the suspended screen.
 /// <para>
 /// Never applies to: anonymous endpoints (sign-in, password recovery), endpoints marked
 /// <see cref="AllowWhileOrganizationSuspendedAttribute"/> (<c>/account/me</c>, sign-out), the POS (the device bearer
@@ -59,7 +59,7 @@ public sealed class OrganizationSuspensionMiddleware
         }
 
         context.Response.StatusCode = StatusCodes.Status403Forbidden;
-        await context.Response.WriteAsJsonAsync(new { code = SuspendedCode }, ct);
+        await context.Response.WriteAsJsonAsync(new { error = SuspendedCode }, ct);
     }
 
     private static bool AppliesTo(HttpContext context)

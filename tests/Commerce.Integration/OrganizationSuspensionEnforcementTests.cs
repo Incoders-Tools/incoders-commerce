@@ -110,7 +110,7 @@ public sealed class OrganizationSuspensionEnforcementTests : IClassFixture<WebAp
     {
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        Assert.Equal("organization-suspended", body.RootElement.GetProperty("code").GetString());
+        Assert.Equal("organization-suspended", body.RootElement.GetProperty("error").GetString());
     }
 
     [Fact]
@@ -183,8 +183,10 @@ public sealed class OrganizationSuspensionEnforcementTests : IClassFixture<WebAp
 
         Assert.Equal("Overdue", adminSignIn!.AccountStanding!.Status);
         Assert.Equal(30, adminSignIn.AccountStanding.DaysLeft);
+        Assert.Equal(Today.AddDays(30), adminSignIn.AccountStanding.SuspendsOn);
         Assert.Equal("Overdue", cashierSignIn!.AccountStanding!.Status);
         Assert.Null(cashierSignIn.AccountStanding.DaysLeft);
+        Assert.Null(cashierSignIn.AccountStanding.SuspendsOn);
         Assert.Equal(HttpStatusCode.OK, suspendedSignIn.StatusCode);
         Assert.Equal("Suspended", (await suspendedSignIn.Content.ReadFromJsonAsync<SignedInResponse>())!.AccountStanding!.Status);
     }

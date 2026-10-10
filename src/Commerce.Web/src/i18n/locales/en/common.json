@@ -61,6 +61,8 @@
     "overdue_other": "A payment is overdue. Web access will be suspended in {{count}} days (on {{date}}). Please contact Incoders to settle it.",
     "suspendedTitle": "Account suspended",
     "suspendedAdmin": "This account is suspended for non-payment. Please contact Incoders to reactivate it.",
-    "suspendedStaff": "Access is suspended. Please contact your company administrator."
+    "suspendedStaff": "Access is suspended. Please contact your company administrator.",
+    "checkAgain": "Check again",
+    "checking": "Checking…"
   }
 }

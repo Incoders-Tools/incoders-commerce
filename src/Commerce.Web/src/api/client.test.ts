@@ -64,7 +64,7 @@ describe('organization suspension', () => {
   })
 
   it('announces a 403 organization-suspended and throws it with its code', async () => {
-    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ code: 'organization-suspended' }), { status: 403 }))
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ error: 'organization-suspended' }), { status: 403 }))
 
     const error = await apiFetch('/account/branches').catch((err: unknown) => err)
 

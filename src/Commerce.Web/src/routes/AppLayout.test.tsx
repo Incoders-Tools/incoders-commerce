@@ -28,10 +28,11 @@ function buildUser(overrides: Partial<SignedInResponse> = {}): SignedInResponse 
 function renderLayout(
   user: SignedInResponse,
   branding: OrganizationBranding = { logoUrl: null, primaryColor: null },
+  refreshStanding: () => Promise<void> = async () => {},
 ) {
   return render(
     <MemoryRouter initialEntries={['/app/catalog']}>
-      <AuthContext.Provider value={{ user, error: null, signIn: async () => {}, signOut: async () => {} }}>
+      <AuthContext.Provider value={{ user, error: null, signIn: async () => {}, signOut: async () => {}, refreshStanding }}>
         <BranchProvider>
           <OrganizationBrandingContext.Provider value={{ branding, loading: false }}>
             <ThemeProvider>
@@ -593,7 +594,15 @@ describe('AppLayout', () => {
 // organization-account-standing T7: web admins see the countdown; a suspended organization's users see only the
 // suspended screen (with the account menu to sign out); the system administrator is never blocked.
 describe('AppLayout account standing', () => {
-  afterEach(() => cleanup())
+  // The countdown is counted from today: pin it to the ODD's example day (signed in 2026-10-09, suspends 2026-11-08).
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 9, 9, 10, 0, 0))
+  })
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
+  })
 
   const overdue = (daysLeft: number | null, suspendsOn: string | null) =>
     ({ status: 'Overdue', daysLeft, suspendsOn }) as const
@@ -608,6 +617,7 @@ describe('AppLayout account standing', () => {
   })
 
   it('says one day in singular', () => {
+    vi.setSystemTime(new Date(2026, 10, 7, 10, 0, 0))
     renderLayout(buildUser({ permissions: Permission.ManageUsers, accountStanding: overdue(1, '2026-11-08') }))
 
     expect(screen.getByRole('status')).toHaveTextContent('se suspende en 1 día (el 08/11/2026)')
@@ -634,6 +644,30 @@ describe('AppLayout account standing', () => {
 
     expect(screen.getByText('El acceso está suspendido. Contacte al administrador de su empresa.')).toBeInTheDocument()
     expect(screen.queryByText(/falta de pago/)).not.toBeInTheDocument()
+  })
+
+  it('counts the days left from today, so a session left open for days does not show a stale countdown', () => {
+    // Signed in on 2026-10-09 with 30 days left; the tab is still open on 2026-11-05.
+    vi.setSystemTime(new Date(2026, 10, 5, 10, 0, 0))
+    renderLayout(buildUser({ permissions: Permission.ManageUsers, accountStanding: overdue(30, '2026-11-08') }))
+
+    expect(screen.getByRole('status')).toHaveTextContent('se suspende en 3 días (el 08/11/2026)')
+  })
+
+  it('hides the countdown once the suspension date is reached (the server takes over from there)', () => {
+    vi.setSystemTime(new Date(2026, 10, 8, 10, 0, 0))
+    renderLayout(buildUser({ permissions: Permission.ManageUsers, accountStanding: overdue(30, '2026-11-08') }))
+
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
+  it('lets a suspended user check again, so a reactivation is picked up without signing in again', async () => {
+    const refreshStanding = vi.fn(async () => {})
+    renderLayout(buildUser({ permissions: Permission.ViewSales, accountStanding: suspended }), undefined, refreshStanding)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Volver a verificar' }))
+
+    expect(refreshStanding).toHaveBeenCalledTimes(1)
   })
 
   it('never blocks the system administrator', () => {

@@ -50,10 +50,11 @@ describe('AuthProvider and a mid-session suspension', () => {
   })
 
   function Probe() {
-    const { user, signIn } = useAuth()
+    const { user, signIn, refreshStanding } = useAuth()
     return (
       <>
         <button type="button" onClick={() => void signIn({ email: 'a@example.com', password: 'p' })}>sign in</button>
+        <button type="button" onClick={() => void refreshStanding?.()}>check again</button>
         <p data-testid="status">{user?.accountStanding?.status ?? 'none'}</p>
         <p data-testid="suspendsOn">{user?.accountStanding?.suspendsOn ?? 'none'}</p>
       </>
@@ -76,6 +77,27 @@ describe('AuthProvider and a mid-session suspension', () => {
 
     expect(screen.getByTestId('status')).toHaveTextContent('Suspended')
     expect(screen.getByTestId('suspendsOn')).toHaveTextContent('2026-11-08')
+  })
+
+  it('checks again with /account/me and lifts the suspended screen once the organization is reactivated', async () => {
+    const session = {
+      organizationId: 'org-1', userId: 'user-1', displayName: 'Jane', permissions: Permission.ManageUsers,
+      isSystemAdmin: false, selectableBranches: [],
+    }
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      ...session, accountStanding: { status: 'Suspended', suspendsOn: null, daysLeft: null },
+    }), { status: 200 }))
+    render(<AuthProvider><Probe /></AuthProvider>)
+    fireEvent.click(screen.getByRole('button', { name: 'sign in' }))
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('Suspended'))
+
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      ...session, accountStanding: { status: 'Active', suspendsOn: null, daysLeft: null },
+    }), { status: 200 }))
+    fireEvent.click(screen.getByRole('button', { name: 'check again' }))
+
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('Active'))
+    expect(fetchMock.mock.calls[1][0]).toBe('/account/me')
   })
 
   it('ignores the announcement when nobody is signed in', () => {

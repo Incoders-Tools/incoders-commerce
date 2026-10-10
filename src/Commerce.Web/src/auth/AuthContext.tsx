@@ -9,6 +9,11 @@ interface AuthContextValue {
   error: string | null
   signIn: (request: SignInRequest) => Promise<void>
   signOut: () => Promise<void>
+  /**
+   * organization-account-standing T7: re-reads the organization's standing from `/account/me` (open while suspended), so
+   * a reactivation lifts the suspended screen without signing in again. Optional so test doubles may omit it.
+   */
+  refreshStanding?: () => Promise<void>
 }
 
 export const AuthContext = createContext<AuthContextValue | undefined>(undefined)
@@ -45,6 +50,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  const refreshStanding = async () => {
+    const me = await accountApi.currentUser()
+    setUser((current) => (current === null ? current : { ...current, accountStanding: me.accountStanding ?? null }))
+  }
+
   const signOut = async () => {
     try {
       await accountApi.signOut()
@@ -54,7 +64,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, error, signIn, signOut }}>
+    <AuthContext.Provider value={{ user, error, signIn, signOut, refreshStanding }}>
       {children}
     </AuthContext.Provider>
   )

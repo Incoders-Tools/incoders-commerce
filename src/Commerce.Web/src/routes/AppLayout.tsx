@@ -68,7 +68,7 @@ function readCollapsed(): boolean {
 
 export function AppLayout() {
   const { t } = useTranslation('nav')
-  const { user } = useAuth()
+  const { user, refreshStanding } = useAuth()
   const organizationContext = useOptionalOrganizationContext()
   const branchContext = useOptionalBranchContext()
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -147,7 +147,7 @@ export function AppLayout() {
 
         {suspended ? (
           <main className="w-full min-w-0 flex-1 p-4 md:p-6">
-            <AccountSuspendedScreen isAdmin={hasPermission(user, Permission.ManageUsers)} />
+            <AccountSuspendedScreen isAdmin={hasPermission(user, Permission.ManageUsers)} onCheckAgain={refreshStanding} />
           </main>
         ) : (
           <div className="flex flex-1">

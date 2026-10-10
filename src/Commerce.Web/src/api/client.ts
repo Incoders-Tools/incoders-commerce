@@ -10,19 +10,19 @@ function t(key: 'apiUnreachable' | 'requestFailedWithStatus', options?: Record<s
 }
 
 /**
- * Thin same-origin fetch wrapper. `credentials: 'include'` sends the
- * HttpOnly/Secure/SameSite=Lax Identity cookie Cloud.Api sets at sign-in
- * (design.md "Browser auth") — the SPA never reads or stores the cookie
- * itself, and never touches localStorage/sessionStorage for auth.
- */
-/**
  * organization-account-standing T7: dispatched on `window` when the API answers 403
- * `{ "code": "organization-suspended" }` (Cloud.Api `OrganizationSuspensionMiddleware`). `apiFetch` runs outside React,
+ * `{ "error": "organization-suspended" }` (Cloud.Api `OrganizationSuspensionMiddleware`). `apiFetch` runs outside React,
  * so it announces the suspension and `AuthProvider` switches the session to the suspended screen.
  */
 export const ORGANIZATION_SUSPENDED_EVENT = 'commerce:organization-suspended'
 const ORGANIZATION_SUSPENDED_CODE = 'organization-suspended'
 
+/**
+ * Thin same-origin fetch wrapper. `credentials: 'include'` sends the
+ * HttpOnly/Secure/SameSite=Lax Identity cookie Cloud.Api sets at sign-in
+ * (design.md "Browser auth") — the SPA never reads or stores the cookie
+ * itself, and never touches localStorage/sessionStorage for auth.
+ */
 export class ApiError extends Error {
   readonly status: number
   /** Machine code from a typed `{ "error": "<code>" }` body, when the server sent one. */
@@ -93,11 +93,10 @@ export async function apiFetch<TResponse>(
       detail = body?.title ?? body?.detail ?? JSON.stringify(body)
       if (typeof body?.error === 'string') code = body.error
       if (body?.errors && typeof body.errors === 'object') fieldErrors = body.errors
-      if (response.status === 403 && body?.code === ORGANIZATION_SUSPENDED_CODE) code = ORGANIZATION_SUSPENDED_CODE
     } catch {
       // Non-JSON error body; fall back to statusText.
     }
-    if (code === ORGANIZATION_SUSPENDED_CODE) {
+    if (response.status === 403 && code === ORGANIZATION_SUSPENDED_CODE) {
       window.dispatchEvent(new CustomEvent(ORGANIZATION_SUSPENDED_EVENT))
     }
     throw new ApiError(
