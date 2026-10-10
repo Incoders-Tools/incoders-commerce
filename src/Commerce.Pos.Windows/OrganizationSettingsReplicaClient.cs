@@ -1,5 +1,6 @@
 using System.Net.Http;
 using System.Net.Http.Headers;
+using Commerce.BranchNode;
 
 namespace Commerce.Pos.Windows;
 
@@ -33,9 +34,17 @@ public sealed class OrganizationSettingsReplicaClient
             }
 
             var body = await PosHttp.TryReadJsonAsync<DeviceOrganizationSettingsDto>(response, endpoint, ct);
-            return QuantityFormat.IsKnownSeparator(body?.QuantityDecimalSeparator)
-                ? OrganizationSettingsPullOutcome.Succeeded(body!.QuantityDecimalSeparator!)
-                : OrganizationSettingsPullOutcome.Failed(PosMessages.UnexpectedResponse);
+            if (!QuantityFormat.IsKnownSeparator(body?.QuantityDecimalSeparator))
+            {
+                return OrganizationSettingsPullOutcome.Failed(PosMessages.UnexpectedResponse);
+            }
+
+            // organization-account-standing T8: absent from a server that predates it; then the caller keeps the last
+            // known standing instead of clearing it.
+            var standing = body!.AccountStanding is { } wire
+                ? new AccountStandingReplica(wire.DueOn, wire.GraceDays, wire.Suspended)
+                : null;
+            return OrganizationSettingsPullOutcome.Succeeded(body.QuantityDecimalSeparator!, standing);
         }
         catch (Exception ex) when (PosHttp.IsTransportFailure(ex, ct))
         {
@@ -46,12 +55,20 @@ public sealed class OrganizationSettingsReplicaClient
 }
 
 /// <summary>Mirrors `Commerce.Cloud.Api.Endpoints.DeviceOrganizationSettingsResponse`.</summary>
-public sealed record DeviceOrganizationSettingsDto(string? QuantityDecimalSeparator);
+public sealed record DeviceOrganizationSettingsDto(string? QuantityDecimalSeparator, DeviceAccountStandingDto? AccountStanding = null);
 
-/// <summary>A failure carries no data: the caller leaves the stored settings as they were.</summary>
-public sealed record OrganizationSettingsPullOutcome(bool Success, string? QuantityDecimalSeparator, string? Error)
+/// <summary>Mirrors `Commerce.Cloud.Api.Endpoints.DeviceAccountStanding`: the inputs of the standing rule.</summary>
+public sealed record DeviceAccountStandingDto(DateOnly? DueOn, int GraceDays, bool Suspended);
+
+/// <summary>
+/// A failure carries no data: the caller leaves the stored settings as they were. <see cref="AccountStanding"/> is null
+/// on a success from a server that predates it, and the caller then keeps the last known one.
+/// </summary>
+public sealed record OrganizationSettingsPullOutcome(
+    bool Success, string? QuantityDecimalSeparator, string? Error, AccountStandingReplica? AccountStanding = null)
 {
-    public static OrganizationSettingsPullOutcome Succeeded(string quantityDecimalSeparator) => new(true, quantityDecimalSeparator, null);
+    public static OrganizationSettingsPullOutcome Succeeded(string quantityDecimalSeparator, AccountStandingReplica? accountStanding = null) =>
+        new(true, quantityDecimalSeparator, null, accountStanding);
 
     public static OrganizationSettingsPullOutcome Failed(string error) => new(false, null, error);
 }

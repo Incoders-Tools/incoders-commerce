@@ -220,12 +220,19 @@
         <Border Grid.Row="2" Background="{DynamicResource ShellElevatedBrush}" BorderBrush="{DynamicResource BorderBrushMuted}" BorderThickness="0,1,0,0" Padding="12,1">
             <Grid Height="18">
                 <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-                <TextBlock x:Name="BottomSyncStatusText" Grid.Column="0" Style="{StaticResource MutedTextBlock}" FontSize="11" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                <!-- organization-account-standing T8: red notice for every signed-in operator while the organization is behind
+                     on its payment; the POS keeps selling (ADR-002). Text and tooltip come from AccountStandingNotice. -->
+                <Border x:Name="AccountStandingPill" Grid.Column="0" Background="{DynamicResource DangerSurfaceBrush}" BorderBrush="{DynamicResource DangerBrush}" BorderThickness="1"
+                        CornerRadius="4" Padding="6,0" Margin="0,0,12,0" VerticalAlignment="Center" Visibility="Collapsed">
+                    <TextBlock x:Name="AccountStandingPillText" Foreground="{DynamicResource DangerBrush}" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" />
+                </Border>
+                <TextBlock x:Name="BottomSyncStatusText" Grid.Column="1" Style="{StaticResource MutedTextBlock}" FontSize="11" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
                     <TextBlock x:Name="BottomUpgradeReportText" Style="{StaticResource MutedTextBlock}" FontSize="11" VerticalAlignment="Center" Margin="12,0,0,0" Visibility="Collapsed" />
                     <!-- Link-styled button: keeps the footer thin while opening the install wizard. -->
                     <Button x:Name="BottomUpdateAvailableButton" Click="UpdateAvailableButton_Click" Visibility="Collapsed" Cursor="Hand"
@@ -247,7 +254,7 @@
                         </Button.Template>
                     </Button>
                 </StackPanel>
-                <TextBlock x:Name="BottomVersionStatusText" Grid.Column="2" Style="{StaticResource MutedTextBlock}" FontSize="11" VerticalAlignment="Center" Margin="12,0,0,0" />
+                <TextBlock x:Name="BottomVersionStatusText" Grid.Column="3" Style="{StaticResource MutedTextBlock}" FontSize="11" VerticalAlignment="Center" Margin="12,0,0,0" />
             </Grid>
         </Border>
     </Grid>
