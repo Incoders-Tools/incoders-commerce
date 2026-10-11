@@ -257,6 +257,9 @@ export interface CustomerRecord {
   neighborhood: string | null
   postalCode: string | null
   deliveryNotes: string | null
+  // owner-requests-quick-adjustments Q1: how to find the place; apart from the delivery notes. On update, omitted keeps
+  // the stored one and "" clears it.
+  locationReference?: string | null
   discountPercentage: number | null
   paymentTerms: string | null
   /** Days a sale on current account has to be paid; null = the organization's general term. */
@@ -302,6 +305,9 @@ export interface CreateCustomerRequest {
   neighborhood: string | null
   postalCode: string | null
   deliveryNotes: string | null
+  // owner-requests-quick-adjustments Q1: how to find the place; apart from the delivery notes. On update, omitted keeps
+  // the stored one and "" clears it.
+  locationReference?: string | null
   discountPercentage: number | null
   paymentTerms: string | null
   // Days to pay a sale on current account. Omitted on create = use the organization's general term; on PUT omitted

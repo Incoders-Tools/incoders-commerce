@@ -405,7 +405,7 @@ describe('CustomerForm', () => {
       renderNew()
 
       const address = screen.getByRole('group', { name: 'Ubicación' })
-      const order = ['Provincia', 'Ciudad', 'Código postal', 'Barrio', 'Calle', 'Número', 'Referencias de ubicación'].map(
+      const order = ['Provincia', 'Ciudad', 'Código postal', 'Barrio', 'Calle', 'Número', 'Referencias de ubicación', 'Notas de entrega'].map(
         (label) => within(address).getByLabelText(label),
       )
       for (let i = 1; i < order.length; i++) {
@@ -819,6 +819,23 @@ describe('CustomerForm price list', () => {
     expect(discount).toHaveAttribute('inputmode', 'decimal')
     expect(discount).toHaveAccessibleDescription('De 0 a 100, sin el signo %. Admite decimales: 7,5.')
     expect(screen.getByLabelText('Referencias de ubicación')).toHaveAttribute('placeholder', 'Ej.: Casa gris con 2 árboles al frente')
+    expect(screen.getByLabelText('Notas de entrega')).toHaveAttribute('placeholder', 'Ej.: Si no hay nadie, dejar con el vecino')
+  })
+
+  it('sends the location reference and the delivery notes as two separate fields', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ customerId: 'c-1' }), { status: 201 }))
+    const user = userEvent.setup()
+    render(<CustomerForm onSaved={vi.fn()} onCancel={vi.fn()} />)
+
+    await user.type(screen.getByLabelText('Nombre y apellido'), 'Jane Doe')
+    await user.type(screen.getByLabelText('Referencias de ubicación'), 'Casa gris')
+    await user.type(screen.getByLabelText('Notas de entrega'), 'Dejar con el vecino')
+    await user.click(screen.getByRole('button', { name: /^guardar$/i }))
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string)
+    expect(body.locationReference).toBe('Casa gris')
+    expect(body.deliveryNotes).toBe('Dejar con el vecino')
   })
 
   it('puts a discount the server refuses on its field, with the same help text', async () => {

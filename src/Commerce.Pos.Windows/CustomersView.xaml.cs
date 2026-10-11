@@ -206,6 +206,7 @@ public partial class CustomersView : UserControl, ISectionView
         AddressNumberTextBox.Text = selected.AddressNumber ?? string.Empty;
         NeighborhoodTextBox.Text = selected.Neighborhood ?? string.Empty;
         PostalCodeTextBox.Text = selected.PostalCode ?? string.Empty;
+        LocationReferenceTextBox.Text = selected.LocationReference ?? string.Empty;
         DeliveryNotesTextBox.Text = selected.DeliveryNotes ?? string.Empty;
         DiscountPercentageTextBox.Text = selected.DiscountPercentage is { } discount ? CustomerFormRules.DiscountText(discount) : string.Empty;
         PaymentTermsTextBox.Text = selected.PaymentTerms ?? string.Empty;
@@ -375,7 +376,7 @@ public partial class CustomersView : UserControl, ISectionView
                     form.DisplayName, taxIdType, form.TaxId, taxCondition, form.Phone, form.Email,
                     form.AddressStreet, form.AddressNumber, form.Neighborhood, form.PostalCode,
                     form.DeliveryNotes, discountPercentage, form.PaymentTerms, form.Notes, isEnabled,
-                    cityChange, partyType, BusinessTypeId: businessTypeId), _busy.Token);
+                    cityChange, partyType, BusinessTypeId: businessTypeId, LocationReference: form.LocationReference), _busy.Token);
                 outcome = result.Outcome;
                 if (result.Current is { } current && _selectedCustomerId == id)
                 {
@@ -400,7 +401,7 @@ public partial class CustomersView : UserControl, ISectionView
                     customerKind, form.DisplayName, taxIdType, form.TaxId, taxCondition, form.Phone, form.Email,
                     form.AddressStreet, form.AddressNumber, form.Neighborhood, form.PostalCode,
                     form.DeliveryNotes, discountPercentage, form.PaymentTerms, form.Notes, cityId, partyType,
-                    businessTypeId == Guid.Empty ? null : businessTypeId), _busy.Token);
+                    businessTypeId == Guid.Empty ? null : businessTypeId, LocationReference: form.LocationReference), _busy.Token);
             }
 
             if (outcome.Kind == CustomerAdminMutationKind.Succeeded)
@@ -425,12 +426,14 @@ public partial class CustomersView : UserControl, ISectionView
         DisplayNameTextBox.Text.Trim(), NullIfBlank(TaxIdTextBox.Text), NullIfBlank(PhoneTextBox.Text),
         NullIfBlank(EmailTextBox.Text)?.Trim(), NullIfBlank(AddressStreetTextBox.Text), NullIfBlank(AddressNumberTextBox.Text),
         NullIfBlank(NeighborhoodTextBox.Text), NullIfBlank(PostalCodeTextBox.Text), NullIfBlank(DeliveryNotesTextBox.Text),
-        NullIfBlank(PaymentTermsTextBox.Text), NullIfBlank(NotesTextBox.Text));
+        NullIfBlank(PaymentTermsTextBox.Text), NullIfBlank(NotesTextBox.Text),
+        // Always sent, "" when blank: on an update that clears it (null would keep the stored one).
+        LocationReferenceTextBox.Text.Trim());
 
     private sealed record FormFields(
         string DisplayName, string? TaxId, string? Phone, string? Email, string? AddressStreet,
         string? AddressNumber, string? Neighborhood, string? PostalCode,
-        string? DeliveryNotes, string? PaymentTerms, string? Notes);
+        string? DeliveryNotes, string? PaymentTerms, string? Notes, string LocationReference);
 
     private void ResetForm()
     {
@@ -457,6 +460,7 @@ public partial class CustomersView : UserControl, ISectionView
         AddressNumberTextBox.Text = string.Empty;
         NeighborhoodTextBox.Text = string.Empty;
         PostalCodeTextBox.Text = string.Empty;
+        LocationReferenceTextBox.Text = string.Empty;
         DeliveryNotesTextBox.Text = string.Empty;
         DiscountPercentageTextBox.Text = string.Empty;
         PaymentTermsTextBox.Text = string.Empty;

@@ -57,8 +57,8 @@ public sealed class OrderFulfillmentTests : IDisposable
         var customer = Guid.NewGuid();
         await new PostgresCustomerStore(_dataSource!).CreateAsync(new CloudTenantScope(org),
             new NewCustomer(customer, CustomerKind.Wholesale, "Parrilla Don Julio", null, TaxIdType.Cuit, "30712345671",
-                TaxCondition.ResponsableInscripto, "2478-555555", null, "Frascheri", "626", null, null, null, null, "Portón verde",
-                null, null, null, actor),
+                TaxCondition.ResponsableInscripto, "2478-555555", null, "Frascheri", "626", null, null, null, null,
+                "Si no hay nadie, dejar con el vecino", null, null, null, actor, LocationReference: "Portón verde"),
             "org-user", actor, CancellationToken.None);
 
         using var owner = OpenOwner();
@@ -150,6 +150,8 @@ public sealed class OrderFulfillmentTests : IDisposable
         Assert.Empty(detail.AllowedTransitions);
         Assert.Equal(26_500m, detail.Summary.Total); // 2,5 kg x 10.000 + 3 x 500
         Assert.Equal(("Parrilla Don Julio", "30712345671", "Frascheri 626"), (detail.Party.DisplayName, detail.Party.TaxId, detail.Party.Address));
+        // owner-requests-quick-adjustments Q1: how to find the place and what to do with the delivery are two things.
+        Assert.Equal(("Portón verde", "Si no hay nadie, dejar con el vecino"), (detail.Party.LocationReference, detail.Party.DeliveryNotes));
         Assert.Single(await store.ListOrdersAsync(w.Scope, "Cancelled", null, null, "don julio", default));
         Assert.Empty(await store.ListOrdersAsync(w.Scope, "Active", null, null, null, default));
     }

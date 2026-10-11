@@ -159,7 +159,8 @@ public static class CustomerEndpoints
                 request.Neighborhood, Locality: null, Province: null, request.PostalCode, request.DeliveryNotes,
                 request.DiscountPercentage, request.PaymentTerms, request.Notes, caller.Id,
                 NullIfEmpty(request.CityId), NullIfEmpty(request.BusinessTypeId), contacts, NullIfEmpty(request.PriceListId),
-                partyType ?? PartyTypeRules.DefaultFor(taxIdType), PaymentTermsDays: request.PaymentTermsDays == ClearPaymentTermsDays ? null : request.PaymentTermsDays);
+                partyType ?? PartyTypeRules.DefaultFor(taxIdType), PaymentTermsDays: request.PaymentTermsDays == ClearPaymentTermsDays ? null : request.PaymentTermsDays,
+                LocationReference: BlankToNull(request.LocationReference));
 
             CustomerRecord created;
             try
@@ -274,7 +275,9 @@ public static class CustomerEndpoints
                 request.PriceListId is { } priceList ? new ColumnChange<Guid?>(NullIfEmpty(priceList)) : null,
                 partyType,
                 // Omitted keeps the stored terms; -1 clears them (the customer uses the organization's default).
-                request.PaymentTermsDays is { } days ? new ColumnChange<int?>(days == ClearPaymentTermsDays ? null : days) : null);
+                request.PaymentTermsDays is { } days ? new ColumnChange<int?>(days == ClearPaymentTermsDays ? null : days) : null,
+                // owner-requests-quick-adjustments Q1: omitted keeps it (an older POS never wipes it); blank clears it.
+                LocationReference: request.LocationReference is { } reference ? new ColumnChange<string?>(BlankToNull(reference)) : null);
 
             CustomerRecord? updated;
             try
@@ -566,7 +569,7 @@ public sealed record CreateCustomerRequest(
     string? AddressStreet, string? AddressNumber, string? Neighborhood, string? PostalCode,
     string? DeliveryNotes, decimal? DiscountPercentage, string? PaymentTerms, string? Notes,
     Guid? CityId = null, Guid? BusinessTypeId = null, ContactRequest[]? Contacts = null, Guid? PriceListId = null,
-    string? PartyType = null, int? PaymentTermsDays = null);
+    string? PartyType = null, int? PaymentTermsDays = null, string? LocationReference = null);
 
 /// <summary>
 /// <see cref="CreateCustomerRequest"/> minus <c>CustomerKind</c> (read-only at
@@ -582,7 +585,7 @@ public sealed record UpdateCustomerRequest(
     bool IsEnabled,
     Guid? CityId = null, Guid? BusinessTypeId = null, ContactRequest[]? Contacts = null,
     DateTimeOffset? ExpectedUpdatedAtUtc = null, Guid? PriceListId = null, string? PartyType = null,
-    int? PaymentTermsDays = null);
+    int? PaymentTermsDays = null, string? LocationReference = null);
 
 /// <summary>
 /// One contact person in a customer create/update body. `Id` is optional: a sent id is kept (it updates the

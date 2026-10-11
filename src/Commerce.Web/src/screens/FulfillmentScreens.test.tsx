@@ -58,7 +58,7 @@ describe('fulfillment screens', () => {
       { lineNo: 1, presentationId: 'p-1', productName: 'Vacío', presentationName: 'Por kg', quantityBehavior: 'Weighted', quantity: 2.5, unitNetPrice: 10000, lineTotal: 25000, deliveredQuantity: null },
       { lineNo: 2, presentationId: 'p-2', productName: 'Chorizo', presentationName: 'Unidad', quantityBehavior: 'FixedQuantity', quantity: 3, unitNetPrice: 500, lineTotal: 1500, deliveredQuantity: null },
     ],
-    party: { displayName: 'Parrilla Don Julio', legalName: 'Don Julio SRL', taxIdType: 'Cuit', taxId: '30712345671', taxCondition: 'ResponsableInscripto', phone: '2478-555555', address: 'Frascheri 626', locality: 'Arrecifes', province: 'Buenos Aires', postalCode: '2740', deliveryNotes: 'Portón verde' },
+    party: { displayName: 'Parrilla Don Julio', legalName: 'Don Julio SRL', taxIdType: 'Cuit', taxId: '30712345671', taxCondition: 'ResponsableInscripto', phone: '2478-555555', address: 'Frascheri 626', locality: 'Arrecifes', province: 'Buenos Aires', postalCode: '2740', deliveryNotes: 'Si no hay nadie, dejar con el vecino', locationReference: 'Portón verde' },
     allowedTransitions: allowed,
   })
 
@@ -134,6 +134,10 @@ describe('fulfillment screens', () => {
 
     expect(await screen.findByRole('heading', { name: 'Pedido P01-W-12' })).toBeInTheDocument()
     expect(screen.getByText('30712345671')).toBeInTheDocument()
+    // owner-requests-quick-adjustments Q1: how to find the place and what to do with the delivery, apart.
+    expect(screen.getByText('Referencias de ubicación:')).toBeInTheDocument()
+    expect(screen.getByText('Portón verde')).toBeInTheDocument()
+    expect(screen.getByText('Si no hay nadie, dejar con el vecino')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Imprimir remito' })).toHaveAttribute('href', '/print/remitos?orders=o-1')
 
     await user.click(screen.getByRole('button', { name: 'Cancelar pedido' }))
@@ -272,6 +276,8 @@ describe('fulfillment screens', () => {
       expect(within(page).getByText(/Depósito Ruta 51/)).toBeInTheDocument()
       expect(within(page).getByText('CUIT: 30-71234567-1')).toBeInTheDocument()
       expect(within(page).getByText('$ 26.500,00')).toBeInTheDocument()
+      expect(within(page).getByText('Portón verde')).toBeInTheDocument()
+      expect(within(page).getByText('Si no hay nadie, dejar con el vecino')).toBeInTheDocument()
     }
     expect(within(duplicate).getByText('Copia para Vaca Verde: firmar al recibir')).toBeInTheDocument()
     await waitFor(() => expect(window.print).toHaveBeenCalledTimes(1))

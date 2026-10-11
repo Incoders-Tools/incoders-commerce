@@ -899,7 +899,7 @@ public sealed class PostgresFulfillmentStore
                    COALESCE(c.tax_id, o.guest_document_id), c.tax_condition, c.phone,
                    NULLIF(btrim(concat_ws(' ', c.address_street, c.address_number)), ''),
                    COALESCE(ci.name, c.locality), COALESCE(pr.name, c.province), COALESCE(c.postal_code, ci.postal_code),
-                   COALESCE(c.delivery_notes, o.guest_delivery_notes), o.guest_contact_address, o.origin
+                   COALESCE(c.delivery_notes, o.guest_delivery_notes), o.guest_contact_address, o.origin, c.location_reference
             FROM orders o
             LEFT JOIN customers c ON c.organization_id = o.organization_id AND c.id = o.customer_id
             LEFT JOIN cities ci ON ci.id = c.city_id
@@ -923,7 +923,8 @@ public sealed class PostgresFulfillmentStore
             Text(7),
             Text(8),
             Text(9),
-            Text(10));
+            Text(10),
+            Text(13));
     }
 
     private static async Task<(Guid? CustomerId, string OrderNumber, string? RemitoNumber)> ReadOrderPartyIdsAsync(

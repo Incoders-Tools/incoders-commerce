@@ -109,6 +109,7 @@ export function OrderTrackingScreen() {
             <Field label={t('orders.detail.taxId')} value={party.taxId} />
             <Field label={t('orders.detail.phone')} value={party.phone} />
             <Field label={t('orders.detail.address')} value={address || null} />
+            <Field label={t('orders.detail.locationReference')} value={party.locationReference ?? null} />
             <Field label={t('orders.detail.deliveryNotes')} value={party.deliveryNotes} />
             <Field label={t('orders.detail.note')} value={summary.note} />
             {summary.settlement && <Field label={t('orders.detail.settlement')} value={t(`settlement.${summary.settlement}`)} />}

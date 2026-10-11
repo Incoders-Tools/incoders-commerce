@@ -73,7 +73,8 @@
       "neighborhood": "Neighborhood",
       "province": "Province",
       "postalCode": "Postal code",
-      "deliveryNotes": "Location references",
+      "locationReference": "Location references",
+      "deliveryNotes": "Delivery notes",
       "discountPercentage": "Discount percentage",
       "paymentTerms": "Payment conditions note",
       "notes": "Notes",
@@ -138,7 +139,8 @@
       "placeholder": "E.g.: pays on Fridays, by transfer",
       "hint": "Informational only: it does not change the due date."
     },
-    "deliveryNotesPlaceholder": "E.g.: Grey house with 2 trees in front",
+    "locationReferencePlaceholder": "E.g.: Grey house with 2 trees in front",
+    "deliveryNotesPlaceholder": "E.g.: If nobody is home, leave it with the neighbour",
     "discountPlaceholder": "E.g.: 10",
     "discountHint": "From 0 to 100, without the % sign. Decimals allowed: 7.5."
   },

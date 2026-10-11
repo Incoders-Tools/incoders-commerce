@@ -313,6 +313,47 @@ public sealed class CustomerMasterDataEndpointTests : IClassFixture<WebApplicati
     }
 
     [Fact]
+    public async Task Customer_KeepsTheLocationReferenceApartFromTheDeliveryNotes_AndAnOlderClientNeverWipesIt()
+    {
+        // owner-requests-quick-adjustments Q1: "Casa gris con 2 árboles al frente" says how to find the place;
+        // "Dejar con el vecino" says what to do with the delivery.
+        if (!_postgresAvailable) return;
+        var email = $"md-location-{Guid.NewGuid():N}@example.com";
+        await BootstrapAsync(email);
+        var admin = await SignInAsync(email);
+
+        var id = (await PostOkAsync(admin, "/customers", new
+        {
+            customerKind = "Retail", displayName = "Con referencias", taxIdType = "None", taxCondition = "ConsumidorFinal",
+            locationReference = "Casa gris con 2 árboles al frente", deliveryNotes = "Dejar con el vecino",
+        })).GetProperty("customerId").GetGuid();
+        var created = await admin.GetFromJsonAsync<JsonElement>($"/customers/{id}");
+        Assert.Equal("Casa gris con 2 árboles al frente", created.GetProperty("locationReference").GetString());
+        Assert.Equal("Dejar con el vecino", created.GetProperty("deliveryNotes").GetString());
+
+        // A client that predates the field (an older POS) sends no locationReference: the stored one stays.
+        var older = await admin.PutAsJsonAsync($"/customers/{id}", new
+        {
+            displayName = "Con referencias", taxIdType = "None", taxCondition = "ConsumidorFinal", isEnabled = true,
+            deliveryNotes = "Dejar en la puerta",
+        });
+        Assert.Equal(HttpStatusCode.OK, older.StatusCode);
+        var kept = await admin.GetFromJsonAsync<JsonElement>($"/customers/{id}");
+        Assert.Equal("Casa gris con 2 árboles al frente", kept.GetProperty("locationReference").GetString());
+        Assert.Equal("Dejar en la puerta", kept.GetProperty("deliveryNotes").GetString());
+
+        // An empty text clears it.
+        var cleared = await admin.PutAsJsonAsync($"/customers/{id}", new
+        {
+            displayName = "Con referencias", taxIdType = "None", taxCondition = "ConsumidorFinal", isEnabled = true,
+            deliveryNotes = "Dejar en la puerta", locationReference = "  ",
+        });
+        Assert.Equal(HttpStatusCode.OK, cleared.StatusCode);
+        var none = await admin.GetFromJsonAsync<JsonElement>($"/customers/{id}");
+        Assert.Equal(JsonValueKind.Null, none.GetProperty("locationReference").ValueKind);
+    }
+
+    [Fact]
     public async Task Customer_WithADecimalDiscount_KeepsIt()
     {
         if (!_postgresAvailable) return;

@@ -223,7 +223,7 @@ public sealed record CustomerAdminRecordDto(
     Guid CreatedByUserId, DateTimeOffset UpdatedAtUtc,
     Guid? CityId = null, string? CityName = null, string? ProvinceId = null, string? ProvinceName = null,
     string PartyType = "Person", string? PriceListName = null,
-    Guid? BusinessTypeId = null, string? BusinessTypeName = null);
+    Guid? BusinessTypeId = null, string? BusinessTypeName = null, string? LocationReference = null);
 
 /// <summary>
 /// Mirrors `Commerce.Cloud.Api.Endpoints.CreateCustomerRequest`: one name (`DisplayName`, a person's full name or a
@@ -235,13 +235,14 @@ public sealed record CreateCustomerAdminRequestDto(
     string? Phone, string? Email,
     string? AddressStreet, string? AddressNumber, string? Neighborhood, string? PostalCode,
     string? DeliveryNotes, decimal? DiscountPercentage, string? PaymentTerms, string? Notes,
-    Guid? CityId, string PartyType, Guid? BusinessTypeId = null);
+    Guid? CityId, string PartyType, Guid? BusinessTypeId = null, string? LocationReference = null);
 
 /// <summary>
 /// Mirrors `Commerce.Cloud.Api.Endpoints.UpdateCustomerRequest`. `CityId`: null keeps the stored city,
 /// <see cref="Guid.Empty"/> clears it (see <see cref="CustomerFormRules.CityChange"/>). `ExpectedUpdatedAtUtc`, when
 /// sent, makes the server refuse the update (409 `customer-modified`) if the customer was saved after that time.
 /// `BusinessTypeId` follows the city's rule: null keeps the stored one, <see cref="Guid.Empty"/> clears it.
+/// `LocationReference`: null keeps the stored one (what an older terminal sends), "" clears it.
 /// </summary>
 public sealed record UpdateCustomerAdminRequestDto(
     string DisplayName,
@@ -249,7 +250,8 @@ public sealed record UpdateCustomerAdminRequestDto(
     string? Phone, string? Email,
     string? AddressStreet, string? AddressNumber, string? Neighborhood, string? PostalCode,
     string? DeliveryNotes, decimal? DiscountPercentage, string? PaymentTerms, string? Notes,
-    bool IsEnabled, Guid? CityId, string PartyType, DateTimeOffset? ExpectedUpdatedAtUtc = null, Guid? BusinessTypeId = null);
+    bool IsEnabled, Guid? CityId, string PartyType, DateTimeOffset? ExpectedUpdatedAtUtc = null, Guid? BusinessTypeId = null,
+    string? LocationReference = null);
 
 /// <summary>One business type of `GET /customers/business-types` (a master-data entry).</summary>
 public sealed record BusinessTypeOptionDto(Guid Id, string Name, bool IsActive = true);

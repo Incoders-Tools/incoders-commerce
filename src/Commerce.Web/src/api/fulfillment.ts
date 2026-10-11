@@ -62,6 +62,7 @@ export interface OrderPartyData {
   province: string | null
   postalCode: string | null
   deliveryNotes: string | null
+  locationReference?: string | null
 }
 
 export interface OrderTrackingDetail {

@@ -191,12 +191,17 @@
                                     </StackPanel>
                                 </Grid>
 
-                                <!-- Row 3: the location reference across the full row (stored as the delivery notes the
-                                     deliveries screen shows the driver; owner-requests-quick-adjustments Q1). -->
+                                <!-- Row 3: how to find the place (owner-requests-quick-adjustments Q1), across the full row. -->
                                 <TextBlock Text="Referencias de ubicación" Style="{StaticResource FieldLabel}" />
-                                <TextBox x:Name="DeliveryNotesTextBox" Style="{StaticResource RowBox}" AutomationProperties.Name="Referencias de ubicación"
+                                <TextBox x:Name="LocationReferenceTextBox" Style="{StaticResource RowBox}" AutomationProperties.Name="Referencias de ubicación"
                                          ToolTip="Ej.: Casa gris con 2 árboles al frente" />
                                 <TextBlock Text="Ej.: Casa gris con 2 árboles al frente" Style="{StaticResource MutedTextBlock}" FontSize="11" Margin="0,2,0,0" />
+
+                                <!-- Row 4: what to do with the delivery, across the full row. -->
+                                <TextBlock Text="Notas de entrega" Style="{StaticResource FieldLabel}" />
+                                <TextBox x:Name="DeliveryNotesTextBox" Style="{StaticResource RowBox}" AutomationProperties.Name="Notas de entrega"
+                                         ToolTip="Ej.: Si no hay nadie, dejar con el vecino" />
+                                <TextBlock Text="Ej.: Si no hay nadie, dejar con el vecino" Style="{StaticResource MutedTextBlock}" FontSize="11" Margin="0,2,0,0" />
 
                                 <Separator />
                                 <TextBlock Text="Condiciones comerciales" Style="{StaticResource FormSectionTitle}" />

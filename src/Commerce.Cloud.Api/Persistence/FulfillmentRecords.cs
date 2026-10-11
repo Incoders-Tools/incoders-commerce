@@ -45,7 +45,8 @@ public sealed record OrderPartyData(
     string? Locality,
     string? Province,
     string? PostalCode,
-    string? DeliveryNotes);
+    string? DeliveryNotes,
+    string? LocationReference = null);
 
 public sealed record OrderTrackingDetail(
     OrderTrackingSummary Summary,

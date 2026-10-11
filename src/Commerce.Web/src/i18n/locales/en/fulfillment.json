@@ -89,6 +89,7 @@
       "taxId": "Tax id",
       "phone": "Phone",
       "address": "Address",
+      "locationReference": "Location references",
       "deliveryNotes": "Directions",
       "note": "Order note",
       "lines": "Products",
@@ -223,6 +224,7 @@
     "taxCondition": "VAT condition",
     "address": "Address",
     "phone": "Phone",
+    "locationReference": "Location references",
     "deliveryNotes": "Directions",
     "issuer": {
       "taxId": "Tax id",

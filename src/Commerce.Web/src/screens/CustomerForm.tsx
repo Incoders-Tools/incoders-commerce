@@ -145,6 +145,7 @@ export function CustomerForm({
   /** Whether the postal code shown came from the chosen city (so it follows the city) rather than from the user. */
   const [postalCodeFromCity, setPostalCodeFromCity] = useState(false)
   const [deliveryNotes, setDeliveryNotes] = useState(customer?.deliveryNotes ?? '')
+  const [locationReference, setLocationReference] = useState(customer?.locationReference ?? '')
   const [discountPercentage, setDiscountPercentage] = useState(
     customer?.discountPercentage !== null && customer?.discountPercentage !== undefined
       ? String(customer.discountPercentage)
@@ -245,6 +246,8 @@ export function CustomerForm({
         neighborhood: neighborhood || null,
         postalCode: postalCode.trim() || null,
         deliveryNotes: deliveryNotes || null,
+        // Always sent, "" when blank: on an update that clears it (omitted would keep the stored one).
+        locationReference: locationReference.trim(),
         discountPercentage: discount.value,
         paymentTerms: paymentTerms || null,
         // Empty = the organization's general term: on PUT that is the -1 sentinel, on create the value is left out.
@@ -426,6 +429,14 @@ export function CustomerForm({
             <Field id="neighborhood" label={t('form.fields.neighborhood')} value={neighborhood} onChange={setNeighborhood} />
             <Field id="addressStreet" label={t('form.fields.addressStreet')} value={addressStreet} onChange={setAddressStreet} />
             <Field id="addressNumber" label={t('form.fields.addressNumber')} value={addressNumber} onChange={setAddressNumber} />
+            <Field
+              id="locationReference"
+              label={t('form.fields.locationReference')}
+              value={locationReference}
+              onChange={setLocationReference}
+              placeholder={t('form.locationReferencePlaceholder')}
+              className="md:col-span-3"
+            />
             <Field
               id="deliveryNotes"
               label={t('form.fields.deliveryNotes')}

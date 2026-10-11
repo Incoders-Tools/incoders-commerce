@@ -71,19 +71,31 @@ public sealed class CustomerDiscountTests
     public const string DiscountHint = "De 0 a 100, sin el signo %. Admite decimales: 7,5.";
     public const string LocationLabel = "Referencias de ubicación";
     public const string LocationExample = "Ej.: Casa gris con 2 árboles al frente";
+    public const string DeliveryNotesLabel = "Notas de entrega";
+    public const string DeliveryNotesExample = "Ej.: Si no hay nadie, dejar con el vecino";
 
     [Fact]
-    public void TheWebAndThePos_ExplainTheDiscountAndTheLocationReference_WithTheSameWords()
+    public void TheWebAndThePos_ExplainTheDiscountTheLocationReferenceAndTheDeliveryNotes_WithTheSameWords()
     {
+        // Two different things: how to find the place, and what to do with the delivery.
         var web = Repo("src", "Commerce.Web", "src", "i18n", "locales", "es", "customers.json");
         var pos = Repo("src", "Commerce.Pos.Windows", "CustomersView.xaml");
 
-        foreach (var text in new[] { DiscountHint, LocationLabel, LocationExample })
+        foreach (var text in new[] { DiscountHint, LocationLabel, LocationExample, DeliveryNotesLabel, DeliveryNotesExample })
         {
             Assert.Contains(text, web);
             Assert.Contains(text, pos);
         }
 
-        Assert.DoesNotMatch(new Regex("Notas de entrega"), pos);
+        Assert.Matches(new Regex(@"x:Name=""LocationReferenceTextBox"""), pos);
+        Assert.Matches(new Regex(@"x:Name=""DeliveryNotesTextBox"""), pos);
+    }
+
+    [Fact]
+    public void ThePos_SendsTheLocationReference_OnCreateAndUpdate()
+    {
+        var code = Repo("src", "Commerce.Pos.Windows", "CustomersView.xaml.cs");
+        Assert.Matches(new Regex(@"LocationReferenceTextBox\.Text = selected\.LocationReference"), code);
+        Assert.Equal(2, Regex.Matches(code, @"LocationReference: form\.LocationReference").Count);
     }
 }

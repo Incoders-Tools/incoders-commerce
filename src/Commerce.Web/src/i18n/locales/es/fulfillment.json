@@ -89,6 +89,7 @@
       "taxId": "CUIT/DNI",
       "phone": "Teléfono",
       "address": "Dirección",
+      "locationReference": "Referencias de ubicación",
       "deliveryNotes": "Indicaciones",
       "note": "Nota del pedido",
       "lines": "Productos",
@@ -223,6 +224,7 @@
     "taxCondition": "Condición IVA",
     "address": "Domicilio",
     "phone": "Teléfono",
+    "locationReference": "Referencias de ubicación",
     "deliveryNotes": "Indicaciones",
     "issuer": {
       "taxId": "CUIT",
