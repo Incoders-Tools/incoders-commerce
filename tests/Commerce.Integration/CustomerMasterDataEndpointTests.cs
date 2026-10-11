@@ -159,7 +159,8 @@ public sealed class CustomerMasterDataEndpointTests : IClassFixture<WebApplicati
         Assert.Equal(5, explicitKey.GetProperty("sortOrder").GetInt32());
 
         var listed = await admin.GetFromJsonAsync<JsonElement>(route);
-        Assert.Equal(["San Miguel", "Moreno"], listed.EnumerateArray().Select(e => e.GetProperty("name").GetString()).ToArray());
+        // owner-requests-quick-adjustments Q2: alphabetical, whatever the stored order (Moreno has 5, San Miguel 0).
+        Assert.Equal(["Moreno", "San Miguel"], listed.EnumerateArray().Select(e => e.GetProperty("name").GetString()).ToArray());
 
         var renamed = await admin.PutAsJsonAsync($"{route}/{id}", new { name = "San Miguel Centro", sortOrder = 1, isActive = false });
         Assert.Equal(HttpStatusCode.OK, renamed.StatusCode);

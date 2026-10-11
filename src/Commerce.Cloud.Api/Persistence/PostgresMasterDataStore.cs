@@ -47,8 +47,9 @@ public abstract class PostgresMasterDataStore
         await TenantScopeSql.ApplyAsync(connection, tx, scope, ct);
 
         var results = new List<MasterDataRecord>();
+        // owner-requests-quick-adjustments Q2: alphabetical; sort_order is kept but no longer orders the list.
         await using (var cmd = new NpgsqlCommand(
-            $"SELECT {Columns} FROM {_table} WHERE ($1 OR is_active) ORDER BY sort_order, lower(name), id", connection, tx))
+            $"SELECT {Columns} FROM {_table} WHERE ($1 OR is_active) ORDER BY lower(name), id", connection, tx))
         {
             cmd.Parameters.AddWithValue(includeInactive);
             await using var reader = await cmd.ExecuteReaderAsync(ct);

@@ -65,12 +65,8 @@ export function MasterDataScreen({ namespace, api, viewKey, nameInUseCode, keyIn
   const handleToggleActive = async (entry: MasterDataEntry) => {
     setActionError(null)
     try {
-      await api.update(entry.id, {
-        name: entry.name,
-        key: entry.key,
-        sortOrder: entry.sortOrder,
-        isActive: !entry.isActive,
-      })
+      // The key and the order are omitted: the server keeps them.
+      await api.update(entry.id, { name: entry.name, isActive: !entry.isActive })
       await refresh()
     } catch {
       setActionError(t('errors.unableToUpdate'))
@@ -83,11 +79,7 @@ export function MasterDataScreen({ namespace, api, viewKey, nameInUseCode, keyIn
       entries.filter((entry) => {
         if (status === 'active' && !entry.isActive) return false
         if (status === 'inactive' && entry.isActive) return false
-        return (
-          trimmedSearch === '' ||
-          entry.name.toLowerCase().includes(trimmedSearch) ||
-          entry.key.toLowerCase().includes(trimmedSearch)
-        )
+        return trimmedSearch === '' || entry.name.toLowerCase().includes(trimmedSearch)
       }),
     [entries, status, trimmedSearch],
   )
@@ -111,13 +103,6 @@ export function MasterDataScreen({ namespace, api, viewKey, nameInUseCode, keyIn
 
   const columns: DataViewColumn<MasterDataEntry>[] = [
     { key: 'name', header: t('columns.name'), cell: (entry) => entry.name },
-    {
-      key: 'key',
-      header: t('columns.key'),
-      cell: (entry) => <span className="text-muted-foreground">{entry.key}</span>,
-      hideOnMobile: true,
-    },
-    { key: 'sortOrder', header: t('columns.sortOrder'), cell: (entry) => entry.sortOrder, hideOnMobile: true },
     {
       key: 'status',
       header: t('columns.status'),
@@ -212,8 +197,6 @@ function MasterDataForm({
 }) {
   const { t } = useTranslation(namespace)
   const [name, setName] = useState(entry?.name ?? '')
-  const [key, setKey] = useState(entry?.key ?? '')
-  const [sortOrder, setSortOrder] = useState(entry ? String(entry.sortOrder) : '')
   const [isActive, setIsActive] = useState(entry?.isActive ?? true)
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -223,15 +206,10 @@ function MasterDataForm({
     setError(null)
     setSubmitting(true)
     try {
-      // Blank key / order are omitted so the server generates (create) or
-      // keeps (edit) them; isActive is always sent because an omitted one
-      // would silently reactivate the entry.
-      const request = {
-        name: name.trim(),
-        ...(key.trim() !== '' ? { key: key.trim() } : {}),
-        ...(sortOrder.trim() !== '' ? { sortOrder: Number(sortOrder) } : {}),
-        isActive,
-      }
+      // owner-requests-quick-adjustments Q2: the key and the order are not the user's business. Omitted, the server
+      // derives the key from the name (create) or keeps it (edit), and lists alphabetically. isActive is always sent
+      // because an omitted one would silently reactivate the entry.
+      const request = { name: name.trim(), isActive }
       if (entry) {
         await api.update(entry.id, request)
       } else {
@@ -240,9 +218,8 @@ function MasterDataForm({
       await onSaved()
     } catch (err) {
       const code = err instanceof ApiError && err.status === 409 ? err.code : undefined
-      setError(
-        code === nameInUseCode ? t('errors.nameInUse') : code === keyInUseCode ? t('errors.keyInUse') : t('errors.unableToSave'),
-      )
+      // A key derived from a new name can collide with another entry's key: still a "same name" for the user.
+      setError(code === nameInUseCode || code === keyInUseCode ? t('errors.nameInUse') : t('errors.unableToSave'))
       setSubmitting(false)
     }
   }
@@ -259,20 +236,6 @@ function MasterDataForm({
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="masterName">{t('form.name')}</Label>
             <Input id="masterName" value={name} onChange={(e) => setName(e.target.value)} required />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="masterKey">{t('form.key')}</Label>
-            <Input id="masterKey" value={key} onChange={(e) => setKey(e.target.value)} />
-            <p className="text-xs text-muted-foreground">{t('form.keyHint')}</p>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="masterSortOrder">{t('form.sortOrder')}</Label>
-            <Input
-              id="masterSortOrder"
-              type="number"
-              value={sortOrder}
-              onChange={(e) => setSortOrder(e.target.value)}
-            />
           </div>
           <div className="flex items-center gap-2">
             <input
