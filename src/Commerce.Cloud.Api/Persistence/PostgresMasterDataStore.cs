@@ -74,7 +74,9 @@ public abstract class PostgresMasterDataStore
         await using (var cmd = new NpgsqlCommand(
             $"""
             INSERT INTO {_table} (id, organization_id, name, key, sort_order, is_active)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            VALUES ($1, $2, $3, $4,
+                    COALESCE($5::integer, (SELECT COALESCE(MAX(sort_order), 0) + 10 FROM {_table} WHERE organization_id = $2)),
+                    $6)
             RETURNING {Columns}
             """, connection, tx))
         {
@@ -82,7 +84,7 @@ public abstract class PostgresMasterDataStore
             cmd.Parameters.AddWithValue(scope.OrganizationId);
             cmd.Parameters.AddWithValue(entry.Name);
             cmd.Parameters.AddWithValue(entry.Key);
-            cmd.Parameters.AddWithValue(entry.SortOrder);
+            cmd.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Integer, (object?)entry.SortOrder ?? DBNull.Value);
             cmd.Parameters.AddWithValue(entry.IsActive);
             await using var reader = await cmd.ExecuteReaderAsync(ct);
             await reader.ReadAsync(ct);

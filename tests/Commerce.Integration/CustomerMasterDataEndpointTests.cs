@@ -149,7 +149,7 @@ public sealed class CustomerMasterDataEndpointTests : IClassFixture<WebApplicati
         var created = await PostOkAsync(admin, route, new { name = "  San Miguel  " });
         Assert.Equal("San Miguel", created.GetProperty("name").GetString());
         Assert.Equal("san_miguel", created.GetProperty("key").GetString());
-        Assert.Equal(0, created.GetProperty("sortOrder").GetInt32());
+        Assert.Equal(10, created.GetProperty("sortOrder").GetInt32()); // after the last entry; the catalog was empty
         Assert.True(created.GetProperty("isActive").GetBoolean());
         var id = created.GetProperty("id").GetGuid();
         Assert.Equal(1, CountAudit(id, auditPrefix + ".created"));

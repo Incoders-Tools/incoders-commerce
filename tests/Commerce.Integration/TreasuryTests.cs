@@ -246,6 +246,28 @@ public sealed class TreasuryTests : IClassFixture<WebApplicationFactory<Program>
     }
 
     [Fact]
+    public async Task ATypeCreatedWithoutAnOrder_GroupsItsAccountsAfterTheExistingTypes()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+        var (org, branch, _) = await SeedAsync();
+        new PostgresCloudInboxStore(_dataSource!).TryApplyInbound(new CloudTenantScope(org), CashSale(org, branch, 8_000m));
+        var admin = await SignedInAsync(org, branch, Permission.ManageUsers);
+
+        // owner-requests-quick-adjustments F1: the web no longer sends an order, so a new type must not jump ahead of
+        // "Efectivo" (the default types are ordered 10..50).
+        var created = await admin.PostAsJsonAsync("/treasury/account-types", new { name = "Cheques" });
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var chequesType = await Json(created);
+        Assert.Equal(60, chequesType.GetProperty("sortOrder").GetInt32());
+        Assert.Equal(HttpStatusCode.Created, (await admin.PostAsJsonAsync("/treasury/accounts",
+            new { name = "Cartera de cheques", accountTypeId = chequesType.GetProperty("id").GetGuid() })).StatusCode);
+        Assert.Equal(HttpStatusCode.Created, (await admin.PostAsJsonAsync("/treasury/accounts", new { kind = "Bank", name = "Banco" })).StatusCode);
+
+        Assert.Equal(["Efectivo", "Bancos", "Cheques"],
+            (await AccountsAsync(admin)).Select(a => a.GetProperty("accountTypeName").GetString()));
+    }
+
+    [Fact]
     public async Task AVoidedMovement_IsKeptButCountsNowhere_AndAnEditReplacesIt_WhileASaleOnlyChangesAccount()
     {
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }

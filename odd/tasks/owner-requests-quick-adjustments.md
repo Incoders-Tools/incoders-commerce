@@ -54,11 +54,15 @@ and a sortable stock table.
 
 ## Follow-ups
 
-- [ ] F1 Q2 review (`review-7d851e84e4e82239`, approved): the treasury
+- [x] F1 Q2 review (`review-7d851e84e4e82239`, approved): the treasury
   accounts list still groups by its account type's `sort_order`
   (`PostgresTreasuryStore.cs` ORDER BY), and a type created from the web now
   always gets 0, so its accounts would sort before "Efectivo". Order those
   groups alphabetically too, or give new types the next order.
+  Done: a catalog entry created without an order now goes after the last one
+  (MAX + 10), so the default 10..50 types keep their order and "Cheques" lands
+  last (`TreasuryTests.ATypeCreatedWithoutAnOrder_...`; RED: expected 60, got 0;
+  control without the code fails again). No local data had to be fixed.
 - [ ] F2 Q1 correction review (`review-9cd7c9b7ba60e800`, approved) left three
   reliability suggestions whose text the capture did not surface; only their
   locations: `CustomerForm.tsx:249-250` (the location reference sent as "" on
