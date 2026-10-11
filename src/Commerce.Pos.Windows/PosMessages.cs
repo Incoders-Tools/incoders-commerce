@@ -233,5 +233,5 @@ public static class PosMessages
 
     public const string AdvanceDateInvalid = "La fecha no es válida (por ejemplo, 15/03/2024).";
 
-    public const string DiscountMustBeNumber = "El porcentaje de descuento debe ser un número.";
+    public const string DiscountMustBeNumber = "El descuento va de 0 a 100, sin el signo %. Admite decimales: 7,5.";
 }

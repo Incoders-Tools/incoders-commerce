@@ -45,9 +45,9 @@ and a sortable stock table.
 
 ## Tasks
 
-- [ ] Q1 Customer location reference (server + web + POS + parity map).
+- [x] Q1 Customer location reference (server + web + POS + parity map). The field already existed end to end as "Notas de entrega" (`customers.delivery_notes`, the text the deliveries screen shows the driver as "Indicaciones"); no new column. Renamed "Referencias de ubicación" in the web and the POS, with the example.
 - [ ] Q2 Lookup tables without "Clave"/"Orden" (server derives the key, alphabetical order; web forms and tables).
-- [ ] Q3 Discount percentage helper (web + POS, same wording).
+- [x] Q3 Discount percentage helper (web + POS, same wording). Found a real bug behind the confusion: the POS read the discount with the invariant culture, so "7,5" was stored as 75 (and "1,000" as 1000), and nothing on the server limited it, while the discount is applied to the customer's prices at the POS. Now `CustomerDiscountRules` (0-100, two decimals) on create and update (400 `discountPercentage`), the POS reads a decimal comma as a decimal and accepts "10%", and both layers show "De 0 a 100, sin el signo %. Admite decimales: 7,5." RED: domain/POS did not compile, the endpoint accepted 120/-1/7.555 (control run without the rule: 3 failures); web tests failed against the previous form (control). GREEN: 131 server/POS tests, 41 `CustomerForm` tests. No stored discount violated the range in `commerce_dev`.
 - [ ] Q4 Price lists "Presentación" column, same criterion as the catalog.
 - [ ] Q5 Staff positions seed (Titular, Encargado, Carnicero, Chofer, Vendedor, Cajero).
 - [ ] Q6 Sortable stock table.

@@ -282,6 +282,54 @@ public sealed class CustomerMasterDataEndpointTests : IClassFixture<WebApplicati
     }
 
     [Theory]
+    [InlineData(120)]
+    [InlineData(-1)]
+    [InlineData(7.555)]
+    public async Task Customer_WithADiscountOutsideZeroToOneHundred_Returns400_OnCreateAndUpdate(double discount)
+    {
+        // owner-requests-quick-adjustments Q3: "7,5" once reached the server as 75; the range is the server's rule.
+        if (!_postgresAvailable) return;
+        var email = $"md-discount-{Guid.NewGuid():N}@example.com";
+        await BootstrapAsync(email);
+        var admin = await SignInAsync(email);
+
+        var create = await admin.PostAsJsonAsync("/customers", new
+        {
+            customerKind = "Retail", displayName = "Con descuento", taxIdType = "None", taxCondition = "ConsumidorFinal",
+            discountPercentage = (decimal)discount,
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, create.StatusCode);
+        Assert.Contains("discountPercentage", await create.Content.ReadAsStringAsync());
+
+        var id = (await PostOkAsync(admin, "/customers", CustomerBody("Sin descuento"))).GetProperty("customerId").GetGuid();
+        var update = await admin.PutAsJsonAsync($"/customers/{id}", new
+        {
+            displayName = "Sin descuento", taxIdType = "None", taxCondition = "ConsumidorFinal", isEnabled = true,
+            discountPercentage = (decimal)discount,
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, update.StatusCode);
+        Assert.Contains("discountPercentage", await update.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task Customer_WithADecimalDiscount_KeepsIt()
+    {
+        if (!_postgresAvailable) return;
+        var email = $"md-discount-ok-{Guid.NewGuid():N}@example.com";
+        await BootstrapAsync(email);
+        var admin = await SignInAsync(email);
+
+        var id = (await PostOkAsync(admin, "/customers", new
+        {
+            customerKind = "Retail", displayName = "Siete y medio", taxIdType = "None", taxCondition = "ConsumidorFinal",
+            discountPercentage = 7.5m,
+        })).GetProperty("customerId").GetGuid();
+
+        var stored = await admin.GetFromJsonAsync<JsonElement>($"/customers/{id}");
+        Assert.Equal(7.5m, stored.GetProperty("discountPercentage").GetDecimal());
+    }
+
+    [Theory]
     [InlineData("Dni", "123")]
     [InlineData("Dni", "ABCDEFGH")]
     [InlineData("Cuit", "12345")]

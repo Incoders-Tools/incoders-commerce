@@ -135,6 +135,8 @@ export function CustomerForm({
   const [phone, setPhone] = useState(customer?.phone ?? '')
   const [email, setEmail] = useState(customer?.email ?? '')
   const [emailError, setEmailError] = useState<string | null>(null)
+  // owner-requests-quick-adjustments Q3: the server's 0-100 rule, shown on the field with the same help text.
+  const [discountError, setDiscountError] = useState<string | null>(null)
   const [addressStreet, setAddressStreet] = useState(customer?.addressStreet ?? '')
   const [addressNumber, setAddressNumber] = useState(customer?.addressNumber ?? '')
   const [neighborhood, setNeighborhood] = useState(customer?.neighborhood ?? '')
@@ -278,6 +280,8 @@ export function CustomerForm({
         setConflict(true)
       } else if (err instanceof ApiError && err.status === 400 && showRefusedEmails(err.fieldErrors, filledContacts)) {
         // The refused emails are flagged on their own fields.
+      } else if (err instanceof ApiError && err.status === 400 && err.fieldErrors?.discountPercentage !== undefined) {
+        setDiscountError(t('form.discountHint'))
       } else {
         setError(err instanceof ApiError ? err.message : t('errors.unexpectedSave'))
       }
@@ -420,6 +424,7 @@ export function CustomerForm({
               label={t('form.fields.deliveryNotes')}
               value={deliveryNotes}
               onChange={setDeliveryNotes}
+              placeholder={t('form.deliveryNotesPlaceholder')}
               className="md:col-span-3"
             />
           </div>
@@ -504,8 +509,15 @@ export function CustomerForm({
             id="discountPercentage"
             label={t('form.fields.discountPercentage')}
             value={discountPercentage}
-            onChange={setDiscountPercentage}
+            onChange={(value) => {
+              setDiscountPercentage(value)
+              setDiscountError(null)
+            }}
             type="number"
+            step="0.01"
+            placeholder={t('form.discountPlaceholder')}
+            hint={t('form.discountHint')}
+            error={discountError}
           />
           <Field
             id="paymentTermsDays"

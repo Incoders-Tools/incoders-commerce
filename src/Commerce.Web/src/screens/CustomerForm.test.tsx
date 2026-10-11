@@ -405,7 +405,7 @@ describe('CustomerForm', () => {
       renderNew()
 
       const address = screen.getByRole('group', { name: 'Ubicación' })
-      const order = ['Provincia', 'Ciudad', 'Código postal', 'Barrio', 'Calle', 'Número', 'Notas de entrega'].map(
+      const order = ['Provincia', 'Ciudad', 'Código postal', 'Barrio', 'Calle', 'Número', 'Referencias de ubicación'].map(
         (label) => within(address).getByLabelText(label),
       )
       for (let i = 1; i < order.length; i++) {
@@ -806,5 +806,32 @@ describe('CustomerForm price list', () => {
     )
 
     expect(screen.getByLabelText('Lista de precios')).toHaveValue('list-elsewhere')
+  })
+
+  // owner-requests-quick-adjustments Q1 + Q3.
+  it('explains how to type the discount and gives an example of a location reference', () => {
+    render(<CustomerForm onSaved={vi.fn()} onCancel={vi.fn()} />)
+
+    const discount = screen.getByLabelText('Porcentaje de descuento')
+    expect(discount).toHaveAttribute('placeholder', 'Ej.: 10')
+    expect(discount).toHaveAttribute('step', '0.01')
+    expect(discount).toHaveAccessibleDescription('De 0 a 100, sin el signo %. Admite decimales: 7,5.')
+    expect(screen.getByLabelText('Referencias de ubicación')).toHaveAttribute('placeholder', 'Ej.: Casa gris con 2 árboles al frente')
+  })
+
+  it('puts a discount the server refuses on its field, with the same help text', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      title: 'One or more validation errors occurred.',
+      errors: { discountPercentage: ['discountPercentage must be between 0 and 100, with up to two decimals.'] },
+    }), { status: 400 }))
+    const user = userEvent.setup()
+    render(<CustomerForm onSaved={vi.fn()} onCancel={vi.fn()} />)
+
+    await user.type(screen.getByLabelText('Nombre y apellido'), 'Jane Doe')
+    await user.type(screen.getByLabelText('Porcentaje de descuento'), '120')
+    await user.click(screen.getByRole('button', { name: /^guardar$/i }))
+
+    const discount = screen.getByLabelText('Porcentaje de descuento')
+    await waitFor(() => expect(discount).toHaveAttribute('aria-invalid', 'true'))
   })
 })

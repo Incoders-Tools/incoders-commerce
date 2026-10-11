@@ -191,9 +191,12 @@
                                     </StackPanel>
                                 </Grid>
 
-                                <!-- Row 3: delivery notes across the full row. -->
-                                <TextBlock Text="Notas de entrega" Style="{StaticResource FieldLabel}" />
-                                <TextBox x:Name="DeliveryNotesTextBox" Style="{StaticResource RowBox}" AutomationProperties.Name="Notas de entrega" />
+                                <!-- Row 3: the location reference across the full row (stored as the delivery notes the
+                                     deliveries screen shows the driver; owner-requests-quick-adjustments Q1). -->
+                                <TextBlock Text="Referencias de ubicación" Style="{StaticResource FieldLabel}" />
+                                <TextBox x:Name="DeliveryNotesTextBox" Style="{StaticResource RowBox}" AutomationProperties.Name="Referencias de ubicación"
+                                         ToolTip="Ej.: Casa gris con 2 árboles al frente" />
+                                <TextBlock Text="Ej.: Casa gris con 2 árboles al frente" Style="{StaticResource MutedTextBlock}" FontSize="11" Margin="0,2,0,0" />
 
                                 <Separator />
                                 <TextBlock Text="Condiciones comerciales" Style="{StaticResource FormSectionTitle}" />
@@ -201,7 +204,9 @@
                                 <UniformGrid Columns="2" Style="{StaticResource FormRow}">
                                     <StackPanel Style="{StaticResource FormCell}">
                                         <TextBlock Text="Porcentaje de descuento" Style="{StaticResource FieldLabel}" />
-                                        <TextBox x:Name="DiscountPercentageTextBox" Style="{StaticResource FieldBox}" AutomationProperties.Name="Porcentaje de descuento" />
+                                        <TextBox x:Name="DiscountPercentageTextBox" Style="{StaticResource FieldBox}" AutomationProperties.Name="Porcentaje de descuento"
+                                                 ToolTip="De 0 a 100, sin el signo %. Admite decimales: 7,5." />
+                                        <TextBlock Text="De 0 a 100, sin el signo %. Admite decimales: 7,5." Style="{StaticResource MutedTextBlock}" FontSize="11" Margin="0,2,0,0" TextWrapping="Wrap" />
                                     </StackPanel>
                                     <StackPanel Style="{StaticResource FormCell}">
                                         <TextBlock Text="Condiciones de pago" Style="{StaticResource FieldLabel}" />

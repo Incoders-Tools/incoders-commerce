@@ -28,6 +28,8 @@ namespace Commerce.Cloud.Api.Endpoints;
 /// </summary>
 public static class CustomerEndpoints
 {
+    private const string DiscountPercentageMessage = "discountPercentage must be between 0 and 100, with up to two decimals.";
+
     public static RouteGroupBuilder MapCustomerEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/customers")
@@ -112,6 +114,12 @@ public static class CustomerEndpoints
             if (!TaxIdRules.TryNormalize(taxIdType, request.TaxId, out var normalizedTaxId, out var taxIdError))
             {
                 return Results.ValidationProblem(new Dictionary<string, string[]> { ["taxId"] = [taxIdError!] });
+            }
+
+            // owner-requests-quick-adjustments Q3: 0 to 100 with up to two decimals; nothing stopped 75 before.
+            if (!CustomerDiscountRules.IsValid(request.DiscountPercentage))
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]> { ["discountPercentage"] = [DiscountPercentageMessage] });
             }
 
             if (!Enum.TryParse<TaxCondition>(request.TaxCondition, out var taxCondition))
@@ -215,6 +223,12 @@ public static class CustomerEndpoints
             if (!TaxIdRules.TryNormalize(taxIdType, request.TaxId, out var normalizedTaxId, out var taxIdError))
             {
                 return Results.ValidationProblem(new Dictionary<string, string[]> { ["taxId"] = [taxIdError!] });
+            }
+
+            // owner-requests-quick-adjustments Q3: 0 to 100 with up to two decimals; nothing stopped 75 before.
+            if (!CustomerDiscountRules.IsValid(request.DiscountPercentage))
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]> { ["discountPercentage"] = [DiscountPercentageMessage] });
             }
 
             if (!Enum.TryParse<TaxCondition>(request.TaxCondition, out var taxCondition))

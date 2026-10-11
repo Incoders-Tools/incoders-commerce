@@ -207,7 +207,7 @@ public partial class CustomersView : UserControl, ISectionView
         NeighborhoodTextBox.Text = selected.Neighborhood ?? string.Empty;
         PostalCodeTextBox.Text = selected.PostalCode ?? string.Empty;
         DeliveryNotesTextBox.Text = selected.DeliveryNotes ?? string.Empty;
-        DiscountPercentageTextBox.Text = selected.DiscountPercentage?.ToString(CultureInfo.InvariantCulture) ?? string.Empty;
+        DiscountPercentageTextBox.Text = selected.DiscountPercentage is { } discount ? CustomerFormRules.DiscountText(discount) : string.Empty;
         PaymentTermsTextBox.Text = selected.PaymentTerms ?? string.Empty;
         NotesTextBox.Text = selected.Notes ?? string.Empty;
         IsEnabledCheckBox.Visibility = Visibility.Visible;
@@ -346,16 +346,10 @@ public partial class CustomersView : UserControl, ISectionView
             return;
         }
 
-        decimal? discountPercentage = null;
-        if (!string.IsNullOrWhiteSpace(DiscountPercentageTextBox.Text))
+        if (!CustomerFormRules.TryParseDiscount(DiscountPercentageTextBox.Text, out var discountPercentage))
         {
-            if (!decimal.TryParse(DiscountPercentageTextBox.Text, NumberStyles.Number, CultureInfo.InvariantCulture, out var parsed))
-            {
-                ShowStatus(PosMessages.DiscountMustBeNumber, isError: true);
-                return;
-            }
-
-            discountPercentage = parsed;
+            ShowStatus(PosMessages.DiscountMustBeNumber, isError: true);
+            return;
         }
 
         var taxIdType = TaxIdTypeComboBox.SelectedValue as string ?? "None";

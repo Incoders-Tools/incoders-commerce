@@ -73,7 +73,7 @@
       "neighborhood": "Barrio",
       "province": "Provincia",
       "postalCode": "Código postal",
-      "deliveryNotes": "Notas de entrega",
+      "deliveryNotes": "Referencias de ubicación",
       "discountPercentage": "Porcentaje de descuento",
       "paymentTerms": "Nota sobre condiciones de pago",
       "notes": "Observaciones",
@@ -137,7 +137,10 @@
     "paymentTermsNote": {
       "placeholder": "Ej.: paga los viernes, con transferencia",
       "hint": "Solo informativo: no cambia el vencimiento."
-    }
+    },
+    "deliveryNotesPlaceholder": "Ej.: Casa gris con 2 árboles al frente",
+    "discountPlaceholder": "Ej.: 10",
+    "discountHint": "De 0 a 100, sin el signo %. Admite decimales: 7,5."
   },
   "filters": {
     "city": "Ciudad",

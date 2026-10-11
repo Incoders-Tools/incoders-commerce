@@ -1,3 +1,5 @@
+using System.Globalization;
+using Commerce.Domain.Customers;
 using Commerce.Domain.Validation;
 
 namespace Commerce.Pos.Windows;
@@ -52,6 +54,46 @@ public static class CustomerFormRules
     /// </summary>
     public static IReadOnlyList<BusinessTypeOptionDto> BusinessTypeOptions(IEnumerable<BusinessTypeOptionDto> types, Guid? currentId) =>
         [new BusinessTypeOptionDto(Guid.Empty, "Sin tipo"), .. types.Where(type => type.IsActive || type.Id == currentId)];
+
+    /// <summary>
+    /// The discount field (owner-requests-quick-adjustments Q3): empty is "no discount"; otherwise a percentage from 0 to
+    /// 100 with up to two decimals, a decimal comma or point, an optional "%". Never a thousands separator: "7,5" is 7.5,
+    /// not 75 as the invariant culture read it. The range is the server's <see cref="CustomerDiscountRules"/>.
+    /// </summary>
+    public static bool TryParseDiscount(string text, out decimal? discount)
+    {
+        discount = null;
+        var normalized = text.Trim();
+        if (normalized.EndsWith('%'))
+        {
+            normalized = normalized[..^1].Trim();
+        }
+
+        if (normalized.Length == 0)
+        {
+            return true;
+        }
+
+        var parts = normalized.Replace(',', '.').Split('.');
+        if (parts.Length > 2 || parts[0].Length == 0 || !parts[0].All(char.IsAsciiDigit)
+            || parts.Length == 2 && (parts[1].Length is 0 or > 2 || !parts[1].All(char.IsAsciiDigit)))
+        {
+            return false;
+        }
+
+        var value = decimal.Parse(string.Join('.', parts), NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture);
+        if (!CustomerDiscountRules.IsValid(value))
+        {
+            return false;
+        }
+
+        discount = value;
+        return true;
+    }
+
+    /// <summary>The discount as the form shows it: "7,5" (a decimal comma, as the web), "10".</summary>
+    public static string DiscountText(decimal discount) =>
+        discount.ToString("0.##", CultureInfo.InvariantCulture).Replace('.', ',');
 
     /// <summary>A person stores "Nombre y apellido", a company its "Razón social", always in the one name field.</summary>
     public static string NameLabel(string? partyType) =>
