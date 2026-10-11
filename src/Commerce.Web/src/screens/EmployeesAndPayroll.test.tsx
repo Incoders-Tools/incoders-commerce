@@ -107,6 +107,39 @@ describe('staff and payroll screens', () => {
     expect(await screen.findByText('Gómez, Ana guardado (legajo 0002).')).toBeInTheDocument()
   })
 
+  it('edits an employee whose legajo shows padded, and sends it back as the same number', async () => {
+    routeFetch({
+      'GET /employees': () => json([juan]),
+      'GET /employees/roles': () => json([]),
+      'PUT /employees/e-1': () => json(juan),
+    })
+    const user = userEvent.setup()
+    renderEmployees()
+
+    await user.click(await screen.findByRole('button', { name: 'Editar' }))
+    expect(screen.getByLabelText('Legajo')).toHaveValue('0001')
+    await user.click(screen.getByRole('button', { name: 'Guardar' }))
+
+    await waitFor(() => expect(callsTo('PUT /employees/e-1')).toHaveLength(1))
+    expect(bodyOf('PUT /employees/e-1').fileNumber).toBe(1)
+    expect(callsTo('GET /employees/next-file-number')).toHaveLength(0) // only a new employee asks
+  })
+
+  it('keeps the plain placeholder when the next legajo cannot be read', async () => {
+    routeFetch({
+      'GET /employees': () => json([juan]),
+      'GET /employees/roles': () => json([]),
+      'GET /employees/next-file-number': () => json({ error: 'boom' }, 500),
+    })
+    const user = userEvent.setup()
+    renderEmployees()
+
+    await user.click(await screen.findByRole('button', { name: 'Nuevo empleado' }))
+    await waitFor(() => expect(callsTo('GET /employees/next-file-number')).toHaveLength(1))
+    expect(screen.getByLabelText('Legajo')).toHaveAttribute('placeholder', 'Automático (el siguiente)')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
   it('hands an advance from the branch drawer', async () => {
     routeFetch({
       'GET /employees': () => json([juan]),

@@ -50,6 +50,13 @@ advances (items 3, 6, 7 and 9 of the owner's 2026-10-11 request).
 - [ ] E3 Termination section: date + reason, then "Liquidar último sueldo" opening the payroll for that employee; web + POS.
 - [ ] E4 Goods from the web: "Registrar mercadería" on the employee (a debit on its linked customer account) and the wording no longer says POS only.
 
+## Follow-ups
+
+- [ ] G1 E1 review (`review-51bbdbd50ea9eaa7`, approved). Fixed right after `e1fe9a5`: web tests for editing a
+  padded legajo ("0001" shown, 1 sent; no next-number call) and for an unreadable next number (plain
+  placeholder, no alert); control: unpadded edit value and an unhandled rejection each fail. Still open: the POS
+  hint is checked through source strings in `PosEmployeesTests`, not by running the view.
+
 ## Constraints
 
 Same as `owner-requests-quick-adjustments.md` (server rules, parity, idempotent
