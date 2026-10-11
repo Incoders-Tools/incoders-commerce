@@ -8,6 +8,7 @@ import { FormPage } from '@/components/layout/FormPage'
 import { CityPicker, type CityOption } from '@/components/geo/CityPicker'
 import { createCustomer, getCustomer, updateCustomer } from '@/api/customers'
 import { ApiError } from '@/api/client'
+import { parsePercentage } from '@/lib/percentage'
 import {
   CustomerKind,
   PartyType,
@@ -208,6 +209,12 @@ export function CustomerForm({
     }
     setTaxIdError(null)
     const termsText = paymentTermsDays.trim()
+    // A number input can drop "7,5" and send nothing; read it as text, like the POS, and stop before the API if unreadable.
+    const discount = parsePercentage(discountPercentage)
+    if (!discount.ok) {
+      setDiscountError(t('form.discountHint'))
+      return
+    }
     const terms = Number(termsText)
     if (termsText !== '' && (!Number.isInteger(terms) || terms < 0 || terms > 365)) {
       setPaymentTermsDaysError(t('form.paymentTermsDays.invalid'))
@@ -238,7 +245,7 @@ export function CustomerForm({
         neighborhood: neighborhood || null,
         postalCode: postalCode.trim() || null,
         deliveryNotes: deliveryNotes || null,
-        discountPercentage: discountPercentage === '' ? null : Number(discountPercentage),
+        discountPercentage: discount.value,
         paymentTerms: paymentTerms || null,
         // Empty = the organization's general term: on PUT that is the -1 sentinel, on create the value is left out.
         ...(paymentTermsDays.trim() !== ''
@@ -513,8 +520,7 @@ export function CustomerForm({
               setDiscountPercentage(value)
               setDiscountError(null)
             }}
-            type="number"
-            step="0.01"
+            inputMode="decimal"
             placeholder={t('form.discountPlaceholder')}
             hint={t('form.discountHint')}
             error={discountError}

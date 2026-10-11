@@ -44,6 +44,7 @@ public sealed class CustomerDiscountTests
     [InlineData("-5", false, null)]
     [InlineData("7,555", false, null)]
     [InlineData("diez", false, null)]
+    [InlineData("99999999999999999999999999999999", false, null)]
     public void ThePos_ReadsADecimalCommaAsADecimal_NeverAsThousands(string text, bool ok, string? expected)
     {
         Assert.Equal(ok, CustomerFormRules.TryParseDiscount(text, out var discount));

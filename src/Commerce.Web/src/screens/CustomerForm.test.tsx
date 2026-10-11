@@ -814,7 +814,9 @@ describe('CustomerForm price list', () => {
 
     const discount = screen.getByLabelText('Porcentaje de descuento')
     expect(discount).toHaveAttribute('placeholder', 'Ej.: 10')
-    expect(discount).toHaveAttribute('step', '0.01')
+    // Text, not a number input: a number input can drop "7,5" and send nothing, depending on the browser language.
+    expect(discount).toHaveAttribute('type', 'text')
+    expect(discount).toHaveAttribute('inputmode', 'decimal')
     expect(discount).toHaveAccessibleDescription('De 0 a 100, sin el signo %. Admite decimales: 7,5.')
     expect(screen.getByLabelText('Referencias de ubicación')).toHaveAttribute('placeholder', 'Ej.: Casa gris con 2 árboles al frente')
   })
@@ -833,5 +835,30 @@ describe('CustomerForm price list', () => {
 
     const discount = screen.getByLabelText('Porcentaje de descuento')
     await waitFor(() => expect(discount).toHaveAttribute('aria-invalid', 'true'))
+  })
+
+  it('sends a discount typed with a decimal comma as a number', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ customerId: 'c-1' }), { status: 201 }))
+    const user = userEvent.setup()
+    render(<CustomerForm onSaved={vi.fn()} onCancel={vi.fn()} />)
+
+    await user.type(screen.getByLabelText('Nombre y apellido'), 'Jane Doe')
+    await user.type(screen.getByLabelText('Porcentaje de descuento'), '7,5')
+    await user.click(screen.getByRole('button', { name: /^guardar$/i }))
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string).discountPercentage).toBe(7.5)
+  })
+
+  it('does not send a discount it cannot read, and explains the format', async () => {
+    const user = userEvent.setup()
+    render(<CustomerForm onSaved={vi.fn()} onCancel={vi.fn()} />)
+
+    await user.type(screen.getByLabelText('Nombre y apellido'), 'Jane Doe')
+    await user.type(screen.getByLabelText('Porcentaje de descuento'), '1,000')
+    await user.click(screen.getByRole('button', { name: /^guardar$/i }))
+
+    await waitFor(() => expect(screen.getByLabelText('Porcentaje de descuento')).toHaveAttribute('aria-invalid', 'true'))
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 })

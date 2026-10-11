@@ -75,7 +75,8 @@ public static class CustomerFormRules
         }
 
         var parts = normalized.Replace(',', '.').Split('.');
-        if (parts.Length > 2 || parts[0].Length == 0 || !parts[0].All(char.IsAsciiDigit)
+        // At most three whole digits (the rule's maximum is 100): a longer run would overflow the decimal parse.
+        if (parts.Length > 2 || parts[0].Length is 0 or > 3 || !parts[0].All(char.IsAsciiDigit)
             || parts.Length == 2 && (parts[1].Length is 0 or > 2 || !parts[1].All(char.IsAsciiDigit)))
         {
             return false;

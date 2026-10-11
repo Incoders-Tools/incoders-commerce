@@ -55,3 +55,14 @@ and a sortable stock table.
 ## Progress
 
 - Feature document created 2026-10-11.
+- 2026-10-11: Q1 + Q3 committed (`114f626`, `review-be841c3d19dfee29`,
+  approved). Its review found two more: the web field was a number input,
+  which turned "7,5" into 75 too (RED: "expected 75 to be 7.5"), and a
+  long digit run overflowed the POS parse (`OverflowException` in a UI
+  handler). The web now reads the discount as text with `lib/percentage.ts`
+  `parsePercentage` (same reading as the POS; unreadable text stops before
+  the API with the help text) and the POS caps the whole part at three
+  digits.
+- Builds and tests run with `--artifacts-path artifacts` (git-ignored)
+  while the owner's local stack is running: its API and POS lock their
+  `bin` folders.
