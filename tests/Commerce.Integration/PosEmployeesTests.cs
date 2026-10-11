@@ -86,6 +86,17 @@ public sealed class PosEmployeesTests
     }
 
     [Fact]
+    public async Task NextFileNumber_ReadsTheNumberANewEmployeeWillGet_AndIsNullWhenUnreadable()
+    {
+        var handler = new RecordingHandler(HttpStatusCode.OK, "{\"fileNumber\":8}");
+        Assert.Equal(8, await ClientFor(handler).NextFileNumberAsync());
+        Assert.Equal(HttpMethod.Get, handler.Method);
+        Assert.Equal("/employees/next-file-number", handler.PathAndQuery);
+
+        Assert.Null(await ClientFor(new RecordingHandler(HttpStatusCode.InternalServerError, "")).NextFileNumberAsync());
+    }
+
+    [Fact]
     public async Task Create_PostsTheStaffFile_AndReturnsTheSavedEmployee()
     {
         var saved = Employee("Pérez", "Ana", file: 12);
@@ -251,9 +262,9 @@ public sealed class PosEmployeesTests
         var (list, _, _, _) = List();
         var rows = list.Model.Rows;
 
-        Assert.Equal(["10", "Acosta, Bruno", string.Empty, "$ 150.000,00 por semana", "Nos debe $ 50.000,00", "No lleva", "Activo"],
+        Assert.Equal(["0010", "Acosta, Bruno", string.Empty, "$ 150.000,00 por semana", "Nos debe $ 50.000,00", "No lleva", "Activo"],
             rows[0].Cells);
-        Assert.Equal(["2", "Pérez, Ana", "Carnicero", "$ 650.000,00 por mes", "Le debemos $ 120.000,00", "$ 15.500,00", "Activo"],
+        Assert.Equal(["0002", "Pérez, Ana", "Carnicero", "$ 650.000,00 por mes", "Le debemos $ 120.000,00", "$ 15.500,00", "Activo"],
             rows[1].Cells);
     }
 
@@ -272,6 +283,7 @@ public sealed class PosEmployeesTests
     [Theory]
     [InlineData("perez")]
     [InlineData("10")]
+    [InlineData("0010")]
     [InlineData("30111222")]
     [InlineData("27301112223")]
     public void Search_CoversNameFileNumberDniAndCuil(string text)
@@ -335,6 +347,20 @@ public sealed class PosEmployeesTests
     public void ParseAmount_RefusesWhatTheWebRefuses(string text) => Assert.Null(EmployeeFormRules.ParseAmount(text));
 
     [Fact]
+    public void TheFileNumber_ReadsZeroPadded_AndANewEmployeeShowsWhichOneItWillGet()
+    {
+        // employee-lifecycle E1, the same words as the web's placeholder.
+        Assert.Equal("Legajo vacío: automático (el siguiente: 0008).", EmployeeFormRules.FileNumberHint(8));
+        Assert.Equal("Legajo vacío: automático (el siguiente).", EmployeeFormRules.FileNumberHint(null));
+
+        var view = Src("EmployeesView.xaml.cs");
+        Assert.Contains("EmployeeFileNumber.Format(employee.FileNumber)", view);
+        Assert.Contains("await _client.NextFileNumberAsync(", view);
+        Assert.Contains("EmployeeFormRules.FileNumberHint(", view);
+        Assert.Contains("(legajo {EmployeeFileNumber.Format(saved.FileNumber)})", view);
+    }
+
+    [Fact]
     public void Salary_EmptyIsZero_FileNumberEmptyIsTheNextOne_DatesAreDayMonthYear()
     {
         Assert.Equal(0m, EmployeeFormRules.ParseSalary("  "));
@@ -345,6 +371,8 @@ public sealed class PosEmployeesTests
         Assert.Null(next);
         Assert.True(EmployeeFormRules.TryParseFileNumber("12", out var twelve));
         Assert.Equal(12, twelve);
+        Assert.True(EmployeeFormRules.TryParseFileNumber("0007", out var seven)); // what the form shows
+        Assert.Equal(7, seven);
         Assert.False(EmployeeFormRules.TryParseFileNumber("0", out _));
         Assert.False(EmployeeFormRules.TryParseFileNumber("1.5", out _));
 

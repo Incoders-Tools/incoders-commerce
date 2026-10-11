@@ -39,7 +39,13 @@ advances (items 3, 6, 7 and 9 of the owner's 2026-10-11 request).
 
 ## Tasks
 
-- [ ] E1 Legajo: zero-padded display everywhere (web + POS), next number shown on create (server endpoint).
+- [x] E1 Legajo: zero-padded display everywhere (web + POS), next number shown on create (server endpoint).
+  `EmployeeFileNumber.Format` (domain, used by the POS and the linked customer's note) and `lib/fileNumber.ts`;
+  `GET /employees/next-file-number` (device operator too; a preview, the create still takes the number under its
+  lock, so the field stays empty and the placeholder/hint says which one). Web: list, form, save notice, payroll
+  run, payslips print, employee account. POS: list (search finds "10" and "0010"), form ("0007" parses), hint,
+  save notice. RED: server didn't compile, POS didn't compile, web 3 failures; GREEN: 80 server, 49 POS, 792 web;
+  web control without the screens' code: 2 failures.
 - [ ] E2 Overtime: employee hourly rate; overtime records (date, hours, multiplier, note) with Sunday = x2 proposed; pending ones become a payslip line by themselves (domain + migration + API + web + POS where staff is managed).
 - [ ] E3 Termination section: date + reason, then "Liquidar último sueldo" opening the payroll for that employee; web + POS.
 - [ ] E4 Goods from the web: "Registrar mercadería" on the employee (a debit on its linked customer account) and the wording no longer says POS only.

@@ -54,6 +54,7 @@
     "firstName": "First name",
     "fileNumber": "File number",
     "fileNumberPlaceholder": "Automatic (the next one)",
+    "fileNumberPlaceholderNext": "Automatic (the next one: {{number}})",
     "branch": "Branch",
     "chooseBranch": "Choose the branch",
     "role": "Position",

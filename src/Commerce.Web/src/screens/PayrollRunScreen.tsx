@@ -24,6 +24,7 @@ import { formatIsoDate, formatMoney } from '@/dashboard/format'
 import { todayIso } from '@/lib/isoDate'
 import { cn } from '@/lib/utils'
 import { parseAmount } from '@/treasury/treasuryInput'
+import { formatFileNumber } from '@/lib/fileNumber'
 
 interface EditableLine {
   key: number
@@ -236,7 +237,7 @@ export function PayrollRunScreen() {
                   <td className="px-3 py-2">
                     <span className="font-medium">{slip.employeeName}</span>
                     <span className="block text-xs text-muted-foreground">
-                      {t('file', { number: slip.fileNumber })}
+                      {t('file', { number: formatFileNumber(slip.fileNumber) })}
                       {slip.roleName ? ` · ${slip.roleName}` : ''}
                     </span>
                   </td>

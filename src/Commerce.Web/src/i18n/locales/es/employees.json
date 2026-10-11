@@ -54,6 +54,7 @@
     "firstName": "Nombre",
     "fileNumber": "Legajo",
     "fileNumberPlaceholder": "Automático (el siguiente)",
+    "fileNumberPlaceholderNext": "Automático (el siguiente: {{number}})",
     "branch": "Sucursal",
     "chooseBranch": "Elegí la sucursal",
     "role": "Puesto",

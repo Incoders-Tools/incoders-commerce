@@ -1,4 +1,5 @@
 using System.Globalization;
+using Commerce.Domain.Payroll;
 
 namespace Commerce.Pos.Windows;
 
@@ -90,7 +91,7 @@ public sealed class EmployeeList
     private EntityListDefinition<EmployeeRecordDto> Definition(Func<EmployeeRecordDto, Task> toggleActive) => new(
         employee => employee.Id,
         [
-            new("file", "Legajo", employee => employee.FileNumber.ToString(CultureInfo.InvariantCulture))
+            new("file", "Legajo", employee => EmployeeFileNumber.Format(employee.FileNumber))
             {
                 Width = 80, SortKey = employee => employee.FileNumber,
             },
@@ -101,7 +102,8 @@ public sealed class EmployeeList
             new("goods", "Mercadería a descontar", GoodsText) { Width = 170, SortKey = employee => employee.PurchasesOwed },
             new("state", "Estado", StatusText) { Width = 90 },
         ],
-        employee => [employee.FullName, employee.FileNumber.ToString(CultureInfo.InvariantCulture), employee.DocumentNumber, employee.Cuil])
+        // "0010" contains "10" too, so both ways of typing the file number find it.
+        employee => [employee.FullName, EmployeeFileNumber.Format(employee.FileNumber), employee.DocumentNumber, employee.Cuil])
     {
         Filters =
         [
@@ -227,7 +229,12 @@ public static class EmployeeFormRules
     /// <summary>The salary as the form shows it: "650000,5" (no thousands separators, a decimal comma), as the web.</summary>
     public static string SalaryText(decimal salary) => salary.ToString("0.##", CultureInfo.InvariantCulture).Replace('.', ',');
 
-    /// <summary>The file number: empty is "the next one" (null, valid); otherwise a whole number above zero.</summary>
+    /// <summary>Under an empty file number on "Nuevo empleado": which one it will get, when the server said (as the web).</summary>
+    public static string FileNumberHint(int? next) => next is { } number
+        ? $"Legajo vacío: automático (el siguiente: {EmployeeFileNumber.Format(number)})."
+        : "Legajo vacío: automático (el siguiente).";
+
+    /// <summary>The file number: empty is "the next one" (null, valid); otherwise a whole number above zero ("0007" too).</summary>
     public static bool TryParseFileNumber(string text, out int? fileNumber)
     {
         fileNumber = null;

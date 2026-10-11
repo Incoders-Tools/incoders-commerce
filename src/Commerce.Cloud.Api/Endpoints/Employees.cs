@@ -36,6 +36,15 @@ public static class EmployeeEndpoints
             return Results.Ok(await store.ListAsync(caller!.Scope, branchId, includeInactive ?? false, ct));
         }).AllowDeviceOperator();
 
+        // employee-lifecycle E1: the number a new employee will get, for the form to show (a preview, not a reservation).
+        employees.MapGet("/next-file-number", async (
+            HttpContext httpContext, PostgresUserAccountStore userStore, PostgresEmployeeStore store, CancellationToken ct) =>
+        {
+            var (denied, caller) = await StaffAuthorization.AuthorizeAsync(httpContext, userStore, ct, Permission.ManageUsers);
+            if (denied is not null) return denied;
+            return Results.Ok(new { fileNumber = await store.NextFileNumberAsync(caller!.Scope, ct) });
+        }).AllowDeviceOperator();
+
         employees.MapGet("/{id:guid}", async (
             Guid id, HttpContext httpContext, PostgresUserAccountStore userStore, PostgresEmployeeStore store, CancellationToken ct) =>
         {

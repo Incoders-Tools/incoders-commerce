@@ -1,4 +1,5 @@
 using System.Windows;
+using Commerce.Domain.Payroll;
 using System.Windows.Controls;
 using System.Windows.Input;
 
@@ -102,6 +103,11 @@ public partial class EmployeesView : UserControl, ISectionView
             case EmployeeEditorPurpose.Create:
             case EmployeeEditorPurpose.Edit:
                 FillFile(employee);
+                if (employee is null)
+                {
+                    await ShowNextFileNumberAsync();
+                }
+
                 break;
             case EmployeeEditorPurpose.Advance when employee is not null:
                 await OpenAdvanceAsync();
@@ -129,7 +135,8 @@ public partial class EmployeesView : UserControl, ISectionView
         RoleComboBox.ItemsSource = EmployeeFormRules.RoleOptions(_roles, employee?.RoleId);
         LastNameTextBox.Text = employee?.LastName ?? string.Empty;
         FirstNameTextBox.Text = employee?.FirstName ?? string.Empty;
-        FileNumberTextBox.Text = employee?.FileNumber.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
+        FileNumberTextBox.Text = employee is null ? string.Empty : EmployeeFileNumber.Format(employee.FileNumber);
+        FileNumberHint.Text = EmployeeFormRules.FileNumberHint(null);
         FileNumberHint.Visibility = employee is null ? Visibility.Visible : Visibility.Collapsed;
         RoleComboBox.SelectedValue = employee?.RoleId ?? Guid.Empty;
         HireDateTextBox.Text = EmployeeFormRules.DateText(employee?.HireDate);
@@ -144,6 +151,16 @@ public partial class EmployeesView : UserControl, ISectionView
         // A linked customer is never unlinked (its account may carry debt), as in the web.
         TakesGoodsCheckBox.IsEnabled = employee?.CustomerId is null;
         NotesTextBox.Text = employee?.Notes ?? string.Empty;
+    }
+
+    /// <summary>employee-lifecycle E1: tells which file number a new employee will get; the plain hint stays when unreadable.</summary>
+    private async Task ShowNextFileNumberAsync()
+    {
+        var next = await _client.NextFileNumberAsync(_busy.Token);
+        if (_editing is null && FilePanel.Visibility == Visibility.Visible)
+        {
+            FileNumberHint.Text = EmployeeFormRules.FileNumberHint(next);
+        }
     }
 
     private async void SaveButton_Click(object sender, RoutedEventArgs e)
@@ -194,7 +211,7 @@ public partial class EmployeesView : UserControl, ISectionView
             }
 
             _employees.Model.CloseEditor();
-            ShowStatus(outcome.Employee is { } saved ? $"{saved.FullName} guardado (legajo {saved.FileNumber})." : PosMessages.Saved, isError: false);
+            ShowStatus(outcome.Employee is { } saved ? $"{saved.FullName} guardado (legajo {EmployeeFileNumber.Format(saved.FileNumber)})." : PosMessages.Saved, isError: false);
             await LoadEmployeesAsync();
         });
     }

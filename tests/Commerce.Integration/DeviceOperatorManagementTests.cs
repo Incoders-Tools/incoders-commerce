@@ -219,12 +219,15 @@ public sealed class DeviceOperatorManagementTests : IClassFixture<WebApplication
         var accounts = await device.GetFromJsonAsync<JsonElement>("/treasury/accounts");
         Assert.Contains(accounts.EnumerateArray(), a => a.GetProperty("accountId").GetGuid() == accountId);
 
+        // employee-lifecycle E1: the form shows which file number a new employee will get.
+        var next = await device.GetFromJsonAsync<JsonElement>("/employees/next-file-number");
         var created = await device.PostAsJsonAsync("/employees", new EmployeeRequest(
             tenant.BranchId, null, "Ana", "Pérez", "30111222", null, roleId, null, null, null, new DateOnly(2024, 3, 15),
             "Monthly", 650_000m, null, true));
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
         var employee = await created.Content.ReadFromJsonAsync<JsonElement>();
         var employeeId = employee.GetProperty("id").GetGuid();
+        Assert.Equal(next.GetProperty("fileNumber").GetInt32(), employee.GetProperty("fileNumber").GetInt32());
         Assert.Equal("Pérez, Ana", employee.GetProperty("fullName").GetString());
         Assert.NotEqual(JsonValueKind.Null, employee.GetProperty("customerId").ValueKind);
         Assert.Equal(tenant.AdminId, (Guid)OwnerScalar(
@@ -365,6 +368,7 @@ public sealed class DeviceOperatorManagementTests : IClassFixture<WebApplication
             await device.PutAsJsonAsync($"/account/users/{existingUser}/status", new UpdateUserStatusRequest(true)),
             await device.PostAsJsonAsync($"/account/users/{existingUser}/reset-password", new AdminResetPasswordRequest("x-password-123")),
             await device.GetAsync("/employees"),
+            await device.GetAsync("/employees/next-file-number"),
             await device.GetAsync($"/employees/{Guid.NewGuid()}"),
             await device.PostAsJsonAsync("/employees", new { branchId = tenant.BranchId, firstName = "No", lastName = "No" }),
             await device.PostAsJsonAsync($"/employees/{Guid.NewGuid()}/active", new { isActive = false }),

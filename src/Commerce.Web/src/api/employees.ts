@@ -69,6 +69,11 @@ export function listEmployees(filters: { branchId?: string; includeInactive?: bo
   return apiFetch<EmployeeRecord[]>(queryString ? `/employees?${queryString}` : '/employees')
 }
 
+/** The file number a new employee created without one will get (a preview, not a reservation). */
+export async function nextFileNumber(): Promise<number> {
+  return (await apiFetch<{ fileNumber: number }>('/employees/next-file-number')).fileNumber
+}
+
 export function getEmployee(id: string): Promise<EmployeeRecord> {
   return apiFetch<EmployeeRecord>(`/employees/${id}`)
 }

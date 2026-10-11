@@ -3,6 +3,7 @@ using Commerce.Cloud.Api.Auditing;
 using Commerce.Cloud.Api.Tenancy;
 using Commerce.Domain.CurrentAccounts;
 using Commerce.Domain.Customers;
+using Commerce.Domain.Payroll;
 using Npgsql;
 
 namespace Commerce.Cloud.Api.Persistence;
@@ -78,6 +79,9 @@ public sealed class PostgresEmployeeStore
 {
     public const string AdvanceSourceType = "EmployeeAdvance";
 
+    /// <summary>The file number an employee created without one gets (row level security keeps it to the organization).</summary>
+    private const string NextFileNumberSql = "SELECT COALESCE(MAX(file_number), 0) + 1 FROM employees";
+
     private const string Select = """
         SELECT e.id, e.branch_id, b.name, e.file_number, e.first_name, e.last_name, e.document_number, e.cuil, e.role_id, r.name,
                e.phone, e.email, e.address, e.hire_date, e.termination_date, e.pay_frequency, e.base_salary, e.customer_id, e.notes,
@@ -116,6 +120,21 @@ public sealed class PostgresEmployeeStore
         var withBalances = await WithBalancesAsync(connection, tx, employees, ct);
         await tx.CommitAsync(ct);
         return withBalances;
+    }
+
+    /// <summary>
+    /// The number the next employee created without one will get, for the form to show (employee-lifecycle E1). Only a
+    /// preview: the create takes the number under its lock, so two forms open at once may show the same one.
+    /// </summary>
+    public async Task<int> NextFileNumberAsync(CloudTenantScope scope, CancellationToken ct)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+        await TenantScopeSql.ApplyAsync(connection, tx, scope.OrganizationId, null, ct);
+        await using var cmd = new NpgsqlCommand(NextFileNumberSql, connection, tx);
+        var next = (int)(await cmd.ExecuteScalarAsync(ct))!;
+        await tx.CommitAsync(ct);
+        return next;
     }
 
     public async Task<EmployeeRecord?> GetAsync(CloudTenantScope scope, Guid employeeId, CancellationToken ct)
@@ -242,7 +261,7 @@ public sealed class PostgresEmployeeStore
             var fileNumber = input.FileNumber;
             if (fileNumber is null)
             {
-                await using var next = new NpgsqlCommand("SELECT COALESCE(MAX(file_number), 0) + 1 FROM employees", connection, tx);
+                await using var next = new NpgsqlCommand(NextFileNumberSql, connection, tx);
                 fileNumber = (int)(await next.ExecuteScalarAsync(ct))!;
             }
             else if (await FileNumberTakenAsync(connection, tx, fileNumber.Value, null, ct))
@@ -378,7 +397,7 @@ public sealed class PostgresEmployeeStore
             customerId, CustomerKind.Retail, $"{employee.FullName} (personal)", null,
             employee.DocumentNumber is null ? TaxIdType.None : TaxIdType.Dni, employee.DocumentNumber, TaxCondition.ConsumidorFinal,
             employee.Phone, employee.Email, null, null, null, null, null, null, null, null, null,
-            $"Cuenta de compras del empleado legajo {employee.FileNumber}: se descuenta del sueldo.", actorId),
+            $"Cuenta de compras del empleado legajo {EmployeeFileNumber.Format(employee.FileNumber)}: se descuenta del sueldo.", actorId),
             "org-user", actorId, ct);
 
         await using var connection = await _dataSource.OpenConnectionAsync(ct);

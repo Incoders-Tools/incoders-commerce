@@ -81,15 +81,20 @@ describe('staff and payroll screens', () => {
     routeFetch({
       'GET /employees': () => json([juan]),
       'GET /employees/roles': () => json([]),
+      'GET /employees/next-file-number': () => json({ fileNumber: 2 }),
       'POST /employees': () => json({ ...juan, id: 'e-2', firstName: 'Ana', fullName: 'Gómez, Ana', fileNumber: 2 }, 201),
     })
     const user = userEvent.setup()
     renderEmployees()
 
     expect(await screen.findByText('Pérez, Juan')).toBeInTheDocument()
+    expect(screen.getByText('0001')).toBeInTheDocument() // employee-lifecycle E1: the legajo zero-padded
     expect(screen.getByText('Nos debe $ 100.000,00'.replace(/ /g, ' '))).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Nuevo empleado' }))
+    // The form tells which file number the new employee will get while it is left empty.
+    await waitFor(() => expect(screen.getByLabelText('Legajo')).toHaveAttribute('placeholder', 'Automático (el siguiente: 0002)'))
+    expect(screen.getByLabelText('Legajo')).toHaveValue('')
     await user.type(screen.getByLabelText('Apellido'), 'Gómez')
     await user.type(screen.getByLabelText('Nombre'), 'Ana')
     await user.type(screen.getByLabelText('Sueldo pactado por período'), '650000')
@@ -99,7 +104,7 @@ describe('staff and payroll screens', () => {
     expect(bodyOf('POST /employees')).toMatchObject({
       branchId: 'b-1', firstName: 'Ana', lastName: 'Gómez', payFrequency: 'Monthly', baseSalary: 650000, takesGoods: true,
     })
-    expect(await screen.findByText('Gómez, Ana guardado (legajo 2).')).toBeInTheDocument()
+    expect(await screen.findByText('Gómez, Ana guardado (legajo 0002).')).toBeInTheDocument()
   })
 
   it('hands an advance from the branch drawer', async () => {
@@ -159,6 +164,7 @@ describe('staff and payroll screens', () => {
     )
 
     expect(await screen.findByRole('heading', { name: 'Liquidación 1' })).toBeInTheDocument()
+    expect(screen.getByText(/Legajo 0001/)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Editar' }))
     await user.click(screen.getByRole('button', { name: '+ Agregar haber' }))
     const lines = screen.getByRole('list', { name: 'Haberes y descuentos de Pérez, Juan' })

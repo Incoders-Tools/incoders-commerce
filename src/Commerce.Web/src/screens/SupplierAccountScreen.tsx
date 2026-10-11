@@ -18,6 +18,7 @@ import { formatIsoDate, formatMoney } from '@/dashboard/format'
 import { daysAgoIso, todayIso } from '@/lib/isoDate'
 import { cn } from '@/lib/utils'
 import { MovementForm } from './MovementForm'
+import { formatFileNumber } from '@/lib/fileNumber'
 
 /** The statement opens on the last 90 days: enough to see recent invoices and payments without a long scroll. */
 const DEFAULT_RANGE_DAYS = 90
@@ -55,7 +56,7 @@ const PARTY = {
     back: '/app/employees',
     load: async (id: string): Promise<AccountHolder> => {
       const employee = await getEmployee(id)
-      return { id: employee.id, name: `${employee.fullName} (legajo ${employee.fileNumber})`, paymentTermsDays: null }
+      return { id: employee.id, name: `${employee.fullName} (legajo ${formatFileNumber(employee.fileNumber)})`, paymentTermsDays: null }
     },
   },
 } as const

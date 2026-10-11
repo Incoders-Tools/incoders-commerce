@@ -33,6 +33,29 @@ public sealed class EmployeeAdminClient
     public Task<IReadOnlyList<TreasuryAccountDto>?> ListTreasuryAccountsAsync(CancellationToken ct = default) =>
         ReadListAsync<TreasuryAccountDto>("/treasury/accounts", "/treasury/accounts", ct);
 
+    /// <summary>The file number a new employee will get (employee-lifecycle E1, a preview); null when unreadable.</summary>
+    public async Task<int?> NextFileNumberAsync(CancellationToken ct = default)
+    {
+        const string path = "/employees/next-file-number";
+        var endpoint = PosHttp.Endpoint(HttpMethod.Get, path);
+        try
+        {
+            using var response = await _httpClient.GetAsync(path, ct);
+            if (!response.IsSuccessStatusCode)
+            {
+                await PosHttp.LogFailureWithBodyAsync(endpoint, response, ct);
+                return null;
+            }
+
+            return (await PosHttp.TryReadJsonAsync<NextFileNumberDto>(response, endpoint, ct))?.FileNumber;
+        }
+        catch (Exception ex) when (PosHttp.IsTransportFailure(ex, ct))
+        {
+            PosHttp.LogTransportFailure(endpoint, ex);
+            return null;
+        }
+    }
+
     /// <summary>The employee's account statement (every movement with its running balance); null when unreadable.</summary>
     public async Task<EmployeeStatementDto?> GetStatementAsync(Guid employeeId, CancellationToken ct = default)
     {
@@ -184,6 +207,9 @@ public sealed record EmployeeAdvanceRequestDto(decimal Amount, DateOnly? Date, G
 
 /// <summary>One position of `GET /employees/roles` (a master-data entry).</summary>
 public sealed record EmployeeRoleDto(Guid Id, string Name, bool IsActive = true);
+
+/// <summary>Mirrors the answer of `GET /employees/next-file-number`.</summary>
+public sealed record NextFileNumberDto(int FileNumber);
 
 /// <summary>The fields of `Commerce.Cloud.Api.Persistence.TreasuryAccountRecord` the advance form uses.</summary>
 public sealed record TreasuryAccountDto(Guid AccountId, Guid? BranchId, string? BranchName, string Kind, string Name, bool IsActive = true);

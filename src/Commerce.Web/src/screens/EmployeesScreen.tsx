@@ -16,6 +16,7 @@ import {
   employeeRolesApi,
   giveAdvance,
   listEmployees,
+  nextFileNumber,
   setEmployeeActive,
   updateEmployee,
   type EmployeeRecord,
@@ -25,6 +26,7 @@ import { listTreasuryAccounts, type TreasuryAccount } from '@/api/treasury'
 import type { MasterDataEntry, SelectableBranch } from '@/api/types'
 import { useOptionalBranchContext } from '@/branch/BranchContext'
 import { formatMoney } from '@/dashboard/format'
+import { formatFileNumber } from '@/lib/fileNumber'
 import { todayIso } from '@/lib/isoDate'
 import { parseAmount } from '@/treasury/treasuryInput'
 import { cn } from '@/lib/utils'
@@ -91,7 +93,7 @@ export function EmployeesScreen() {
   }
 
   const columns: DataViewColumn<EmployeeRecord>[] = [
-    { key: 'file', header: t('columns.file'), cell: (e) => <span className="tabular-nums">{e.fileNumber}</span> },
+    { key: 'file', header: t('columns.file'), cell: (e) => <span className="tabular-nums">{formatFileNumber(e.fileNumber)}</span> },
     {
       key: 'name',
       header: t('columns.name'),
@@ -137,7 +139,7 @@ export function EmployeesScreen() {
         onCancel={() => setPage({ kind: 'list' })}
         onSaved={(saved) => {
           setPage({ kind: 'list' })
-          setStatus(t('status.saved', { name: saved.fullName, file: saved.fileNumber }))
+          setStatus(t('status.saved', { name: saved.fullName, file: formatFileNumber(saved.fileNumber) }))
           void load()
         }}
       />
@@ -244,7 +246,20 @@ function EmployeeForm({
   const errorText = useErrorText()
   const [firstName, setFirstName] = useState(employee?.firstName ?? '')
   const [lastName, setLastName] = useState(employee?.lastName ?? '')
-  const [fileNumber, setFileNumber] = useState(employee ? String(employee.fileNumber) : '')
+  const [fileNumber, setFileNumber] = useState(employee ? formatFileNumber(employee.fileNumber) : '')
+  // employee-lifecycle E1: which number a new employee will get while the field is left empty.
+  const [nextFile, setNextFile] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (employee) return
+    let current = true
+    nextFileNumber()
+      .then((next) => current && setNextFile(next))
+      .catch(() => {}) // the plain placeholder stays
+    return () => {
+      current = false
+    }
+  }, [employee])
   const [branchId, setBranchId] = useState(employee?.branchId ?? defaultBranchId)
   const [roleId, setRoleId] = useState(employee?.roleId ?? '')
   const [documentNumber, setDocumentNumber] = useState(employee?.documentNumber ?? '')
@@ -315,7 +330,13 @@ function EmployeeForm({
             value={fileNumber}
             onChange={setFileNumber}
             inputMode="numeric"
-            placeholder={employee ? undefined : t('form.fileNumberPlaceholder')}
+            placeholder={
+              employee
+                ? undefined
+                : nextFile === null
+                  ? t('form.fileNumberPlaceholder')
+                  : t('form.fileNumberPlaceholderNext', { number: formatFileNumber(nextFile) })
+            }
           />
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="employeeBranch">{t('form.branch')}</Label>

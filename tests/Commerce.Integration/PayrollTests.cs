@@ -94,6 +94,33 @@ public sealed class PayrollTests : IDisposable
         new(w.Branch, fileNumber, first, "Pérez", "30111222", null, null, null, null, null, new DateOnly(2025, 1, 1), frequency, salary, null);
 
     [Fact]
+    public void AFileNumber_ReadsZeroPaddedToFourDigits_AndLongerOnesWhole()
+    {
+        Assert.Equal("0001", EmployeeFileNumber.Format(1));
+        Assert.Equal("0007", EmployeeFileNumber.Format(7));
+        Assert.Equal("1234", EmployeeFileNumber.Format(1234));
+        Assert.Equal("12345", EmployeeFileNumber.Format(12345));
+    }
+
+    [Fact]
+    public async Task TheNextFileNumber_IsTheOneTheNextEmployeeGets_AfterAHandPickedOneToo()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+        var w = await SeedAsync();
+        var store = Employees();
+
+        Assert.Equal(1, await store.NextFileNumberAsync(w.Scope, CancellationToken.None));
+        var (_, first) = await store.CreateAsync(w.Scope, w.Actor, Input(w, "Juan", 1m), takesGoods: false, CancellationToken.None);
+        Assert.Equal(1, first!.FileNumber);
+        Assert.Equal(2, await store.NextFileNumberAsync(w.Scope, CancellationToken.None));
+
+        await store.CreateAsync(w.Scope, w.Actor, Input(w, "Ana", 1m, fileNumber: 10), takesGoods: false, CancellationToken.None);
+        Assert.Equal(11, await store.NextFileNumberAsync(w.Scope, CancellationToken.None));
+        var (_, after) = await store.CreateAsync(w.Scope, w.Actor, Input(w, "Luis", 1m), takesGoods: false, CancellationToken.None);
+        Assert.Equal(11, after!.FileNumber);
+    }
+
+    [Fact]
     public async Task TheStaffFile_NumbersEachEmployee_LinksACustomerForTheGoods_AndDeactivates()
     {
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
@@ -111,6 +138,7 @@ public sealed class PayrollTests : IDisposable
         using (var owner = OpenOwner())
         {
             Assert.Equal("Pérez, Juan (personal)", Scalar<string>(owner, "SELECT display_name FROM customers WHERE id = $1", juan.CustomerId!.Value));
+            Assert.Contains("legajo 0001", Scalar<string>(owner, "SELECT notes FROM customers WHERE id = $1", juan.CustomerId!.Value));
         }
 
         // Enabling the goods later links its customer too.

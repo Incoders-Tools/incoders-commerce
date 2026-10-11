@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { getPayrollRun, type PayrollRunDetail, type Payslip } from '@/api/employees'
 import { getOrganizationDocumentProfile, type OrganizationDocumentProfile } from '@/api/fulfillment'
 import { formatIsoDate, formatMoney } from '@/dashboard/format'
+import { formatFileNumber } from '@/lib/fileNumber'
 
 /**
  * The payslips of a run, printable: one A4 page per employee with two copies, the employee's and the business's (signed
@@ -113,7 +114,7 @@ function Receipt({
         </div>
       </header>
       <p>
-        <span className="font-semibold">{payslip.employeeName}</span> · {t('file', { number: payslip.fileNumber })}
+        <span className="font-semibold">{payslip.employeeName}</span> · {t('file', { number: formatFileNumber(payslip.fileNumber) })}
         {payslip.cuil ? ` · CUIL ${payslip.cuil}` : ''}
         {payslip.roleName ? ` · ${payslip.roleName}` : ''}
       </p>
