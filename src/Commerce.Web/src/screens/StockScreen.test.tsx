@@ -115,6 +115,26 @@ describe('StockScreen', () => {
     expect(await productsInOrder()).toEqual(['Chorizo', 'Costilla', 'Media res', 'Vacío'])
   })
 
+  it('keeps the chosen order after registering an adjustment, which swaps the table out and reloads it', async () => {
+    const user = userEvent.setup()
+    renderScreen()
+    await user.click(await screen.findByRole('button', { name: 'En stock' }))
+
+    await user.click(within(await rowOf('Media res')).getByRole('button', { name: 'Ajustar' }))
+    fireEvent.change(screen.getByLabelText('Tipo de ajuste'), { target: { value: 'Shrinkage' } })
+    fireEvent.change(screen.getByLabelText('Cantidad'), { target: { value: '2,5' } })
+    fireEvent.change(screen.getByLabelText('Motivo'), { target: { value: 'Se venció' } })
+    await user.click(screen.getByRole('button', { name: 'Registrar ajuste' }))
+
+    expect(await screen.findByText(/Ajuste registrado/)).toBeInTheDocument()
+    const products = within(await screen.findByRole('table'))
+      .getAllByRole('row')
+      .slice(1)
+      .map((row) => within(row).getAllByRole('cell')[0].textContent)
+    expect(products).toEqual(['Costilla', 'Vacío', 'Chorizo', 'Media res'])
+    expect(screen.getByRole('columnheader', { name: 'En stock' })).toHaveAttribute('aria-sort', 'ascending')
+  })
+
   it('asks the server for only what is below minimum and for the typed search', async () => {
     const user = userEvent.setup()
     renderScreen()

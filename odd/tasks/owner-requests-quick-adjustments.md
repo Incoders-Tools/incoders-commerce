@@ -86,6 +86,13 @@ and a sortable stock table.
   Its follow-up review (`review-ef26641f097302ec`, approved) added: the renamed
   organization's cleanup in the new test runs only in `finally` after
   `RemoveVacaVerde`, and the test asserts a literal 6 instead of the seeded list.
+- [ ] F5 Q6 review (`review-2dfceace70c89d2b`, approved). Its warning (nothing
+  proved the order survives the adjustment form) was fixed right after `2d329d6`:
+  a test sorts, registers an adjustment and checks the order and `aria-sort` on
+  return (control: with the order kept inside a wrapper around the view, it
+  fails). Two suggestions remain, with locations only: `StockScreen.tsx:197-198`
+  (last movement sorted as ISO text through the Spanish collator) and
+  `DataView.test.tsx:192-194` (the "unsorted keeps the order" assertion).
 - [ ] F2 Q1 correction review (`review-9cd7c9b7ba60e800`, approved) left three
   reliability suggestions whose text the capture did not surface; only their
   locations: `CustomerForm.tsx:249-250` (the location reference sent as "" on
