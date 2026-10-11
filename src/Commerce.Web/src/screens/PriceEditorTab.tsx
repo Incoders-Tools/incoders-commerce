@@ -734,7 +734,9 @@ function EditorGridRow({
         />
       </td>
       <td className="px-3 py-2 font-medium break-words">{row.productName}</td>
-      <td className="px-3 py-2 text-muted-foreground">{row.showPresentation ? row.presentationName : ''}</td>
+      {/* owner-requests-quick-adjustments Q4: the catalog's criterion, the presentation unless it repeats the product name
+          ("Por kg" tells the price is per kilo even when it is the product's only presentation). */}
+      <td className="px-3 py-2 text-muted-foreground">{row.presentationName !== row.productName ? row.presentationName : ''}</td>
       <td className="px-3 py-2 tabular-nums">{row.code ?? '—'}</td>
       <td className="px-3 py-2">{row.categoryName ?? '—'}</td>
       <td className="px-3 py-2 text-right tabular-nums">

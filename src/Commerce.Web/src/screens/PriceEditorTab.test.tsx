@@ -239,8 +239,9 @@ describe('PriceListsScreen "Editar precios" tab', () => {
     expect(within(lengua).getByText('Carnes')).toBeInTheDocument()
     expect(within(lengua).getByText('$ 1.000,00')).toBeInTheDocument()
     expect(within(lengua).getByText('$ 1.210,00')).toBeInTheDocument()
-    // "Por kg" is the only presentation of Lengua: it adds nothing.
-    expect(within(lengua).queryByText('Por kg')).not.toBeInTheDocument()
+    // owner-requests-quick-adjustments Q4: the presentation is shown like the catalog shows it, even when it is the
+    // only one ("Por kg" says the price is per kilo).
+    expect(within(lengua).getByText('Por kg')).toBeInTheDocument()
     // Queso has two presentations, so each row says which one.
     expect(within(rowOf('Horma')).getByText('Queso')).toBeInTheDocument()
     expect(within(rowOf('301')).getByText('Horma')).toBeInTheDocument()
