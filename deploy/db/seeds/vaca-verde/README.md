@@ -113,6 +113,14 @@ If the branch already has an untouched empty list named "Default" (what provisio
 Mostrador. If it has a different default list, Mostrador is created as a non-default list (a `NOTICE` says so).
 Categories are resolved by name and lists by name, so manual rows with the same name are reused, not duplicated.
 
+## Staff positions (`005`)
+
+`005_vaca_verde_employee_roles.sql` (hand-maintained; needs migration `0050`) loads the six positions the owner asked
+for, in this order: **Titular** (the owner), **Encargado** (the owner's children), **Carnicero**, **Chofer**, **Vendedor**
+and **Cajero** (`sort_order` 10..60, keys in lower case). It resolves only the organization (positions have no creating
+user); without it a `NOTICE` and no changes. A position already created in the app with the same name or key is kept,
+and one renamed or deactivated later is never overwritten. The web lists positions alphabetically (Q2).
+
 Regenerate (Python 3 + `openpyxl`, spreadsheet paths are arguments, nothing is hardcoded):
 
 ```sh

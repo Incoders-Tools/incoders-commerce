@@ -49,7 +49,9 @@ and a sortable stock table.
 - [x] Q2 Lookup tables without "Clave"/"Orden" (server derives the key, alphabetical order; web forms and tables). The four `MasterDataScreen` tables (business types, supplier categories, treasury account types, staff positions). The server already derived the key from the name when omitted and kept it on edit; it now lists by `lower(name)` instead of `sort_order` (the column stays, unused for ordering). The web no longer shows or sends key/order (deactivate included); a key collision reads as "same name". Product categories keep their own "Orden": it is the POS rail order, a real feature. RED: the list test expected the stored order, 3 web tests failed; GREEN: 126 server tests (lookups, suppliers, treasury, employees, payroll, seed), 10 web.
 - [x] Q3 Discount percentage helper (web + POS, same wording). Found a real bug behind the confusion: the POS read the discount with the invariant culture, so "7,5" was stored as 75 (and "1,000" as 1000), and nothing on the server limited it, while the discount is applied to the customer's prices at the POS. Now `CustomerDiscountRules` (0-100, two decimals) on create and update (400 `discountPercentage`), the POS reads a decimal comma as a decimal and accepts "10%", and both layers show "De 0 a 100, sin el signo %. Admite decimales: 7,5." RED: domain/POS did not compile, the endpoint accepted 120/-1/7.555 (control run without the rule: 3 failures); web tests failed against the previous form (control). GREEN: 131 server/POS tests, 41 `CustomerForm` tests. No stored discount violated the range in `commerce_dev`.
 - [x] Q4 Price lists "Presentación" column, same criterion as the catalog. Not missing data: the editor showed the presentation only when the product had more than one (a test locked it in), and all 90 presentations in `commerce_dev` are the only one of their product ("Por kg"). The column now shows it unless it repeats the product name, like the catalog. Price lists are web-only ("One layer" in the parity map). RED: the updated expectation failed; GREEN: 56 price tests.
-- [ ] Q5 Staff positions seed (Titular, Encargado, Carnicero, Chofer, Vendedor, Cajero).
+- [x] Q5 Staff positions seed (Titular, Encargado, Carnicero, Chofer, Vendedor, Cajero): `deploy/db/seeds/vaca-verde/005_vaca_verde_employee_roles.sql`,
+  idempotent, order 10..60, never over a position created or edited in the app (`VacaVerdeSuppliersCatalogSeedTests.EmployeeRoles`;
+  RED: the file did not exist; GREEN: 36 seed tests). `provision-admin.ps1` applies it on new environments; applied by hand to local `commerce_dev`.
 - [ ] Q6 Sortable stock table.
 
 ## Follow-ups
@@ -63,6 +65,12 @@ and a sortable stock table.
   (MAX + 10), so the default 10..50 types keep their order and "Cheques" lands
   last (`TreasuryTests.ATypeCreatedWithoutAnOrder_...`; RED: expected 60, got 0;
   control without the code fails again). No local data had to be fixed.
+- [ ] F3 F1 review (`review-1ce2c2a41281a1d2`, approved), three suggestions on
+  `PostgresMasterDataStore.CreateAsync` / `MasterData.cs:91`: two concurrent
+  creates can read the same MAX and share an order (harmless: ties sort by name);
+  MAX + 10 could overflow an integer (only with a hand-set order near 2^31); no
+  test pins that an explicit order on create still wins (covered indirectly by
+  `sortOrder = 5` / `25` in the master data and treasury tests).
 - [ ] F2 Q1 correction review (`review-9cd7c9b7ba60e800`, approved) left three
   reliability suggestions whose text the capture did not surface; only their
   locations: `CustomerForm.tsx:249-250` (the location reference sent as "" on
