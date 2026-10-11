@@ -35,7 +35,8 @@
     "view": "Vista",
     "searchPlaceholder": "Buscar…",
     "moreActions": "Más acciones",
-    "actionsMenu": "Acciones de {{name}}"
+    "actionsMenu": "Acciones de {{name}}",
+    "sortBy": "Ordenar por {{column}}"
   },
   "numberFormat": {
     "example": {

@@ -35,7 +35,8 @@
     "view": "View",
     "searchPlaceholder": "Search…",
     "moreActions": "More actions",
-    "actionsMenu": "Actions for {{name}}"
+    "actionsMenu": "Actions for {{name}}",
+    "sortBy": "Sort by {{column}}"
   },
   "numberFormat": {
     "example": {

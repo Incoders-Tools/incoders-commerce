@@ -52,7 +52,11 @@ and a sortable stock table.
 - [x] Q5 Staff positions seed (Titular, Encargado, Carnicero, Chofer, Vendedor, Cajero): `deploy/db/seeds/vaca-verde/005_vaca_verde_employee_roles.sql`,
   idempotent, order 10..60, never over a position created or edited in the app (`VacaVerdeSuppliersCatalogSeedTests.EmployeeRoles`;
   RED: the file did not exist; GREEN: 36 seed tests). `provision-admin.ps1` applies it on new environments; applied by hand to local `commerce_dev`.
-- [ ] Q6 Sortable stock table.
+- [x] Q6 Sortable stock table (web only: the POS has no stock screen). `DataView` gained opt-in, client-side sorting:
+  a column with `sortValue` gets a header button (new column ascending, same column flips, `aria-sort`, empty values
+  always last, Spanish text order); the screen owns the state so it survives the adjustment form. Stock sorts by
+  product, presentation, on hand, minimum, status (negative, out, low, ok) and last movement. RED: 6 tests; GREEN:
+  42, and the whole web suite (790); control without the code: 6 failures.
 
 ## Follow-ups
 
@@ -79,6 +83,9 @@ and a sortable stock table.
   organization between its two cases and the no-organization test counts the
   whole table; `provision-admin.ps1` picking up `005` is read from its `*.sql`
   glob, not tested; the `app.current_org_id` scope branch of the seed is untested.
+  Its follow-up review (`review-ef26641f097302ec`, approved) added: the renamed
+  organization's cleanup in the new test runs only in `finally` after
+  `RemoveVacaVerde`, and the test asserts a literal 6 instead of the seeded list.
 - [ ] F2 Q1 correction review (`review-9cd7c9b7ba60e800`, approved) left three
   reliability suggestions whose text the capture did not surface; only their
   locations: `CustomerForm.tsx:249-250` (the location reference sent as "" on

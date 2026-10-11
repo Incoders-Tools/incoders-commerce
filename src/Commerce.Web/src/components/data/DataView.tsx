@@ -14,6 +14,36 @@ export interface DataViewColumn<T> {
   hideOnMobile?: boolean
   /** Skip this field in the card layout (it is already the card title). */
   hideInCards?: boolean
+  /** Makes the column sortable (with `sort`/`onSortChange` on the view); null/undefined always sort last. */
+  sortValue?: (item: T) => string | number | null | undefined
+}
+
+export interface DataViewSort {
+  key: string
+  direction: 'asc' | 'desc'
+}
+
+/** A click on a header: a new column starts ascending, the same column flips. */
+export function nextSort(current: DataViewSort | null, key: string): DataViewSort {
+  if (current?.key === key) return { key, direction: current.direction === 'asc' ? 'desc' : 'asc' }
+  return { key, direction: 'asc' }
+}
+
+const textOrder = new Intl.Collator('es', { sensitivity: 'base', numeric: true })
+
+function sortItems<T>(items: T[], columns: DataViewColumn<T>[], sort: DataViewSort | null | undefined): T[] {
+  const sortValue = sort ? columns.find((column) => column.key === sort.key)?.sortValue : undefined
+  if (!sort || !sortValue) return items
+  const sign = sort.direction === 'asc' ? 1 : -1
+  return [...items].sort((a, b) => {
+    const left = sortValue(a)
+    const right = sortValue(b)
+    const leftEmpty = left === null || left === undefined
+    const rightEmpty = right === null || right === undefined
+    if (leftEmpty || rightEmpty) return leftEmpty === rightEmpty ? 0 : leftEmpty ? 1 : -1
+    if (typeof left === 'number' && typeof right === 'number') return sign * (left - right)
+    return sign * textOrder.compare(String(left), String(right))
+  })
 }
 
 export interface DataViewProps<T> {
@@ -38,13 +68,21 @@ export interface DataViewProps<T> {
   /** Per-item action buttons (right-aligned in the table, footer in cards). */
   renderActions?: (item: T) => ReactNode
   className?: string
+  /**
+   * Opt-in sorting, owned by the screen so it survives the view being swapped out (e.g. for a form): the items are
+   * shown in this order, and the headers of the columns with a `sortValue` become buttons that report `nextSort`.
+   */
+  sort?: DataViewSort | null
+  onSortChange?: (sort: DataViewSort) => void
 }
 
 /**
  * T4: the shared list surface for data screens. Deliberately NOT a table
- * framework — no sorting/pagination/column-resizing abstraction — just the
- * three states every screen needs (loading, empty, populated) rendered
- * either as a table or as a responsive card grid.
+ * framework — no pagination/column-resizing abstraction — just the three
+ * states every screen needs (loading, empty, populated) rendered either as a
+ * table or as a responsive card grid. Sorting is opt-in and client-side
+ * (owner-requests-quick-adjustments Q6): only for lists the server returns
+ * whole.
  *
  * T9: dropped `renderExpanded` (a boxed inline row/card editor) — its one
  * caller, `CatalogScreen`'s "Edit code", now swaps to a full-screen
@@ -64,6 +102,8 @@ export function DataView<T>({
   loadingMessage,
   renderActions,
   className,
+  sort = null,
+  onSortChange,
 }: DataViewProps<T>) {
   const { t } = useTranslation('common')
   const resolvedLoadingMessage = loadingMessage ?? t('dataView.loading')
@@ -97,10 +137,12 @@ export function DataView<T>({
     )
   }
 
+  const shown = sortItems(items, columns, sort)
+
   if (view === 'cards') {
     return (
       <div className={cn('grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4', className)}>
-        {items.map((item) => {
+        {shown.map((item) => {
           const [title, ...rest] = columns
           return (
             <article
@@ -133,16 +175,33 @@ export function DataView<T>({
       <table className="w-full text-left text-sm">
         <thead className="border-b border-border text-xs text-muted-foreground uppercase">
           <tr>
-            {columns.map((column) => (
-              <th
-                key={column.key}
-                scope="col"
-                title={column.headerHint}
-                className={cn('px-4 py-3 font-medium', column.hideOnMobile && 'hidden md:table-cell')}
-              >
-                {column.header}
-              </th>
-            ))}
+            {columns.map((column) => {
+              const sortable = column.sortValue !== undefined && onSortChange !== undefined
+              const direction = sort?.key === column.key ? sort.direction : null
+              return (
+                <th
+                  key={column.key}
+                  scope="col"
+                  title={column.headerHint}
+                  aria-sort={sortable ? (direction === 'asc' ? 'ascending' : direction === 'desc' ? 'descending' : 'none') : undefined}
+                  className={cn('px-4 py-3 font-medium', column.hideOnMobile && 'hidden md:table-cell')}
+                >
+                  {sortable ? (
+                    <button
+                      type="button"
+                      title={t('dataView.sortBy', { column: column.header })}
+                      className="inline-flex items-center gap-1 uppercase hover:text-foreground"
+                      onClick={() => onSortChange(nextSort(sort, column.key))}
+                    >
+                      {column.header}
+                      <span aria-hidden="true">{direction === 'asc' ? '▲' : direction === 'desc' ? '▼' : '↕'}</span>
+                    </button>
+                  ) : (
+                    column.header
+                  )}
+                </th>
+              )
+            })}
             {renderActions && (
               <th scope="col" className="px-4 py-3 text-right font-medium">
                 <span className="sr-only">{t('dataView.actions')}</span>
@@ -151,7 +210,7 @@ export function DataView<T>({
           </tr>
         </thead>
         <tbody>
-          {items.map((item) => {
+          {shown.map((item) => {
             return (
               <tr key={getRowKey(item)} id={getRowId?.(item)} className="border-b border-border last:border-0 hover:bg-muted/50">
                 {columns.map((column) => (

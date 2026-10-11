@@ -98,6 +98,23 @@ describe('StockScreen', () => {
     expect(within(costilla).getByText('-2,5 kg')).toBeInTheDocument()
   })
 
+  it('sorts by the quantity on hand when its header is clicked, to spot low stock', async () => {
+    const user = userEvent.setup()
+    renderScreen()
+    const productsInOrder = async () =>
+      within(await screen.findByRole('table'))
+        .getAllByRole('row')
+        .slice(1)
+        .map((row) => within(row).getAllByRole('cell')[0].textContent)
+
+    await user.click(await screen.findByRole('button', { name: 'En stock' }))
+    expect(await productsInOrder()).toEqual(['Costilla', 'Vacío', 'Chorizo', 'Media res'])
+    await user.click(screen.getByRole('button', { name: 'En stock' }))
+    expect(await productsInOrder()).toEqual(['Media res', 'Chorizo', 'Vacío', 'Costilla'])
+    await user.click(screen.getByRole('button', { name: 'Producto' }))
+    expect(await productsInOrder()).toEqual(['Chorizo', 'Costilla', 'Media res', 'Vacío'])
+  })
+
   it('asks the server for only what is below minimum and for the typed search', async () => {
     const user = userEvent.setup()
     renderScreen()
