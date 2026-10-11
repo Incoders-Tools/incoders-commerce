@@ -257,8 +257,7 @@ export interface CustomerRecord {
   neighborhood: string | null
   postalCode: string | null
   deliveryNotes: string | null
-  // owner-requests-quick-adjustments Q1: how to find the place; apart from the delivery notes. On update, omitted keeps
-  // the stored one and "" clears it.
+  // owner-requests-quick-adjustments Q1: how to find the place; apart from the delivery notes.
   locationReference?: string | null
   discountPercentage: number | null
   paymentTerms: string | null
@@ -305,8 +304,7 @@ export interface CreateCustomerRequest {
   neighborhood: string | null
   postalCode: string | null
   deliveryNotes: string | null
-  // owner-requests-quick-adjustments Q1: how to find the place; apart from the delivery notes. On update, omitted keeps
-  // the stored one and "" clears it.
+  // How to find the place. On update, omitted keeps the stored one and "" clears it.
   locationReference?: string | null
   discountPercentage: number | null
   paymentTerms: string | null

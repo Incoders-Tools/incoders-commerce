@@ -59,6 +59,13 @@ and a sortable stock table.
   (`PostgresTreasuryStore.cs` ORDER BY), and a type created from the web now
   always gets 0, so its accounts would sort before "Efectivo". Order those
   groups alphabetically too, or give new types the next order.
+- [ ] F2 Q1 correction review (`review-9cd7c9b7ba60e800`, approved) left three
+  reliability suggestions whose text the capture did not surface; only their
+  locations: `CustomerForm.tsx:249-250` (the location reference sent as "" on
+  every save), `RemitoPrintScreen.tsx:188-192` (the location reference row) and
+  this document's Q1 entry. Re-read those spots when next touching them. Its
+  two readability suggestions (parity map lost the "Indicaciones" label;
+  update semantics commented on the read type) were fixed right after `a428d55`.
 
 ## Progress
 
