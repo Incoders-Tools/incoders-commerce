@@ -3,10 +3,11 @@
 --
 -- HAND-MAINTAINED (not produced by any generator); see README.md in this directory.
 --
--- Safe to re-run: every row has a deterministic id (md5('vaca-verde:employee-role:<key>')::uuid) and is inserted with
--- ON CONFLICT DO NOTHING, which also covers the unique name and key indexes, so a second run changes nothing, a position
--- already created in the app with the same name or key is kept as is, and one renamed or deactivated later is never
--- overwritten. The order is spaced by 10 so a position created later in the app (MAX + 10) lands after these. When the
+-- Safe to re-run: every row has a deterministic id that includes the organization
+-- (md5('vaca-verde:employee-role:<organization id>:<key>')::uuid, so the rows of an earlier, renamed "Vaca Verde" never
+-- block a new one) and is inserted with ON CONFLICT DO NOTHING, which also covers the unique name and key indexes, so a
+-- second run changes nothing, a position already created in the app with the same name or key is kept as is, and one
+-- renamed or deactivated later is never overwritten. The order is spaced by 10, leaving room between positions. When the
 -- organization "Vaca Verde" does not exist yet, the file prints a NOTICE and changes nothing. Apply after migration 0050.
 --
 -- Run as the database owner, e.g.:
@@ -43,7 +44,7 @@ BEGIN
 END $$;
 
 INSERT INTO employee_roles (id, organization_id, name, key, sort_order)
-SELECT md5('vaca-verde:employee-role:' || v.key)::uuid, c.organization_id, v.name, v.key, v.sort_order
+SELECT md5('vaca-verde:employee-role:' || c.organization_id::text || ':' || v.key)::uuid, c.organization_id, v.name, v.key, v.sort_order
 FROM (VALUES
     ('titular', 'Titular', 10),
     ('encargado', 'Encargado', 20),

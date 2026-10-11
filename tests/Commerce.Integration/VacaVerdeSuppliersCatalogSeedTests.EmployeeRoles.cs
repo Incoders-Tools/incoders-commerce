@@ -83,6 +83,33 @@ public sealed partial class VacaVerdeSuppliersCatalogSeedTests
     }
 
     [Fact]
+    public void EmployeeRolesSeed_GivesANewVacaVerdeItsOwnPositions_WhenAnEarlierOneWasRenamed()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        using var owner = OpenOwner();
+        ApplyAllMigrations(owner);
+        var earlier = ProvisionVacaVerde(owner);
+        try
+        {
+            // The seeded ids are global primary keys: they must include the organization, or the earlier one's rows
+            // would silently block the new one's.
+            ApplyEmployeeRoles(owner);
+            Exec(owner, "UPDATE organizations SET name = 'Vaca Verde (anterior)' WHERE id = $1", earlier.OrgId);
+            var current = ProvisionVacaVerde(owner);
+            ApplyEmployeeRoles(owner);
+            Assert.Equal(SeededPositions, Positions(owner, current.OrgId).Select(p => p.Name));
+            Assert.Equal(6, Count(owner, "employee_roles", earlier.OrgId));
+        }
+        finally
+        {
+            RemoveVacaVerde(owner);
+            Exec(owner, "DELETE FROM users WHERE organization_id = $1", earlier.OrgId);
+            Exec(owner, "DELETE FROM organizations WHERE id = $1", earlier.OrgId);
+        }
+    }
+
+    [Fact]
     public void EmployeeRolesSeed_WithoutTheOrganization_ChangesNothing()
     {
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }

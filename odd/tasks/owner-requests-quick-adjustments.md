@@ -71,6 +71,14 @@ and a sortable stock table.
   MAX + 10 could overflow an integer (only with a hand-set order near 2^31); no
   test pins that an explicit order on create still wins (covered indirectly by
   `sortOrder = 5` / `25` in the master data and treasury tests).
+- [ ] F4 Q5 review (`review-28eabdc4cab1000d`, approved). Fixed right after
+  `a02802b`: the README section split the 002/003 regenerate steps (moved to the
+  end) and the seeded ids now include the organization (RED: a new "Vaca Verde"
+  after renaming the earlier one got no positions). Still open: `002`/`003` use
+  the same organization-independent ids; the collision test shares one
+  organization between its two cases and the no-organization test counts the
+  whole table; `provision-admin.ps1` picking up `005` is read from its `*.sql`
+  glob, not tested; the `app.current_org_id` scope branch of the seed is untested.
 - [ ] F2 Q1 correction review (`review-9cd7c9b7ba60e800`, approved) left three
   reliability suggestions whose text the capture did not surface; only their
   locations: `CustomerForm.tsx:249-250` (the location reference sent as "" on
