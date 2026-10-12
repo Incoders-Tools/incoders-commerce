@@ -27,11 +27,16 @@ import type { MasterDataEntry, SelectableBranch } from '@/api/types'
 import { useOptionalBranchContext } from '@/branch/BranchContext'
 import { formatMoney } from '@/dashboard/format'
 import { formatFileNumber } from '@/lib/fileNumber'
+import { EmployeeOvertimePage } from './EmployeeOvertimePage'
 import { todayIso } from '@/lib/isoDate'
 import { parseAmount } from '@/treasury/treasuryInput'
 import { cn } from '@/lib/utils'
 
-type Page = { kind: 'list' } | { kind: 'form'; employee: EmployeeRecord | null } | { kind: 'advance'; employee: EmployeeRecord }
+type Page =
+  | { kind: 'list' }
+  | { kind: 'form'; employee: EmployeeRecord | null }
+  | { kind: 'advance'; employee: EmployeeRecord }
+  | { kind: 'overtime'; employee: EmployeeRecord }
 
 /** The machine codes of a refused write, in plain words. */
 function useErrorText() {
@@ -160,6 +165,18 @@ export function EmployeesScreen() {
     )
   }
 
+  if (page.kind === 'overtime') {
+    return (
+      <EmployeeOvertimePage
+        employee={page.employee}
+        onBack={() => {
+          setPage({ kind: 'list' })
+          void load()
+        }}
+      />
+    )
+  }
+
   return (
     <section className="flex w-full flex-col gap-6">
       <PageHeader
@@ -213,6 +230,7 @@ export function EmployeesScreen() {
               { key: 'edit', label: t('actions.edit'), onSelect: () => setPage({ kind: 'form', employee }) },
               { key: 'account', label: t('actions.account'), to: `/app/employees/${employee.id}/account` },
               { key: 'advance', label: t('actions.advance'), onSelect: () => setPage({ kind: 'advance', employee }), hidden: !employee.isActive },
+              { key: 'overtime', label: t('actions.overtime'), onSelect: () => setPage({ kind: 'overtime', employee }) },
               {
                 key: 'toggle',
                 label: employee.isActive ? t('actions.deactivate') : t('actions.activate'),
@@ -270,6 +288,9 @@ function EmployeeForm({
   const [hireDate, setHireDate] = useState(employee?.hireDate ?? '')
   const [payFrequency, setPayFrequency] = useState<PayFrequency>(employee?.payFrequency ?? 'Monthly')
   const [baseSalary, setBaseSalary] = useState(employee ? String(employee.baseSalary).replace('.', ',') : '')
+  const [overtimeRate, setOvertimeRate] = useState(
+    employee?.overtimeHourlyRate == null ? '' : String(employee.overtimeHourlyRate).replace('.', ','),
+  )
   const [takesGoods, setTakesGoods] = useState(employee ? employee.customerId !== null : true)
   const [notes, setNotes] = useState(employee?.notes ?? '')
   const [error, setError] = useState<string | null>(null)
@@ -283,6 +304,9 @@ function EmployeeForm({
     if (branchId === '') return setError(t('form.errors.branch'))
     const salary = baseSalary.trim() === '' ? 0 : parseAmount(baseSalary)
     if (salary === null) return setError(t('form.errors.salary'))
+    // employee-lifecycle E2: empty is "no rate" (0 clears a stored one on an update).
+    const rate = overtimeRate.trim() === '' ? 0 : parseAmount(overtimeRate)
+    if (rate === null) return setError(t('form.errors.overtimeRate'))
     const file = fileNumber.trim() === '' ? undefined : Number(fileNumber)
     if (file !== undefined && (!Number.isInteger(file) || file <= 0)) return setError(t('form.errors.file'))
     setError(null)
@@ -302,6 +326,7 @@ function EmployeeForm({
         hireDate: hireDate || null,
         payFrequency,
         baseSalary: salary,
+        ...(employee || rate > 0 ? { overtimeHourlyRate: rate } : {}),
         notes: notes.trim() || null,
         takesGoods,
       }
@@ -392,6 +417,15 @@ function EmployeeForm({
             placeholder={t('form.salaryPlaceholder')}
           />
           <p className="text-xs text-muted-foreground sm:col-span-2">{t('form.payHint')}</p>
+          <Field
+            id="employeeOvertimeRate"
+            label={t('form.overtimeHourlyRate')}
+            value={overtimeRate}
+            onChange={setOvertimeRate}
+            inputMode="decimal"
+            placeholder="2500"
+          />
+          <p className="self-end text-xs text-muted-foreground">{t('form.overtimeHourlyRateHint')}</p>
           <label className="flex items-start gap-2 text-sm sm:col-span-2">
             <input type="checkbox" className="mt-0.5" checked={takesGoods} disabled={employee?.customerId != null} onChange={(e) => setTakesGoods(e.target.checked)} />
             <span>

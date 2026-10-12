@@ -36,6 +36,8 @@ export interface EmployeeRecord {
   balance: number
   /** What its linked customer owes for goods: the next payroll deducts it. */
   purchasesOwed: number
+  /** employee-lifecycle E2: hours x this x the multiplier; null = no overtime can be recorded. */
+  overtimeHourlyRate: number | null
 }
 
 export interface EmployeeRequest {
@@ -56,6 +58,8 @@ export interface EmployeeRequest {
   notes?: string | null
   /** Link a customer so the POS can sell goods to the employee on account. */
   takesGoods?: boolean
+  /** Omitted keeps the stored rate, 0 clears it. */
+  overtimeHourlyRate?: number
 }
 
 /** The positions catalog ("puestos"). */
@@ -101,11 +105,46 @@ export function giveAdvance(
   return apiFetch<{ advanceId: string }>(`/employees/${id}/advances`, { method: 'POST', body: JSON.stringify(request) })
 }
 
+// ---- overtime (employee-lifecycle E2) ----------------------------------------------------------
+
+export type OvertimeStatus = 'Pending' | 'InPayroll' | 'Paid'
+
+export interface OvertimeRecord {
+  id: string
+  employeeId: string
+  workDate: string
+  hours: number
+  multiplier: number
+  hourlyRate: number
+  /** Frozen when recorded: hours x the rate at that moment x the multiplier. */
+  amount: number
+  note: string | null
+  status: OvertimeStatus
+  /** The payroll run that took it, if any. */
+  runNumber: number | null
+  createdAtUtc: string
+}
+
+export function listOvertime(employeeId: string): Promise<OvertimeRecord[]> {
+  return apiFetch<OvertimeRecord[]>(`/employees/${employeeId}/overtime`)
+}
+
+export function recordOvertime(
+  employeeId: string,
+  request: { workDate: string; hours: number; multiplier: number; note?: string },
+): Promise<OvertimeRecord> {
+  return apiFetch<OvertimeRecord>(`/employees/${employeeId}/overtime`, { method: 'POST', body: JSON.stringify(request) })
+}
+
+export function deleteOvertime(employeeId: string, overtimeId: string): Promise<void> {
+  return apiFetch<void>(`/employees/${employeeId}/overtime/${overtimeId}`, { method: 'DELETE' })
+}
+
 // ---- payroll -----------------------------------------------------------------------------------
 
 export type PayrollStatus = 'Draft' | 'Paid'
 export type PayslipLineKind = 'Earning' | 'Deduction'
-export type PayslipLineSource = 'BaseSalary' | 'Advances' | 'Manual'
+export type PayslipLineSource = 'BaseSalary' | 'Advances' | 'Manual' | 'Overtime'
 
 export interface PayrollRunSummary {
   runId: string

@@ -439,6 +439,8 @@ function PayslipEditor({
               aria-label={t('editor.concept')}
               className="h-8 min-w-48 flex-1"
               value={line.concept}
+              // employee-lifecycle E2: the server keeps the overtime line equal to the hours it took; it can only go.
+              readOnly={line.source === 'Overtime'}
               maxLength={200}
               placeholder={line.kind === 'Earning' ? t('editor.earningPlaceholder') : t('editor.deductionPlaceholder')}
               onChange={(e) => change(line.key, { concept: e.target.value })}
@@ -448,11 +450,13 @@ function PayslipEditor({
               className="h-8 w-36"
               inputMode="decimal"
               value={line.amount}
+              readOnly={line.source === 'Overtime'}
               onChange={(e) => change(line.key, { amount: e.target.value })}
             />
             <Button type="button" variant="outline" size="sm" onClick={() => setLines((current) => current.filter((item) => item.key !== line.key))}>
               {t('editor.removeLine')}
             </Button>
+            {line.source === 'Overtime' && <span className="basis-full pl-26 text-xs text-muted-foreground">{t('editor.overtimeHint')}</span>}
           </li>
         ))}
       </ul>

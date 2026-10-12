@@ -103,7 +103,8 @@
     "errors": {
       "line": "Cada renglón necesita un concepto y un importe mayor que cero.",
       "percent": "La bonificación es un porcentaje de 0 a 100."
-    }
+    },
+    "overtimeHint": "Se calcula con las horas extra cargadas."
   },
   "print": {
     "back": "Volver",

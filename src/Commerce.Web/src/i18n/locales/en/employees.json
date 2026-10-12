@@ -36,6 +36,7 @@
     "edit": "Edit",
     "account": "Account",
     "advance": "Advance",
+    "overtime": "Overtime",
     "deactivate": "Mark as left",
     "activate": "Rehire"
   },
@@ -81,8 +82,11 @@
       "name": "Enter last and first name.",
       "branch": "Choose the branch.",
       "salary": "The pay is an amount with up to two decimals (or empty).",
-      "file": "The file number is a whole number above zero."
-    }
+      "file": "The file number is a whole number above zero.",
+      "overtimeRate": "Type a value above zero with at most two decimals, or leave it empty."
+    },
+    "overtimeHourlyRate": "Overtime hourly rate",
+    "overtimeHourlyRateHint": "For overtime: hours × this rate × the multiplier (Sunday ×2). Empty: no overtime can be recorded."
   },
   "advance": {
     "title": "Advance to {{name}}",
@@ -106,7 +110,50 @@
       "role-not-found": "That position does not exist.",
       "branch-not-found": "That branch does not exist.",
       "account-not-found": "That treasury account does not exist.",
-      "account-inactive": "That treasury account is inactive."
+      "account-inactive": "That treasury account is inactive.",
+      "overtime-rate-missing": "The employee has no overtime hourly rate: set it in its details.",
+      "overtime-settled": "That overtime is already in a payroll: change it there."
+    }
+  },
+  "overtime": {
+    "title": "Overtime of {{name}}",
+    "description": "Recorded when worked: hours × the overtime hourly rate × the multiplier. The next payroll takes the pending ones by itself.",
+    "rate": "Overtime hourly rate: {{rate}}",
+    "noRate": "Set the overtime hourly rate in the employee details (\"Edit\") to record overtime.",
+    "date": "Date",
+    "hours": "Hours",
+    "multiplier": "Multiplier",
+    "multiplierHint": "A Sunday proposes ×2; any other day ×1. It can be changed (1 to 3).",
+    "note": "Note (optional)",
+    "notePlaceholder": "E.g.: stocktaking",
+    "preview": "Amount: {{amount}}",
+    "save": "Record overtime",
+    "saving": "Recording…",
+    "empty": "No overtime recorded.",
+    "loadError": "The overtime could not be loaded.",
+    "columns": {
+      "date": "Date",
+      "hours": "Hours",
+      "multiplier": "Multiplier",
+      "rate": "Hourly rate",
+      "amount": "Amount",
+      "note": "Note",
+      "status": "Status"
+    },
+    "status": {
+      "Pending": "Pending",
+      "InPayroll": "In payroll {{run}}",
+      "Paid": "Paid (payroll {{run}})"
+    },
+    "delete": "Delete",
+    "deleteLabel": "Delete overtime of {{date}}",
+    "deleteTitle": "Delete overtime",
+    "deleteMessage": "Delete the overtime of {{date}} ({{hours}} h)? Only if it was recorded by mistake.",
+    "deleting": "Deleting…",
+    "errors": {
+      "hours": "Type the hours: more than 0 and up to 24, with at most two decimals.",
+      "multiplier": "Type a multiplier from 1 to 3, with at most two decimals.",
+      "date": "Pick a day that already passed (or today)."
     }
   }
 }

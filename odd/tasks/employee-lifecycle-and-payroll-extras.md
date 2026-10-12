@@ -55,7 +55,12 @@ advances (items 3, 6, 7 and 9 of the owner's 2026-10-11 request).
     up to the end of the period as one "Horas extra (7,5 h)" earning; taking the payslip or the draft out releases them
     (`ON DELETE SET NULL` on `payslips.id`, proved under RLS as `app_runtime`), and so does saving the payslip without
     that line; a paid run settles them. RED: the tests did not compile; GREEN: 87, regression 321. Applied locally.
-  - [ ] E2b Web: rate in the employee form; "Horas extra" on the employee (record, list with status, delete pending).
+  - [x] E2b Web: rate in the employee form ("Valor de la hora extra"; empty sends 0 on an edit, nothing on a create);
+    row action "Horas extra" opens `EmployeeOvertimePage` (date up to today, hours, multiplier proposed by the day via
+    `lib/overtime.ts` until the operator changes it, note, amount preview; list with Pendiente / En la liquidación N /
+    Liquidada; delete only a pending one, after confirming; without a rate it says where to set it). The payslip
+    editor shows the overtime line read-only ("Se calcula con las horas extra cargadas."), removable. RED: 4 failures
+    + 2 files missing; GREEN: 15, full web suite 804; control without the screens: failures again.
   - [ ] E2c POS: the same, same words; parity map.
 - [ ] E3 Termination section: date + reason, then "Liquidar último sueldo" opening the payroll for that employee; web + POS.
 - [ ] E4 Goods from the web: "Registrar mercadería" on the employee (a debit on its linked customer account) and the wording no longer says POS only.

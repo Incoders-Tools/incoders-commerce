@@ -36,6 +36,7 @@
     "edit": "Editar",
     "account": "Cuenta",
     "advance": "Adelanto",
+    "overtime": "Horas extra",
     "deactivate": "Dar de baja",
     "activate": "Reincorporar"
   },
@@ -81,8 +82,11 @@
       "name": "Escribí apellido y nombre.",
       "branch": "Elegí la sucursal.",
       "salary": "El sueldo es un importe con hasta dos decimales (o vacío).",
-      "file": "El legajo es un número entero mayor que cero."
-    }
+      "file": "El legajo es un número entero mayor que cero.",
+      "overtimeRate": "Escribí un valor mayor que cero, con hasta dos decimales, o dejalo vacío."
+    },
+    "overtimeHourlyRate": "Valor de la hora extra",
+    "overtimeHourlyRateHint": "Para las horas extra: horas × este valor × el multiplicador (el domingo, ×2). Vacío: no se cargan horas extra."
   },
   "advance": {
     "title": "Adelanto a {{name}}",
@@ -106,7 +110,50 @@
       "role-not-found": "Ese puesto no existe.",
       "branch-not-found": "Esa sucursal no existe.",
       "account-not-found": "Esa cuenta de Tesorería no existe.",
-      "account-inactive": "Esa cuenta de Tesorería está inactiva."
+      "account-inactive": "Esa cuenta de Tesorería está inactiva.",
+      "overtime-rate-missing": "El empleado no tiene valor de la hora extra: cargalo en sus datos.",
+      "overtime-settled": "Esas horas extra ya están en una liquidación: se cambian ahí."
+    }
+  },
+  "overtime": {
+    "title": "Horas extra de {{name}}",
+    "description": "Se cargan cuando se trabajan: horas × el valor de la hora extra × el multiplicador. La próxima liquidación toma las pendientes sola.",
+    "rate": "Valor de la hora extra: {{rate}}",
+    "noRate": "Cargá el valor de la hora extra en los datos del empleado («Editar») para poder registrar horas extra.",
+    "date": "Fecha",
+    "hours": "Horas",
+    "multiplier": "Multiplicador",
+    "multiplierHint": "El domingo se propone ×2; cualquier otro día, ×1. Se puede cambiar (de 1 a 3).",
+    "note": "Nota (opcional)",
+    "notePlaceholder": "Ej.: inventario",
+    "preview": "Importe: {{amount}}",
+    "save": "Registrar horas extra",
+    "saving": "Registrando…",
+    "empty": "No tiene horas extra cargadas.",
+    "loadError": "No se pudieron cargar las horas extra.",
+    "columns": {
+      "date": "Fecha",
+      "hours": "Horas",
+      "multiplier": "Multiplicador",
+      "rate": "Valor hora",
+      "amount": "Importe",
+      "note": "Nota",
+      "status": "Estado"
+    },
+    "status": {
+      "Pending": "Pendiente",
+      "InPayroll": "En la liquidación {{run}}",
+      "Paid": "Liquidada (liquidación {{run}})"
+    },
+    "delete": "Borrar",
+    "deleteLabel": "Borrar horas extra del {{date}}",
+    "deleteTitle": "Borrar horas extra",
+    "deleteMessage": "¿Borrar las horas extra del {{date}} ({{hours}} h)? Usalo solo si se cargaron por error.",
+    "deleting": "Borrando…",
+    "errors": {
+      "hours": "Escribí las horas: más de 0 y hasta 24, con hasta dos decimales.",
+      "multiplier": "Escribí un multiplicador de 1 a 3, con hasta dos decimales.",
+      "date": "Elegí un día que ya pasó (o hoy)."
     }
   }
 }

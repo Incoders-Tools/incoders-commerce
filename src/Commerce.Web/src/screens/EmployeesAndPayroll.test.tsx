@@ -42,6 +42,7 @@ describe('staff and payroll screens', () => {
     updatedAtUtc: '2026-10-01T00:00:00Z',
     balance: -100000,
     purchasesOwed: 50000,
+    overtimeHourlyRate: null,
   }
   const cash: TreasuryAccount = {
     accountId: 'acc-cash', branchId: 'b-1', branchName: 'Arrecifes', kind: 'Cash', name: 'Caja efectivo · Arrecifes',
@@ -98,11 +99,13 @@ describe('staff and payroll screens', () => {
     await user.type(screen.getByLabelText('Apellido'), 'Gómez')
     await user.type(screen.getByLabelText('Nombre'), 'Ana')
     await user.type(screen.getByLabelText('Sueldo pactado por período'), '650000')
+    await user.type(screen.getByLabelText('Valor de la hora extra'), '2500,5') // employee-lifecycle E2
     await user.click(screen.getByRole('button', { name: 'Guardar' }))
 
     await waitFor(() => expect(callsTo('POST /employees')).toHaveLength(1))
     expect(bodyOf('POST /employees')).toMatchObject({
       branchId: 'b-1', firstName: 'Ana', lastName: 'Gómez', payFrequency: 'Monthly', baseSalary: 650000, takesGoods: true,
+      overtimeHourlyRate: 2500.5,
     })
     expect(await screen.findByText('Gómez, Ana guardado (legajo 0002).')).toBeInTheDocument()
   })
@@ -122,6 +125,7 @@ describe('staff and payroll screens', () => {
 
     await waitFor(() => expect(callsTo('PUT /employees/e-1')).toHaveLength(1))
     expect(bodyOf('PUT /employees/e-1').fileNumber).toBe(1)
+    expect(bodyOf('PUT /employees/e-1').overtimeHourlyRate).toBe(0) // an empty rate clears it
     expect(callsTo('GET /employees/next-file-number')).toHaveLength(0) // only a new employee asks
   })
 
@@ -138,6 +142,22 @@ describe('staff and payroll screens', () => {
     await waitFor(() => expect(callsTo('GET /employees/next-file-number')).toHaveLength(1))
     expect(screen.getByLabelText('Legajo')).toHaveAttribute('placeholder', 'Automático (el siguiente)')
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('opens the overtime of an employee from its row', async () => {
+    routeFetch({
+      'GET /employees': () => json([{ ...juan, overtimeHourlyRate: 2000 }]),
+      'GET /employees/roles': () => json([]),
+      'GET /employees/e-1/overtime': () => json([]),
+    })
+    const user = userEvent.setup()
+    renderEmployees()
+
+    await user.click(await screen.findByRole('button', { name: 'Acciones de Pérez, Juan' }))
+    await user.click(screen.getByRole('menuitem', { name: 'Horas extra' }))
+    expect(await screen.findByRole('heading', { name: 'Horas extra de Pérez, Juan' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Volver al personal' }))
+    expect(await screen.findByText('Pérez, Juan')).toBeInTheDocument()
   })
 
   it('hands an advance from the branch drawer', async () => {
@@ -179,6 +199,40 @@ describe('staff and payroll screens', () => {
       },
     ],
   }
+
+  it('shows the overtime the payroll took as a fixed line that can only be taken out', async () => {
+    const withOvertime: PayrollRunDetail = {
+      ...draft,
+      payslips: [{
+        ...draft.payslips[0],
+        lines: [...draft.payslips[0].lines, { lineNo: 3, kind: 'Earning', source: 'Overtime', concept: 'Horas extra (4 h)', amount: 16000 }],
+      }],
+    }
+    routeFetch({
+      'GET /payroll/runs/r-1': () => json(withOvertime),
+      'PUT /payroll/runs/r-1/payslips/p-1': () => json(undefined, 204),
+    })
+    const user = userEvent.setup()
+    render(
+      <MemoryRouter initialEntries={['/app/payroll/r-1']}>
+        <Routes>
+          <Route path="/app/payroll/:id" element={<PayrollRunScreen />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    await user.click(await screen.findByRole('button', { name: 'Editar' }))
+    const lines = screen.getByRole('list', { name: 'Haberes y descuentos de Pérez, Juan' })
+    const overtime = within(lines).getAllByRole('listitem')[2]
+    expect(within(overtime).getByLabelText('Concepto')).toHaveAttribute('readonly')
+    expect(within(overtime).getByLabelText('Importe')).toHaveAttribute('readonly')
+    expect(within(overtime).getByText('Se calcula con las horas extra cargadas.')).toBeInTheDocument()
+
+    await user.click(within(overtime).getByRole('button', { name: 'Quitar' }))
+    await user.click(screen.getByRole('button', { name: 'Guardar recibo' }))
+    await waitFor(() => expect(callsTo('PUT /payroll/runs/r-1/payslips/p-1')).toHaveLength(1))
+    expect(bodyOf('PUT /payroll/runs/r-1/payslips/p-1').lines.map((line: { source: string }) => line.source)).toEqual(['BaseSalary', 'Advances'])
+  })
 
   it('edits a draft payslip with overtime and the goods discount, then pays it from a treasury account', async () => {
     routeFetch({
