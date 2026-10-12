@@ -194,6 +194,22 @@ describe('staff and payroll screens', () => {
     expect(await screen.findByText('Pérez, Juan')).toBeInTheDocument()
   })
 
+  it('opens the goods of an employee from its row', async () => {
+    routeFetch({
+      'GET /employees': () => json([juan]),
+      'GET /employees/roles': () => json([]),
+      'GET /employees/e-1/goods': () => json([]),
+    })
+    const user = userEvent.setup()
+    renderEmployees()
+
+    await user.click(await screen.findByRole('button', { name: 'Acciones de Pérez, Juan' }))
+    await user.click(screen.getByRole('menuitem', { name: 'Mercadería' }))
+    expect(await screen.findByRole('heading', { name: 'Mercadería de Pérez, Juan' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Volver al personal' }))
+    expect(await screen.findByText('Pérez, Juan')).toBeInTheDocument()
+  })
+
   it('hands an advance from the branch drawer', async () => {
     routeFetch({
       'GET /employees': () => json([juan]),

@@ -26,6 +26,7 @@ import type { MasterDataEntry, SelectableBranch } from '@/api/types'
 import { useOptionalBranchContext } from '@/branch/BranchContext'
 import { formatMoney } from '@/dashboard/format'
 import { formatFileNumber } from '@/lib/fileNumber'
+import { EmployeeGoodsPage } from './EmployeeGoodsPage'
 import { EmployeeLeavePage } from './EmployeeLeavePage'
 import { EmployeeOvertimePage } from './EmployeeOvertimePage'
 import { todayIso } from '@/lib/isoDate'
@@ -37,6 +38,7 @@ type Page =
   | { kind: 'form'; employee: EmployeeRecord | null }
   | { kind: 'advance'; employee: EmployeeRecord }
   | { kind: 'overtime'; employee: EmployeeRecord }
+  | { kind: 'goods'; employee: EmployeeRecord }
   | { kind: 'leave'; employee: EmployeeRecord }
 
 /** The machine codes of a refused write, in plain words. */
@@ -172,6 +174,18 @@ export function EmployeesScreen() {
     )
   }
 
+  if (page.kind === 'goods') {
+    return (
+      <EmployeeGoodsPage
+        employee={page.employee}
+        onBack={() => {
+          setPage({ kind: 'list' })
+          void load()
+        }}
+      />
+    )
+  }
+
   if (page.kind === 'overtime') {
     return (
       <EmployeeOvertimePage
@@ -238,6 +252,8 @@ export function EmployeesScreen() {
               { key: 'account', label: t('actions.account'), to: `/app/employees/${employee.id}/account` },
               { key: 'advance', label: t('actions.advance'), onSelect: () => setPage({ kind: 'advance', employee }), hidden: !employee.isActive },
               { key: 'overtime', label: t('actions.overtime'), onSelect: () => setPage({ kind: 'overtime', employee }) },
+              // employee-lifecycle E4: the goods it takes, registered like a sale at the counter.
+              { key: 'goods', label: t('actions.goods'), onSelect: () => setPage({ kind: 'goods', employee }) },
               // employee-lifecycle E3: the leave (date and reason), the last salary and the reinstatement live in their section.
               { key: 'leave', label: t('actions.leave'), onSelect: () => setPage({ kind: 'leave', employee }), destructive: employee.isActive },
             ]}

@@ -112,6 +112,72 @@ export function giveAdvance(
   return apiFetch<{ advanceId: string }>(`/employees/${id}/advances`, { method: 'POST', body: JSON.stringify(request) })
 }
 
+// ---- goods (employee-lifecycle E4) -------------------------------------------------------------
+
+/** Where an item came from: registered in the web, or a POS sale on account to the employee's customer. */
+export type GoodsSource = 'Web' | 'PosSale'
+
+export interface GoodsLineRequest {
+  presentationId: string
+  quantity: number
+}
+
+export interface GoodsQuoteLine {
+  presentationId: string
+  productName: string
+  presentationName: string
+  quantity: number
+  /** The default list's (Mostrador) price on the date. */
+  unitPrice: number
+  lineTotal: number
+}
+
+export interface GoodsQuote {
+  lines: GoodsQuoteLine[]
+  total: number
+}
+
+export interface GoodsRegistration {
+  goodsId: string
+  total: number
+  lines: GoodsQuoteLine[]
+}
+
+/** One item an employee took; the payroll that takes it decides its discount. */
+export interface GoodsItem {
+  id: string
+  sourceType: GoodsSource
+  sourceId: string
+  lineNo: number
+  occurredOn: string
+  presentationId: string | null
+  productName: string
+  presentationName: string
+  quantity: number
+  unitPrice: number
+  lineTotal: number
+  discountPercent: number
+  status: OvertimeStatus
+  /** The payroll run that took it, if any. */
+  runNumber: number | null
+}
+
+export function listGoods(employeeId: string): Promise<GoodsItem[]> {
+  return apiFetch<GoodsItem[]>(`/employees/${employeeId}/goods`)
+}
+
+export function quoteGoods(employeeId: string, request: { occurredOn?: string; lines: GoodsLineRequest[] }): Promise<GoodsQuote> {
+  return apiFetch<GoodsQuote>(`/employees/${employeeId}/goods/quote`, { method: 'POST', body: JSON.stringify(request) })
+}
+
+/** `goodsId` is generated once per draft and kept across retries: a retried registration is registered once. */
+export function registerGoods(
+  employeeId: string,
+  request: { goodsId: string; occurredOn?: string; lines: GoodsLineRequest[] },
+): Promise<GoodsRegistration> {
+  return apiFetch<GoodsRegistration>(`/employees/${employeeId}/goods`, { method: 'POST', body: JSON.stringify(request) })
+}
+
 // ---- overtime (employee-lifecycle E2) ----------------------------------------------------------
 
 export type OvertimeStatus = 'Pending' | 'InPayroll' | 'Paid'

@@ -37,6 +37,7 @@
     "account": "Cuenta",
     "advance": "Adelanto",
     "overtime": "Horas extra",
+    "goods": "Mercadería",
     "leave": "Gestionar baja",
     "deactivate": "Dar de baja",
     "activate": "Reincorporar"
@@ -155,6 +156,54 @@
       "hours": "Escribí las horas: más de 0 y hasta 24, con hasta dos decimales.",
       "multiplier": "Escribí un multiplicador de 1 a 3, con hasta dos decimales.",
       "date": "Elegí un día que ya pasó (o hoy)."
+    }
+  },
+  "goods": {
+    "title": "Mercadería de {{name}}",
+    "description": "Lo que se lleva, como una venta en el mostrador: a precio de la lista Mostrador, descuenta el stock y queda en su cuenta. La próxima liquidación lo descuenta del sueldo, con la bonificación que decidas ahí.",
+    "noAccount": "No lleva mercadería. Para registrarle, activá «Lleva mercadería» en sus datos («Editar»).",
+    "date": "Fecha",
+    "linesTitle": "Productos",
+    "noLines": "Todavía no agregaste productos.",
+    "quantityLabel": "Cantidad de {{name}}",
+    "invalidQuantity": "Escribí una cantidad mayor que 0.",
+    "invalidInteger": "Este producto se vende por unidad: escribí un número entero.",
+    "remove": "Quitar",
+    "removeLabel": "Quitar {{name}}",
+    "pricing": "Calculando precios…",
+    "total": "Total: {{amount}}",
+    "save": "Registrar mercadería",
+    "saving": "Registrando…",
+    "saved": "Mercadería registrada por {{amount}}.",
+    "history": "Lo que se llevó",
+    "empty": "No tiene mercadería registrada.",
+    "loadError": "No se pudo cargar la mercadería.",
+    "quoteError": "No se pudieron calcular los precios. Probá de nuevo.",
+    "columns": {
+      "date": "Fecha",
+      "product": "Producto",
+      "quantity": "Cantidad",
+      "price": "Precio",
+      "total": "Total",
+      "source": "Origen",
+      "status": "Estado"
+    },
+    "source": {
+      "Web": "Web",
+      "PosSale": "Venta POS"
+    },
+    "status": {
+      "Pending": "Pendiente",
+      "InPayroll": "En la liquidación {{run}}",
+      "Paid": "Descontada en la liquidación {{run}}"
+    },
+    "errors": {
+      "date": "Elegí un día que ya pasó (o hoy)."
+    },
+    "codes": {
+      "employee-no-goods-account": "No lleva mercadería: activá «Lleva mercadería» en sus datos para registrarle.",
+      "no-effective-price": "Algún producto no tiene precio vigente en la lista Mostrador para esa fecha.",
+      "goods-key-in-use": "Esta carga ya se usó para otro empleado. Volvé a abrir la mercadería y cargala de nuevo."
     }
   },
   "leave": {

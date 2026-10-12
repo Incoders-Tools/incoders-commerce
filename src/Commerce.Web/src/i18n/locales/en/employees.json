@@ -37,6 +37,7 @@
     "account": "Account",
     "advance": "Advance",
     "overtime": "Overtime",
+    "goods": "Goods",
     "leave": "Manage leave",
     "deactivate": "Mark as left",
     "activate": "Rehire"
@@ -155,6 +156,54 @@
       "hours": "Type the hours: more than 0 and up to 24, with at most two decimals.",
       "multiplier": "Type a multiplier from 1 to 3, with at most two decimals.",
       "date": "Pick a day that already passed (or today)."
+    }
+  },
+  "goods": {
+    "title": "Goods taken by {{name}}",
+    "description": "What the employee takes, like a counter sale: at the Mostrador list price, out of stock and onto their account. The next payroll deducts it from the salary, with the discount you decide there.",
+    "noAccount": "Takes no goods. To register some, turn on \"Takes goods\" in their details (\"Edit\").",
+    "date": "Date",
+    "linesTitle": "Products",
+    "noLines": "No products added yet.",
+    "quantityLabel": "Quantity of {{name}}",
+    "invalidQuantity": "Enter a quantity greater than 0.",
+    "invalidInteger": "This product is sold by the unit: enter a whole number.",
+    "remove": "Remove",
+    "removeLabel": "Remove {{name}}",
+    "pricing": "Pricing…",
+    "total": "Total: {{amount}}",
+    "save": "Register goods",
+    "saving": "Registering…",
+    "saved": "Goods registered for {{amount}}.",
+    "history": "What they took",
+    "empty": "No goods registered.",
+    "loadError": "The goods could not be loaded.",
+    "quoteError": "The prices could not be calculated. Try again.",
+    "columns": {
+      "date": "Date",
+      "product": "Product",
+      "quantity": "Quantity",
+      "price": "Price",
+      "total": "Total",
+      "source": "Source",
+      "status": "Status"
+    },
+    "source": {
+      "Web": "Web",
+      "PosSale": "POS sale"
+    },
+    "status": {
+      "Pending": "Pending",
+      "InPayroll": "In payroll {{run}}",
+      "Paid": "Deducted in payroll {{run}}"
+    },
+    "errors": {
+      "date": "Pick a past day (or today)."
+    },
+    "codes": {
+      "employee-no-goods-account": "Takes no goods: turn on \"Takes goods\" in their details to register some.",
+      "no-effective-price": "A product has no effective price on the Mostrador list for that date.",
+      "goods-key-in-use": "This entry was already used for another employee. Reopen the goods and enter it again."
     }
   },
   "leave": {

@@ -116,7 +116,15 @@ advances (items 3, 6, 7 and 9 of the owner's 2026-10-11 request).
     detail gives each payslip its `goodsItems` and `purchasesItemsDiscount`; the credit note reads "Bonificación al
     personal" when items were discounted. RED: did not compile; GREEN: 35 (payroll + treasury), regression 220; control:
     without taking the items, 3 failures.
-  - [ ] E4c Web: "Registrar mercadería" on the employee (products, quantities, Mostrador prices, total).
+  - [x] E4c Web: "Registrar mercadería" on the employee (products, quantities, Mostrador prices, total).
+    Row action "Mercadería" opens `EmployeeGoodsPage`: date (up to today), the staff order's `ProductSearch` (same
+    search, `/orders/staff/presentations`: a business admin holds TakeOrders), quantities read with the organization's
+    number format (whole for unit products), the server's quote debounced (a stale answer never shows) with each line's
+    price and total, then "Registrar mercadería" with a key generated once per draft and kept across retries. Below,
+    what was taken (date, product, quantity, price, total, origin Web / Venta POS, status Pendiente / En la liquidación N
+    / Descontada en la liquidación N). Without a goods account it says how to turn it on. Refusals under `goods.codes`
+    (not `errors.codes`, which the POS compares). RED: the page did not exist and the row action was missing; GREEN: 5;
+    web suite 819, POS employees 52.
   - [ ] E4d Web payslip editor (items with their discount) and the wording that says POS only (web + POS).
 
 ## Follow-ups
