@@ -115,6 +115,13 @@ advances (items 3, 6, 7 and 9 of the owner's 2026-10-11 request).
   stale list can overwrite a rate set meanwhile in the web, like every other field of the form (no concurrency check
   on employees).
 
+- [ ] G6 E3a review (`review-3ab2aa829dd3024d`, approved). Fixed right after `045a76f`: reinstating an employee
+  who is in a Draft run (its final settlement) is refused (409 `employee-in-payroll-draft`: it would be paid that and
+  the regular runs too), and a second final settlement once a paid run covers the termination date is refused (409
+  `employee-already-settled`). RED: did not compile; GREEN: 52. Open, for the owner: a monthly employee whose unpaid
+  period spans more than one month is prorated over the days of the termination month (e.g. 41 days / 31); the draft
+  is editable. Also open: boundary tests of the leave date and reason over HTTP.
+
 ## Constraints
 
 Same as `owner-requests-quick-adjustments.md` (server rules, parity, idempotent

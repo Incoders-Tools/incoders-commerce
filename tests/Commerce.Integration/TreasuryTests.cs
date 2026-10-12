@@ -426,5 +426,7 @@ public sealed class TreasuryTests : IClassFixture<WebApplicationFactory<Program>
 
         var again = await admin.PostAsJsonAsync("/payroll/runs/final-settlement", new { employeeId });
         Assert.Equal("employee-in-draft", (await Json(again)).GetProperty("error").GetString());
+        var reinstate = await admin.PostAsJsonAsync($"/employees/{employeeId}/active", new { isActive = true });
+        Assert.Equal("employee-in-payroll-draft", (await Json(reinstate)).GetProperty("error").GetString());
     }
 }

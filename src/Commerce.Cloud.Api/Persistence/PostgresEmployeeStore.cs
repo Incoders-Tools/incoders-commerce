@@ -73,6 +73,8 @@ public enum EmployeeWriteOutcome
     FileNumberInUse,
     AccountNotFound,
     AccountInactive,
+    /// <summary>employee-lifecycle E3: reinstating an employee who is in a Draft run (its final settlement) is refused.</summary>
+    InPayrollDraft,
 }
 
 /// <summary>
@@ -439,6 +441,22 @@ public sealed partial class PostgresEmployeeStore
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
         await TenantScopeSql.ApplyAsync(connection, tx, scope.OrganizationId, null, ct);
+        if (isActive)
+        {
+            // Back at work while its final settlement is a draft, it would be paid that and the regular runs too.
+            await using var draft = new NpgsqlCommand(
+                """
+                SELECT EXISTS (SELECT 1 FROM payslips p JOIN payroll_runs r ON r.organization_id = p.organization_id AND r.id = p.run_id
+                               WHERE p.employee_id = $1 AND r.status = 'Draft')
+                """, connection, tx);
+            draft.Parameters.AddWithValue(employeeId);
+            if ((bool)(await draft.ExecuteScalarAsync(ct))!)
+            {
+                await tx.RollbackAsync(ct);
+                return EmployeeWriteOutcome.InPayrollDraft;
+            }
+        }
+
         await using (var update = new NpgsqlCommand(
             "UPDATE employees SET is_active = $2, termination_date = $3, termination_reason = $4, updated_at_utc = now() WHERE id = $1",
             connection, tx))

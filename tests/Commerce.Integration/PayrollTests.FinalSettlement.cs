@@ -119,5 +119,15 @@ public sealed partial class PayrollTests
             new CloudTenantScope(w.Org, BranchId: Guid.NewGuid()), w.Actor, juan.Id, CancellationToken.None)).Outcome);
         Assert.Equal(PayrollWriteOutcome.NotFound,
             (await payroll.CreateFinalSettlementAsync(w.Scope, w.Actor, Guid.NewGuid(), CancellationToken.None)).Outcome);
+
+        // Reinstated while that draft is open he would be paid the final settlement and the regular runs too: refused.
+        Assert.Equal(EmployeeWriteOutcome.InPayrollDraft,
+            await employees.SetActiveAsync(w.Scope, w.Actor, juan.Id, true, null, null, CancellationToken.None));
+
+        // Once paid, his leave is settled: no second final settlement; reinstating him is allowed again.
+        Assert.Equal(PayrollWriteOutcome.Done, await payroll.PayRunAsync(w.Scope, w.Actor, finalRun.Value, w.Cash, Today, CancellationToken.None));
+        Assert.Equal(PayrollWriteOutcome.AlreadySettled,
+            (await payroll.CreateFinalSettlementAsync(w.Scope, w.Actor, juan.Id, CancellationToken.None)).Outcome);
+        Assert.Equal(EmployeeWriteOutcome.Done, await employees.SetActiveAsync(w.Scope, w.Actor, juan.Id, true, null, null, CancellationToken.None));
     }
 }

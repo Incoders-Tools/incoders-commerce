@@ -64,6 +64,8 @@ public enum PayrollWriteOutcome
     EmployeeInDraft,
     /// <summary>The employee belongs to another branch than the selected one (a run is the branch's).</summary>
     OtherBranch,
+    /// <summary>A paid run already covers the termination date: the leave is settled.</summary>
+    AlreadySettled,
 }
 
 /// <summary>
@@ -354,6 +356,8 @@ public sealed class PostgresPayrollStore
             await reader.CloseAsync();
             if (inDraft) return await Refuse(PayrollWriteOutcome.EmployeeInDraft);
         }
+
+        if (lastPaid >= leave) return await Refuse(PayrollWriteOutcome.AlreadySettled);
 
         var from = FinalSettlementRules.PeriodFrom(lastPaid, employee.HireDate, leave);
         var days = FinalSettlementRules.DaysWorked(from, leave);

@@ -325,6 +325,7 @@ public static class EmployeeEndpoints
         EmployeeWriteOutcome.RoleNotFound => Results.Conflict(new { error = "role-not-found" }),
         EmployeeWriteOutcome.FileNumberInUse => Results.Conflict(new { error = "file-number-in-use" }),
         EmployeeWriteOutcome.AccountNotFound => Results.Conflict(new { error = "account-not-found" }),
+        EmployeeWriteOutcome.InPayrollDraft => Results.Conflict(new { error = "employee-in-payroll-draft" }),
         _ => Results.Conflict(new { error = "account-inactive" }),
     };
 
@@ -345,6 +346,7 @@ public static class EmployeeEndpoints
         PayrollWriteOutcome.EmployeeActive => Results.Conflict(new { error = "employee-active" }),
         PayrollWriteOutcome.EmployeeInDraft => Results.Conflict(new { error = "employee-in-draft" }),
         PayrollWriteOutcome.OtherBranch => Results.Conflict(new { error = "employee-other-branch" }),
+        PayrollWriteOutcome.AlreadySettled => Results.Conflict(new { error = "employee-already-settled" }),
         _ => Results.Conflict(new { error = "nothing-to-pay" }),
     };
 }
