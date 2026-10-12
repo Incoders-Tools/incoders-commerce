@@ -229,6 +229,21 @@ public static class PosMessages
 
     public const string AdvanceAmountInvalid = "Escribí un importe mayor que cero, con hasta dos decimales.";
 
+    // employee-lifecycle E2: overtime, in the web's words (employees.json: overtime.errors, form.errors, errors.codes).
+    public const string OvertimeHoursInvalid = "Escribí las horas: más de 0 y hasta 24, con hasta dos decimales.";
+
+    public const string OvertimeMultiplierInvalid = "Escribí un multiplicador de 1 a 3, con hasta dos decimales.";
+
+    public const string OvertimeDateInvalid = "Elegí un día que ya pasó (o hoy).";
+
+    public const string OvertimeRateInvalid = "Escribí un valor mayor que cero, con hasta dos decimales, o dejalo vacío.";
+
+    public const string OvertimeRateMissing = "El empleado no tiene valor de la hora extra: cargalo en sus datos.";
+
+    public const string OvertimeSettled = "Esas horas extra ya están en una liquidación: se cambian ahí.";
+
+    public const string OvertimeLoadFailed = "No se pudieron cargar las horas extra.";
+
     public const string AdvanceAccountRequired = "Elegí de qué cuenta sale el dinero.";
 
     public const string AdvanceDateInvalid = "La fecha no es válida (por ejemplo, 15/03/2024).";

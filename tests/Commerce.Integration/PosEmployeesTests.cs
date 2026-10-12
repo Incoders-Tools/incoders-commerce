@@ -96,6 +96,100 @@ public sealed class PosEmployeesTests
         Assert.Null(await ClientFor(new RecordingHandler(HttpStatusCode.InternalServerError, "")).NextFileNumberAsync());
     }
 
+    // ---- overtime (employee-lifecycle E2), the web's endpoints and words ----------------------
+
+    [Fact]
+    public async Task Overtime_IsListedRecordedAndDeleted_OnTheWebsEndpoints()
+    {
+        var id = Guid.NewGuid();
+        var list = new RecordingHandler(HttpStatusCode.OK, $$"""
+            [{"id":"{{id}}","employeeId":"{{id}}","workDate":"2026-10-11","hours":4,"multiplier":2,"hourlyRate":2000,"amount":16000,
+              "note":"Inventario","status":"InPayroll","runNumber":3,"createdAtUtc":"2026-10-11T20:00:00Z"}]
+            """);
+        var record = Assert.Single((await ClientFor(list).ListOvertimeAsync(id))!);
+        Assert.Equal($"/employees/{id}/overtime", list.PathAndQuery);
+        Assert.Equal((new DateOnly(2026, 10, 11), 4m, 2m, 16_000m, "InPayroll", 3), (record.WorkDate, record.Hours, record.Multiplier,
+            record.Amount, record.Status, record.RunNumber));
+
+        var post = new RecordingHandler(HttpStatusCode.Created, "{}");
+        var recorded = await ClientFor(post).RecordOvertimeAsync(id, new OvertimeRequestDto(new DateOnly(2026, 10, 11), 2.5m, 1.5m, "Carga"));
+        Assert.Equal(EmployeeAdminMutationKind.Succeeded, recorded.Kind);
+        Assert.Equal((HttpMethod.Post, $"/employees/{id}/overtime"), (post.Method, post.PathAndQuery));
+        using (var body = JsonDocument.Parse(post.Body!))
+        {
+            Assert.Equal(("2026-10-11", 2.5m, 1.5m, "Carga"), (body.RootElement.GetProperty("workDate").GetString(),
+                body.RootElement.GetProperty("hours").GetDecimal(), body.RootElement.GetProperty("multiplier").GetDecimal(),
+                body.RootElement.GetProperty("note").GetString()));
+        }
+
+        var delete = new RecordingHandler(HttpStatusCode.Conflict, "{\"error\":\"overtime-settled\"}");
+        var refused = await ClientFor(delete).DeleteOvertimeAsync(id, id);
+        Assert.Equal((HttpMethod.Delete, $"/employees/{id}/overtime/{id}"), (delete.Method, delete.PathAndQuery));
+        Assert.Equal("Esas horas extra ya están en una liquidación: se cambian ahí.", refused.ErrorMessage);
+    }
+
+    [Fact]
+    public void Overtime_ProposesTheDaysMultiplier_ReadsHoursAndMultiplierLikeTheWeb_AndNamesEachStatus()
+    {
+        Assert.Equal("2", EmployeeFormRules.ProposedMultiplierText(new DateOnly(2026, 10, 11)));
+        Assert.Equal("1", EmployeeFormRules.ProposedMultiplierText(new DateOnly(2026, 10, 12)));
+
+        Assert.Equal(2.5m, EmployeeFormRules.ParseHours("2,5"));
+        Assert.Null(EmployeeFormRules.ParseHours("0"));
+        Assert.Null(EmployeeFormRules.ParseHours("25"));
+        Assert.Equal(1.5m, EmployeeFormRules.ParseMultiplier("1,5"));
+        Assert.Null(EmployeeFormRules.ParseMultiplier("0,5"));
+        Assert.Null(EmployeeFormRules.ParseMultiplier("3,5"));
+        Assert.Equal("Importe: $ 16.000,00".Replace(' ', '\u00a0'), EmployeeFormRules.OvertimePreview(4m, 2_000m, 2m)?.Replace(' ', '\u00a0'));
+
+        OvertimeRecordDto Record(string status, int? run) =>
+            new(Guid.NewGuid(), Guid.NewGuid(), new DateOnly(2026, 10, 11), 4m, 2m, 2_000m, 16_000m, null, status, run, DateTimeOffset.UnixEpoch);
+        Assert.Equal("Pendiente", EmployeeFormRules.OvertimeStatusText(Record("Pending", null)));
+        Assert.Equal("En la liquidación 3", EmployeeFormRules.OvertimeStatusText(Record("InPayroll", 3)));
+        Assert.Equal("Liquidada (liquidación 2)", EmployeeFormRules.OvertimeStatusText(Record("Paid", 2)));
+        Assert.Equal("¿Borrar las horas extra del 11/10/2026 (4 h)? Usalo solo si se cargaron por error.",
+            EmployeeFormRules.OvertimeDeleteQuestion(Record("Pending", null)));
+    }
+
+    [Fact]
+    public async Task Overtime_HasItsRowAction_ItsPanel_AndTheWebsTexts()
+    {
+        var (list, ana, _, _) = List();
+        await list.Model.InvokeAsync(ana, EmployeeList.OvertimeAction);
+        Assert.Equal(EmployeeEditorPurpose.Overtime, list.Purpose);
+        Assert.Equal("Horas extra de Pérez, Ana", list.Model.EditorTitle);
+
+        using var web = JsonDocument.Parse(File.ReadAllText(Path.Combine(
+            RepoRoot(), "src", "Commerce.Web", "src", "i18n", "locales", "es", "employees.json")));
+        var overtime = web.RootElement.GetProperty("overtime");
+        var form = web.RootElement.GetProperty("form");
+        var xaml = Src("EmployeesView.xaml");
+        foreach (var text in new[]
+        {
+            overtime.GetProperty("description").GetString()!, overtime.GetProperty("noRate").GetString()!,
+            overtime.GetProperty("multiplierHint").GetString()!, overtime.GetProperty("save").GetString()!,
+            overtime.GetProperty("empty").GetString()!, form.GetProperty("overtimeHourlyRate").GetString()!,
+            form.GetProperty("overtimeHourlyRateHint").GetString()!,
+        })
+        {
+            Assert.Contains(text, xaml);
+        }
+
+        Assert.Equal(PosMessages.OvertimeHoursInvalid, overtime.GetProperty("errors").GetProperty("hours").GetString());
+        Assert.Equal(PosMessages.OvertimeMultiplierInvalid, overtime.GetProperty("errors").GetProperty("multiplier").GetString());
+        Assert.Equal(PosMessages.OvertimeDateInvalid, overtime.GetProperty("errors").GetProperty("date").GetString());
+        Assert.Equal(PosMessages.OvertimeRateInvalid, form.GetProperty("errors").GetProperty("overtimeRate").GetString());
+
+        var view = Src("EmployeesView.xaml.cs");
+        Assert.Contains("x:Name=\"OvertimePanel\"", xaml);
+        Assert.Contains("x:Name=\"OvertimeRateTextBox\"", xaml);
+        Assert.Contains("await _client.ListOvertimeAsync(", view);
+        Assert.Contains("await _client.RecordOvertimeAsync(", view);
+        Assert.Contains("await _client.DeleteOvertimeAsync(", view);
+        // An older terminal must not wipe the rate: the POS always sends it, 0 when emptied on an edit.
+        Assert.Contains("OvertimeHourlyRate: overtimeRate", view);
+    }
+
     [Fact]
     public async Task Create_PostsTheStaffFile_AndReturnsTheSavedEmployee()
     {

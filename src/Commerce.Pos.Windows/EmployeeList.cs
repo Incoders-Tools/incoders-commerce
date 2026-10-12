@@ -11,6 +11,7 @@ public enum EmployeeEditorPurpose
     Edit,
     Advance,
     Account,
+    Overtime,
 }
 
 /// <summary>
@@ -25,6 +26,7 @@ public sealed class EmployeeList
 {
     public const string AdvanceAction = "advance";
     public const string AccountAction = "account";
+    public const string OvertimeAction = "overtime";
     public const string ToggleActiveAction = "toggle-active";
 
     // The form the next opening of the editor on a row shows; a plain row selection (or Editar) opens the staff file.
@@ -47,6 +49,8 @@ public sealed class EmployeeList
     public void BeginAdvance(EmployeeRecordDto employee) => Open(employee, EmployeeEditorPurpose.Advance);
 
     public void BeginAccount(EmployeeRecordDto employee) => Open(employee, EmployeeEditorPurpose.Account);
+
+    public void BeginOvertime(EmployeeRecordDto employee) => Open(employee, EmployeeEditorPurpose.Overtime);
 
     public static bool CanGiveAdvance(EmployeeRecordDto employee) => employee.IsActive;
 
@@ -126,6 +130,10 @@ public sealed class EmployeeList
             {
                 Run = employee => { BeginAccount(employee); return Task.CompletedTask; },
             },
+            new(OvertimeAction, _ => "Horas extra", _ => EmployeeIcons.Overtime)
+            {
+                Run = employee => { BeginOvertime(employee); return Task.CompletedTask; },
+            },
             new(ToggleActiveAction, ToggleLabel, employee => employee.IsActive ? EntityIcons.Disable : EntityIcons.Enable)
             {
                 Run = toggleActive,
@@ -140,6 +148,7 @@ public sealed class EmployeeList
         {
             EmployeeEditorPurpose.Advance => $"Adelanto a {employee.FullName}",
             EmployeeEditorPurpose.Account => $"Cuenta corriente: {employee.FullName}",
+            EmployeeEditorPurpose.Overtime => $"Horas extra de {employee.FullName}",
             _ => $"Editar a {employee.FullName}",
         },
         EmptyEditorHint = "Elegí un empleado de la lista o tocá «Nuevo empleado».",
@@ -183,6 +192,7 @@ public static class EmployeeIcons
 {
     public const string Advance = "\uE8C7";
     public const string Account = "\uE8A5";
+    public const string Overtime = "\uE823";
 }
 
 /// <summary>
@@ -191,6 +201,34 @@ public static class EmployeeIcons
 /// </summary>
 public static class EmployeeFormRules
 {
+    // ---- overtime (employee-lifecycle E2), the web's EmployeeOvertimePage ----------------------
+
+    /// <summary>The multiplier the day proposes, as the form shows it ("2" a Sunday, "1" any other day).</summary>
+    public static string ProposedMultiplierText(DateOnly workDate) => DecimalText(OvertimeRules.ProposedMultiplier(workDate));
+
+    /// <summary>Hours as the web reads them: an amount (parseAmount) of at most 24.</summary>
+    public static decimal? ParseHours(string text) => ParseAmount(text) is { } hours && OvertimeRules.IsValidHours(hours) ? hours : null;
+
+    public static decimal? ParseMultiplier(string text) =>
+        ParseAmount(text) is { } multiplier && OvertimeRules.IsValidMultiplier(multiplier) ? multiplier : null;
+
+    /// <summary>"Importe: $ 16.000,00" while hours and multiplier read; null otherwise.</summary>
+    public static string? OvertimePreview(decimal? hours, decimal? hourlyRate, decimal? multiplier) =>
+        hours is { } h && hourlyRate is { } rate && multiplier is { } m ? $"Importe: {EmployeeList.MoneyText(OvertimeRules.Amount(h, rate, m))}" : null;
+
+    public static string OvertimeStatusText(OvertimeRecordDto record) => record.Status switch
+    {
+        OvertimeStatus.InPayroll => $"En la liquidación {record.RunNumber}",
+        OvertimeStatus.Paid => $"Liquidada (liquidación {record.RunNumber})",
+        _ => "Pendiente",
+    };
+
+    public static string OvertimeDeleteQuestion(OvertimeRecordDto record) =>
+        $"¿Borrar las horas extra del {DateText(record.WorkDate)} ({DecimalText(record.Hours)} h)? Usalo solo si se cargaron por error.";
+
+    /// <summary>"2,5", "×2": a decimal without trailing zeros and with a decimal comma, as the web shows it.</summary>
+    public static string DecimalText(decimal value) => value.ToString("0.##", CultureInfo.InvariantCulture).Replace('.', ',');
+
     /// <summary>The choices of "Se le paga", in the web's order.</summary>
     public static readonly IReadOnlyList<FormChoice> Frequencies =
     [

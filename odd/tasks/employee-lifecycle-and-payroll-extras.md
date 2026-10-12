@@ -46,7 +46,7 @@ advances (items 3, 6, 7 and 9 of the owner's 2026-10-11 request).
   run, payslips print, employee account. POS: list (search finds "10" and "0010"), form ("0007" parses), hint,
   save notice. RED: server didn't compile, POS didn't compile, web 3 failures; GREEN: 80 server, 49 POS, 792 web;
   web control without the screens' code: 2 failures.
-- [ ] E2 Overtime: employee hourly rate; overtime records (date, hours, multiplier, note) with Sunday = x2 proposed; pending ones become a payslip line by themselves (domain + migration + API + web + POS where staff is managed).
+- [x] E2 Overtime: employee hourly rate; overtime records (date, hours, multiplier, note) with Sunday = x2 proposed; pending ones become a payslip line by themselves (domain + migration + API + web + POS where staff is managed).
   - [x] E2a Server. `OvertimeRules` (domain: Sunday proposes x2, else x1; hours 0-24, multiplier 1-3, two decimals;
     amount = hours x rate x multiplier, frozen when recorded); migration 0054 (`employees.overtime_hourly_rate`,
     `employee_overtime` with RLS, `payslip_lines.source` widened to `Overtime`); `GET/POST /employees/{id}/overtime`,
@@ -61,7 +61,14 @@ advances (items 3, 6, 7 and 9 of the owner's 2026-10-11 request).
     Liquidada; delete only a pending one, after confirming; without a rate it says where to set it). The payslip
     editor shows the overtime line read-only ("Se calcula con las horas extra cargadas."), removable. RED: 4 failures
     + 2 files missing; GREEN: 15, full web suite 804; control without the screens: failures again.
-  - [ ] E2c POS: the same, same words; parity map.
+  - [x] E2c POS: "Valor de la hora extra" in the staff file (always sent on an edit, 0 when emptied); row action
+    "Horas extra" opens `OvertimePanel` (date dd/mm/aaaa up to today, hours, the multiplier the day proposes until
+    typed, note, amount preview, records with status; "Borrar" only on a pending one, confirmed in a bar with the web's
+    question); `EmployeeAdminClient` list/record/delete; conflict texts and form errors equal to `employees.json`.
+    Slip disclosed: `7af3707` (E2b) added the two overtime conflict codes to the web while the POS had none, so
+    `PosEmployeesTests.TheConflictTexts_AreTheWebsOnes` was red on `dev` until this commit (I ran only the web suite
+    after E2b). RED: the POS tests did not compile; GREEN: 68, regression 960 (POS, device operator, payroll).
+    The WPF panel itself is proved through source and rules, not rendered: check it by hand.
 - [ ] E3 Termination section: date + reason, then "Liquidar último sueldo" opening the payroll for that employee; web + POS.
 - [ ] E4 Goods from the web: "Registrar mercadería" on the employee (a debit on its linked customer account) and the wording no longer says POS only.
 
@@ -83,6 +90,10 @@ advances (items 3, 6, 7 and 9 of the owner's 2026-10-11 request).
   reason inside the form, which is not there without a rate (RED: the alert never appeared; the alert now sits outside
   the form); the delete test could pass during the reload (now it waits for the second read and counts the rows left;
   control: without the reload it fails); zero hours and a non-numeric overtime rate are proved refused.
+
+- [ ] G4 E2b follow-up review (`review-218354bf4a47c4cb`, approved): two test-precision notes in
+  `EmployeeOvertimePage.test.tsx`: the row count after a delete could be read before the list re-renders, and the
+  zero-hours check could see the alert left by the 25-hours attempt.
 
 ## Constraints
 

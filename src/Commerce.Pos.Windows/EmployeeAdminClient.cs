@@ -110,6 +110,24 @@ public sealed class EmployeeAdminClient
             () => _httpClient.PostAsJsonAsync(path, request, ct), ct, read: null)).Outcome;
     }
 
+    /// <summary>employee-lifecycle E2: the employee's overtime, newest day first; null when unreadable.</summary>
+    public Task<IReadOnlyList<OvertimeRecordDto>?> ListOvertimeAsync(Guid employeeId, CancellationToken ct = default) =>
+        ReadListAsync<OvertimeRecordDto>("/employees/{id}/overtime", $"/employees/{employeeId}/overtime", ct);
+
+    public async Task<EmployeeAdminMutationOutcome> RecordOvertimeAsync(Guid employeeId, OvertimeRequestDto request, CancellationToken ct = default)
+    {
+        var path = $"/employees/{employeeId}/overtime";
+        return (await SendAsync<object>(HttpMethod.Post, path,
+            () => _httpClient.PostAsJsonAsync(path, request, ct), ct, read: null)).Outcome;
+    }
+
+    /// <summary>Deletes a pending record; one a payroll took is refused (<c>overtime-settled</c>).</summary>
+    public async Task<EmployeeAdminMutationOutcome> DeleteOvertimeAsync(Guid employeeId, Guid overtimeId, CancellationToken ct = default)
+    {
+        var path = $"/employees/{employeeId}/overtime/{overtimeId}";
+        return (await SendAsync<object>(HttpMethod.Delete, path, () => _httpClient.DeleteAsync(path, ct), ct, read: null)).Outcome;
+    }
+
     /// <summary>
     /// The Spanish text of a refused employee write: the same wording as the web's <c>employees.errors.codes</c>; an
     /// unknown code falls back to the generic conflict text.
@@ -121,6 +139,8 @@ public sealed class EmployeeAdminClient
         "branch-not-found" => PosMessages.EmployeeBranchNotFound,
         "account-not-found" => PosMessages.TreasuryAccountNotFound,
         "account-inactive" => PosMessages.TreasuryAccountInactive,
+        "overtime-rate-missing" => PosMessages.OvertimeRateMissing,
+        "overtime-settled" => PosMessages.OvertimeSettled,
         _ => PosMessages.Conflict,
     };
 
@@ -188,7 +208,8 @@ public sealed record EmployeeRecordDto(
     Guid Id, Guid BranchId, string? BranchName, int FileNumber, string FirstName, string LastName, string FullName,
     string? DocumentNumber, string? Cuil, Guid? RoleId, string? RoleName, string? Phone, string? Email, string? Address,
     DateOnly? HireDate, DateOnly? TerminationDate, string PayFrequency, decimal BaseSalary, Guid? CustomerId, string? Notes,
-    bool IsActive, DateTimeOffset CreatedAtUtc, DateTimeOffset UpdatedAtUtc, decimal Balance = 0m, decimal PurchasesOwed = 0m);
+    bool IsActive, DateTimeOffset CreatedAtUtc, DateTimeOffset UpdatedAtUtc, decimal Balance = 0m, decimal PurchasesOwed = 0m,
+    decimal? OvertimeHourlyRate = null);
 
 /// <summary>
 /// Mirrors `Commerce.Cloud.Api.Endpoints.EmployeeRequest`. `FileNumber` null on create: the next one of the organization.
@@ -197,7 +218,15 @@ public sealed record EmployeeRecordDto(
 public sealed record EmployeeRequestDto(
     Guid BranchId, int? FileNumber, string FirstName, string LastName, string? DocumentNumber, string? Cuil, Guid? RoleId,
     string? Phone, string? Email, string? Address, DateOnly? HireDate, string PayFrequency, decimal BaseSalary, string? Notes,
-    bool TakesGoods);
+    bool TakesGoods, decimal? OvertimeHourlyRate = null);
+
+/// <summary>Mirrors `OvertimeRequest` (employee-lifecycle E2): the POS always sends the multiplier it shows.</summary>
+public sealed record OvertimeRequestDto(DateOnly WorkDate, decimal Hours, decimal Multiplier, string? Note);
+
+/// <summary>Mirrors `Commerce.Cloud.Api.Persistence.OvertimeRecord`; Status is Pending, InPayroll or Paid.</summary>
+public sealed record OvertimeRecordDto(
+    Guid Id, Guid EmployeeId, DateOnly WorkDate, decimal Hours, decimal Multiplier, decimal HourlyRate, decimal Amount, string? Note,
+    string Status, int? RunNumber, DateTimeOffset CreatedAtUtc);
 
 /// <summary>Mirrors `SetEmployeeActiveRequest`; the termination date is left to the server (today).</summary>
 public sealed record SetEmployeeActiveRequestDto(bool IsActive);
