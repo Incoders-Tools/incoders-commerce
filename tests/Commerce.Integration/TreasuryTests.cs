@@ -398,5 +398,33 @@ public sealed class TreasuryTests : IClassFixture<WebApplicationFactory<Program>
         Assert.Equal(HttpStatusCode.Forbidden, (await seller.GetAsync("/payroll/runs")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await seller.PostAsJsonAsync("/payroll/runs",
             new { periodFrom = "2026-10-01", periodTo = "2026-10-31" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await seller.PostAsJsonAsync("/payroll/runs/final-settlement",
+            new { employeeId = Guid.NewGuid() })).StatusCode);
+    }
+
+    [Fact]
+    public async Task TheFinalSettlement_IsPreparedOverHttp_OnlyForAnEmployeeGivenTheLeave()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+        var (org, branch, _) = await SeedAsync();
+        var admin = await SignedInAsync(org, branch, Permission.ManageUsers);
+        var created = await admin.PostAsJsonAsync("/employees", new { branchId = branch, firstName = "Juan", lastName = "Pérez",
+            hireDate = "2025-01-01", payFrequency = "Monthly", baseSalary = 620_000m });
+        var employeeId = (await Json(created)).GetProperty("id").GetGuid();
+
+        var active = await admin.PostAsJsonAsync("/payroll/runs/final-settlement", new { employeeId });
+        Assert.Equal("employee-active", (await Json(active)).GetProperty("error").GetString());
+
+        Assert.Equal(HttpStatusCode.NoContent, (await admin.PostAsJsonAsync($"/employees/{employeeId}/active",
+            new { isActive = false, terminationDate = "2026-10-10", terminationReason = "Despido" })).StatusCode);
+        var settled = await admin.PostAsJsonAsync("/payroll/runs/final-settlement", new { employeeId });
+        Assert.Equal(HttpStatusCode.Created, settled.StatusCode);
+        var run = await Json(await admin.GetAsync($"/payroll/runs/{(await Json(settled)).GetProperty("runId").GetGuid()}"));
+        Assert.Equal("Liquidación final de Pérez, Juan (baja 10/10/2026: Despido)", run.GetProperty("run").GetProperty("notes").GetString());
+        var line = run.GetProperty("payslips")[0].GetProperty("lines")[0];
+        Assert.Equal(("Sueldo básico proporcional (10 de 31 días)", 200_000m), (line.GetProperty("concept").GetString(), line.GetProperty("amount").GetDecimal()));
+
+        var again = await admin.PostAsJsonAsync("/payroll/runs/final-settlement", new { employeeId });
+        Assert.Equal("employee-in-draft", (await Json(again)).GetProperty("error").GetString());
     }
 }

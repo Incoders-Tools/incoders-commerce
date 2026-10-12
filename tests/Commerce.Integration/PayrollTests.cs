@@ -146,7 +146,7 @@ public sealed partial class PayrollTests : IDisposable
         Assert.Equal(320_000m, updated!.BaseSalary);
         Assert.NotNull(updated.CustomerId);
 
-        Assert.Equal(EmployeeWriteOutcome.Done, await store.SetActiveAsync(w.Scope, w.Actor, ana.Id, false, Today, CancellationToken.None));
+        Assert.Equal(EmployeeWriteOutcome.Done, await store.SetActiveAsync(w.Scope, w.Actor, ana.Id, false, Today, null, CancellationToken.None));
         Assert.Single(await store.ListAsync(w.Scope, w.Branch, includeInactive: false, CancellationToken.None));
         var all = await store.ListAsync(w.Scope, w.Branch, includeInactive: true, CancellationToken.None);
         Assert.Equal(Today, all.Single(e => e.Id == ana.Id).TerminationDate);

@@ -119,8 +119,19 @@ public static class EmployeeEndpoints
         {
             var (denied, caller) = await StaffAuthorization.AuthorizeAsync(httpContext, userStore, ct, Permission.ManageUsers);
             if (denied is not null) return denied;
+            // employee-lifecycle E3: "Gestionar baja" sends the date and the reason (an older terminal, neither: today, none).
+            if (request.TerminationReason is { Length: > FinalSettlementRules.MaxReasonLength })
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]> { ["terminationReason"] = ["At most 500 characters."] });
+            }
+
+            if (!request.IsActive && request.TerminationDate > httpContext.Today())
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]> { ["terminationDate"] = ["Not after today."] });
+            }
+
             var outcome = await store.SetActiveAsync(caller!.Scope, caller.Id, id, request.IsActive,
-                request.IsActive ? null : request.TerminationDate ?? httpContext.Today(), ct);
+                request.IsActive ? null : request.TerminationDate ?? httpContext.Today(), request.IsActive ? null : Blank(request.TerminationReason), ct);
             return outcome == EmployeeWriteOutcome.Done ? Results.NoContent() : Refusal(outcome);
         }).AllowDeviceOperator();
 
@@ -157,6 +168,18 @@ public static class EmployeeEndpoints
             var (denied, caller) = await AuthorizeBranchAsync(httpContext, userStore, ct);
             if (denied is not null) return denied;
             return await store.GetRunAsync(caller!.Scope, id, ct) is { } run ? Results.Ok(run) : Results.NotFound();
+        });
+
+        // employee-lifecycle E3: the final settlement of an employee given the leave, a Draft run of it alone (web only, as
+        // the whole payroll).
+        payroll.MapPost("/final-settlement", async (
+            FinalSettlementRequest request, HttpContext httpContext, PostgresUserAccountStore userStore, PostgresPayrollStore store,
+            CancellationToken ct) =>
+        {
+            var (denied, caller) = await AuthorizeBranchAsync(httpContext, userStore, ct);
+            if (denied is not null) return denied;
+            var (outcome, runId) = await store.CreateFinalSettlementAsync(caller!.Scope, caller.Id, request.EmployeeId, ct);
+            return outcome == PayrollWriteOutcome.Done ? Results.Created($"/payroll/runs/{runId}", new { runId }) : Refusal(outcome);
         });
 
         payroll.MapPost("", async (
@@ -319,6 +342,9 @@ public static class EmployeeEndpoints
         PayrollWriteOutcome.NoEmployees => Results.Conflict(new { error = "no-employees" }),
         PayrollWriteOutcome.AccountNotFound => Results.Conflict(new { error = "account-not-found" }),
         PayrollWriteOutcome.AccountInactive => Results.Conflict(new { error = "account-inactive" }),
+        PayrollWriteOutcome.EmployeeActive => Results.Conflict(new { error = "employee-active" }),
+        PayrollWriteOutcome.EmployeeInDraft => Results.Conflict(new { error = "employee-in-draft" }),
+        PayrollWriteOutcome.OtherBranch => Results.Conflict(new { error = "employee-other-branch" }),
         _ => Results.Conflict(new { error = "nothing-to-pay" }),
     };
 }
@@ -346,7 +372,11 @@ public sealed record EmployeeRequest(
 /// <summary>An overtime record (WorkDate: today when omitted; Multiplier: what the day proposes when omitted, x2 a Sunday).</summary>
 public sealed record OvertimeRequest(DateOnly? WorkDate, decimal Hours, decimal? Multiplier, string? Note);
 
-public sealed record SetEmployeeActiveRequest(bool IsActive, DateOnly? TerminationDate);
+/// <summary>The leave (date: today when omitted; reason: optional for older terminals) or the reinstatement (clears both).</summary>
+public sealed record SetEmployeeActiveRequest(bool IsActive, DateOnly? TerminationDate, string? TerminationReason = null);
+
+/// <summary>employee-lifecycle E3: the employee given the leave whose last salary is settled.</summary>
+public sealed record FinalSettlementRequest(Guid EmployeeId);
 
 /// <summary>An advance handed out from a treasury account (Date: today when omitted).</summary>
 public sealed record EmployeeAdvanceRequest(decimal Amount, DateOnly? Date, Guid AccountId, string? Concept);

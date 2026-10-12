@@ -273,9 +273,13 @@ public sealed class DeviceOperatorManagementTests : IClassFixture<WebApplication
         var row = Assert.Single(listed.EnumerateArray());
         Assert.Equal((-50_000m, "Biweekly"), (row.GetProperty("balance").GetDecimal(), row.GetProperty("payFrequency").GetString()));
 
-        Assert.Equal(HttpStatusCode.NoContent,
-            (await device.PostAsJsonAsync($"/employees/{employeeId}/active", new SetEmployeeActiveRequest(false, null))).StatusCode);
+        // employee-lifecycle E3: "Gestionar baja" sends the date and the reason; a day after today is refused.
+        Assert.Equal(HttpStatusCode.BadRequest, (await device.PostAsJsonAsync($"/employees/{employeeId}/active",
+            new SetEmployeeActiveRequest(false, DateOnly.FromDateTime(DateTime.UtcNow).AddDays(2), "Renuncia"))).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await device.PostAsJsonAsync($"/employees/{employeeId}/active",
+            new SetEmployeeActiveRequest(false, new DateOnly(2026, 10, 1), "Renuncia"))).StatusCode);
         Assert.False((bool)OwnerScalar("SELECT is_active FROM employees WHERE id = $1", employeeId)!);
+        Assert.Equal("Renuncia", OwnerScalar("SELECT termination_reason FROM employees WHERE id = $1", employeeId));
         Assert.Equal(HttpStatusCode.NoContent,
             (await device.PostAsJsonAsync($"/employees/{employeeId}/active", new SetEmployeeActiveRequest(true, null))).StatusCode);
 
@@ -443,6 +447,7 @@ public sealed class DeviceOperatorManagementTests : IClassFixture<WebApplication
     [InlineData("POST", "/geo/cities")]
     [InlineData("PUT", "/geo/cities/{customer}")]
     [InlineData("GET", "/payroll/runs")]
+    [InlineData("POST", "/payroll/runs/final-settlement")]
     [InlineData("POST", "/employees/roles")]
     [InlineData("POST", "/customers/business-types")]
     [InlineData("POST", "/treasury/accounts")]

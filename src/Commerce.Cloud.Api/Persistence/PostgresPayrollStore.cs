@@ -58,6 +58,12 @@ public enum PayrollWriteOutcome
     AccountNotFound,
     AccountInactive,
     NothingToPay,
+    /// <summary>employee-lifecycle E3: a final settlement is for an employee given the leave.</summary>
+    EmployeeActive,
+    /// <summary>The employee is already in a Draft run: settle (or discard) that one first.</summary>
+    EmployeeInDraft,
+    /// <summary>The employee belongs to another branch than the selected one (a run is the branch's).</summary>
+    OtherBranch,
 }
 
 /// <summary>
@@ -287,10 +293,124 @@ public sealed class PostgresPayrollStore
 
         foreach (var employee in employees)
         {
+            var salary = employee.BaseSalary > 0m
+                ? new PayslipLineInput(PayslipLineKind.Earning, PayslipLineSource.BaseSalary, "Sueldo básico", employee.BaseSalary)
+                : null;
+            await AddPayslipAsync(connection, tx, scope.OrganizationId, runId, employee, periodTo, salary, ct);
+        }
+
+        await PostgresEmployeeStore.AuditAsync(connection, tx, scope.OrganizationId, actorId, runId, "payroll.prepared",
+            new { runNumber, branchId, periodFrom, periodTo, payFrequency, employees = employees.Count }, ct, entityType: "payroll-run");
+        await tx.CommitAsync(ct);
+        return (PayrollWriteOutcome.Done, runId);
+    }
+
+    /// <summary>
+    /// employee-lifecycle E3: the final settlement of an employee given the leave, a Draft run of that employee alone in the
+    /// selected branch (its own), through the same flow as any payroll: from the day after the last paid period that
+    /// included it to the termination date, the agreed salary in proportion to the days worked, and the pending overtime,
+    /// advances and goods. Refused while the employee is active or already in a Draft run.
+    /// </summary>
+    public async Task<(PayrollWriteOutcome Outcome, Guid? RunId)> CreateFinalSettlementAsync(
+        CloudTenantScope scope, Guid actorId, Guid employeeId, CancellationToken ct)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+        await TenantScopeSql.ApplyAsync(connection, tx, scope, ct);
+        var branchId = scope.BranchId!.Value;
+
+        async Task<(PayrollWriteOutcome, Guid?)> Refuse(PayrollWriteOutcome outcome)
+        {
+            await tx.RollbackAsync(ct);
+            return (outcome, null);
+        }
+
+        var employee = (await PostgresEmployeeStore.ReadAsync(connection, tx, "WHERE e.id = $1 FOR UPDATE OF e", ct,
+            (NpgsqlTypes.NpgsqlDbType.Uuid, employeeId))).SingleOrDefault();
+        if (employee is null) return await Refuse(PayrollWriteOutcome.NotFound);
+        if (employee.BranchId != branchId) return await Refuse(PayrollWriteOutcome.OtherBranch);
+        if (employee.IsActive || employee.TerminationDate is not { } leave) return await Refuse(PayrollWriteOutcome.EmployeeActive);
+
+        await using (var lockCmd = new NpgsqlCommand("SELECT pg_advisory_xact_lock(hashtext('payroll-run:' || $1::text))", connection, tx))
+        {
+            lockCmd.Parameters.AddWithValue(branchId);
+            await lockCmd.ExecuteNonQueryAsync(ct);
+        }
+
+        DateOnly? lastPaid;
+        await using (var history = new NpgsqlCommand(
+            """
+            SELECT EXISTS (SELECT 1 FROM payslips p JOIN payroll_runs r ON r.organization_id = p.organization_id AND r.id = p.run_id
+                           WHERE p.employee_id = $1 AND r.status = 'Draft'),
+                   (SELECT MAX(r.period_to) FROM payslips p JOIN payroll_runs r ON r.organization_id = p.organization_id AND r.id = p.run_id
+                    WHERE p.employee_id = $1 AND r.status = 'Paid')
+            """, connection, tx))
+        {
+            history.Parameters.AddWithValue(employeeId);
+            await using var reader = await history.ExecuteReaderAsync(ct);
+            await reader.ReadAsync(ct);
+            var inDraft = reader.GetBoolean(0);
+            lastPaid = reader.IsDBNull(1) ? null : reader.GetFieldValue<DateOnly>(1);
+            await reader.CloseAsync();
+            if (inDraft) return await Refuse(PayrollWriteOutcome.EmployeeInDraft);
+        }
+
+        var from = FinalSettlementRules.PeriodFrom(lastPaid, employee.HireDate, leave);
+        var days = FinalSettlementRules.DaysWorked(from, leave);
+        var periodDays = FinalSettlementRules.PeriodDays(employee.PayFrequency, leave);
+        var proportional = FinalSettlementRules.ProportionalSalary(employee.BaseSalary, employee.PayFrequency, days, leave);
+        var salary = proportional > 0m
+            ? new PayslipLineInput(PayslipLineKind.Earning, PayslipLineSource.BaseSalary, FinalSettlementRules.Concept(days, periodDays), proportional)
+            : null;
+
+        int runNumber;
+        await using (var next = new NpgsqlCommand("SELECT COALESCE(MAX(run_number), 0) + 1 FROM payroll_runs WHERE branch_id = $1", connection, tx))
+        {
+            next.Parameters.AddWithValue(branchId);
+            runNumber = (int)(await next.ExecuteScalarAsync(ct))!;
+        }
+
+        var runId = Guid.NewGuid();
+        var periodFrom = from <= leave ? from : leave;
+        var notes = FinalSettlementRules.Note(employee.FullName, leave, employee.TerminationReason);
+        await using (var insert = new NpgsqlCommand(
+            """
+            INSERT INTO payroll_runs (organization_id, id, branch_id, run_number, period_from, period_to, pay_frequency, notes, created_by_user_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            """, connection, tx))
+        {
+            insert.Parameters.AddWithValue(scope.OrganizationId);
+            insert.Parameters.AddWithValue(runId);
+            insert.Parameters.AddWithValue(branchId);
+            insert.Parameters.AddWithValue(runNumber);
+            insert.Parameters.AddWithValue(periodFrom);
+            insert.Parameters.AddWithValue(leave);
+            insert.Parameters.AddWithValue(employee.PayFrequency);
+            insert.Parameters.AddWithValue(notes);
+            insert.Parameters.AddWithValue(actorId);
+            await insert.ExecuteNonQueryAsync(ct);
+        }
+
+        await AddPayslipAsync(connection, tx, scope.OrganizationId, runId, employee, leave, salary, ct);
+        await PostgresEmployeeStore.AuditAsync(connection, tx, scope.OrganizationId, actorId, runId, "payroll.final_settlement_prepared",
+            new { runNumber, branchId, employeeId, periodFrom, periodTo = leave, days, periodDays, proportional }, ct, entityType: "payroll-run");
+        await tx.CommitAsync(ct);
+        return (PayrollWriteOutcome.Done, runId);
+    }
+
+    /// <summary>
+    /// One employee's payslip in a new run: the salary line (if any), what its account owes (advances, an earlier negative
+    /// net), the overtime still pending up to <paramref name="periodTo"/> (taken by this payslip), and its goods.
+    /// </summary>
+    private static async Task AddPayslipAsync(
+        NpgsqlConnection connection, NpgsqlTransaction tx, Guid organizationId, Guid runId, EmployeeRecord employee, DateOnly periodTo,
+        PayslipLineInput? salary, CancellationToken ct)
+    {
+        {
             var lines = new List<PayslipLineInput>();
-            if (employee.BaseSalary > 0m)
+            if (salary is not null)
             {
-                lines.Add(new(PayslipLineKind.Earning, PayslipLineSource.BaseSalary, "Sueldo básico", employee.BaseSalary));
+                lines.Add(salary);
             }
 
             // What the employee owes on its account (advances handed out, an earlier negative net): deducted now.
@@ -311,7 +431,7 @@ public sealed class PostgresPayrollStore
             var purchases = employee.CustomerId is { } customer
                 ? Math.Max(await PostgresEmployeeStore.BalanceAsync(connection, tx, AccountParty.Customer(customer), ct), 0m)
                 : 0m;
-            await InsertPayslipAsync(connection, tx, scope.OrganizationId, runId, payslipId, employee.Id, purchases, 0m, lines, ct);
+            await InsertPayslipAsync(connection, tx, organizationId, runId, payslipId, employee.Id, purchases, 0m, lines, ct);
             if (overtime.Ids.Count > 0)
             {
                 await using var take = new NpgsqlCommand("UPDATE employee_overtime SET payslip_id = $1 WHERE id = ANY($2)", connection, tx);
@@ -320,11 +440,6 @@ public sealed class PostgresPayrollStore
                 await take.ExecuteNonQueryAsync(ct);
             }
         }
-
-        await PostgresEmployeeStore.AuditAsync(connection, tx, scope.OrganizationId, actorId, runId, "payroll.prepared",
-            new { runNumber, branchId, periodFrom, periodTo, payFrequency, employees = employees.Count }, ct, entityType: "payroll-run");
-        await tx.CommitAsync(ct);
-        return (PayrollWriteOutcome.Done, runId);
     }
 
     /// <summary>The employee's overtime no payroll took yet, worked up to <paramref name="periodTo"/>, locked for this run.</summary>

@@ -38,7 +38,9 @@ public sealed record EmployeeRecord(
     DateTimeOffset UpdatedAtUtc,
     decimal Balance = 0m,
     decimal PurchasesOwed = 0m,
-    decimal? OvertimeHourlyRate = null)
+    decimal? OvertimeHourlyRate = null,
+    // employee-lifecycle E3: why the employee left (with TerminationDate); null while active.
+    string? TerminationReason = null)
 {
     public string FullName => $"{LastName}, {FirstName}";
 }
@@ -88,7 +90,7 @@ public sealed partial class PostgresEmployeeStore
     private const string Select = """
         SELECT e.id, e.branch_id, b.name, e.file_number, e.first_name, e.last_name, e.document_number, e.cuil, e.role_id, r.name,
                e.phone, e.email, e.address, e.hire_date, e.termination_date, e.pay_frequency, e.base_salary, e.customer_id, e.notes,
-               e.is_active, e.created_at_utc, e.updated_at_utc, e.overtime_hourly_rate
+               e.is_active, e.created_at_utc, e.updated_at_utc, e.overtime_hourly_rate, e.termination_reason
         FROM employees e
         LEFT JOIN branches b ON b.id = e.branch_id
         LEFT JOIN employee_roles r ON r.organization_id = e.organization_id AND r.id = e.role_id
@@ -110,7 +112,7 @@ public sealed partial class PostgresEmployeeStore
         r.IsDBNull(12) ? null : r.GetString(12), r.IsDBNull(13) ? null : r.GetFieldValue<DateOnly>(13),
         r.IsDBNull(14) ? null : r.GetFieldValue<DateOnly>(14), r.GetString(15), r.GetDecimal(16), r.IsDBNull(17) ? null : r.GetGuid(17),
         r.IsDBNull(18) ? null : r.GetString(18), r.GetBoolean(19), r.GetFieldValue<DateTimeOffset>(20), r.GetFieldValue<DateTimeOffset>(21),
-        OvertimeHourlyRate: r.IsDBNull(22) ? null : r.GetDecimal(22));
+        OvertimeHourlyRate: r.IsDBNull(22) ? null : r.GetDecimal(22), TerminationReason: r.IsDBNull(23) ? null : r.GetString(23));
 
     /// <summary>The employees (of one branch, or all), active first then by last name, with their balances.</summary>
     public async Task<IReadOnlyList<EmployeeRecord>> ListAsync(CloudTenantScope scope, Guid? branchId, bool includeInactive, CancellationToken ct)
@@ -426,18 +428,25 @@ public sealed partial class PostgresEmployeeStore
     }
 
     /// <summary>Deactivates (with its termination date) or reactivates an employee; it is never deleted.</summary>
+    /// <summary>
+    /// The leave ("Gestionar baja", employee-lifecycle E3: date and reason) or the reinstatement, which clears both. The last
+    /// salary is then settled by <see cref="PostgresPayrollStore.CreateFinalSettlementAsync"/>.
+    /// </summary>
     public async Task<EmployeeWriteOutcome> SetActiveAsync(
-        CloudTenantScope scope, Guid actorId, Guid employeeId, bool isActive, DateOnly? terminationDate, CancellationToken ct)
+        CloudTenantScope scope, Guid actorId, Guid employeeId, bool isActive, DateOnly? terminationDate, string? terminationReason,
+        CancellationToken ct)
     {
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
         await TenantScopeSql.ApplyAsync(connection, tx, scope.OrganizationId, null, ct);
         await using (var update = new NpgsqlCommand(
-            "UPDATE employees SET is_active = $2, termination_date = $3, updated_at_utc = now() WHERE id = $1", connection, tx))
+            "UPDATE employees SET is_active = $2, termination_date = $3, termination_reason = $4, updated_at_utc = now() WHERE id = $1",
+            connection, tx))
         {
             update.Parameters.AddWithValue(employeeId);
             update.Parameters.AddWithValue(isActive);
             update.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Date, isActive ? DBNull.Value : (object?)terminationDate ?? DBNull.Value);
+            update.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Text, isActive ? DBNull.Value : (object?)terminationReason ?? DBNull.Value);
             if (await update.ExecuteNonQueryAsync(ct) == 0)
             {
                 await tx.RollbackAsync(ct);
@@ -446,7 +455,7 @@ public sealed partial class PostgresEmployeeStore
         }
 
         await AuditAsync(connection, tx, scope.OrganizationId, actorId, employeeId,
-            isActive ? "employee.reactivated" : "employee.deactivated", new { isActive, terminationDate }, ct);
+            isActive ? "employee.reactivated" : "employee.deactivated", new { isActive, terminationDate, terminationReason }, ct);
         await tx.CommitAsync(ct);
         return EmployeeWriteOutcome.Done;
     }

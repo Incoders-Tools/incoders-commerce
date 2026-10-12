@@ -70,6 +70,19 @@ advances (items 3, 6, 7 and 9 of the owner's 2026-10-11 request).
     after E2b). RED: the POS tests did not compile; GREEN: 68, regression 960 (POS, device operator, payroll).
     The WPF panel itself is proved through source and rules, not rendered: check it by hand.
 - [ ] E3 Termination section: date + reason, then "Liquidar último sueldo" opening the payroll for that employee; web + POS.
+  Owner decision 2026-10-12: the final settlement proposes the agreed salary in proportion to the days worked
+  (monthly: days of the termination month; biweekly 15; weekly 7), editable as any draft.
+  - [x] E3a Server. Migration 0055 (`employees.termination_reason`); `SetEmployeeActiveRequest.terminationReason`
+    (optional for older terminals; a date after today refused; reinstating clears date and reason);
+    `FinalSettlementRules` (period from the day after the last paid period that included the employee, else its hire
+    date or the 1st of the termination month, to the termination date; proportional salary; concept "Sueldo básico
+    proporcional (10 de 31 días)"; note "Liquidación final de X (baja dd/mm/aaaa: motivo)"); `POST
+    /payroll/runs/final-settlement` (web only; 409 `employee-active`, `employee-in-draft`, `employee-other-branch`):
+    a Draft run of that employee alone with the pending overtime, advances and goods (shared `AddPayslipAsync`). A
+    regular run already skipped inactive employees, so the last salary cannot be paid twice. RED: did not compile;
+    GREEN: 104, regression 1143. The HTTP tests were written after the endpoint (no separate control). Applied locally.
+  - [ ] E3b Web: "Gestionar baja" section (date + reason; then "Liquidar último sueldo" or "Reincorporar").
+  - [ ] E3c POS: the same section, same words; the last salary is settled in the web (payroll is web only).
 - [ ] E4 Goods from the web: "Registrar mercadería" on the employee (a debit on its linked customer account) and the wording no longer says POS only.
 
 ## Follow-ups
