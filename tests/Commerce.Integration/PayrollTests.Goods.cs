@@ -186,6 +186,12 @@ public sealed partial class PayrollTests
         Assert.Single(await goods.ListAsync(g.W.Scope, g.Juan.Id, CancellationToken.None));
         using var owner = OpenOwner();
         Assert.Equal(1L, Scalar<long>(owner, "SELECT count(*) FROM stock_movements WHERE source_type = 'EmployeeGoods' AND source_id = $1", key));
+
+        // The key belongs to Juan's registration: another employee with it is refused, never handed Juan's goods.
+        var (_, ana) = await Employees().CreateAsync(g.W.Scope, g.W.Actor, Input(g.W, "Ana", 300_000m), takesGoods: true, CancellationToken.None);
+        Assert.Equal(EmployeeGoodsOutcome.KeyInUse,
+            (await goods.RegisterAsync(g.W.Scope, g.W.Actor, ana!.Id, new DateOnly(2026, 10, 12), lines, CancellationToken.None, key)).Outcome);
+        Assert.Empty(await goods.ListAsync(g.W.Scope, ana.Id, CancellationToken.None));
     }
 
     [Fact]

@@ -47,6 +47,8 @@ public enum EmployeeGoodsOutcome
     NoGoodsAccount,
     /// <summary>A presentation has no effective price on the default list (or no default list exists).</summary>
     NoPrice,
+    /// <summary>The idempotency key already names another employee's registration.</summary>
+    KeyInUse,
 }
 
 /// <summary>
@@ -107,9 +109,15 @@ public sealed class PostgresEmployeeGoodsStore
         Guid? goodsId = null)
     {
         var id = goodsId ?? Guid.NewGuid();
-        if (goodsId is not null && await RegisteredAsync(scope, employeeId, id, ct) is { } earlier)
+        if (goodsId is not null)
         {
-            return (EmployeeGoodsOutcome.Done, earlier);
+            switch (await RegisteredAsync(scope, employeeId, id, ct))
+            {
+                case (true, _):
+                    return (EmployeeGoodsOutcome.KeyInUse, null);
+                case (false, { } earlier):
+                    return (EmployeeGoodsOutcome.Done, earlier);
+            }
         }
 
         var (outcome, quote) = await QuoteAsync(scope, employeeId, lines, ct, occurredOn);
@@ -133,10 +141,10 @@ public sealed class PostgresEmployeeGoodsStore
             await lockCmd.ExecuteNonQueryAsync(ct);
         }
 
-        if (await ReadRegistrationAsync(connection, tx, employeeId, id, ct) is { } raced)
+        if (await ReadRegistrationAsync(connection, tx, employeeId, id, ct) is var (otherEmployee, raced) && (otherEmployee || raced is not null))
         {
             await tx.RollbackAsync(ct);
-            return (EmployeeGoodsOutcome.Done, raced);
+            return otherEmployee ? (EmployeeGoodsOutcome.KeyInUse, null) : (EmployeeGoodsOutcome.Done, raced);
         }
 
         var goodsKey = id;
@@ -173,7 +181,8 @@ public sealed class PostgresEmployeeGoodsStore
         return (EmployeeGoodsOutcome.Done, new GoodsRegistration(goodsKey, quote.Total, quote.Lines));
     }
 
-    private async Task<GoodsRegistration?> RegisteredAsync(CloudTenantScope scope, Guid employeeId, Guid goodsId, CancellationToken ct)
+    private async Task<(bool OtherEmployee, GoodsRegistration? Registration)> RegisteredAsync(
+        CloudTenantScope scope, Guid employeeId, Guid goodsId, CancellationToken ct)
     {
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
@@ -183,19 +192,31 @@ public sealed class PostgresEmployeeGoodsStore
         return registration;
     }
 
-    /// <summary>A web registration already written under <paramref name="goodsId"/>, rebuilt from its items; null when none.</summary>
-    private static async Task<GoodsRegistration?> ReadRegistrationAsync(
+    /// <summary>
+    /// A web registration already written under <paramref name="goodsId"/>, rebuilt from its items (null when none), or
+    /// <c>OtherEmployee</c> when the key names another employee's registration.
+    /// </summary>
+    private static async Task<(bool OtherEmployee, GoodsRegistration? Registration)> ReadRegistrationAsync(
         NpgsqlConnection connection, NpgsqlTransaction tx, Guid employeeId, Guid goodsId, CancellationToken ct)
     {
-        var items = await ReadItemsAsync(connection, tx, "WHERE g.source_type = 'Web' AND g.source_id = $1 ORDER BY g.line_no", goodsId, ct);
-        if (items.Count == 0)
+        await using (var owner = new NpgsqlCommand(
+            "SELECT employee_id FROM employee_goods_items WHERE source_type = 'Web' AND source_id = $1 LIMIT 1", connection, tx))
         {
-            return null;
+            owner.Parameters.AddWithValue(goodsId);
+            switch (await owner.ExecuteScalarAsync(ct))
+            {
+                case null:
+                    return (false, null);
+                case Guid other when other != employeeId:
+                    return (true, null);
+            }
         }
+
+        var items = await ReadItemsAsync(connection, tx, "WHERE g.source_type = 'Web' AND g.source_id = $1 ORDER BY g.line_no", goodsId, ct);
 
         var lines = items.Select(item => new GoodsQuoteLine(
             item.PresentationId ?? Guid.Empty, item.ProductName, item.PresentationName, item.Quantity, item.UnitPrice, item.LineTotal)).ToList();
-        return new GoodsRegistration(goodsId, lines.Sum(line => line.LineTotal), lines);
+        return (false, new GoodsRegistration(goodsId, lines.Sum(line => line.LineTotal), lines));
     }
 
     /// <summary>The employee's goods items, newest day first, with where each stands.</summary>

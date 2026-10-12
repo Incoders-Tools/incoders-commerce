@@ -376,6 +376,7 @@ public static class EmployeeEndpoints
         }
 
         if (request.OccurredOn > today) errors["occurredOn"] = ["Not after today."];
+        if (request.GoodsId == Guid.Empty) errors["goodsId"] = ["A new identifier per registration (omit it to let the server pick one)."];
         if (errors.Count > 0) return Results.ValidationProblem(errors);
         lines = [.. requested.Select(line => new GoodsLineInput(line.PresentationId, line.Quantity))];
         return null;
@@ -385,6 +386,7 @@ public static class EmployeeEndpoints
     {
         EmployeeGoodsOutcome.NotFound => Results.NotFound(),
         EmployeeGoodsOutcome.NoGoodsAccount => Results.Conflict(new { error = "employee-no-goods-account" }),
+        EmployeeGoodsOutcome.KeyInUse => Results.Conflict(new { error = "goods-key-in-use" }),
         _ => Results.Conflict(new { error = "no-effective-price" }),
     };
 

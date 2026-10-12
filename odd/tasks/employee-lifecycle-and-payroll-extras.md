@@ -172,6 +172,11 @@ advances (items 3, 6, 7 and 9 of the owner's 2026-10-11 request).
   missing; GREEN: 97. Left: readability notes (locations only), per-line connections in the quote, HTTP refusals and the
   void-after-paid guard untested.
 
+- [x] G11 E4a follow-up review (`review-37ccd441d0006ad9`, approved), fixed right after `619c686`: the idempotency
+  key was not bound to the employee (a key reused for another employee returned the first one's registration); now
+  it is refused (409 `goods-key-in-use`), and an empty key is a 400. RED: did not compile; GREEN: 32. Left: the
+  goods-copy failure path is proved through the returned line only (no injected failure), log-only on failure.
+
 ## Constraints
 
 Same as `owner-requests-quick-adjustments.md` (server rules, parity, idempotent

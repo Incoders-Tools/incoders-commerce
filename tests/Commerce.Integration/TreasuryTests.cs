@@ -430,6 +430,8 @@ public sealed class TreasuryTests : IClassFixture<WebApplicationFactory<Program>
         Assert.Equal(15_000m, quote.GetProperty("total").GetDecimal());
         Assert.Equal(HttpStatusCode.BadRequest, (await admin.PostAsJsonAsync($"/employees/{employeeId}/goods",
             new { lines = new[] { new { presentationId = asado, quantity = 0m } } })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PostAsJsonAsync($"/employees/{employeeId}/goods",
+            new { goodsId = Guid.Empty, lines = new[] { new { presentationId = asado, quantity = 1m } } })).StatusCode);
 
         var registered = await admin.PostAsJsonAsync($"/employees/{employeeId}/goods", new { lines = new[] { new { presentationId = asado, quantity = 1.5m } } });
         Assert.Equal(HttpStatusCode.Created, registered.StatusCode);
