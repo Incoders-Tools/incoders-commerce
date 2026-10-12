@@ -25,7 +25,8 @@ public sealed record PayslipLineRecord(int LineNo, string Kind, string Source, s
 /// <summary>
 /// One employee's payslip of a run, with its computed totals (<see cref="Payslip"/>). <see cref="PreviousBalance"/>: what
 /// the employee's account held when the run was read (positive: owed to the employee from before; it is not part of this
-/// pay); the advances still pending are already a deduction line.
+/// pay); the advances still pending are already a deduction line. <see cref="GoodsItems"/>: the goods items this payslip
+/// took (employee-lifecycle E4), each with its discount; <see cref="PurchasesItemsDiscount"/> is what those add up to.
 /// </summary>
 public sealed record PayslipRecord(
     Guid PayslipId,
@@ -36,8 +37,10 @@ public sealed record PayslipRecord(
     string? Cuil,
     bool TakesGoods,
     IReadOnlyList<PayslipLineRecord> Lines,
+    IReadOnlyList<GoodsItemRecord> GoodsItems,
     decimal PurchasesAmount,
     decimal PurchasesDiscountPercent,
+    decimal PurchasesItemsDiscount,
     decimal PurchasesDiscount,
     decimal PurchasesDeducted,
     decimal Earnings,
@@ -48,6 +51,9 @@ public sealed record PayslipRecord(
 public sealed record PayrollRunDetail(PayrollRunSummary Run, string? BranchName, string? PaymentAccountName, IReadOnlyList<PayslipRecord> Payslips);
 
 public sealed record PayslipLineInput(PayslipLineKind Kind, PayslipLineSource Source, string Concept, decimal Amount);
+
+/// <summary>employee-lifecycle E4: the discount set on one goods item a payslip took.</summary>
+public sealed record GoodsItemDiscountInput(Guid ItemId, decimal DiscountPercent);
 
 public enum PayrollWriteOutcome
 {
@@ -66,6 +72,8 @@ public enum PayrollWriteOutcome
     OtherBranch,
     /// <summary>A paid run already covers the termination date: the leave is settled.</summary>
     AlreadySettled,
+    /// <summary>employee-lifecycle E4: a discount names a goods item this payslip did not take.</summary>
+    GoodsItemNotInPayslip,
 }
 
 /// <summary>
@@ -223,19 +231,23 @@ public sealed class PostgresPayrollStore
                 }
             }
 
-            var payslip = ToPayslip(lines, head.Purchases, head.Percent);
+            var goods = await PostgresEmployeeGoodsStore.ReadItemsAsync(
+                connection, tx, "WHERE g.payslip_id = $1 ORDER BY g.occurred_on, g.created_at_utc, g.line_no", head.Id, ct);
+            var itemsDiscount = goods.Sum(item => EmployeeGoodsRules.ItemDiscount(item.LineTotal, item.DiscountPercent));
+            var payslip = ToPayslip(lines, head.Purchases, head.Percent, itemsDiscount);
             payslips.Add(new PayslipRecord(
-                head.Id, head.EmployeeId, head.File, head.Name, head.Role, head.Cuil, head.Goods, lines, head.Purchases, head.Percent,
-                payslip.Purchases.Discount, payslip.Purchases.Deducted, payslip.Earnings, payslip.Deductions, payslip.Net, payslip.NetPaid));
+                head.Id, head.EmployeeId, head.File, head.Name, head.Role, head.Cuil, head.Goods, lines, goods, head.Purchases, head.Percent,
+                itemsDiscount, payslip.Purchases.Discount, payslip.Purchases.Deducted, payslip.Earnings, payslip.Deductions, payslip.Net,
+                payslip.NetPaid));
         }
 
         return payslips;
     }
 
-    private static Payslip ToPayslip(IEnumerable<PayslipLineRecord> lines, decimal purchases, decimal percent) => new(
+    private static Payslip ToPayslip(IEnumerable<PayslipLineRecord> lines, decimal purchases, decimal percent, decimal itemsDiscount) => new(
         [.. lines.Select(line => new PayslipLine(
             Enum.Parse<PayslipLineKind>(line.Kind), Enum.Parse<PayslipLineSource>(line.Source), line.Concept, line.Amount))],
-        new PayslipPurchases(purchases, percent));
+        new PayslipPurchases(purchases, percent, itemsDiscount));
 
     private static string PeriodText(DateOnly from, DateOnly to) => $"{from:dd/MM/yyyy} al {to:dd/MM/yyyy}";
 
@@ -436,6 +448,16 @@ public sealed class PostgresPayrollStore
                 ? Math.Max(await PostgresEmployeeStore.BalanceAsync(connection, tx, AccountParty.Customer(customer), ct), 0m)
                 : 0m;
             await InsertPayslipAsync(connection, tx, organizationId, runId, payslipId, employee.Id, purchases, 0m, lines, ct);
+
+            // employee-lifecycle E4: the goods items still pending, whatever their date, as the goods debt is taken whole.
+            // Taken out of the payslip (or the draft discarded) they are pending again (payslip_id ON DELETE SET NULL).
+            await using (var takeGoods = new NpgsqlCommand(
+                "UPDATE employee_goods_items SET payslip_id = $1 WHERE employee_id = $2 AND payslip_id IS NULL", connection, tx))
+            {
+                takeGoods.Parameters.AddWithValue(payslipId);
+                takeGoods.Parameters.AddWithValue(employee.Id);
+                await takeGoods.ExecuteNonQueryAsync(ct);
+            }
             if (overtime.Ids.Count > 0)
             {
                 await using var take = new NpgsqlCommand("UPDATE employee_overtime SET payslip_id = $1 WHERE id = ANY($2)", connection, tx);
@@ -519,10 +541,13 @@ public sealed class PostgresPayrollStore
         return await cmd.ExecuteScalarAsync(ct) as string;
     }
 
-    /// <summary>Replaces a Draft payslip's lines and sets its goods discount percentage.</summary>
+    /// <summary>
+    /// Replaces a Draft payslip's lines and sets its goods discount percentage, and the discount of the goods items named in
+    /// <paramref name="itemDiscounts"/> (the others keep theirs; one the payslip did not take refuses the whole update).
+    /// </summary>
     public async Task<PayrollWriteOutcome> UpdatePayslipAsync(
         CloudTenantScope scope, Guid actorId, Guid runId, Guid payslipId, IReadOnlyList<PayslipLineInput> lines, decimal purchasesDiscountPercent,
-        CancellationToken ct)
+        CancellationToken ct, IReadOnlyList<GoodsItemDiscountInput>? itemDiscounts = null)
     {
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
@@ -549,6 +574,20 @@ public sealed class PostgresPayrollStore
             {
                 await tx.RollbackAsync(ct);
                 return PayrollWriteOutcome.NotFound;
+            }
+        }
+
+        foreach (var item in itemDiscounts ?? [])
+        {
+            await using var discount = new NpgsqlCommand(
+                "UPDATE employee_goods_items SET discount_percent = $2 WHERE id = $1 AND payslip_id = $3", connection, tx);
+            discount.Parameters.AddWithValue(item.ItemId);
+            discount.Parameters.AddWithValue(item.DiscountPercent);
+            discount.Parameters.AddWithValue(payslipId);
+            if (await discount.ExecuteNonQueryAsync(ct) == 0)
+            {
+                await tx.RollbackAsync(ct);
+                return PayrollWriteOutcome.GoodsItemNotInPayslip;
             }
         }
 
@@ -685,7 +724,7 @@ public sealed class PostgresPayrollStore
 
             // The goods to settle: never more than the linked customer still owes now.
             var owed = customerId is { } customer ? Math.Max(await PostgresEmployeeStore.BalanceAsync(connection, tx, AccountParty.Customer(customer), ct), 0m) : 0m;
-            var payslip = ToPayslip(slip.Lines, Math.Min(slip.PurchasesAmount, owed), slip.PurchasesDiscountPercent);
+            var payslip = ToPayslip(slip.Lines, Math.Min(slip.PurchasesAmount, owed), slip.PurchasesDiscountPercent, slip.PurchasesItemsDiscount);
 
             // An Adjustment names its direction: on the employee's account a deduction is a Debit (the business owes it less).
             async Task Post(AccountParty party, AccountMovementKind kind, decimal amount, string concept, string source, AccountDirection? requested = null)
@@ -710,8 +749,10 @@ public sealed class PostgresPayrollStore
             {
                 var buyerAccount = AccountParty.Customer(buyer);
                 await Post(buyerAccount, AccountMovementKind.Payment, payslip.Purchases.Deducted, $"Descontado del sueldo, {label}", GoodsSource);
-                await Post(buyerAccount, AccountMovementKind.CreditNote, payslip.Purchases.Discount,
-                    $"Bonificación al personal ({payslip.Purchases.DiscountPercent:0.##} %), {label}", GoodsDiscountSource);
+                var discountText = payslip.Purchases.ItemsDiscounted > 0m
+                    ? "Bonificación al personal"
+                    : $"Bonificación al personal ({payslip.Purchases.DiscountPercent:0.##} %)";
+                await Post(buyerAccount, AccountMovementKind.CreditNote, payslip.Purchases.Discount, $"{discountText}, {label}", GoodsDiscountSource);
             }
 
             if (payslip.NetPaid > 0m)

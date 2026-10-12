@@ -15,6 +15,9 @@ public static class EmployeeGoodsRules
     /// <summary>A quantity taken: above zero, up to three decimals (kilos), as the stock keeps it.</summary>
     public static bool IsValidQuantity(decimal quantity) => quantity is > 0m and <= MaxQuantity && decimal.Round(quantity, 3) == quantity;
 
+    /// <summary>What an item's discount forgives: its percent of the item's total, to the cent.</summary>
+    public static decimal ItemDiscount(decimal lineTotal, decimal discountPercent) => Money.Round2(lineTotal * discountPercent / 100m);
+
     /// <summary>
     /// Spreads what a sale charged over its lines in proportion to their totals (a sale discount lowers every line alike),
     /// rounded to cents with the last line taking the remainder, so the items always add up to <paramref name="charged"/>.

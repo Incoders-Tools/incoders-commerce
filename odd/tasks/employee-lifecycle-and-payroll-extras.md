@@ -105,7 +105,17 @@ advances (items 3, 6, 7 and 9 of the owner's 2026-10-11 request).
     /employees/{id}/goods/quote`, `POST /employees/{id}/goods`, `GET /employees/{id}/goods` (web only; 409
     `employee-no-goods-account`, `no-effective-price`). RED: did not compile; a first GREEN attempt exposed that the
     catalog read ignored the branch scope. GREEN: 21 payroll + 39 HTTP; regression 1569. Applied locally.
-  - [ ] E4b Payroll: the payslip takes the pending items; a discount per item and on the total, before paying.
+  - [x] E4b Payroll: the payslip takes the pending items; a discount per item and on the total, before paying.
+    Preparing a payslip takes every goods item still pending (whatever its date: the goods debt is taken whole, as
+    before); taken out of the payslip or with the draft discarded they are pending again (`payslip_id` ON DELETE SET
+    NULL; an item keeps the discount it was given). `PayslipPurchases(Amount, DiscountPercent, ItemsDiscount)`: the item
+    discounts (`EmployeeGoodsRules.ItemDiscount`, to the cent) come off first, never more than is owed, then the percent
+    applies to the rest; a debt without items (from before the ledger, or entered by hand) only gets the percent.
+    `PUT /payroll/runs/{id}/payslips/{payslipId}` takes optional `goodsItems: [{ itemId, discountPercent }]` (omitted:
+    each item keeps its own; one the payslip did not take: 409 `goods-item-not-in-payslip`, nothing changes). The run
+    detail gives each payslip its `goodsItems` and `purchasesItemsDiscount`; the credit note reads "Bonificación al
+    personal" when items were discounted. RED: did not compile; GREEN: 35 (payroll + treasury), regression 220; control:
+    without taking the items, 3 failures.
   - [ ] E4c Web: "Registrar mercadería" on the employee (products, quantities, Mostrador prices, total).
   - [ ] E4d Web payslip editor (items with their discount) and the wording that says POS only (web + POS).
 

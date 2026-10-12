@@ -438,6 +438,23 @@ public sealed class TreasuryTests : IClassFixture<WebApplicationFactory<Program>
         var item = Assert.Single((await Json(await admin.GetAsync($"/employees/{employeeId}/goods"))).EnumerateArray());
         Assert.Equal(("Asado", 15_000m, "Pending"), (item.GetProperty("productName").GetString(), item.GetProperty("lineTotal").GetDecimal(),
             item.GetProperty("status").GetString()));
+
+        // The payroll takes it; its discount is set per item on the payslip.
+        var prepared = await admin.PostAsJsonAsync("/payroll/runs", new { periodFrom = "2026-10-01", periodTo = "2026-10-12" });
+        var runId = (await Json(prepared)).GetProperty("runId").GetGuid();
+        var slip = (await Json(await admin.GetAsync($"/payroll/runs/{runId}"))).GetProperty("payslips")[0];
+        var payslipId = slip.GetProperty("payslipId").GetGuid();
+        var itemId = slip.GetProperty("goodsItems")[0].GetProperty("id").GetGuid();
+        var salary = new[] { new { kind = "Earning", source = "BaseSalary", concept = "Sueldo básico", amount = 1m } };
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PutAsJsonAsync($"/payroll/runs/{runId}/payslips/{payslipId}",
+            new { lines = salary, purchasesDiscountPercent = 0m, goodsItems = new[] { new { itemId, discountPercent = 100.5m } } })).StatusCode);
+        var stranger = await admin.PutAsJsonAsync($"/payroll/runs/{runId}/payslips/{payslipId}",
+            new { lines = salary, purchasesDiscountPercent = 0m, goodsItems = new[] { new { itemId = Guid.NewGuid(), discountPercent = 10m } } });
+        Assert.Equal("goods-item-not-in-payslip", (await Json(stranger)).GetProperty("error").GetString());
+        Assert.Equal(HttpStatusCode.NoContent, (await admin.PutAsJsonAsync($"/payroll/runs/{runId}/payslips/{payslipId}",
+            new { lines = salary, purchasesDiscountPercent = 0m, goodsItems = new[] { new { itemId, discountPercent = 20m } } })).StatusCode);
+        slip = (await Json(await admin.GetAsync($"/payroll/runs/{runId}"))).GetProperty("payslips")[0];
+        Assert.Equal((3_000m, 12_000m), (slip.GetProperty("purchasesItemsDiscount").GetDecimal(), slip.GetProperty("purchasesDeducted").GetDecimal()));
     }
 
     [Fact]

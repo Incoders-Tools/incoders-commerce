@@ -255,9 +255,18 @@ public static class EmployeeEndpoints
 
             if (lines.Count > 50) errors["lines"] = ["At most 50 lines."];
             if (!PayslipRules.IsValidDiscountPercent(request.PurchasesDiscountPercent)) errors["purchasesDiscountPercent"] = ["Between 0 and 100."];
+            var items = request.GoodsItems ?? [];
+            if (items.Count > MaxGoodsItemDiscounts) errors["goodsItems"] = [$"At most {MaxGoodsItemDiscounts} items."];
+            foreach (var (item, index) in items.Select((item, index) => (item, index)))
+            {
+                if (item.ItemId == Guid.Empty) errors[$"goodsItems[{index}].itemId"] = ["Required."];
+                else if (!PayslipRules.IsValidDiscountPercent(item.DiscountPercent)) errors[$"goodsItems[{index}].discountPercent"] = ["Between 0 and 100."];
+            }
+
             if (errors.Count > 0) return Results.ValidationProblem(errors);
 
-            var outcome = await store.UpdatePayslipAsync(caller!.Scope, caller.Id, id, payslipId, lines, request.PurchasesDiscountPercent, ct);
+            var outcome = await store.UpdatePayslipAsync(caller!.Scope, caller.Id, id, payslipId, lines, request.PurchasesDiscountPercent, ct,
+                request.GoodsItems is null ? null : [.. items.Select(item => new GoodsItemDiscountInput(item.ItemId, item.DiscountPercent))]);
             return outcome == PayrollWriteOutcome.Done ? Results.NoContent() : Refusal(outcome);
         });
 
@@ -397,6 +406,9 @@ public static class EmployeeEndpoints
         _ => Results.Conflict(new { error = "overtime-settled" }),
     };
 
+    /// <summary>employee-lifecycle E4: how many goods item discounts one payslip update may set.</summary>
+    private const int MaxGoodsItemDiscounts = 1_000;
+
     private static IResult Refusal(PayrollWriteOutcome outcome) => outcome switch
     {
         PayrollWriteOutcome.NotFound => Results.NotFound(),
@@ -408,6 +420,7 @@ public static class EmployeeEndpoints
         PayrollWriteOutcome.EmployeeInDraft => Results.Conflict(new { error = "employee-in-draft" }),
         PayrollWriteOutcome.OtherBranch => Results.Conflict(new { error = "employee-other-branch" }),
         PayrollWriteOutcome.AlreadySettled => Results.Conflict(new { error = "employee-already-settled" }),
+        PayrollWriteOutcome.GoodsItemNotInPayslip => Results.Conflict(new { error = "goods-item-not-in-payslip" }),
         _ => Results.Conflict(new { error = "nothing-to-pay" }),
     };
 }
@@ -456,7 +469,13 @@ public sealed record CreatePayrollRunRequest(DateOnly PeriodFrom, DateOnly Perio
 
 public sealed record PayslipLineRequest(string? Kind, string? Source, string? Concept, decimal Amount);
 
-/// <summary>A Draft payslip's lines (replace-set) and its goods discount percentage.</summary>
-public sealed record UpdatePayslipRequest(IReadOnlyList<PayslipLineRequest>? Lines, decimal PurchasesDiscountPercent);
+/// <summary>
+/// A Draft payslip's lines (replace-set), its goods discount percentage and, optionally, the discount of some of its goods
+/// items (omitted: every item keeps its own).
+/// </summary>
+public sealed record UpdatePayslipRequest(
+    IReadOnlyList<PayslipLineRequest>? Lines, decimal PurchasesDiscountPercent, IReadOnlyList<GoodsItemDiscountRequest>? GoodsItems = null);
+
+public sealed record GoodsItemDiscountRequest(Guid ItemId, decimal DiscountPercent);
 
 public sealed record PayPayrollRunRequest(Guid AccountId, DateOnly? PaidOn);

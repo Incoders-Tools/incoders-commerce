@@ -1,5 +1,6 @@
 using Commerce.Cloud.Api.Persistence;
 using Commerce.Cloud.Api.Tenancy;
+using Commerce.Domain.CurrentAccounts;
 using Commerce.Domain.Discounts;
 using Commerce.Domain.Payroll;
 using Commerce.Domain.Sales;
@@ -211,6 +212,89 @@ public sealed partial class PayrollTests
         Assert.Equal(5_000m, (await Employees().GetAsync(g.W.Scope, g.Juan.Id, CancellationToken.None))!.PurchasesOwed);
         var item = Assert.Single(await Goods().ListAsync(g.W.Scope, g.Juan.Id, CancellationToken.None));
         Assert.Equal(("Asado", 5_000m), (item.ProductName, item.LineTotal));
+    }
+
+    [Fact]
+    public void TheGoodsDiscount_IsPerItemFirst_ThenThePercentOnTheRest_AndNeverMoreThanWhatIsOwed()
+    {
+        Assert.Equal(1_875m, EmployeeGoodsRules.ItemDiscount(15_000m, 12.5m));
+        Assert.Equal(0m, EmployeeGoodsRules.ItemDiscount(15_000m, 0m));
+
+        // 30.000 owed, 5.000 off its items, then 10 % off the remaining 25.000.
+        var purchases = new PayslipPurchases(30_000m, 10m, 5_000m);
+        Assert.Equal((7_500m, 22_500m), (purchases.Discount, purchases.Deducted));
+
+        // Without item discounts it is the percent on the whole, as before; items never forgive more than is owed.
+        Assert.Equal((5_000m, 45_000m), (new PayslipPurchases(50_000m, 10m).Discount, new PayslipPurchases(50_000m, 10m).Deducted));
+        var capped = new PayslipPurchases(1_000m, 50m, 3_000m);
+        Assert.Equal((1_000m, 0m), (capped.Discount, capped.Deducted));
+    }
+
+    [Fact]
+    public async Task APayroll_TakesThePendingGoods_DiscountsThemPerItemAndOnTheTotal_AndPaysThemOff()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+        var g = await GoodsSeedAsync();
+        var payroll = new PostgresPayrollStore(_dataSource!);
+        await Goods().RegisterAsync(g.W.Scope, g.W.Actor, g.Juan.Id, new DateOnly(2026, 10, 12), [new(g.Asado, 1.5m), new(g.Chorizo, 2m)],
+            CancellationToken.None);
+
+        // A debt from before the items were kept (6.000) is goods too: it only gets the discount on the total.
+        await new PostgresCurrentAccountStore(_dataSource!).RegisterAsync(g.W.Scope, AccountParty.Customer(g.Juan.CustomerId!.Value),
+            new NewAccountMovement(Guid.NewGuid(), AccountMovementKind.Invoice, AccountDirection.Debit, 6_000m, new DateOnly(2026, 9, 30), null, null,
+                "Saldo anterior", g.W.Actor), "org-user", g.W.Actor, CancellationToken.None);
+
+        var (_, runId) = await payroll.CreateRunAsync(g.W.Scope, g.W.Actor, new DateOnly(2026, 10, 1), Today, PayFrequency.Monthly, null, CancellationToken.None);
+        var slip = Assert.Single((await payroll.GetRunAsync(g.W.Scope, runId!.Value, CancellationToken.None))!.Payslips);
+        Assert.Equal(30_000m, slip.PurchasesAmount);
+        Assert.Equal([("Asado", 15_000m), ("Chorizo", 9_000m)], slip.GoodsItems.Select(i => (i.ProductName, i.LineTotal)).OrderBy(i => i.Item1));
+        Assert.All(await Goods().ListAsync(g.W.Scope, g.Juan.Id, CancellationToken.None), i => Assert.Equal((OvertimeStatus.InPayroll, 1), (i.Status, i.RunNumber)));
+
+        // 20 % off the asado (3.000), then 10 % off the remaining 27.000 (2.700).
+        var asado = slip.GoodsItems.Single(i => i.ProductName == "Asado").Id;
+        PayslipLineInput[] salary = [new(PayslipLineKind.Earning, PayslipLineSource.BaseSalary, "Sueldo básico", 500_000m)];
+        Assert.Equal(PayrollWriteOutcome.GoodsItemNotInPayslip, await payroll.UpdatePayslipAsync(g.W.Scope, g.W.Actor, runId.Value, slip.PayslipId,
+            salary, 10m, CancellationToken.None, [new GoodsItemDiscountInput(asado, 20m), new GoodsItemDiscountInput(Guid.NewGuid(), 5m)]));
+        Assert.Equal(0m, (await payroll.GetRunAsync(g.W.Scope, runId.Value, CancellationToken.None))!.Payslips.Single().PurchasesDiscount);
+        Assert.Equal(PayrollWriteOutcome.Done, await payroll.UpdatePayslipAsync(g.W.Scope, g.W.Actor, runId.Value, slip.PayslipId,
+            salary, 10m, CancellationToken.None, [new GoodsItemDiscountInput(asado, 20m)]));
+        slip = (await payroll.GetRunAsync(g.W.Scope, runId.Value, CancellationToken.None))!.Payslips.Single();
+        Assert.Equal((3_000m, 5_700m, 24_300m, 475_700m), (slip.PurchasesItemsDiscount, slip.PurchasesDiscount, slip.PurchasesDeducted, slip.NetPaid));
+        Assert.Equal(20m, slip.GoodsItems.Single(i => i.Id == asado).DiscountPercent);
+
+        // Leaving the item discounts out keeps them.
+        Assert.Equal(PayrollWriteOutcome.Done, await payroll.UpdatePayslipAsync(g.W.Scope, g.W.Actor, runId.Value, slip.PayslipId,
+            salary, 10m, CancellationToken.None));
+        Assert.Equal(5_700m, (await payroll.GetRunAsync(g.W.Scope, runId.Value, CancellationToken.None))!.Payslips.Single().PurchasesDiscount);
+
+        // Paid: the goods account is settled (24.300 deducted, 5.700 forgiven) and the items are paid.
+        Assert.Equal(PayrollWriteOutcome.Done, await payroll.PayRunAsync(g.W.Scope, g.W.Actor, runId.Value, g.W.Cash, Today, CancellationToken.None));
+        Assert.Equal(0m, (await Employees().GetAsync(g.W.Scope, g.Juan.Id, CancellationToken.None))!.PurchasesOwed);
+        Assert.All(await Goods().ListAsync(g.W.Scope, g.Juan.Id, CancellationToken.None), i => Assert.Equal(OvertimeStatus.Paid, i.Status));
+        using var owner = OpenOwner();
+        Assert.Equal(5_700m, Scalar<decimal>(owner,
+            "SELECT amount FROM current_account_movements WHERE customer_id = $1 AND kind = 'CreditNote'", g.Juan.CustomerId!.Value));
+    }
+
+    [Fact]
+    public async Task TakingThePayslipOut_OrDiscardingTheDraft_LeavesItsGoodsPendingForTheNextPayroll()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+        var g = await GoodsSeedAsync();
+        var payroll = new PostgresPayrollStore(_dataSource!);
+        await Goods().RegisterAsync(g.W.Scope, g.W.Actor, g.Juan.Id, new DateOnly(2026, 10, 12), [new(g.Asado, 1m)], CancellationToken.None);
+        async Task<string> Status() => Assert.Single(await Goods().ListAsync(g.W.Scope, g.Juan.Id, CancellationToken.None)).Status;
+
+        var (_, first) = await payroll.CreateRunAsync(g.W.Scope, g.W.Actor, new DateOnly(2026, 10, 1), Today, PayFrequency.Monthly, null, CancellationToken.None);
+        var slip = Assert.Single((await payroll.GetRunAsync(g.W.Scope, first!.Value, CancellationToken.None))!.Payslips);
+        Assert.Equal(OvertimeStatus.InPayroll, await Status());
+        Assert.Equal(PayrollWriteOutcome.Done, await payroll.RemovePayslipAsync(g.W.Scope, first.Value, slip.PayslipId, CancellationToken.None));
+        Assert.Equal(OvertimeStatus.Pending, await Status());
+
+        var (_, second) = await payroll.CreateRunAsync(g.W.Scope, g.W.Actor, new DateOnly(2026, 10, 1), Today, PayFrequency.Monthly, null, CancellationToken.None);
+        Assert.Single(Assert.Single((await payroll.GetRunAsync(g.W.Scope, second!.Value, CancellationToken.None))!.Payslips).GoodsItems);
+        Assert.Equal(PayrollWriteOutcome.Done, await payroll.DeleteRunAsync(g.W.Scope, g.W.Actor, second.Value, CancellationToken.None));
+        Assert.Equal(OvertimeStatus.Pending, await Status());
     }
 
     private static SyncEnvelope PosSale(

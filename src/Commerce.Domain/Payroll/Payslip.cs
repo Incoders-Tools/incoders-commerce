@@ -36,10 +36,14 @@ public sealed record PayslipLine(PayslipLineKind Kind, PayslipLineSource Source,
 /// <summary>
 /// The goods an employee took on its linked customer account and the discount the owner grants on them at pay day:
 /// <see cref="Deducted"/> comes off the salary, <see cref="Discount"/> is forgiven (a credit note on the customer account).
+/// employee-lifecycle E4: <paramref name="ItemsDiscount"/>, what the discounts per item add up to, comes off first (never
+/// more than is owed); <paramref name="DiscountPercent"/> then applies to the rest.
 /// </summary>
-public sealed record PayslipPurchases(decimal Amount, decimal DiscountPercent)
+public sealed record PayslipPurchases(decimal Amount, decimal DiscountPercent, decimal ItemsDiscount = 0m)
 {
-    public decimal Discount => Money.Round2(Amount * DiscountPercent / 100m);
+    public decimal ItemsDiscounted => Math.Min(Math.Max(ItemsDiscount, 0m), Amount);
+
+    public decimal Discount => ItemsDiscounted + Money.Round2((Amount - ItemsDiscounted) * DiscountPercent / 100m);
 
     public decimal Deducted => Amount - Discount;
 }
