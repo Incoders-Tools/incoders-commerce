@@ -48,7 +48,7 @@ internal static class PosSaleAccountProjection
         await tx.SaveAsync(Savepoint, ct);
         try
         {
-            await ProjectCoreAsync(connection, tx, envelope, payload, ct);
+            await ProjectCoreAsync(connection, tx, envelope, payload, logger, ct);
             await tx.ReleaseAsync(Savepoint, ct);
         }
         catch (Exception ex) when (!ct.IsCancellationRequested && ex is not OutOfMemoryException)
@@ -61,7 +61,7 @@ internal static class PosSaleAccountProjection
     }
 
     private static async Task ProjectCoreAsync(
-        NpgsqlConnection connection, NpgsqlTransaction tx, SyncEnvelope envelope, SalePayloadV1 payload, CancellationToken ct)
+        NpgsqlConnection connection, NpgsqlTransaction tx, SyncEnvelope envelope, SalePayloadV1 payload, ILogger? logger, CancellationToken ct)
     {
         if (await PosSaleVoidProjection.IsVoidedAsync(connection, tx, payload.SaleId, ct))
         {
@@ -109,7 +109,7 @@ internal static class PosSaleAccountProjection
             {
                 // employee-lifecycle E4: goods an employee took on account leave their items for the payroll's discounts.
                 await PostgresEmployeeGoodsStore.ProjectPosSaleAsync(
-                    connection, tx, envelope.OrganizationId, envelope.BranchId, payload, date, envelope.ActorId, ct);
+                    connection, tx, envelope.OrganizationId, envelope.BranchId, payload, date, envelope.ActorId, logger, ct);
             }
 
             if (!onAccount && method is not null)

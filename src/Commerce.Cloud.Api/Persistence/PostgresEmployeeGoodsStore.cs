@@ -7,6 +7,7 @@ using Commerce.Domain.CurrentAccounts;
 using Commerce.Domain.Payroll;
 using Commerce.Domain.Stock;
 using Commerce.Domain.Sync.Payloads;
+using Microsoft.Extensions.Logging;
 using Npgsql;
 
 namespace Commerce.Cloud.Api.Persistence;
@@ -98,10 +99,19 @@ public sealed class PostgresEmployeeGoodsStore
     /// <summary>
     /// The goods taken on <paramref name="occurredOn"/>, like a sale in the selected branch: priced on the default list,
     /// stock out, the debt on the employee's linked customer account, its items pending. All or nothing.
+    /// <paramref name="goodsId"/> is the caller's idempotency key: a retry with the same key (an answer lost on the way
+    /// back) gets the first registration back and moves nothing again.
     /// </summary>
     public async Task<(EmployeeGoodsOutcome Outcome, GoodsRegistration? Registration)> RegisterAsync(
-        CloudTenantScope scope, Guid actorId, Guid employeeId, DateOnly occurredOn, IReadOnlyList<GoodsLineInput> lines, CancellationToken ct)
+        CloudTenantScope scope, Guid actorId, Guid employeeId, DateOnly occurredOn, IReadOnlyList<GoodsLineInput> lines, CancellationToken ct,
+        Guid? goodsId = null)
     {
+        var id = goodsId ?? Guid.NewGuid();
+        if (goodsId is not null && await RegisteredAsync(scope, employeeId, id, ct) is { } earlier)
+        {
+            return (EmployeeGoodsOutcome.Done, earlier);
+        }
+
         var (outcome, quote) = await QuoteAsync(scope, employeeId, lines, ct, occurredOn);
         if (outcome != EmployeeGoodsOutcome.Done)
         {
@@ -111,23 +121,37 @@ public sealed class PostgresEmployeeGoodsStore
         var employee = (await EmployeeCustomerAsync(scope, employeeId, ct))!.Value;
         var customerId = employee.CustomerId!.Value;
         var branchId = scope.BranchId!.Value;
-        var goodsId = Guid.NewGuid();
 
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
         await TenantScopeSql.ApplyAsync(connection, tx, scope, ct);
 
+        // Two retries racing with the same key: one writes, the other finds it written.
+        await using (var lockCmd = new NpgsqlCommand("SELECT pg_advisory_xact_lock(hashtext('employee-goods:' || $1::text))", connection, tx))
+        {
+            lockCmd.Parameters.AddWithValue(id);
+            await lockCmd.ExecuteNonQueryAsync(ct);
+        }
+
+        if (await ReadRegistrationAsync(connection, tx, employeeId, id, ct) is { } raced)
+        {
+            await tx.RollbackAsync(ct);
+            return (EmployeeGoodsOutcome.Done, raced);
+        }
+
+        var goodsKey = id;
+
         var lineNo = 0;
         foreach (var line in quote!.Lines)
         {
             lineNo++;
-            await InsertItemAsync(connection, tx, scope.OrganizationId, employeeId, customerId, branchId, WebSource, goodsId, lineNo, occurredOn,
+            await InsertItemAsync(connection, tx, scope.OrganizationId, employeeId, customerId, branchId, WebSource, goodsKey, lineNo, occurredOn,
                 line.PresentationId, line.ProductName, line.PresentationName, line.Quantity, line.UnitPrice, line.LineTotal, actorId, ct);
             if (await PresentationInBranchAsync(connection, tx, branchId, line.PresentationId, ct))
             {
                 await StockMovementWriter.InsertAsync(connection, tx, new NewStockMovement(
                     Guid.NewGuid(), scope.OrganizationId, branchId, line.PresentationId, -line.Quantity, StockMovementKind.Sale,
-                    StockSourceType, goodsId, Guid.NewGuid(), CreatedByUserId: actorId), ct);
+                    StockSourceType, goodsKey, Guid.NewGuid(), CreatedByUserId: actorId), ct);
             }
         }
 
@@ -136,7 +160,7 @@ public sealed class PostgresEmployeeGoodsStore
         var charge = await PostgresCurrentAccountStore.InsertAsync(connection, tx, scope.OrganizationId, party,
             new NewAccountMovement(Guid.NewGuid(), AccountMovementKind.Invoice, PartyAccountRules.DebtDirection(AccountPartyKind.Customer),
                 quote.Total, occurredOn, occurredOn, null, concept, actorId),
-            null, ct, StockSourceType, goodsId);
+            null, ct, StockSourceType, goodsKey);
         if (charge is not null)
         {
             await PostgresCurrentAccountStore.AuditAsync(connection, tx, scope.OrganizationId, "org-user", actorId, party, "customer.movement_registered", charge, ct);
@@ -144,9 +168,34 @@ public sealed class PostgresEmployeeGoodsStore
 
         await AuditLogWriter.InsertAsync(connection, tx, new UserManagementAuditEntry(
             "org-user", actorId, scope.OrganizationId, "employee", employeeId, "employee.goods_registered", null,
-            JsonSerializer.Serialize(new { goodsId, occurredOn, branchId, total = quote.Total, lines = quote.Lines })), ct);
+            JsonSerializer.Serialize(new { goodsId = goodsKey, occurredOn, branchId, total = quote.Total, lines = quote.Lines })), ct);
         await tx.CommitAsync(ct);
-        return (EmployeeGoodsOutcome.Done, new GoodsRegistration(goodsId, quote.Total, quote.Lines));
+        return (EmployeeGoodsOutcome.Done, new GoodsRegistration(goodsKey, quote.Total, quote.Lines));
+    }
+
+    private async Task<GoodsRegistration?> RegisteredAsync(CloudTenantScope scope, Guid employeeId, Guid goodsId, CancellationToken ct)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+        await TenantScopeSql.ApplyAsync(connection, tx, scope.OrganizationId, null, ct);
+        var registration = await ReadRegistrationAsync(connection, tx, employeeId, goodsId, ct);
+        await tx.CommitAsync(ct);
+        return registration;
+    }
+
+    /// <summary>A web registration already written under <paramref name="goodsId"/>, rebuilt from its items; null when none.</summary>
+    private static async Task<GoodsRegistration?> ReadRegistrationAsync(
+        NpgsqlConnection connection, NpgsqlTransaction tx, Guid employeeId, Guid goodsId, CancellationToken ct)
+    {
+        var items = await ReadItemsAsync(connection, tx, "WHERE g.source_type = 'Web' AND g.source_id = $1 ORDER BY g.line_no", goodsId, ct);
+        if (items.Count == 0)
+        {
+            return null;
+        }
+
+        var lines = items.Select(item => new GoodsQuoteLine(
+            item.PresentationId ?? Guid.Empty, item.ProductName, item.PresentationName, item.Quantity, item.UnitPrice, item.LineTotal)).ToList();
+        return new GoodsRegistration(goodsId, lines.Sum(line => line.LineTotal), lines);
     }
 
     /// <summary>The employee's goods items, newest day first, with where each stands.</summary>
@@ -189,33 +238,44 @@ public sealed class PostgresEmployeeGoodsStore
 
     /// <summary>
     /// branch -> cloud: a POS sale on current account to an employee's linked customer leaves its items (the sale projection
-    /// already wrote the stock and the debt), with a sale discount spread so they add up to what was charged. Keyed by the
-    /// sale and the line: a redelivery adds nothing. Runs in the inbox transaction.
+    /// already wrote the stock and the debt): the lines taken (positive quantity; a returned line only lowers the charge),
+    /// with what was charged spread over them so they add up to it. Keyed by the sale and the line: a redelivery adds
+    /// nothing. Runs in the inbox transaction under its OWN savepoint: the goods never hold the sale's money back.
     /// </summary>
     internal static async Task ProjectPosSaleAsync(
         NpgsqlConnection connection, NpgsqlTransaction tx, Guid organizationId, Guid branchId, SalePayloadV1 payload, DateOnly occurredOn,
-        Guid actorId, CancellationToken ct)
+        Guid actorId, ILogger? logger, CancellationToken ct)
     {
-        if (payload.CustomerId is not { } customerId || payload.Lines.Count == 0)
+        var taken = payload.Lines.Where(line => line.Quantity > 0m && line.LineTotal > 0m).ToList();
+        if (payload.CustomerId is not { } customerId || taken.Count == 0 || payload.TotalAmount <= 0m)
         {
             return;
         }
 
-        await using (var find = new NpgsqlCommand("SELECT id FROM employees WHERE customer_id = $1", connection, tx))
+        const string savepoint = "pos_sale_employee_goods";
+        await tx.SaveAsync(savepoint, ct);
+        try
         {
+            await using var find = new NpgsqlCommand("SELECT id FROM employees WHERE customer_id = $1", connection, tx);
             find.Parameters.AddWithValue(customerId);
-            if (await find.ExecuteScalarAsync(ct) is not Guid employeeId)
+            if (await find.ExecuteScalarAsync(ct) is Guid employeeId)
             {
-                return;
+                var charged = EmployeeGoodsRules.Spread([.. taken.Select(line => line.LineTotal)], payload.TotalAmount);
+                for (var i = 0; i < taken.Count; i++)
+                {
+                    var line = taken[i];
+                    await InsertItemAsync(connection, tx, organizationId, employeeId, customerId, branchId, PosSaleSource, payload.SaleId,
+                        line.LineNumber, occurredOn, line.PresentationId, line.ProductName, line.PresentationName, line.Quantity, line.UnitPrice,
+                        charged[i], actorId, ct);
+                }
             }
 
-            var charged = EmployeeGoodsRules.Spread([.. payload.Lines.Select(line => line.LineTotal)], payload.TotalAmount);
-            for (var i = 0; i < payload.Lines.Count; i++)
-            {
-                var line = payload.Lines[i];
-                await InsertItemAsync(connection, tx, organizationId, employeeId, customerId, branchId, PosSaleSource, payload.SaleId, line.LineNumber,
-                    occurredOn, line.PresentationId, line.ProductName, line.PresentationName, line.Quantity, line.UnitPrice, charged[i], actorId, ct);
-            }
+            await tx.ReleaseAsync(savepoint, ct);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested && ex is not OutOfMemoryException)
+        {
+            await tx.RollbackAsync(savepoint, ct);
+            logger?.LogWarning(ex, "Sale {SaleId} was charged but its employee goods items were not copied ({Message})", payload.SaleId, ex.Message);
         }
     }
 

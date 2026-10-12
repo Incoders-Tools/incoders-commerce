@@ -66,7 +66,8 @@ public static class EmployeeEndpoints
             var (denied, caller) = await AuthorizeBranchAsync(httpContext, userStore, ct);
             if (denied is not null) return denied;
             if (ValidateGoods(request, httpContext.Today(), out var lines) is { } invalid) return invalid;
-            var (outcome, registration) = await store.RegisterAsync(caller!.Scope, caller.Id, id, request.OccurredOn ?? httpContext.Today(), lines!, ct);
+            var (outcome, registration) = await store.RegisterAsync(
+                caller!.Scope, caller.Id, id, request.OccurredOn ?? httpContext.Today(), lines!, ct, request.GoodsId);
             return outcome == EmployeeGoodsOutcome.Done ? Results.Created($"/employees/{id}/goods", registration) : Refusal(outcome);
         });
 
@@ -429,8 +430,11 @@ public sealed record EmployeeRequest(
     // employee-lifecycle E2: omitted keeps the stored rate on an update (older terminals), 0 clears it.
     decimal? OvertimeHourlyRate = null);
 
-/// <summary>employee-lifecycle E4: goods to quote or register (OccurredOn: today when omitted).</summary>
-public sealed record GoodsRequest(DateOnly? OccurredOn, IReadOnlyList<GoodsLineRequest>? Lines);
+/// <summary>
+/// employee-lifecycle E4: goods to quote or register (OccurredOn: today when omitted). GoodsId: the client's idempotency
+/// key, so a retried registration is written once.
+/// </summary>
+public sealed record GoodsRequest(DateOnly? OccurredOn, IReadOnlyList<GoodsLineRequest>? Lines, Guid? GoodsId = null);
 
 public sealed record GoodsLineRequest(Guid PresentationId, decimal Quantity);
 

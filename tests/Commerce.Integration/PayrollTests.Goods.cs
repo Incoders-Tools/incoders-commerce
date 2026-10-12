@@ -167,6 +167,46 @@ public sealed partial class PayrollTests
         Assert.Empty(await Goods().ListAsync(g.W.Scope, g.Juan.Id, CancellationToken.None));
     }
 
+    [Fact]
+    public async Task RegisteringGoodsTwiceWithTheSameKey_MovesTheStockAndTheDebtOnce()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+        var g = await GoodsSeedAsync();
+        var goods = Goods();
+        var key = Guid.NewGuid();
+        GoodsLineInput[] lines = [new(g.Asado, 1m)];
+
+        // A retry after a lost answer (the web sends the same key) gets the first registration back.
+        var (_, first) = await goods.RegisterAsync(g.W.Scope, g.W.Actor, g.Juan.Id, new DateOnly(2026, 10, 12), lines, CancellationToken.None, key);
+        var (again, second) = await goods.RegisterAsync(g.W.Scope, g.W.Actor, g.Juan.Id, new DateOnly(2026, 10, 12), lines, CancellationToken.None, key);
+        Assert.Equal(EmployeeGoodsOutcome.Done, again);
+        Assert.Equal((key, 10_000m), (first!.GoodsId, second!.Total));
+
+        Assert.Equal(10_000m, (await Employees().GetAsync(g.W.Scope, g.Juan.Id, CancellationToken.None))!.PurchasesOwed);
+        Assert.Single(await goods.ListAsync(g.W.Scope, g.Juan.Id, CancellationToken.None));
+        using var owner = OpenOwner();
+        Assert.Equal(1L, Scalar<long>(owner, "SELECT count(*) FROM stock_movements WHERE source_type = 'EmployeeGoods' AND source_id = $1", key));
+    }
+
+    [Fact]
+    public async Task APosSaleWithAReturnedLine_IsStillCharged_AndItsTakenLinesAddUpToTheCharge()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+        var g = await GoodsSeedAsync();
+        var sale = Guid.NewGuid();
+        SaleLine[] lines =
+        [
+            new(sale, 1, g.Asado, null, "Asado", "Por kg", 1m, 10_000m, 10_000m),
+            new(sale, 2, g.Chorizo, null, "Chorizo", "Por kg", -1m, 5_000m, -5_000m),
+        ];
+        new PostgresCloudInboxStore(_dataSource!).TryApplyInbound(new CloudTenantScope(g.W.Org), PosSale(g.W, sale, g.Juan.CustomerId, lines, total: 5_000m));
+
+        // The goods never hold the money back: the sale is charged whatever its items are.
+        Assert.Equal(5_000m, (await Employees().GetAsync(g.W.Scope, g.Juan.Id, CancellationToken.None))!.PurchasesOwed);
+        var item = Assert.Single(await Goods().ListAsync(g.W.Scope, g.Juan.Id, CancellationToken.None));
+        Assert.Equal(("Asado", 5_000m), (item.ProductName, item.LineTotal));
+    }
+
     private static SyncEnvelope PosSale(
         World w, Guid sale, Guid? customer, SaleLine[] lines, decimal total, decimal? discountPercent = null, string method = SaleTender.Account)
     {

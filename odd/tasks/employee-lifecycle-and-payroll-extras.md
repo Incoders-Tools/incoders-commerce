@@ -164,6 +164,14 @@ advances (items 3, 6, 7 and 9 of the owner's 2026-10-11 request).
   defect: the POS maps only `employee-in-payroll-draft` of the leave codes, the others belong to the final settlement,
   which the POS does not offer.
 
+- [x] G10 E4a review (`review-c26b35192eb5ffab`, approved, 4 lenses), fixed right after `671dd52`: a retried web
+  registration (answer lost) moved stock and debt twice; the request now carries `goodsId` as an idempotency key
+  (advisory lock + recheck, the retry gets the first registration back). The POS goods copy ran inside the sale money
+  savepoint, so a bad item (a returned line: negative quantity) rolled the charge back; it now has its own savepoint,
+  copies only the lines taken (positive) and spreads the charge over them. RED: did not compile / the charge was
+  missing; GREEN: 97. Left: readability notes (locations only), per-line connections in the quote, HTTP refusals and the
+  void-after-paid guard untested.
+
 ## Constraints
 
 Same as `owner-requests-quick-adjustments.md` (server rules, parity, idempotent
