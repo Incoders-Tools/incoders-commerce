@@ -122,6 +122,12 @@ advances (items 3, 6, 7 and 9 of the owner's 2026-10-11 request).
   period spans more than one month is prorated over the days of the termination month (e.g. 41 days / 31); the draft
   is editable. Also open: boundary tests of the leave date and reason over HTTP.
 
+- [ ] G7 E3a follow-up review (`review-1902594162b9336b`, approved). Fixed right after it: reinstating now locks
+  the employee row first, as the final settlement does, so the draft check and a concurrent settlement never
+  interleave (not provable by a deterministic test; reasoned on both `FOR UPDATE`s). Accepted: the guard also refuses
+  while the employee sits in a regular draft taken before the leave (discard or pay it first); telling the two apart
+  would need a final-settlement marker on runs. Open: no test of `employee-already-settled` over HTTP.
+
 ## Constraints
 
 Same as `owner-requests-quick-adjustments.md` (server rules, parity, idempotent

@@ -443,7 +443,15 @@ public sealed partial class PostgresEmployeeStore
         await TenantScopeSql.ApplyAsync(connection, tx, scope.OrganizationId, null, ct);
         if (isActive)
         {
-            // Back at work while its final settlement is a draft, it would be paid that and the regular runs too.
+            // The employee's row first, as the final settlement does (FOR UPDATE): the two never interleave.
+            await using (var lockRow = new NpgsqlCommand("SELECT 1 FROM employees WHERE id = $1 FOR UPDATE", connection, tx))
+            {
+                lockRow.Parameters.AddWithValue(employeeId);
+                await lockRow.ExecuteNonQueryAsync(ct);
+            }
+
+            // Back at work while its final settlement is a draft, it would be paid that and the regular runs too. (Also
+            // refused for a regular draft taken before the leave: discard or pay that one first.)
             await using var draft = new NpgsqlCommand(
                 """
                 SELECT EXISTS (SELECT 1 FROM payslips p JOIN payroll_runs r ON r.organization_id = p.organization_id AND r.id = p.run_id
