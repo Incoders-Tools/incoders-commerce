@@ -37,6 +37,7 @@
     "account": "Account",
     "advance": "Advance",
     "overtime": "Overtime",
+    "leave": "Manage leave",
     "deactivate": "Mark as left",
     "activate": "Rehire"
   },
@@ -154,6 +155,34 @@
       "hours": "Type the hours: more than 0 and up to 24, with at most two decimals.",
       "multiplier": "Type a multiplier from 1 to 3, with at most two decimals.",
       "date": "Pick a day that already passed (or today)."
+    }
+  },
+  "leave": {
+    "title": "Leave of {{name}}",
+    "description": "The leave is recorded with its date and reason. Then the last salary is settled through the same \"Payroll\" flow.",
+    "date": "Leave date",
+    "reason": "Reason",
+    "reasonPlaceholder": "E.g.: resignation",
+    "save": "Give the leave",
+    "saving": "Saving…",
+    "left": "Left on {{date}}.",
+    "leftReason": "Reason: {{reason}}.",
+    "settleTitle": "Last salary",
+    "settleHint": "Prepares a draft with the salary in proportion to the days worked since the last paid payroll, the pending overtime, the advances and the goods. It is reviewed and paid in \"Payroll\".",
+    "settle": "Settle last salary",
+    "settling": "Preparing…",
+    "reinstateHint": "If the employee comes back, reinstate it: the leave date and reason are cleared.",
+    "reinstate": "Reinstate",
+    "errors": {
+      "reason": "Type the reason of the leave.",
+      "date": "Pick a day that already passed (or today)."
+    },
+    "codes": {
+      "employee-active": "The employee is active: record the leave first.",
+      "employee-in-draft": "There is already a draft payroll for the employee: review it in \"Payroll\".",
+      "employee-other-branch": "Pick the employee's branch in the top bar to settle it.",
+      "employee-already-settled": "Its last salary is already settled.",
+      "employee-in-payroll-draft": "There is a draft payroll for the employee: pay or discard it before reinstating."
     }
   }
 }

@@ -37,6 +37,7 @@
     "account": "Cuenta",
     "advance": "Adelanto",
     "overtime": "Horas extra",
+    "leave": "Gestionar baja",
     "deactivate": "Dar de baja",
     "activate": "Reincorporar"
   },
@@ -154,6 +155,34 @@
       "hours": "Escribí las horas: más de 0 y hasta 24, con hasta dos decimales.",
       "multiplier": "Escribí un multiplicador de 1 a 3, con hasta dos decimales.",
       "date": "Elegí un día que ya pasó (o hoy)."
+    }
+  },
+  "leave": {
+    "title": "Baja de {{name}}",
+    "description": "La baja se registra con su fecha y su motivo. Después se liquida el último sueldo con el mismo flujo de «Sueldos».",
+    "date": "Fecha de baja",
+    "reason": "Motivo",
+    "reasonPlaceholder": "Ej.: renuncia",
+    "save": "Dar de baja",
+    "saving": "Guardando…",
+    "left": "Dado de baja el {{date}}.",
+    "leftReason": "Motivo: {{reason}}.",
+    "settleTitle": "Último sueldo",
+    "settleHint": "Prepara un borrador con el sueldo proporcional a los días trabajados desde la última liquidación pagada, las horas extra pendientes, los adelantos y la mercadería. Se revisa y se paga en «Sueldos».",
+    "settle": "Liquidar último sueldo",
+    "settling": "Preparando…",
+    "reinstateHint": "Si vuelve a trabajar, reincorporalo: se borran la fecha y el motivo de la baja.",
+    "reinstate": "Reincorporar",
+    "errors": {
+      "reason": "Escribí el motivo de la baja.",
+      "date": "Elegí un día que ya pasó (o hoy)."
+    },
+    "codes": {
+      "employee-active": "El empleado está activo: primero registrá la baja.",
+      "employee-in-draft": "Ya tiene una liquidación en borrador: revisala en «Sueldos».",
+      "employee-other-branch": "Elegí la sucursal del empleado en la barra superior para liquidarlo.",
+      "employee-already-settled": "Su último sueldo ya está liquidado.",
+      "employee-in-payroll-draft": "Tiene una liquidación en borrador: pagala o descartala antes de reincorporarlo."
     }
   }
 }

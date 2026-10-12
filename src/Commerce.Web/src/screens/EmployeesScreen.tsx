@@ -17,7 +17,6 @@ import {
   giveAdvance,
   listEmployees,
   nextFileNumber,
-  setEmployeeActive,
   updateEmployee,
   type EmployeeRecord,
   type PayFrequency,
@@ -27,6 +26,7 @@ import type { MasterDataEntry, SelectableBranch } from '@/api/types'
 import { useOptionalBranchContext } from '@/branch/BranchContext'
 import { formatMoney } from '@/dashboard/format'
 import { formatFileNumber } from '@/lib/fileNumber'
+import { EmployeeLeavePage } from './EmployeeLeavePage'
 import { EmployeeOvertimePage } from './EmployeeOvertimePage'
 import { todayIso } from '@/lib/isoDate'
 import { parseAmount } from '@/treasury/treasuryInput'
@@ -37,6 +37,7 @@ type Page =
   | { kind: 'form'; employee: EmployeeRecord | null }
   | { kind: 'advance'; employee: EmployeeRecord }
   | { kind: 'overtime'; employee: EmployeeRecord }
+  | { kind: 'leave'; employee: EmployeeRecord }
 
 /** The machine codes of a refused write, in plain words. */
 function useErrorText() {
@@ -62,7 +63,6 @@ export function EmployeesScreen() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [status, setStatus] = useState<string | null>(null)
   const [page, setPage] = useState<Page>({ kind: 'list' })
-  const errorText = useErrorText()
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -86,16 +86,6 @@ export function EmployeesScreen() {
       () => setRoles([]),
     )
   }, [])
-
-  const toggleActive = async (employee: EmployeeRecord) => {
-    try {
-      await setEmployeeActive(employee.id, !employee.isActive)
-      setStatus(employee.isActive ? t('status.deactivated', { name: employee.fullName }) : t('status.activated', { name: employee.fullName }))
-      await load()
-    } catch (err) {
-      setStatus(errorText(err))
-    }
-  }
 
   const columns: DataViewColumn<EmployeeRecord>[] = [
     { key: 'file', header: t('columns.file'), cell: (e) => <span className="tabular-nums">{formatFileNumber(e.fileNumber)}</span> },
@@ -159,6 +149,23 @@ export function EmployeesScreen() {
         onSaved={(amount) => {
           setPage({ kind: 'list' })
           setStatus(t('status.advanced', { name: page.employee.fullName, amount: formatMoney(amount) }))
+          void load()
+        }}
+      />
+    )
+  }
+
+  if (page.kind === 'leave') {
+    return (
+      <EmployeeLeavePage
+        employee={page.employee}
+        onBack={() => {
+          setPage({ kind: 'list' })
+          void load()
+        }}
+        onReinstated={(employee) => {
+          setPage({ kind: 'list' })
+          setStatus(t('status.activated', { name: employee.fullName }))
           void load()
         }}
       />
@@ -231,12 +238,8 @@ export function EmployeesScreen() {
               { key: 'account', label: t('actions.account'), to: `/app/employees/${employee.id}/account` },
               { key: 'advance', label: t('actions.advance'), onSelect: () => setPage({ kind: 'advance', employee }), hidden: !employee.isActive },
               { key: 'overtime', label: t('actions.overtime'), onSelect: () => setPage({ kind: 'overtime', employee }) },
-              {
-                key: 'toggle',
-                label: employee.isActive ? t('actions.deactivate') : t('actions.activate'),
-                onSelect: () => void toggleActive(employee),
-                destructive: employee.isActive,
-              },
+              // employee-lifecycle E3: the leave (date and reason), the last salary and the reinstatement live in their section.
+              { key: 'leave', label: t('actions.leave'), onSelect: () => setPage({ kind: 'leave', employee }), destructive: employee.isActive },
             ]}
           />
         )}

@@ -43,6 +43,7 @@ describe('staff and payroll screens', () => {
     balance: -100000,
     purchasesOwed: 50000,
     overtimeHourlyRate: null,
+    terminationReason: null,
   }
   const cash: TreasuryAccount = {
     accountId: 'acc-cash', branchId: 'b-1', branchName: 'Arrecifes', kind: 'Cash', name: 'Caja efectivo · Arrecifes',
@@ -161,6 +162,20 @@ describe('staff and payroll screens', () => {
 
     expect(screen.getByRole('alert')).toHaveTextContent('Escribí un valor mayor que cero, con hasta dos decimales, o dejalo vacío.')
     expect(callsTo('POST /employees')).toHaveLength(0)
+  })
+
+  it('opens "Gestionar baja" of an employee from its row, instead of a bare Dar de baja', async () => {
+    routeFetch({
+      'GET /employees': () => json([juan]),
+      'GET /employees/roles': () => json([]),
+    })
+    const user = userEvent.setup()
+    renderEmployees()
+
+    await user.click(await screen.findByRole('button', { name: 'Acciones de Pérez, Juan' }))
+    expect(screen.queryByRole('menuitem', { name: 'Dar de baja' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('menuitem', { name: 'Gestionar baja' }))
+    expect(await screen.findByRole('heading', { name: 'Baja de Pérez, Juan' })).toBeInTheDocument()
   })
 
   it('opens the overtime of an employee from its row', async () => {

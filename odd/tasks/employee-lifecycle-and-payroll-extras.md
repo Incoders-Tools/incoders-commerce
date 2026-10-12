@@ -81,7 +81,11 @@ advances (items 3, 6, 7 and 9 of the owner's 2026-10-11 request).
     a Draft run of that employee alone with the pending overtime, advances and goods (shared `AddPayslipAsync`). A
     regular run already skipped inactive employees, so the last salary cannot be paid twice. RED: did not compile;
     GREEN: 104, regression 1143. The HTTP tests were written after the endpoint (no separate control). Applied locally.
-  - [ ] E3b Web: "Gestionar baja" section (date + reason; then "Liquidar último sueldo" or "Reincorporar").
+  - [x] E3b Web: the row action "Gestionar baja" replaces the bare Dar de baja / Reincorporar toggle and opens
+    `EmployeeLeavePage`: an active employee gets the leave with its date (up to today) and reason (required); one given
+    the leave shows "Dado de baja el dd/mm/aaaa. Motivo: …", "Liquidar último sueldo" (creates the final settlement and
+    opens `/app/payroll/{runId}`) and "Reincorporar"; each refusal explains itself (`leave.codes`). RED: the page did not
+    exist and the row action was missing; GREEN: 14, full web suite 812, POS employees 52; control: failures again.
   - [ ] E3c POS: the same section, same words; the last salary is settled in the web (payroll is web only).
 - [ ] E4 Goods from the web: "Registrar mercadería" on the employee (a debit on its linked customer account) and the wording no longer says POS only.
 

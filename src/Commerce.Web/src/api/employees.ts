@@ -38,6 +38,8 @@ export interface EmployeeRecord {
   purchasesOwed: number
   /** employee-lifecycle E2: hours x this x the multiplier; null = no overtime can be recorded. */
   overtimeHourlyRate: number | null
+  /** employee-lifecycle E3: why the employee left (with terminationDate); null while active. */
+  terminationReason: string | null
 }
 
 export interface EmployeeRequest {
@@ -90,10 +92,15 @@ export function updateEmployee(id: string, request: EmployeeRequest): Promise<Em
   return apiFetch<EmployeeRecord>(`/employees/${id}`, { method: 'PUT', body: JSON.stringify(request) })
 }
 
-export function setEmployeeActive(id: string, isActive: boolean, terminationDate?: string): Promise<void> {
+/** The leave ("Gestionar baja": date and reason) or the reinstatement, which clears both. */
+export function setEmployeeActive(id: string, isActive: boolean, terminationDate?: string, terminationReason?: string): Promise<void> {
   return apiFetch<void>(`/employees/${id}/active`, {
     method: 'POST',
-    body: JSON.stringify({ isActive, ...(terminationDate ? { terminationDate } : {}) }),
+    body: JSON.stringify({
+      isActive,
+      ...(terminationDate ? { terminationDate } : {}),
+      ...(terminationReason ? { terminationReason } : {}),
+    }),
   })
 }
 
@@ -202,6 +209,14 @@ export function listPayrollRuns(): Promise<PayrollRunSummary[]> {
 
 export function getPayrollRun(id: string): Promise<PayrollRunDetail> {
   return apiFetch<PayrollRunDetail>(`/payroll/runs/${id}`)
+}
+
+/**
+ * employee-lifecycle E3: the final settlement of an employee given the leave, a Draft run of it alone in the selected
+ * branch (its own): the salary in proportion to the days worked, the pending overtime, advances and goods.
+ */
+export function createFinalSettlement(employeeId: string): Promise<{ runId: string }> {
+  return apiFetch<{ runId: string }>('/payroll/runs/final-settlement', { method: 'POST', body: JSON.stringify({ employeeId }) })
 }
 
 export function createPayrollRun(request: {
