@@ -166,6 +166,7 @@
     "save": "Dar de baja",
     "saving": "Guardando…",
     "left": "Dado de baja el {{date}}.",
+    "leftUndated": "Dado de baja.",
     "leftReason": "Motivo: {{reason}}.",
     "settleTitle": "Último sueldo",
     "settleHint": "Prepara un borrador con el sueldo proporcional a los días trabajados desde la última liquidación pagada, las horas extra pendientes, los adelantos y la mercadería. Se revisa y se paga en «Sueldos».",

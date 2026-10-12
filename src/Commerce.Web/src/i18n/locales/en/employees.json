@@ -166,6 +166,7 @@
     "save": "Give the leave",
     "saving": "Saving…",
     "left": "Left on {{date}}.",
+    "leftUndated": "Given the leave.",
     "leftReason": "Reason: {{reason}}.",
     "settleTitle": "Last salary",
     "settleHint": "Prepares a draft with the salary in proportion to the days worked since the last paid payroll, the pending overtime, the advances and the goods. It is reviewed and paid in \"Payroll\".",

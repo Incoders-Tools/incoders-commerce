@@ -56,7 +56,9 @@ export function EmployeeLeavePage({
     if (date === '' || date > todayIso()) return setError(t('leave.errors.date'))
     void run(async () => {
       await setEmployeeActive(employee.id, false, date, reason.trim())
-      setEmployee(await getEmployee(employee.id))
+      // The leave is saved: show it even if re-reading the employee fails (a retry would only record it again).
+      const recorded = { ...employee, isActive: false, terminationDate: date, terminationReason: reason.trim() }
+      setEmployee(await getEmployee(employee.id).catch(() => recorded))
     })
   }
 
@@ -111,7 +113,7 @@ export function EmployeeLeavePage({
       ) : (
         <div className="flex max-w-2xl flex-col gap-6">
           <p role="status" className="rounded-md border border-border bg-muted px-4 py-3 text-sm">
-            {employee.terminationDate ? t('leave.left', { date: formatIsoDate(employee.terminationDate) }) : null}
+            {employee.terminationDate ? t('leave.left', { date: formatIsoDate(employee.terminationDate) }) : t('leave.leftUndated')}
             {employee.terminationReason ? ` ${t('leave.leftReason', { reason: employee.terminationReason })}` : null}
           </p>
           <section className="flex flex-col gap-2">

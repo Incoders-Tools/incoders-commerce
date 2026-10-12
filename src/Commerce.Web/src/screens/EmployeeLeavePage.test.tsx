@@ -71,6 +71,26 @@ describe('EmployeeLeavePage', () => {
     expect(screen.getByRole('button', { name: 'Liquidar último sueldo' })).toBeInTheDocument()
   })
 
+  it('shows the leave it just recorded even when re-reading the employee fails', async () => {
+    routes['POST /employees/e-1/active'] = () => json(undefined, 204)
+    routes['GET /employees/e-1'] = () => json({ error: 'boom' }, 500)
+    const user = userEvent.setup()
+    renderPage(juan)
+
+    fireEvent.change(screen.getByLabelText('Fecha de baja'), { target: { value: '2026-10-10' } })
+    await user.type(screen.getByLabelText('Motivo'), 'Renuncia')
+    await user.click(screen.getByRole('button', { name: 'Dar de baja' }))
+
+    expect(await screen.findByText('Dado de baja el 10/10/2026. Motivo: Renuncia.')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Dar de baja' })).not.toBeInTheDocument()
+  })
+
+  it('says the employee was given the leave even without a date or reason (an older terminal)', () => {
+    renderPage({ ...juan, isActive: false })
+    expect(screen.getByRole('status')).toHaveTextContent('Dado de baja.')
+  })
+
   it('asks for the reason and refuses a day after today, without calling the server', async () => {
     const user = userEvent.setup()
     renderPage(juan)

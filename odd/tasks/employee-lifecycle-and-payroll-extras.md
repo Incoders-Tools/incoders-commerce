@@ -132,6 +132,12 @@ advances (items 3, 6, 7 and 9 of the owner's 2026-10-11 request).
   while the employee sits in a regular draft taken before the leave (discard or pay it first); telling the two apart
   would need a final-settlement marker on runs. Open: no test of `employee-already-settled` over HTTP.
 
+- [x] G8 E3b review (`review-63cef5ba17d63955`, approved), fixed right after `f6a1b64`: a leave saved while re-reading
+  the employee fails showed an error and the form again (a retry would record it twice); it now shows the leave it
+  sent. A leave without date or reason (an older terminal) showed an empty box; it now says "Dado de baja." RED: 2
+  failures; GREEN: 16. Left as suggestions: the reinstate test reads the first call's body; one busy label for both
+  buttons.
+
 ## Constraints
 
 Same as `owner-requests-quick-adjustments.md` (server rules, parity, idempotent
