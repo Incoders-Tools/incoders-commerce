@@ -94,10 +94,12 @@ describe('EmployeeOvertimePage', () => {
     render(<EmployeeOvertimePage employee={juan} onBack={vi.fn()} />)
     await screen.findByText(/No tiene horas extra cargadas/)
 
-    await user.type(screen.getByLabelText('Horas'), '25')
-    await user.click(screen.getByRole('button', { name: 'Registrar horas extra' }))
-
-    expect(screen.getByRole('alert')).toHaveTextContent('Escribí las horas: más de 0 y hasta 24, con hasta dos decimales.')
+    for (const text of ['25', '0']) {
+      await user.clear(screen.getByLabelText('Horas'))
+      await user.type(screen.getByLabelText('Horas'), text)
+      await user.click(screen.getByRole('button', { name: 'Registrar horas extra' }))
+      expect(screen.getByRole('alert')).toHaveTextContent('Escribí las horas: más de 0 y hasta 24, con hasta dos decimales.')
+    }
     expect(calls('POST /employees/e-1/overtime')).toHaveLength(0)
   })
 
@@ -139,6 +141,27 @@ describe('EmployeeOvertimePage', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Borrar' }))
 
     await waitFor(() => expect(calls('DELETE /employees/e-1/overtime/o-1')).toHaveLength(1))
-    await waitFor(() => expect(screen.queryByText('Pendiente')).not.toBeInTheDocument())
+    await waitFor(() => expect(calls('GET /employees/e-1/overtime')).toHaveLength(2))
+    const rows = within(await screen.findByRole('table')).getAllByRole('row')
+    expect(rows).toHaveLength(3) // the header and the two a payroll took
+    expect(screen.getByText('En la liquidación 3')).toBeInTheDocument()
+    expect(screen.queryByText('Pendiente')).not.toBeInTheDocument()
+  })
+
+  it('shows why a delete was refused even when the employee has no rate any more', async () => {
+    stored = [record()]
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      const key = `${init?.method ?? 'GET'} ${url}`
+      if (key === 'GET /employees/e-1/overtime') return json(stored)
+      if (key === 'DELETE /employees/e-1/overtime/o-1') return json({ error: 'overtime-settled' }, 409)
+      throw new TypeError(`unrouted ${key}`)
+    })
+    const user = userEvent.setup()
+    render(<EmployeeOvertimePage employee={{ ...juan, overtimeHourlyRate: null }} onBack={vi.fn()} />)
+
+    await user.click(await screen.findByRole('button', { name: 'Borrar horas extra del 11/10/2026' }))
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Borrar' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Esas horas extra ya están en una liquidación: se cambian ahí.')
   })
 })

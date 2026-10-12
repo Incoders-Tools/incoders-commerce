@@ -79,6 +79,11 @@ advances (items 3, 6, 7 and 9 of the owner's 2026-10-11 request).
   refused (400); HTTP proves `overtime-rate-missing`. RED: 3 failures; GREEN: 39. Still open: listing the overtime of
   an unknown employee answers an empty list (not 404), and `overtime-settled` is proved in the store, not over HTTP.
 
+- [x] G3 E2b review (`review-3f6a59e0ab8539ea`, approved), fixed right after `7af3707`: a refused delete showed its
+  reason inside the form, which is not there without a rate (RED: the alert never appeared; the alert now sits outside
+  the form); the delete test could pass during the reload (now it waits for the second read and counts the rows left;
+  control: without the reload it fails); zero hours and a non-numeric overtime rate are proved refused.
+
 ## Constraints
 
 Same as `owner-requests-quick-adjustments.md` (server rules, parity, idempotent

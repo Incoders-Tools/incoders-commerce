@@ -149,17 +149,19 @@ export function EmployeeOvertimePage({ employee, onBack }: { employee: EmployeeR
               <Input id="overtimeNote" maxLength={200} placeholder={t('overtime.notePlaceholder')} value={note} onChange={(e) => setNote(e.target.value)} />
             </div>
             {preview !== null && <p className="text-sm font-medium">{t('overtime.preview', { amount: formatMoney(preview) })}</p>}
-            {error && (
-              <p role="alert" className="text-sm text-destructive">
-                {error}
-              </p>
-            )}
             <div>
               <Button type="submit" disabled={saving}>
                 {saving ? t('overtime.saving') : t('overtime.save')}
               </Button>
             </div>
           </form>
+        )}
+
+        {/* Outside the form: a refused delete must show even when there is no rate (and so no form). */}
+        {error && (
+          <p role="alert" className="text-sm text-destructive">
+            {error}
+          </p>
         )}
 
         {loadError ? (

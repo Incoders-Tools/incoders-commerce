@@ -144,6 +144,25 @@ describe('staff and payroll screens', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
+  it('refuses an overtime rate that is not a positive amount, without saving', async () => {
+    routeFetch({
+      'GET /employees': () => json([juan]),
+      'GET /employees/roles': () => json([]),
+      'GET /employees/next-file-number': () => json({ fileNumber: 2 }),
+    })
+    const user = userEvent.setup()
+    renderEmployees()
+
+    await user.click(await screen.findByRole('button', { name: 'Nuevo empleado' }))
+    await user.type(screen.getByLabelText('Apellido'), 'Gómez')
+    await user.type(screen.getByLabelText('Nombre'), 'Ana')
+    await user.type(screen.getByLabelText('Valor de la hora extra'), 'dos mil')
+    await user.click(screen.getByRole('button', { name: 'Guardar' }))
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Escribí un valor mayor que cero, con hasta dos decimales, o dejalo vacío.')
+    expect(callsTo('POST /employees')).toHaveLength(0)
+  })
+
   it('opens the overtime of an employee from its row', async () => {
     routeFetch({
       'GET /employees': () => json([{ ...juan, overtimeHourlyRate: 2000 }]),
