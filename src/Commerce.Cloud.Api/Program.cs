@@ -181,6 +181,7 @@ builder.Services.AddSingleton<PostgresTreasuryRecurrenceStore>();
 // Records the recurring treasury movements on their dates (every few hours; needs the platform-read connection).
 builder.Services.AddHostedService<TreasuryRecurrenceJob>();
 builder.Services.AddSingleton<PostgresEmployeeStore>();
+builder.Services.AddSingleton<PostgresEmployeeGoodsStore>();
 builder.Services.AddSingleton<PostgresPayrollStore>();
 // commerce-price-composition slice 2: resolution composes the effective rate
 // components onto the entry's base price, so the submission service needs the

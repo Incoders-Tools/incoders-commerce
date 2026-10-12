@@ -403,6 +403,42 @@ public sealed class TreasuryTests : IClassFixture<WebApplicationFactory<Program>
     }
 
     [Fact]
+    public async Task GoodsTakenByAnEmployee_AreQuotedRegisteredAndListedOverHttp()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+        var (org, branch, _) = await SeedAsync();
+        var admin = await SignedInAsync(org, branch, Permission.ManageUsers);
+        var asado = Presentation(org, branch, "Asado", "Por kg");
+        using (var owner = OpenOwner())
+        {
+            var list = Scalar<Guid?>(owner, "SELECT id FROM price_lists WHERE organization_id = $1 AND is_default", org);
+            if (list is null)
+            {
+                list = Guid.NewGuid();
+                Exec(owner, "INSERT INTO price_lists (id, organization_id, branch_id, name, is_default, created_by_user_id) VALUES ($1, $2, $3, 'Mostrador', true, $4)",
+                    list.Value, org, branch, Guid.NewGuid());
+            }
+
+            Exec(owner, "INSERT INTO price_list_entries (id, organization_id, branch_id, price_list_id, presentation_id, unit_price, effective_from, created_by_user_id) VALUES ($1, $2, $3, $4, $5, 10000, '2026-01-01', $6)",
+                Guid.NewGuid(), org, branch, list.Value, asado, Guid.NewGuid());
+        }
+
+        var created = await admin.PostAsJsonAsync("/employees", new { branchId = branch, firstName = "Juan", lastName = "Pérez", baseSalary = 1m, takesGoods = true });
+        var employeeId = (await Json(created)).GetProperty("id").GetGuid();
+
+        var quote = await Json(await admin.PostAsJsonAsync($"/employees/{employeeId}/goods/quote", new { lines = new[] { new { presentationId = asado, quantity = 1.5m } } }));
+        Assert.Equal(15_000m, quote.GetProperty("total").GetDecimal());
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PostAsJsonAsync($"/employees/{employeeId}/goods",
+            new { lines = new[] { new { presentationId = asado, quantity = 0m } } })).StatusCode);
+
+        var registered = await admin.PostAsJsonAsync($"/employees/{employeeId}/goods", new { lines = new[] { new { presentationId = asado, quantity = 1.5m } } });
+        Assert.Equal(HttpStatusCode.Created, registered.StatusCode);
+        var item = Assert.Single((await Json(await admin.GetAsync($"/employees/{employeeId}/goods"))).EnumerateArray());
+        Assert.Equal(("Asado", 15_000m, "Pending"), (item.GetProperty("productName").GetString(), item.GetProperty("lineTotal").GetDecimal(),
+            item.GetProperty("status").GetString()));
+    }
+
+    [Fact]
     public async Task TheFinalSettlement_IsPreparedOverHttp_OnlyForAnEmployeeGivenTheLeave()
     {
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }

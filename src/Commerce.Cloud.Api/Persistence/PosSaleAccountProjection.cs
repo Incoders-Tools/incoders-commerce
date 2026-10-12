@@ -105,6 +105,13 @@ internal static class PosSaleAccountProjection
                     connection, tx, envelope.OrganizationId, "org-user", envelope.ActorId, party, "customer.movement_registered", charge, ct);
             }
 
+            if (onAccount)
+            {
+                // employee-lifecycle E4: goods an employee took on account leave their items for the payroll's discounts.
+                await PostgresEmployeeGoodsStore.ProjectPosSaleAsync(
+                    connection, tx, envelope.OrganizationId, envelope.BranchId, payload, date, envelope.ActorId, ct);
+            }
+
             if (!onAccount && method is not null)
             {
                 var paid = await PostgresCurrentAccountStore.InsertAsync(
@@ -149,6 +156,7 @@ internal static class PosSaleAccountProjection
         DateTimeOffset voidedAtUtc, Guid actorId, CancellationToken ct)
     {
         var voidedOn = BusinessDate(voidedAtUtc);
+        await PostgresEmployeeGoodsStore.RemovePosSaleAsync(connection, tx, saleId, ct);
         await PostgresTreasuryStore.ReverseSourceAsync(
             connection, tx, SourceType, saleId, VoidSourceType, $"Anulación de venta ({reason})", voidedAtUtc, voidedOn, actorId, ct);
 

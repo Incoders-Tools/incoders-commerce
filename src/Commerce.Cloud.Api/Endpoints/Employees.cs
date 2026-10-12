@@ -45,6 +45,39 @@ public static class EmployeeEndpoints
             return Results.Ok(new { fileNumber = await store.NextFileNumberAsync(caller!.Scope, ct) });
         }).AllowDeviceOperator();
 
+        // employee-lifecycle E4: goods an employee takes, registered in the web like a sale on the default list (the POS
+        // sells them on account); web only, as the payroll that deducts them.
+        employees.MapPost("/{id:guid}/goods/quote", async (
+            Guid id, GoodsRequest request, HttpContext httpContext, PostgresUserAccountStore userStore, PostgresEmployeeGoodsStore store,
+            CancellationToken ct) =>
+        {
+            // The catalog and its prices are the selected branch's.
+            var (denied, caller) = await AuthorizeBranchAsync(httpContext, userStore, ct);
+            if (denied is not null) return denied;
+            if (ValidateGoods(request, httpContext.Today(), out var lines) is { } invalid) return invalid;
+            var (outcome, quote) = await store.QuoteAsync(caller!.Scope, id, lines!, ct, request.OccurredOn ?? httpContext.Today());
+            return outcome == EmployeeGoodsOutcome.Done ? Results.Ok(quote) : Refusal(outcome);
+        });
+
+        employees.MapPost("/{id:guid}/goods", async (
+            Guid id, GoodsRequest request, HttpContext httpContext, PostgresUserAccountStore userStore, PostgresEmployeeGoodsStore store,
+            CancellationToken ct) =>
+        {
+            var (denied, caller) = await AuthorizeBranchAsync(httpContext, userStore, ct);
+            if (denied is not null) return denied;
+            if (ValidateGoods(request, httpContext.Today(), out var lines) is { } invalid) return invalid;
+            var (outcome, registration) = await store.RegisterAsync(caller!.Scope, caller.Id, id, request.OccurredOn ?? httpContext.Today(), lines!, ct);
+            return outcome == EmployeeGoodsOutcome.Done ? Results.Created($"/employees/{id}/goods", registration) : Refusal(outcome);
+        });
+
+        employees.MapGet("/{id:guid}/goods", async (
+            Guid id, HttpContext httpContext, PostgresUserAccountStore userStore, PostgresEmployeeGoodsStore store, CancellationToken ct) =>
+        {
+            var (denied, caller) = await StaffAuthorization.AuthorizeAsync(httpContext, userStore, ct, Permission.ManageUsers);
+            if (denied is not null) return denied;
+            return Results.Ok(await store.ListAsync(caller!.Scope, id, ct));
+        });
+
         // employee-lifecycle E2: overtime, recorded when it happens; the payroll takes the pending ones by itself.
         employees.MapGet("/{id:guid}/overtime", async (
             Guid id, HttpContext httpContext, PostgresUserAccountStore userStore, PostgresEmployeeStore store, CancellationToken ct) =>
@@ -329,6 +362,31 @@ public static class EmployeeEndpoints
         _ => Results.Conflict(new { error = "account-inactive" }),
     };
 
+    private static IResult? ValidateGoods(GoodsRequest request, DateOnly today, out IReadOnlyList<GoodsLineInput>? lines)
+    {
+        lines = null;
+        var errors = new Dictionary<string, string[]>();
+        var requested = request.Lines ?? [];
+        if (requested.Count is 0 or > EmployeeGoodsRules.MaxLines) errors["lines"] = ["1 to 50 lines."];
+        foreach (var (line, index) in requested.Select((line, index) => (line, index)))
+        {
+            if (line.PresentationId == Guid.Empty) errors[$"lines[{index}].presentationId"] = ["Required."];
+            if (!EmployeeGoodsRules.IsValidQuantity(line.Quantity)) errors[$"lines[{index}].quantity"] = ["Above zero, up to three decimals."];
+        }
+
+        if (request.OccurredOn > today) errors["occurredOn"] = ["Not after today."];
+        if (errors.Count > 0) return Results.ValidationProblem(errors);
+        lines = [.. requested.Select(line => new GoodsLineInput(line.PresentationId, line.Quantity))];
+        return null;
+    }
+
+    private static IResult Refusal(EmployeeGoodsOutcome outcome) => outcome switch
+    {
+        EmployeeGoodsOutcome.NotFound => Results.NotFound(),
+        EmployeeGoodsOutcome.NoGoodsAccount => Results.Conflict(new { error = "employee-no-goods-account" }),
+        _ => Results.Conflict(new { error = "no-effective-price" }),
+    };
+
     private static IResult Refusal(OvertimeWriteOutcome outcome) => outcome switch
     {
         OvertimeWriteOutcome.NotFound => Results.NotFound(),
@@ -370,6 +428,11 @@ public sealed record EmployeeRequest(
     bool? TakesGoods,
     // employee-lifecycle E2: omitted keeps the stored rate on an update (older terminals), 0 clears it.
     decimal? OvertimeHourlyRate = null);
+
+/// <summary>employee-lifecycle E4: goods to quote or register (OccurredOn: today when omitted).</summary>
+public sealed record GoodsRequest(DateOnly? OccurredOn, IReadOnlyList<GoodsLineRequest>? Lines);
+
+public sealed record GoodsLineRequest(Guid PresentationId, decimal Quantity);
 
 /// <summary>An overtime record (WorkDate: today when omitted; Multiplier: what the day proposes when omitted, x2 a Sunday).</summary>
 public sealed record OvertimeRequest(DateOnly? WorkDate, decimal Hours, decimal? Multiplier, string? Note);

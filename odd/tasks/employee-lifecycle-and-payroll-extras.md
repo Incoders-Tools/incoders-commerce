@@ -92,6 +92,22 @@ advances (items 3, 6, 7 and 9 of the owner's 2026-10-11 request).
     client sends date and reason; `employee-in-payroll-draft` reads as the web's. RED: did not compile; GREEN: 96 (POS
     employees, list markup, device operator). The WPF panel is proved through source and rules, not rendered.
 - [ ] E4 Goods from the web: "Registrar mercadería" on the employee (a debit on its linked customer account) and the wording no longer says POS only.
+  Owner decision 2026-10-12: the web registers products with quantity, like a sale on the counter (Mostrador) list,
+  moving the stock; before paying a payroll the administrator decides a discount on the goods taken, per item and on
+  the whole. So every item is kept (web and POS) and the payslip discounts them.
+  - [x] E4a Server goods ledger. Migration 0056 (`employee_goods_items`: one row per item, source `Web` or `PosSale`,
+    `discount_percent`, `payslip_id` ON DELETE SET NULL, RLS). `PostgresEmployeeGoodsStore`: quote and register on the
+    organization's DEFAULT list (Mostrador; never the linked customer's own list, Reparto in Vaca Verde), in the selected
+    branch (catalog, prices and stock are the branch's): stock out (`Sale`, source `EmployeeGoods`), an Invoice on the
+    linked customer account, the items pending, audit `employee.goods_registered`. A POS sale on current account to
+    that customer copies its lines (a sale discount spread with `EmployeeGoodsRules.Spread` so they add up to the
+    charge; keyed by sale and line), and a void takes them back unless a paid payroll settled them. `POST
+    /employees/{id}/goods/quote`, `POST /employees/{id}/goods`, `GET /employees/{id}/goods` (web only; 409
+    `employee-no-goods-account`, `no-effective-price`). RED: did not compile; a first GREEN attempt exposed that the
+    catalog read ignored the branch scope. GREEN: 21 payroll + 39 HTTP; regression 1569. Applied locally.
+  - [ ] E4b Payroll: the payslip takes the pending items; a discount per item and on the total, before paying.
+  - [ ] E4c Web: "Registrar mercadería" on the employee (products, quantities, Mostrador prices, total).
+  - [ ] E4d Web payslip editor (items with their discount) and the wording that says POS only (web + POS).
 
 ## Follow-ups
 
