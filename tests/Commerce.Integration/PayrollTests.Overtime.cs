@@ -75,6 +75,48 @@ public sealed partial class PayrollTests
         var (_, cleared) = await store.UpdateAsync(w.Scope, w.Actor, juan.Id, Input(w, "Juan", 510_000m) with { OvertimeHourlyRate = 0m },
             false, CancellationToken.None);
         Assert.Null(cleared!.OvertimeHourlyRate);
+
+        // The audit says the rate that stays, not the raw input (null = kept, 0 = cleared).
+        using var owner = OpenOwner();
+        Assert.Equal(["2500.00", "null"], new[] { 0, 1 }.Select(n => Scalar<string>(owner,
+            "SELECT (new_value -> 'OvertimeHourlyRate')::text FROM audit_log WHERE action = 'employee.updated' AND entity_id = $1 " +
+            "ORDER BY id OFFSET $2 LIMIT 1", juan.Id, n)));
+    }
+
+    [Fact]
+    public async Task ThePayslipsOvertimeLine_AlwaysPaysWhatItTook_AndOneWithNothingTakenIsAManualLine()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+        var w = await SeedAsync();
+        var employees = Employees();
+        var payroll = new PostgresPayrollStore(_dataSource!);
+        var (_, ana) = await employees.CreateAsync(w.Scope, w.Actor, Input(w, "Ana", 300_000m), false, CancellationToken.None);
+        var (_, juan) = await employees.CreateAsync(w.Scope, w.Actor, Input(w, "Juan", 500_000m) with { OvertimeHourlyRate = 2_000m },
+            false, CancellationToken.None);
+        await employees.RecordOvertimeAsync(w.Scope, w.Actor, juan!.Id, new NewOvertime(Sunday, 4m, null, null), CancellationToken.None);
+        var (_, runId) = await payroll.CreateRunAsync(w.Scope, w.Actor, new DateOnly(2026, 10, 1), Today, PayFrequency.Monthly, null, CancellationToken.None);
+        var run = (await payroll.GetRunAsync(w.Scope, runId!.Value, CancellationToken.None))!;
+        var juanSlip = run.Payslips.Single(p => p.EmployeeId == juan.Id);
+        var anaSlip = run.Payslips.Single(p => p.EmployeeId == ana!.Id);
+
+        // An edited overtime line still pays the hours it took (16.000), so the records and the payslip never disagree.
+        Assert.Equal(PayrollWriteOutcome.Done, await payroll.UpdatePayslipAsync(w.Scope, w.Actor, runId.Value, juanSlip.PayslipId,
+        [
+            new PayslipLineInput(PayslipLineKind.Earning, PayslipLineSource.BaseSalary, "Sueldo básico", 500_000m),
+            new PayslipLineInput(PayslipLineKind.Earning, PayslipLineSource.Overtime, "Otra cosa", 1_000m),
+        ], 0m, CancellationToken.None));
+        // An overtime line on a payslip that took none is a line added by hand.
+        Assert.Equal(PayrollWriteOutcome.Done, await payroll.UpdatePayslipAsync(w.Scope, w.Actor, runId.Value, anaSlip.PayslipId,
+        [
+            new PayslipLineInput(PayslipLineKind.Earning, PayslipLineSource.BaseSalary, "Sueldo básico", 300_000m),
+            new PayslipLineInput(PayslipLineKind.Earning, PayslipLineSource.Overtime, "Horas extra", 5_000m),
+        ], 0m, CancellationToken.None));
+
+        run = (await payroll.GetRunAsync(w.Scope, runId.Value, CancellationToken.None))!;
+        var overtime = Assert.Single(run.Payslips.Single(p => p.EmployeeId == juan.Id).Lines, l => l.Source == nameof(PayslipLineSource.Overtime));
+        Assert.Equal(("Horas extra (4 h)", 16_000m), (overtime.Concept, overtime.Amount));
+        var byHand = run.Payslips.Single(p => p.EmployeeId == ana!.Id).Lines.Single(l => l.Concept == "Horas extra");
+        Assert.Equal((nameof(PayslipLineSource.Manual), 5_000m), (byHand.Source, byHand.Amount));
     }
 
     [Fact]

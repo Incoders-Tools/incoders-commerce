@@ -439,16 +439,28 @@ public sealed class PostgresPayrollStore
             await delete.ExecuteNonQueryAsync(ct);
         }
 
-        // employee-lifecycle E2: without an overtime line the payslip lets its overtime go back to pending; an overtime line
-        // where the payslip took none is just a line added by hand.
+        // employee-lifecycle E2: without an overtime line the payslip lets its overtime go back to pending. With one, the line
+        // always pays exactly the hours it took (an edited amount would leave the records paid for something else: to pay
+        // other hours, delete a record or add a line by hand); an overtime line where the payslip took none is a hand one.
         if (lines.Any(line => line.Source == PayslipLineSource.Overtime))
         {
-            await using var taken = new NpgsqlCommand("SELECT EXISTS (SELECT 1 FROM employee_overtime WHERE payslip_id = $1)", connection, tx);
-            taken.Parameters.AddWithValue(payslipId);
-            if (!(bool)(await taken.ExecuteScalarAsync(ct))!)
+            decimal takenHours, takenAmount;
+            await using (var taken = new NpgsqlCommand(
+                "SELECT COALESCE(SUM(hours), 0), COALESCE(SUM(amount), 0) FROM employee_overtime WHERE payslip_id = $1", connection, tx))
             {
-                lines = [.. lines.Select(line => line.Source == PayslipLineSource.Overtime ? line with { Source = PayslipLineSource.Manual } : line)];
+                taken.Parameters.AddWithValue(payslipId);
+                await using var reader = await taken.ExecuteReaderAsync(ct);
+                await reader.ReadAsync(ct);
+                (takenHours, takenAmount) = (reader.GetDecimal(0), reader.GetDecimal(1));
             }
+
+            lines = takenAmount == 0m
+                ? [.. lines.Select(line => line.Source == PayslipLineSource.Overtime ? line with { Source = PayslipLineSource.Manual } : line)]
+                :
+                [
+                    .. lines.Where(line => line.Source != PayslipLineSource.Overtime),
+                    new PayslipLineInput(PayslipLineKind.Earning, PayslipLineSource.Overtime, OvertimeRules.Concept(takenHours), takenAmount),
+                ];
         }
         else
         {

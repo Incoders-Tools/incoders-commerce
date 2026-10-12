@@ -67,6 +67,13 @@ advances (items 3, 6, 7 and 9 of the owner's 2026-10-11 request).
   placeholder, no alert); control: unpadded edit value and an unhandled rejection each fail. Still open: the POS
   hint is checked through source strings in `PosEmployeesTests`, not by running the view.
 
+- [ ] G2 E2a review (`review-cb2947519801970d`, approved). Fixed right after `0c95f57`: a payslip's overtime line
+  always pays exactly the hours it took (an edited amount or concept is replaced; to pay other hours, delete a record
+  or add a line by hand), and one on a payslip that took none is saved as a hand line (both were unproved branches);
+  the employee audit logs the rate that stays (null kept, 0 cleared), not the raw input; a work date after today is
+  refused (400); HTTP proves `overtime-rate-missing`. RED: 3 failures; GREEN: 39. Still open: listing the overtime of
+  an unknown employee answers an empty list (not 404), and `overtime-settled` is proved in the store, not over HTTP.
+
 ## Constraints
 
 Same as `owner-requests-quick-adjustments.md` (server rules, parity, idempotent

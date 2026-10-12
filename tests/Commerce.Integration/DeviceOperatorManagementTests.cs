@@ -233,6 +233,11 @@ public sealed class DeviceOperatorManagementTests : IClassFixture<WebApplication
         Assert.Equal(tenant.AdminId, (Guid)OwnerScalar(
             "SELECT actor_id FROM audit_log WHERE entity_id = $1 ORDER BY id LIMIT 1", employeeId)!);
 
+        // Without an overtime rate there is nothing to multiply.
+        var noRate = await device.PostAsJsonAsync($"/employees/{employeeId}/overtime", new OvertimeRequest(new DateOnly(2026, 10, 11), 1m, null, null));
+        Assert.Equal(HttpStatusCode.Conflict, noRate.StatusCode);
+        Assert.Equal("overtime-rate-missing", (await noRate.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("error").GetString());
+
         var updated = await device.PutAsJsonAsync($"/employees/{employeeId}", new EmployeeRequest(
             tenant.BranchId, employee.GetProperty("fileNumber").GetInt32(), "Ana", "Pérez", "30111222", null, roleId, "2901 444555",
             null, null, new DateOnly(2024, 3, 15), "Biweekly", 320_000m, null, true, OvertimeHourlyRate: 2_000m));
@@ -248,6 +253,9 @@ public sealed class DeviceOperatorManagementTests : IClassFixture<WebApplication
             recorded.GetProperty("status").GetString()));
         Assert.Equal(HttpStatusCode.BadRequest, (await device.PostAsJsonAsync($"/employees/{employeeId}/overtime",
             new OvertimeRequest(new DateOnly(2026, 10, 12), 0m, 5m, null))).StatusCode);
+        // Overtime is recorded once worked: a day after today is refused.
+        Assert.Equal(HttpStatusCode.BadRequest, (await device.PostAsJsonAsync($"/employees/{employeeId}/overtime",
+            new OvertimeRequest(DateOnly.FromDateTime(DateTime.UtcNow).AddDays(2), 1m, null, null))).StatusCode);
         var overtimeList = await device.GetFromJsonAsync<JsonElement>($"/employees/{employeeId}/overtime");
         Assert.Single(overtimeList.EnumerateArray());
         Assert.Equal(HttpStatusCode.NoContent,

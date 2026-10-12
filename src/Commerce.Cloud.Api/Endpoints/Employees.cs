@@ -64,6 +64,7 @@ public static class EmployeeEndpoints
             if (!OvertimeRules.IsValidHours(request.Hours)) errors["hours"] = ["More than 0 and at most 24, with at most two decimals."];
             if (request.Multiplier is { } multiplier && !OvertimeRules.IsValidMultiplier(multiplier)) errors["multiplier"] = ["From 1 to 3, with at most two decimals."];
             if (request.Note is { Length: > OvertimeRules.MaxNoteLength }) errors["note"] = ["At most 200 characters."];
+            if (request.WorkDate > httpContext.Today()) errors["workDate"] = ["Not after today: overtime is recorded once worked."];
             if (errors.Count > 0) return Results.ValidationProblem(errors);
 
             var (outcome, overtime) = await store.RecordOvertimeAsync(caller!.Scope, caller.Id, id,

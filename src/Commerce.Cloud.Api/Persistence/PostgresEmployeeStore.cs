@@ -373,9 +373,11 @@ public sealed partial class PostgresEmployeeStore
                 await update.ExecuteNonQueryAsync(ct);
             }
 
+            // The rate that stays: null kept the stored one, 0 cleared it.
+            decimal? overtimeHourlyRate = input.OvertimeHourlyRate switch { null => before.OvertimeHourlyRate, 0m => null, var rate => rate };
             await AuditAsync(connection, tx, scope.OrganizationId, actorId, employeeId, "employee.updated",
                 new { fileNumber, input.FirstName, input.LastName, input.BranchId, input.RoleId, input.PayFrequency, input.BaseSalary,
-                    input.OvertimeHourlyRate }, ct,
+                    OvertimeHourlyRate = overtimeHourlyRate }, ct,
                 old: new { before.FileNumber, before.FirstName, before.LastName, before.BranchId, before.RoleId, before.PayFrequency, before.BaseSalary,
                     before.OvertimeHourlyRate });
             await tx.CommitAsync(ct);
