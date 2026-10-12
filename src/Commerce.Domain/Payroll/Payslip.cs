@@ -20,14 +20,15 @@ public enum PayslipLineKind
 }
 
 /// <summary>
-/// Where a line comes from: the agreed salary, the advances still pending on the employee's account, or added by hand
-/// (overtime, a bonus, the SAC, another deduction...).
+/// Where a line comes from: the agreed salary, the advances still pending on the employee's account, the overtime
+/// recorded and still pending (employee-lifecycle E2), or added by hand (a bonus, the SAC, another deduction...).
 /// </summary>
 public enum PayslipLineSource
 {
     BaseSalary,
     Advances,
     Manual,
+    Overtime,
 }
 
 public sealed record PayslipLine(PayslipLineKind Kind, PayslipLineSource Source, string Concept, decimal Amount);

@@ -37,7 +37,8 @@ public sealed record EmployeeRecord(
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset UpdatedAtUtc,
     decimal Balance = 0m,
-    decimal PurchasesOwed = 0m)
+    decimal PurchasesOwed = 0m,
+    decimal? OvertimeHourlyRate = null)
 {
     public string FullName => $"{LastName}, {FirstName}";
 }
@@ -57,7 +58,9 @@ public sealed record EmployeeInput(
     DateOnly? HireDate,
     string PayFrequency,
     decimal BaseSalary,
-    string? Notes);
+    string? Notes,
+    // employee-lifecycle E2. On update null keeps the stored rate (what an older terminal sends) and 0 clears it.
+    decimal? OvertimeHourlyRate = null);
 
 public enum EmployeeWriteOutcome
 {
@@ -75,7 +78,7 @@ public enum EmployeeWriteOutcome
 /// for the goods they take, and the advances handed out to them (money out of the treasury, a debit on their account).
 /// Every write is audited; an employee is never deleted, only deactivated.
 /// </summary>
-public sealed class PostgresEmployeeStore
+public sealed partial class PostgresEmployeeStore
 {
     public const string AdvanceSourceType = "EmployeeAdvance";
 
@@ -85,7 +88,7 @@ public sealed class PostgresEmployeeStore
     private const string Select = """
         SELECT e.id, e.branch_id, b.name, e.file_number, e.first_name, e.last_name, e.document_number, e.cuil, e.role_id, r.name,
                e.phone, e.email, e.address, e.hire_date, e.termination_date, e.pay_frequency, e.base_salary, e.customer_id, e.notes,
-               e.is_active, e.created_at_utc, e.updated_at_utc
+               e.is_active, e.created_at_utc, e.updated_at_utc, e.overtime_hourly_rate
         FROM employees e
         LEFT JOIN branches b ON b.id = e.branch_id
         LEFT JOIN employee_roles r ON r.organization_id = e.organization_id AND r.id = e.role_id
@@ -106,7 +109,8 @@ public sealed class PostgresEmployeeStore
         r.IsDBNull(9) ? null : r.GetString(9), r.IsDBNull(10) ? null : r.GetString(10), r.IsDBNull(11) ? null : r.GetString(11),
         r.IsDBNull(12) ? null : r.GetString(12), r.IsDBNull(13) ? null : r.GetFieldValue<DateOnly>(13),
         r.IsDBNull(14) ? null : r.GetFieldValue<DateOnly>(14), r.GetString(15), r.GetDecimal(16), r.IsDBNull(17) ? null : r.GetGuid(17),
-        r.IsDBNull(18) ? null : r.GetString(18), r.GetBoolean(19), r.GetFieldValue<DateTimeOffset>(20), r.GetFieldValue<DateTimeOffset>(21));
+        r.IsDBNull(18) ? null : r.GetString(18), r.GetBoolean(19), r.GetFieldValue<DateTimeOffset>(20), r.GetFieldValue<DateTimeOffset>(21),
+        OvertimeHourlyRate: r.IsDBNull(22) ? null : r.GetDecimal(22));
 
     /// <summary>The employees (of one branch, or all), active first then by last name, with their balances.</summary>
     public async Task<IReadOnlyList<EmployeeRecord>> ListAsync(CloudTenantScope scope, Guid? branchId, bool includeInactive, CancellationToken ct)
@@ -273,13 +277,14 @@ public sealed class PostgresEmployeeStore
             await using (var insert = new NpgsqlCommand(
                 """
                 INSERT INTO employees (organization_id, id, branch_id, file_number, first_name, last_name, document_number, cuil, role_id,
-                                       phone, email, address, hire_date, pay_frequency, base_salary, notes)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+                                       phone, email, address, hire_date, pay_frequency, base_salary, notes, overtime_hourly_rate)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, NULLIF($17::numeric, 0))
                 """, connection, tx))
             {
                 insert.Parameters.AddWithValue(scope.OrganizationId);
                 insert.Parameters.AddWithValue(id);
                 AddInput(insert, input, fileNumber.Value);
+                insert.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Numeric, (object?)input.OvertimeHourlyRate ?? DBNull.Value);
                 await insert.ExecuteNonQueryAsync(ct);
             }
 
@@ -357,18 +362,22 @@ public sealed class PostgresEmployeeStore
                 """
                 UPDATE employees SET branch_id = $1, file_number = $2, first_name = $3, last_name = $4, document_number = $5, cuil = $6,
                                      role_id = $7, phone = $8, email = $9, address = $10, hire_date = $11, pay_frequency = $12,
-                                     base_salary = $13, notes = $14, updated_at_utc = now()
+                                     base_salary = $13, notes = $14, updated_at_utc = now(),
+                                     overtime_hourly_rate = CASE WHEN $16::numeric IS NULL THEN overtime_hourly_rate ELSE NULLIF($16::numeric, 0) END
                 WHERE id = $15
                 """, connection, tx))
             {
                 AddInput(update, input, fileNumber);
                 update.Parameters.AddWithValue(employeeId);
+                update.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Numeric, (object?)input.OvertimeHourlyRate ?? DBNull.Value);
                 await update.ExecuteNonQueryAsync(ct);
             }
 
             await AuditAsync(connection, tx, scope.OrganizationId, actorId, employeeId, "employee.updated",
-                new { fileNumber, input.FirstName, input.LastName, input.BranchId, input.RoleId, input.PayFrequency, input.BaseSalary }, ct,
-                old: new { before.FileNumber, before.FirstName, before.LastName, before.BranchId, before.RoleId, before.PayFrequency, before.BaseSalary });
+                new { fileNumber, input.FirstName, input.LastName, input.BranchId, input.RoleId, input.PayFrequency, input.BaseSalary,
+                    input.OvertimeHourlyRate }, ct,
+                old: new { before.FileNumber, before.FirstName, before.LastName, before.BranchId, before.RoleId, before.PayFrequency, before.BaseSalary,
+                    before.OvertimeHourlyRate });
             await tx.CommitAsync(ct);
         }
 

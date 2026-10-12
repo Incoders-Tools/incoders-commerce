@@ -300,16 +300,52 @@ public sealed class PostgresPayrollStore
                 lines.Add(new(PayslipLineKind.Deduction, PayslipLineSource.Advances, "Adelantos y saldo pendiente", -balance));
             }
 
+            // employee-lifecycle E2: the overtime still pending up to the end of the period, as one earning line.
+            var payslipId = Guid.NewGuid();
+            var overtime = await PendingOvertimeAsync(connection, tx, employee.Id, periodTo, ct);
+            if (overtime.Ids.Count > 0)
+            {
+                lines.Add(new(PayslipLineKind.Earning, PayslipLineSource.Overtime, OvertimeRules.Concept(overtime.Hours), overtime.Amount));
+            }
+
             var purchases = employee.CustomerId is { } customer
                 ? Math.Max(await PostgresEmployeeStore.BalanceAsync(connection, tx, AccountParty.Customer(customer), ct), 0m)
                 : 0m;
-            await InsertPayslipAsync(connection, tx, scope.OrganizationId, runId, Guid.NewGuid(), employee.Id, purchases, 0m, lines, ct);
+            await InsertPayslipAsync(connection, tx, scope.OrganizationId, runId, payslipId, employee.Id, purchases, 0m, lines, ct);
+            if (overtime.Ids.Count > 0)
+            {
+                await using var take = new NpgsqlCommand("UPDATE employee_overtime SET payslip_id = $1 WHERE id = ANY($2)", connection, tx);
+                take.Parameters.AddWithValue(payslipId);
+                take.Parameters.AddWithValue(overtime.Ids.ToArray());
+                await take.ExecuteNonQueryAsync(ct);
+            }
         }
 
         await PostgresEmployeeStore.AuditAsync(connection, tx, scope.OrganizationId, actorId, runId, "payroll.prepared",
             new { runNumber, branchId, periodFrom, periodTo, payFrequency, employees = employees.Count }, ct, entityType: "payroll-run");
         await tx.CommitAsync(ct);
         return (PayrollWriteOutcome.Done, runId);
+    }
+
+    /// <summary>The employee's overtime no payroll took yet, worked up to <paramref name="periodTo"/>, locked for this run.</summary>
+    private static async Task<(List<Guid> Ids, decimal Hours, decimal Amount)> PendingOvertimeAsync(
+        NpgsqlConnection connection, NpgsqlTransaction tx, Guid employeeId, DateOnly periodTo, CancellationToken ct)
+    {
+        await using var cmd = new NpgsqlCommand(
+            "SELECT id, hours, amount FROM employee_overtime WHERE employee_id = $1 AND payslip_id IS NULL AND work_date <= $2 FOR UPDATE",
+            connection, tx);
+        cmd.Parameters.AddWithValue(employeeId);
+        cmd.Parameters.AddWithValue(periodTo);
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        var (ids, hours, amount) = (new List<Guid>(), 0m, 0m);
+        while (await reader.ReadAsync(ct))
+        {
+            ids.Add(reader.GetGuid(0));
+            hours += reader.GetDecimal(1);
+            amount += reader.GetDecimal(2);
+        }
+
+        return (ids, hours, amount);
     }
 
     private static async Task InsertPayslipAsync(
@@ -401,6 +437,24 @@ public sealed class PostgresPayrollStore
         {
             delete.Parameters.AddWithValue(payslipId);
             await delete.ExecuteNonQueryAsync(ct);
+        }
+
+        // employee-lifecycle E2: without an overtime line the payslip lets its overtime go back to pending; an overtime line
+        // where the payslip took none is just a line added by hand.
+        if (lines.Any(line => line.Source == PayslipLineSource.Overtime))
+        {
+            await using var taken = new NpgsqlCommand("SELECT EXISTS (SELECT 1 FROM employee_overtime WHERE payslip_id = $1)", connection, tx);
+            taken.Parameters.AddWithValue(payslipId);
+            if (!(bool)(await taken.ExecuteScalarAsync(ct))!)
+            {
+                lines = [.. lines.Select(line => line.Source == PayslipLineSource.Overtime ? line with { Source = PayslipLineSource.Manual } : line)];
+            }
+        }
+        else
+        {
+            await using var release = new NpgsqlCommand("UPDATE employee_overtime SET payslip_id = NULL WHERE payslip_id = $1", connection, tx);
+            release.Parameters.AddWithValue(payslipId);
+            await release.ExecuteNonQueryAsync(ct);
         }
 
         await InsertLinesAsync(connection, tx, scope.OrganizationId, payslipId, lines, ct);

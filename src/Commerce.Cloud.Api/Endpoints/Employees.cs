@@ -45,6 +45,42 @@ public static class EmployeeEndpoints
             return Results.Ok(new { fileNumber = await store.NextFileNumberAsync(caller!.Scope, ct) });
         }).AllowDeviceOperator();
 
+        // employee-lifecycle E2: overtime, recorded when it happens; the payroll takes the pending ones by itself.
+        employees.MapGet("/{id:guid}/overtime", async (
+            Guid id, HttpContext httpContext, PostgresUserAccountStore userStore, PostgresEmployeeStore store, CancellationToken ct) =>
+        {
+            var (denied, caller) = await StaffAuthorization.AuthorizeAsync(httpContext, userStore, ct, Permission.ManageUsers);
+            if (denied is not null) return denied;
+            return Results.Ok(await store.ListOvertimeAsync(caller!.Scope, id, ct));
+        }).AllowDeviceOperator();
+
+        employees.MapPost("/{id:guid}/overtime", async (
+            Guid id, OvertimeRequest request, HttpContext httpContext, PostgresUserAccountStore userStore, PostgresEmployeeStore store,
+            CancellationToken ct) =>
+        {
+            var (denied, caller) = await StaffAuthorization.AuthorizeAsync(httpContext, userStore, ct, Permission.ManageUsers);
+            if (denied is not null) return denied;
+            var errors = new Dictionary<string, string[]>();
+            if (!OvertimeRules.IsValidHours(request.Hours)) errors["hours"] = ["More than 0 and at most 24, with at most two decimals."];
+            if (request.Multiplier is { } multiplier && !OvertimeRules.IsValidMultiplier(multiplier)) errors["multiplier"] = ["From 1 to 3, with at most two decimals."];
+            if (request.Note is { Length: > OvertimeRules.MaxNoteLength }) errors["note"] = ["At most 200 characters."];
+            if (errors.Count > 0) return Results.ValidationProblem(errors);
+
+            var (outcome, overtime) = await store.RecordOvertimeAsync(caller!.Scope, caller.Id, id,
+                new NewOvertime(request.WorkDate ?? httpContext.Today(), request.Hours, request.Multiplier, Blank(request.Note)), ct);
+            return outcome == OvertimeWriteOutcome.Done ? Results.Created($"/employees/{id}/overtime/{overtime!.Id}", overtime) : Refusal(outcome);
+        }).AllowDeviceOperator();
+
+        employees.MapDelete("/{id:guid}/overtime/{overtimeId:guid}", async (
+            Guid id, Guid overtimeId, HttpContext httpContext, PostgresUserAccountStore userStore, PostgresEmployeeStore store,
+            CancellationToken ct) =>
+        {
+            var (denied, caller) = await StaffAuthorization.AuthorizeAsync(httpContext, userStore, ct, Permission.ManageUsers);
+            if (denied is not null) return denied;
+            var outcome = await store.DeleteOvertimeAsync(caller!.Scope, caller.Id, id, overtimeId, ct);
+            return outcome == OvertimeWriteOutcome.Done ? Results.NoContent() : Refusal(outcome);
+        }).AllowDeviceOperator();
+
         employees.MapGet("/{id:guid}", async (
             Guid id, HttpContext httpContext, PostgresUserAccountStore userStore, PostgresEmployeeStore store, CancellationToken ct) =>
         {
@@ -153,7 +189,7 @@ public static class EmployeeEndpoints
             foreach (var (line, index) in (request.Lines ?? []).Select((line, index) => (line, index)))
             {
                 if (!Enum.TryParse<PayslipLineKind>(line.Kind, out var kind) || !char.IsLetter(line.Kind![0])) errors[$"lines[{index}].kind"] = ["Earning or Deduction."];
-                else if (!Enum.TryParse<PayslipLineSource>(line.Source ?? "Manual", out var source) || !char.IsLetter((line.Source ?? "Manual")[0])) errors[$"lines[{index}].source"] = ["BaseSalary, Advances or Manual."];
+                else if (!Enum.TryParse<PayslipLineSource>(line.Source ?? "Manual", out var source) || !char.IsLetter((line.Source ?? "Manual")[0])) errors[$"lines[{index}].source"] = ["BaseSalary, Advances, Manual or Overtime."];
                 else if (!PayslipRules.IsValidConcept(line.Concept)) errors[$"lines[{index}].concept"] = ["1 to 200 characters."];
                 else if (!PayslipRules.IsValidAmount(line.Amount)) errors[$"lines[{index}].amount"] = ["Positive with at most two decimals."];
                 else lines.Add(new PayslipLineInput(kind, source, line.Concept!.Trim(), line.Amount));
@@ -236,11 +272,17 @@ public static class EmployeeEndpoints
         if (request.Email is { Length: > 200 }) errors["email"] = ["At most 200 characters."];
         if (request.Address is { Length: > 200 }) errors["address"] = ["At most 200 characters."];
         if (request.Notes is { Length: > 1000 }) errors["notes"] = ["At most 1000 characters."];
+        if (request.OvertimeHourlyRate is { } rate && rate != 0m && !OvertimeRules.IsValidHourlyRate(rate))
+        {
+            errors["overtimeHourlyRate"] = ["More than zero with at most two decimals (0 clears it)."];
+        }
+
         if (errors.Count > 0) return Results.ValidationProblem(errors);
 
         input = new EmployeeInput(
             request.BranchId!.Value, request.FileNumber, first, last, document, cuil, request.RoleId, Blank(request.Phone), Blank(request.Email),
-            Blank(request.Address), request.HireDate, request.PayFrequency ?? PayFrequency.Monthly, request.BaseSalary ?? 0m, Blank(request.Notes));
+            Blank(request.Address), request.HireDate, request.PayFrequency ?? PayFrequency.Monthly, request.BaseSalary ?? 0m, Blank(request.Notes),
+            request.OvertimeHourlyRate);
         return null;
     }
 
@@ -260,6 +302,13 @@ public static class EmployeeEndpoints
         EmployeeWriteOutcome.FileNumberInUse => Results.Conflict(new { error = "file-number-in-use" }),
         EmployeeWriteOutcome.AccountNotFound => Results.Conflict(new { error = "account-not-found" }),
         _ => Results.Conflict(new { error = "account-inactive" }),
+    };
+
+    private static IResult Refusal(OvertimeWriteOutcome outcome) => outcome switch
+    {
+        OvertimeWriteOutcome.NotFound => Results.NotFound(),
+        OvertimeWriteOutcome.RateMissing => Results.Conflict(new { error = "overtime-rate-missing" }),
+        _ => Results.Conflict(new { error = "overtime-settled" }),
     };
 
     private static IResult Refusal(PayrollWriteOutcome outcome) => outcome switch
@@ -289,7 +338,12 @@ public sealed record EmployeeRequest(
     string? PayFrequency,
     decimal? BaseSalary,
     string? Notes,
-    bool? TakesGoods);
+    bool? TakesGoods,
+    // employee-lifecycle E2: omitted keeps the stored rate on an update (older terminals), 0 clears it.
+    decimal? OvertimeHourlyRate = null);
+
+/// <summary>An overtime record (WorkDate: today when omitted; Multiplier: what the day proposes when omitted, x2 a Sunday).</summary>
+public sealed record OvertimeRequest(DateOnly? WorkDate, decimal Hours, decimal? Multiplier, string? Note);
 
 public sealed record SetEmployeeActiveRequest(bool IsActive, DateOnly? TerminationDate);
 

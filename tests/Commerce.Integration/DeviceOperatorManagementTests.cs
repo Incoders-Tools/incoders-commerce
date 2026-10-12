@@ -235,8 +235,25 @@ public sealed class DeviceOperatorManagementTests : IClassFixture<WebApplication
 
         var updated = await device.PutAsJsonAsync($"/employees/{employeeId}", new EmployeeRequest(
             tenant.BranchId, employee.GetProperty("fileNumber").GetInt32(), "Ana", "Pérez", "30111222", null, roleId, "2901 444555",
-            null, null, new DateOnly(2024, 3, 15), "Biweekly", 320_000m, null, true));
+            null, null, new DateOnly(2024, 3, 15), "Biweekly", 320_000m, null, true, OvertimeHourlyRate: 2_000m));
         Assert.Equal(HttpStatusCode.OK, updated.StatusCode);
+        Assert.Equal(2_000m, (await updated.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("overtimeHourlyRate").GetDecimal());
+
+        // employee-lifecycle E2: overtime, recorded from the POS too. A Sunday proposes x2.
+        var overtime = await device.PostAsJsonAsync($"/employees/{employeeId}/overtime",
+            new OvertimeRequest(new DateOnly(2026, 10, 11), 4m, null, "Inventario"));
+        Assert.Equal(HttpStatusCode.Created, overtime.StatusCode);
+        var recorded = await overtime.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal((2m, 16_000m, "Pending"), (recorded.GetProperty("multiplier").GetDecimal(), recorded.GetProperty("amount").GetDecimal(),
+            recorded.GetProperty("status").GetString()));
+        Assert.Equal(HttpStatusCode.BadRequest, (await device.PostAsJsonAsync($"/employees/{employeeId}/overtime",
+            new OvertimeRequest(new DateOnly(2026, 10, 12), 0m, 5m, null))).StatusCode);
+        var overtimeList = await device.GetFromJsonAsync<JsonElement>($"/employees/{employeeId}/overtime");
+        Assert.Single(overtimeList.EnumerateArray());
+        Assert.Equal(HttpStatusCode.NoContent,
+            (await device.DeleteAsync($"/employees/{employeeId}/overtime/{recorded.GetProperty("id").GetGuid()}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound,
+            (await device.DeleteAsync($"/employees/{employeeId}/overtime/{recorded.GetProperty("id").GetGuid()}")).StatusCode);
 
         var advance = await device.PostAsJsonAsync($"/employees/{employeeId}/advances", new EmployeeAdvanceRequest(50_000m, null, accountId, "A cuenta"));
         Assert.Equal(HttpStatusCode.OK, advance.StatusCode);
@@ -369,6 +386,9 @@ public sealed class DeviceOperatorManagementTests : IClassFixture<WebApplication
             await device.PostAsJsonAsync($"/account/users/{existingUser}/reset-password", new AdminResetPasswordRequest("x-password-123")),
             await device.GetAsync("/employees"),
             await device.GetAsync("/employees/next-file-number"),
+            await device.GetAsync($"/employees/{Guid.NewGuid()}/overtime"),
+            await device.PostAsJsonAsync($"/employees/{Guid.NewGuid()}/overtime", new { workDate = "2026-10-11", hours = 1m }),
+            await device.DeleteAsync($"/employees/{Guid.NewGuid()}/overtime/{Guid.NewGuid()}"),
             await device.GetAsync($"/employees/{Guid.NewGuid()}"),
             await device.PostAsJsonAsync("/employees", new { branchId = tenant.BranchId, firstName = "No", lastName = "No" }),
             await device.PostAsJsonAsync($"/employees/{Guid.NewGuid()}/active", new { isActive = false }),

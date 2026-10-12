@@ -47,6 +47,16 @@ advances (items 3, 6, 7 and 9 of the owner's 2026-10-11 request).
   save notice. RED: server didn't compile, POS didn't compile, web 3 failures; GREEN: 80 server, 49 POS, 792 web;
   web control without the screens' code: 2 failures.
 - [ ] E2 Overtime: employee hourly rate; overtime records (date, hours, multiplier, note) with Sunday = x2 proposed; pending ones become a payslip line by themselves (domain + migration + API + web + POS where staff is managed).
+  - [x] E2a Server. `OvertimeRules` (domain: Sunday proposes x2, else x1; hours 0-24, multiplier 1-3, two decimals;
+    amount = hours x rate x multiplier, frozen when recorded); migration 0054 (`employees.overtime_hourly_rate`,
+    `employee_overtime` with RLS, `payslip_lines.source` widened to `Overtime`); `GET/POST /employees/{id}/overtime`,
+    `DELETE /employees/{id}/overtime/{overtimeId}` (device operator too; 409 `overtime-rate-missing` / `overtime-settled`);
+    `EmployeeRequest.overtimeHourlyRate` (omitted keeps it, 0 clears it). The payroll takes the pending records worked
+    up to the end of the period as one "Horas extra (7,5 h)" earning; taking the payslip or the draft out releases them
+    (`ON DELETE SET NULL` on `payslips.id`, proved under RLS as `app_runtime`), and so does saving the payslip without
+    that line; a paid run settles them. RED: the tests did not compile; GREEN: 87, regression 321. Applied locally.
+  - [ ] E2b Web: rate in the employee form; "Horas extra" on the employee (record, list with status, delete pending).
+  - [ ] E2c POS: the same, same words; parity map.
 - [ ] E3 Termination section: date + reason, then "Liquidar último sueldo" opening the payroll for that employee; web + POS.
 - [ ] E4 Goods from the web: "Registrar mercadería" on the employee (a debit on its linked customer account) and the wording no longer says POS only.
 

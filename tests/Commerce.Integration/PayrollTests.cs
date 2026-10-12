@@ -16,7 +16,7 @@ namespace Commerce.Integration;
 /// account settles, the goods are settled on its customer account, the net leaves the treasury, once, all audited.
 /// </summary>
 [Collection("Postgres")]
-public sealed class PayrollTests : IDisposable
+public sealed partial class PayrollTests : IDisposable
 {
     private static readonly DateOnly Today = new(2026, 10, 31);
 
