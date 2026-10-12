@@ -206,7 +206,28 @@ public static class EmployeeFormRules
     /// <summary>employee-lifecycle E3: "Dado de baja el 10/10/2026. Motivo: Renuncia." (or "Dado de baja.").</summary>
     public static string LeaveStatusText(EmployeeRecordDto employee) =>
         (employee.TerminationDate is { } date ? $"Dado de baja el {DateText(date)}." : "Dado de baja.")
-        + (string.IsNullOrWhiteSpace(employee.TerminationReason) ? string.Empty : $" Motivo: {employee.TerminationReason}.");
+        + (string.IsNullOrWhiteSpace(employee.TerminationReason) ? string.Empty : $" Motivo: {employee.TerminationReason.Trim().TrimEnd('.')}.");
+
+    /// <summary>
+    /// The leave form's checks, the web's: a reason is required, and the date is dd/mm/aaaa up to <paramref name="today"/>.
+    /// Null when both read, with the date in <paramref name="date"/>; otherwise the message to show.
+    /// </summary>
+    public static string? LeaveInputError(string dateText, string reason, DateOnly today, out DateOnly date)
+    {
+        date = default;
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            return PosMessages.LeaveReasonRequired;
+        }
+
+        if (string.IsNullOrWhiteSpace(dateText) || !TryParseDate(dateText, out var parsed) || parsed is not { } day || day > today)
+        {
+            return PosMessages.LeaveDateInvalid;
+        }
+
+        date = day;
+        return null;
+    }
 
     // ---- overtime (employee-lifecycle E2), the web's EmployeeOvertimePage ----------------------
 

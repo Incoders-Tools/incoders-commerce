@@ -142,6 +142,12 @@ advances (items 3, 6, 7 and 9 of the owner's 2026-10-11 request).
   failures; GREEN: 16. Left as suggestions: the reinstate test reads the first call's body; one busy label for both
   buttons.
 
+- [x] G9 E3c review (`review-c10cd291119dcc14`, approved), fixed right after `130c617`: the leave form's checks moved
+  out of the WPF code-behind into `EmployeeFormRules.LeaveInputError` and are tested (reason required, dd/mm/aaaa up
+  to today); a reason ending in "." no longer reads "Motivo: Renuncia..". RED: did not compile; GREEN. Judged not a
+  defect: the POS maps only `employee-in-payroll-draft` of the leave codes, the others belong to the final settlement,
+  which the POS does not offer.
+
 ## Constraints
 
 Same as `owner-requests-quick-adjustments.md` (server rules, parity, idempotent

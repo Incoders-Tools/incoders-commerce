@@ -258,15 +258,10 @@ public partial class EmployeesView : UserControl, ISectionView
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(LeaveReasonTextBox.Text))
+        if (EmployeeFormRules.LeaveInputError(LeaveDateTextBox.Text, LeaveReasonTextBox.Text, DateOnly.FromDateTime(DateTime.Now), out var date)
+            is { } problem)
         {
-            ShowStatus(PosMessages.LeaveReasonRequired, isError: true);
-            return;
-        }
-
-        if (!EmployeeFormRules.TryParseDate(LeaveDateTextBox.Text, out var day) || day is not { } date || date > DateOnly.FromDateTime(DateTime.Now))
-        {
-            ShowStatus(PosMessages.LeaveDateInvalid, isError: true);
+            ShowStatus(problem, isError: true);
             return;
         }
 

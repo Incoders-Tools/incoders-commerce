@@ -436,6 +436,16 @@ public sealed class PosEmployeesTests
         var left = ana with { IsActive = false, TerminationDate = new DateOnly(2026, 10, 10), TerminationReason = "Renuncia" };
         Assert.Equal("Dado de baja el 10/10/2026. Motivo: Renuncia.", EmployeeFormRules.LeaveStatusText(left));
         Assert.Equal("Dado de baja.", EmployeeFormRules.LeaveStatusText(ana with { IsActive = false }));
+        Assert.Equal("Dado de baja el 10/10/2026. Motivo: Renuncia.", EmployeeFormRules.LeaveStatusText(left with { TerminationReason = "Renuncia." }));
+
+        // The form's checks, as the web's: a reason is required and the date is dd/mm/aaaa, up to today.
+        var today = new DateOnly(2026, 10, 12);
+        Assert.Equal(PosMessages.LeaveReasonRequired, EmployeeFormRules.LeaveInputError("10/10/2026", "  ", today, out _));
+        Assert.Equal(PosMessages.LeaveDateInvalid, EmployeeFormRules.LeaveInputError("13/10/2026", "Renuncia", today, out _));
+        Assert.Equal(PosMessages.LeaveDateInvalid, EmployeeFormRules.LeaveInputError("", "Renuncia", today, out _));
+        Assert.Null(EmployeeFormRules.LeaveInputError("12/10/2026", "Renuncia", today, out var date));
+        Assert.Equal(today, date);
+        Assert.Contains("EmployeeFormRules.LeaveInputError(", Src("EmployeesView.xaml.cs"));
 
         using var web = JsonDocument.Parse(File.ReadAllText(Path.Combine(
             RepoRoot(), "src", "Commerce.Web", "src", "i18n", "locales", "es", "employees.json")));
