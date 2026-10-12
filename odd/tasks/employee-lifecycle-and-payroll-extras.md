@@ -95,6 +95,13 @@ advances (items 3, 6, 7 and 9 of the owner's 2026-10-11 request).
   `EmployeeOvertimePage.test.tsx`: the row count after a delete could be read before the list re-renders, and the
   zero-hours check could see the alert left by the 25-hours attempt.
 
+- [x] G5 E2c review (`review-df92bb160603a6e8`, approved; findings came with locations only, read by hand). Fixed
+  right after `1cfb867`: opening "Horas extra" on another employee the same day kept the previous multiplier (the
+  date text did not change, so TextChanged did not propose one) and, while loading or after a failed load, the
+  previous list; now both are reset explicitly (proved on the source; RED first). Judged not a defect: an edit from a
+  stale list can overwrite a rate set meanwhile in the web, like every other field of the form (no concurrency check
+  on employees).
+
 ## Constraints
 
 Same as `owner-requests-quick-adjustments.md` (server rules, parity, idempotent

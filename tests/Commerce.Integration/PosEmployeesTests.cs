@@ -188,6 +188,13 @@ public sealed class PosEmployeesTests
         Assert.Contains("await _client.DeleteOvertimeAsync(", view);
         // An older terminal must not wipe the rate: the POS always sends it, 0 when emptied on an edit.
         Assert.Contains("OvertimeHourlyRate: overtimeRate", view);
+
+        // Opening the panel on another employee (the same day: the date text does not change, so TextChanged does not
+        // fire) must not keep the previous one's multiplier or list. Proved on the source: the panel is not rendered here.
+        var open = view[view.IndexOf("private Task OpenOvertimeAsync", StringComparison.Ordinal)..];
+        open = open[..open.IndexOf("private async Task LoadOvertimeAsync", StringComparison.Ordinal)];
+        Assert.Contains("OvertimeItemsControl.ItemsSource = null;", open);
+        Assert.Contains("OvertimeMultiplierTextBox.Text = EmployeeFormRules.ProposedMultiplierText(today);", open);
     }
 
     [Fact]

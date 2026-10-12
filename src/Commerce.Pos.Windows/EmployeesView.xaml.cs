@@ -354,10 +354,19 @@ public partial class EmployeesView : UserControl, ISectionView
         OvertimeRateText.Text = employee.OvertimeHourlyRate is { } rate ? $"Valor de la hora extra: {EmployeeList.MoneyText(rate)}" : string.Empty;
         OvertimeConfirmPanel.Visibility = Visibility.Collapsed;
         _deletingOvertime = null;
-        _multiplierTouched = false;
+        // Nothing of the previous employee stays: its list (until this one's loads) and its multiplier. Set explicitly:
+        // the same day's date text does not change, so its TextChanged would not propose one.
+        OvertimeItemsControl.ItemsSource = null;
+        OvertimeEmptyText.Visibility = Visibility.Collapsed;
         OvertimeHoursTextBox.Text = string.Empty;
         OvertimeNoteTextBox.Text = string.Empty;
-        OvertimeDateTextBox.Text = EmployeeFormRules.DateText(DateOnly.FromDateTime(DateTime.Now));
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        _settingMultiplier = true;
+        OvertimeDateTextBox.Text = EmployeeFormRules.DateText(today);
+        OvertimeMultiplierTextBox.Text = EmployeeFormRules.ProposedMultiplierText(today);
+        _settingMultiplier = false;
+        _multiplierTouched = false;
+        UpdateOvertimePreview();
         return _busy.RunAsync(PosMessages.Loading, () => LoadOvertimeAsync(employee));
     }
 
