@@ -69,7 +69,7 @@ advances (items 3, 6, 7 and 9 of the owner's 2026-10-11 request).
     `PosEmployeesTests.TheConflictTexts_AreTheWebsOnes` was red on `dev` until this commit (I ran only the web suite
     after E2b). RED: the POS tests did not compile; GREEN: 68, regression 960 (POS, device operator, payroll).
     The WPF panel itself is proved through source and rules, not rendered: check it by hand.
-- [ ] E3 Termination section: date + reason, then "Liquidar último sueldo" opening the payroll for that employee; web + POS.
+- [x] E3 Termination section: date + reason, then "Liquidar último sueldo" opening the payroll for that employee; web + POS.
   Owner decision 2026-10-12: the final settlement proposes the agreed salary in proportion to the days worked
   (monthly: days of the termination month; biweekly 15; weekly 7), editable as any draft.
   - [x] E3a Server. Migration 0055 (`employees.termination_reason`); `SetEmployeeActiveRequest.terminationReason`
@@ -86,7 +86,11 @@ advances (items 3, 6, 7 and 9 of the owner's 2026-10-11 request).
     the leave shows "Dado de baja el dd/mm/aaaa. Motivo: …", "Liquidar último sueldo" (creates the final settlement and
     opens `/app/payroll/{runId}`) and "Reincorporar"; each refusal explains itself (`leave.codes`). RED: the page did not
     exist and the row action was missing; GREEN: 14, full web suite 812, POS employees 52; control: failures again.
-  - [ ] E3c POS: the same section, same words; the last salary is settled in the web (payroll is web only).
+  - [x] E3c POS: the row action "Gestionar baja" replaces the Dar de baja / Reincorporar toggle and opens `LeavePanel`:
+    an active employee gets the leave with its date (dd/mm/aaaa, up to today) and reason (required); one given the leave
+    reads "Dado de baja el … Motivo: …", is told the last salary is settled in the web, and can be reinstated. The
+    client sends date and reason; `employee-in-payroll-draft` reads as the web's. RED: did not compile; GREEN: 96 (POS
+    employees, list markup, device operator). The WPF panel is proved through source and rules, not rendered.
 - [ ] E4 Goods from the web: "Registrar mercadería" on the employee (a debit on its linked customer account) and the wording no longer says POS only.
 
 ## Follow-ups

@@ -261,6 +261,34 @@
                             </StackPanel>
                         </Grid>
 
+                        <!-- employee-lifecycle E3: "Gestionar baja": the leave with its date and reason, or, once given, the reinstatement.
+                             The last salary is settled in the web (the payroll is web only). -->
+                        <StackPanel x:Name="LeavePanel" Visibility="Collapsed">
+                            <TextBlock Text="La baja se registra con su fecha y su motivo. Después se liquida el último sueldo con el mismo flujo de «Sueldos»."
+                                       Style="{StaticResource MutedTextBlock}" TextWrapping="Wrap" Margin="0,0,0,12" />
+                            <StackPanel x:Name="LeaveFormPanel">
+                                <TextBlock Text="Fecha de baja" Style="{StaticResource FieldLabel}" />
+                                <TextBox x:Name="LeaveDateTextBox" Style="{StaticResource FieldBox}" AutomationProperties.Name="Fecha de baja" ToolTip="dd/mm/aaaa" />
+                                <TextBlock Text="Motivo" Style="{StaticResource FieldLabel}" />
+                                <TextBox x:Name="LeaveReasonTextBox" Style="{StaticResource FieldBox}" MaxLength="500" AutomationProperties.Name="Motivo"
+                                         ToolTip="Ej.: renuncia" />
+                                <StackPanel Orientation="Horizontal" Margin="{StaticResource ActionGroupSpacing}">
+                                    <Button x:Name="LeaveSaveButton" Content="Dar de baja" Margin="{StaticResource ActionSpacing}" Click="LeaveSaveButton_Click" />
+                                    <Button Content="Cancelar" Style="{StaticResource GhostButton}" Click="CancelEditorButton_Click" />
+                                </StackPanel>
+                            </StackPanel>
+                            <StackPanel x:Name="LeftPanel" Visibility="Collapsed">
+                                <TextBlock x:Name="LeaveStatusText" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,0,0,8" />
+                                <TextBlock Text="El último sueldo se liquida en la web («Personal» → «Gestionar baja» → «Liquidar último sueldo»): propone el sueldo proporcional a los días trabajados, las horas extra pendientes, los adelantos y la mercadería."
+                                           Style="{StaticResource FieldHint}" TextWrapping="Wrap" Margin="0,0,0,12" />
+                                <TextBlock Text="Si vuelve a trabajar, reincorporalo: se borran la fecha y el motivo de la baja." Style="{StaticResource FieldHint}" TextWrapping="Wrap" />
+                                <StackPanel Orientation="Horizontal" Margin="{StaticResource ActionGroupSpacing}">
+                                    <Button x:Name="ReinstateButton" Content="Reincorporar" Margin="{StaticResource ActionSpacing}" Click="ReinstateButton_Click" />
+                                    <Button Content="Cerrar" Style="{StaticResource GhostButton}" Click="CancelEditorButton_Click" />
+                                </StackPanel>
+                            </StackPanel>
+                        </StackPanel>
+
                         <!-- The employee's account, read-only here: manual movements are registered in the web (accounting). -->
                         <Grid x:Name="AccountPanel" Visibility="Collapsed">
                             <Grid.RowDefinitions>

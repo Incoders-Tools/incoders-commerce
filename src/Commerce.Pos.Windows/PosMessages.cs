@@ -244,6 +244,13 @@ public static class PosMessages
 
     public const string OvertimeLoadFailed = "No se pudieron cargar las horas extra.";
 
+    // employee-lifecycle E3: the leave, in the web's words (employees.json: leave.errors, leave.codes).
+    public const string LeaveReasonRequired = "Escribí el motivo de la baja.";
+
+    public const string LeaveDateInvalid = "Elegí un día que ya pasó (o hoy).";
+
+    public const string EmployeeInPayrollDraft = "Tiene una liquidación en borrador: pagala o descartala antes de reincorporarlo.";
+
     public const string AdvanceAccountRequired = "Elegí de qué cuenta sale el dinero.";
 
     public const string AdvanceDateInvalid = "La fecha no es válida (por ejemplo, 15/03/2024).";

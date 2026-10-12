@@ -37,7 +37,7 @@ public partial class EmployeesView : UserControl, ISectionView
         _busy = new BusyController(ApplyBusy, nameof(EmployeesView), message => ShowStatus(message, isError: true));
 
         FrequencyComboBox.ItemsSource = EmployeeFormRules.Frequencies;
-        _employees = new EmployeeList(ToggleActiveAsync);
+        _employees = new EmployeeList();
         _employees.EditorChanged += OnEditorChanged;
         EmployeesListView.Model = _employees.Model;
 
@@ -122,6 +122,9 @@ public partial class EmployeesView : UserControl, ISectionView
             case EmployeeEditorPurpose.Overtime when employee is not null:
                 await OpenOvertimeAsync(employee);
                 break;
+            case EmployeeEditorPurpose.Leave when employee is not null:
+                OpenLeave(employee);
+                break;
         }
     }
 
@@ -131,6 +134,7 @@ public partial class EmployeesView : UserControl, ISectionView
         AdvancePanel.Visibility = purpose == EmployeeEditorPurpose.Advance ? Visibility.Visible : Visibility.Collapsed;
         AccountPanel.Visibility = purpose == EmployeeEditorPurpose.Account ? Visibility.Visible : Visibility.Collapsed;
         OvertimePanel.Visibility = purpose == EmployeeEditorPurpose.Overtime ? Visibility.Visible : Visibility.Collapsed;
+        LeavePanel.Visibility = purpose == EmployeeEditorPurpose.Leave ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void CancelEditorButton_Click(object sender, RoutedEventArgs e) => _employees.Model.CloseEditor();
@@ -235,21 +239,75 @@ public partial class EmployeesView : UserControl, ISectionView
         });
     }
 
-    // ---- Dar de baja / Reincorporar ------------------------------------------------------
+    // ---- the leave (employee-lifecycle E3), the web's EmployeeLeavePage -------------------------
 
-    private Task ToggleActiveAsync(EmployeeRecordDto employee) => _busy.RunAsync(PosMessages.UpdatingStatus, async () =>
+    private void OpenLeave(EmployeeRecordDto employee)
+    {
+        LeaveFormPanel.Visibility = employee.IsActive ? Visibility.Visible : Visibility.Collapsed;
+        LeftPanel.Visibility = employee.IsActive ? Visibility.Collapsed : Visibility.Visible;
+        LeaveStatusText.Text = employee.IsActive ? string.Empty : EmployeeFormRules.LeaveStatusText(employee);
+        LeaveDateTextBox.Text = EmployeeFormRules.DateText(DateOnly.FromDateTime(DateTime.Now));
+        LeaveReasonTextBox.Text = string.Empty;
+    }
+
+    private async void LeaveSaveButton_Click(object sender, RoutedEventArgs e)
     {
         ShowStatus(string.Empty, isError: false);
-        var outcome = await _client.SetActiveAsync(employee.Id, !employee.IsActive, _busy.Token);
-        if (outcome.Kind != EmployeeAdminMutationKind.Succeeded)
+        if (_editing is not { } employee)
         {
-            ShowStatus(outcome.ErrorMessage ?? PosMessages.SaveFailed, isError: true);
             return;
         }
 
-        ShowStatus(employee.IsActive ? $"{employee.FullName} dado de baja." : $"{employee.FullName} reincorporado.", isError: false);
-        await LoadEmployeesAsync();
-    });
+        if (string.IsNullOrWhiteSpace(LeaveReasonTextBox.Text))
+        {
+            ShowStatus(PosMessages.LeaveReasonRequired, isError: true);
+            return;
+        }
+
+        if (!EmployeeFormRules.TryParseDate(LeaveDateTextBox.Text, out var day) || day is not { } date || date > DateOnly.FromDateTime(DateTime.Now))
+        {
+            ShowStatus(PosMessages.LeaveDateInvalid, isError: true);
+            return;
+        }
+
+        var reason = LeaveReasonTextBox.Text.Trim();
+        await _busy.RunAsync(PosMessages.UpdatingStatus, async () =>
+        {
+            var outcome = await _client.SetActiveAsync(employee.Id, false, date, reason, _busy.Token);
+            if (outcome.Kind != EmployeeAdminMutationKind.Succeeded)
+            {
+                ShowStatus(outcome.ErrorMessage ?? PosMessages.SaveFailed, isError: true);
+                return;
+            }
+
+            _employees.Model.CloseEditor();
+            ShowStatus($"{employee.FullName} dado de baja. El último sueldo se liquida en la web.", isError: false);
+            await LoadEmployeesAsync();
+        });
+    }
+
+    private async void ReinstateButton_Click(object sender, RoutedEventArgs e)
+    {
+        ShowStatus(string.Empty, isError: false);
+        if (_editing is not { } employee)
+        {
+            return;
+        }
+
+        await _busy.RunAsync(PosMessages.UpdatingStatus, async () =>
+        {
+            var outcome = await _client.SetActiveAsync(employee.Id, true, ct: _busy.Token);
+            if (outcome.Kind != EmployeeAdminMutationKind.Succeeded)
+            {
+                ShowStatus(outcome.ErrorMessage ?? PosMessages.SaveFailed, isError: true);
+                return;
+            }
+
+            _employees.Model.CloseEditor();
+            ShowStatus($"{employee.FullName} reincorporado.", isError: false);
+            await LoadEmployeesAsync();
+        });
+    }
 
     // ---- an advance ------------------------------------------------------------------------
 

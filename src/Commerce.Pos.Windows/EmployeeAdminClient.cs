@@ -94,12 +94,16 @@ public sealed class EmployeeAdminClient
         return outcome with { Employee = saved };
     }
 
-    /// <summary>Dar de baja (<paramref name="isActive"/> false; the server dates it today) or Reincorporar.</summary>
-    public async Task<EmployeeAdminMutationOutcome> SetActiveAsync(Guid id, bool isActive, CancellationToken ct = default)
+    /// <summary>
+    /// The leave ("Gestionar baja", employee-lifecycle E3: <paramref name="isActive"/> false with its date and reason) or
+    /// the reinstatement, which clears both on the server.
+    /// </summary>
+    public async Task<EmployeeAdminMutationOutcome> SetActiveAsync(
+        Guid id, bool isActive, DateOnly? terminationDate = null, string? terminationReason = null, CancellationToken ct = default)
     {
         var path = $"/employees/{id}/active";
-        return (await SendAsync<object>(HttpMethod.Post, path,
-            () => _httpClient.PostAsJsonAsync(path, new SetEmployeeActiveRequestDto(isActive), ct), ct, read: null)).Outcome;
+        var request = new SetEmployeeActiveRequestDto(isActive, isActive ? null : terminationDate, isActive ? null : terminationReason);
+        return (await SendAsync<object>(HttpMethod.Post, path, () => _httpClient.PostAsJsonAsync(path, request, ct), ct, read: null)).Outcome;
     }
 
     /// <summary>An advance: money out of <see cref="EmployeeAdvanceRequestDto.AccountId"/>, a debit on the employee's account.</summary>
@@ -141,6 +145,7 @@ public sealed class EmployeeAdminClient
         "account-inactive" => PosMessages.TreasuryAccountInactive,
         "overtime-rate-missing" => PosMessages.OvertimeRateMissing,
         "overtime-settled" => PosMessages.OvertimeSettled,
+        "employee-in-payroll-draft" => PosMessages.EmployeeInPayrollDraft,
         _ => PosMessages.Conflict,
     };
 
@@ -209,7 +214,7 @@ public sealed record EmployeeRecordDto(
     string? DocumentNumber, string? Cuil, Guid? RoleId, string? RoleName, string? Phone, string? Email, string? Address,
     DateOnly? HireDate, DateOnly? TerminationDate, string PayFrequency, decimal BaseSalary, Guid? CustomerId, string? Notes,
     bool IsActive, DateTimeOffset CreatedAtUtc, DateTimeOffset UpdatedAtUtc, decimal Balance = 0m, decimal PurchasesOwed = 0m,
-    decimal? OvertimeHourlyRate = null);
+    decimal? OvertimeHourlyRate = null, string? TerminationReason = null);
 
 /// <summary>
 /// Mirrors `Commerce.Cloud.Api.Endpoints.EmployeeRequest`. `FileNumber` null on create: the next one of the organization.
@@ -228,8 +233,8 @@ public sealed record OvertimeRecordDto(
     Guid Id, Guid EmployeeId, DateOnly WorkDate, decimal Hours, decimal Multiplier, decimal HourlyRate, decimal Amount, string? Note,
     string Status, int? RunNumber, DateTimeOffset CreatedAtUtc);
 
-/// <summary>Mirrors `SetEmployeeActiveRequest`; the termination date is left to the server (today).</summary>
-public sealed record SetEmployeeActiveRequestDto(bool IsActive);
+/// <summary>Mirrors `SetEmployeeActiveRequest` (the leave's date: today when null; its reason; both cleared on reinstating).</summary>
+public sealed record SetEmployeeActiveRequestDto(bool IsActive, DateOnly? TerminationDate = null, string? TerminationReason = null);
 
 /// <summary>Mirrors `EmployeeAdvanceRequest` (Date: today when omitted).</summary>
 public sealed record EmployeeAdvanceRequestDto(decimal Amount, DateOnly? Date, Guid AccountId, string? Concept);

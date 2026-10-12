@@ -235,17 +235,26 @@ public sealed class PosEmployeesTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task SetActive_PostsTheFlag_TheServerDatesTheTermination(bool isActive)
+    public async Task SetActive_PostsTheLeaveWithItsDateAndReason_OrTheReinstatement(bool isActive)
     {
         var id = Guid.NewGuid();
         var handler = new RecordingHandler(HttpStatusCode.NoContent);
 
-        var outcome = await ClientFor(handler).SetActiveAsync(id, isActive);
+        // employee-lifecycle E3: "Gestionar baja" sends the date and the reason, as the web.
+        var outcome = isActive
+            ? await ClientFor(handler).SetActiveAsync(id, true)
+            : await ClientFor(handler).SetActiveAsync(id, false, new DateOnly(2026, 10, 10), "Renuncia");
 
         Assert.Equal(EmployeeAdminMutationKind.Succeeded, outcome.Kind);
         Assert.Equal(HttpMethod.Post, handler.Method);
         Assert.Equal($"/employees/{id}/active", handler.PathAndQuery);
-        Assert.Equal(isActive ? """{"isActive":true}""" : """{"isActive":false}""", handler.Body);
+        using var body = JsonDocument.Parse(handler.Body!);
+        Assert.Equal(isActive, body.RootElement.GetProperty("isActive").GetBoolean());
+        if (!isActive)
+        {
+            Assert.Equal(("2026-10-10", "Renuncia"), (body.RootElement.GetProperty("terminationDate").GetString(),
+                body.RootElement.GetProperty("terminationReason").GetString()));
+        }
     }
 
     [Fact]
@@ -341,7 +350,7 @@ public sealed class PosEmployeesTests
         var ana = Employee("Pérez", "Ana", file: 2, balance: 120_000m, customerId: Guid.NewGuid(), purchases: 15_500m);
         var bruno = Employee("Acosta", "Bruno", file: 10, balance: -50_000m, frequency: "Weekly", salary: 150_000m, role: null);
         var carla = Employee("Zárate", "Carla", file: 5, active: false);
-        var list = new EmployeeList(_ => Task.CompletedTask);
+        var list = new EmployeeList();
         list.Model.SetItems([ana, bruno, carla]);
         return (list, ana, bruno, carla);
     }
@@ -413,19 +422,40 @@ public sealed class PosEmployeesTests
     }
 
     [Fact]
-    public async Task DarDeBaja_AsksFirst_ThenRunsTheToggle()
+    public async Task TheLeave_IsItsOwnSection_InsteadOfAQuickToggle_AndReadsLikeTheWeb()
     {
-        EmployeeRecordDto? toggled = null;
         var ana = Employee("Pérez", "Ana");
-        var list = new EmployeeList(employee => { toggled = employee; return Task.CompletedTask; });
+        var list = new EmployeeList();
         list.Model.SetItems([ana]);
 
-        await list.Model.InvokeAsync(ana, EmployeeList.ToggleActiveAction);
-        Assert.Null(toggled);
-        Assert.Equal("¿Dar de baja a Pérez, Ana?", list.Model.PendingConfirmation?.Question);
+        await list.Model.InvokeAsync(ana, EmployeeList.LeaveAction);
+        Assert.Equal(EmployeeEditorPurpose.Leave, list.Purpose);
+        Assert.Equal("Baja de Pérez, Ana", list.Model.EditorTitle);
+        Assert.DoesNotContain("ToggleActiveAction", Src("EmployeeList.cs"));
 
-        await list.Model.ConfirmAsync();
-        Assert.Same(ana, toggled);
+        var left = ana with { IsActive = false, TerminationDate = new DateOnly(2026, 10, 10), TerminationReason = "Renuncia" };
+        Assert.Equal("Dado de baja el 10/10/2026. Motivo: Renuncia.", EmployeeFormRules.LeaveStatusText(left));
+        Assert.Equal("Dado de baja.", EmployeeFormRules.LeaveStatusText(ana with { IsActive = false }));
+
+        using var web = JsonDocument.Parse(File.ReadAllText(Path.Combine(
+            RepoRoot(), "src", "Commerce.Web", "src", "i18n", "locales", "es", "employees.json")));
+        var leave = web.RootElement.GetProperty("leave");
+        var xaml = Src("EmployeesView.xaml");
+        foreach (var key in new[] { "description", "date", "reason", "save", "reinstate", "reinstateHint" })
+        {
+            Assert.Contains(leave.GetProperty(key).GetString()!, xaml);
+        }
+
+        Assert.Equal(PosMessages.LeaveReasonRequired, leave.GetProperty("errors").GetProperty("reason").GetString());
+        Assert.Equal(PosMessages.LeaveDateInvalid, leave.GetProperty("errors").GetProperty("date").GetString());
+        Assert.Equal(leave.GetProperty("codes").GetProperty("employee-in-payroll-draft").GetString(),
+            EmployeeAdminClient.ConflictMessage("employee-in-payroll-draft"));
+
+        // The payroll is web only: the POS says where the last salary is settled.
+        Assert.Contains("El último sueldo se liquida en la web", xaml);
+        var view = Src("EmployeesView.xaml.cs");
+        Assert.Contains("x:Name=\"LeavePanel\"", xaml);
+        Assert.Contains("await _client.SetActiveAsync(employee.Id, false, date, reason", view);
     }
 
     // ---- the form rules, the web's ---------------------------------------------------------

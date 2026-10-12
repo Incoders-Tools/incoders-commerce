@@ -12,14 +12,15 @@ public enum EmployeeEditorPurpose
     Advance,
     Account,
     Overtime,
+    Leave,
 }
 
 /// <summary>
 /// The Personal → Empleados list on the reusable entity list, aligned with the web's <c>EmployeesScreen</c>
 /// (docs/architecture/cross-layer-parity.md): the Legajo / Apellido y nombre / Puesto / Sueldo pactado / Cuenta /
 /// Mercadería a descontar / Estado columns, the search over name, file number, DNI and CUIL, the Estado filter,
-/// and the Editar / Adelanto / Cuenta / Dar de baja-Reincorporar row actions. UI-free; the screen supplies the
-/// status change (it needs the connection and its busy controller) and fills its forms on <see cref="EditorChanged"/>.
+/// and the Editar / Adelanto / Cuenta / Horas extra / Gestionar baja row actions. UI-free: every action opens a form
+/// of the editor, which the screen fills (and saves through its connection) on <see cref="EditorChanged"/>.
 /// The terminal shows the staff of ITS branch only (the web picks the branch).
 /// </summary>
 public sealed class EmployeeList
@@ -27,15 +28,14 @@ public sealed class EmployeeList
     public const string AdvanceAction = "advance";
     public const string AccountAction = "account";
     public const string OvertimeAction = "overtime";
-    public const string ToggleActiveAction = "toggle-active";
+    public const string LeaveAction = "leave";
 
     // The form the next opening of the editor on a row shows; a plain row selection (or Editar) opens the staff file.
     private EmployeeEditorPurpose? _requested;
 
-    /// <param name="toggleActive">Dar de baja / Reincorporar, after the inline confirmation.</param>
-    public EmployeeList(Func<EmployeeRecordDto, Task> toggleActive)
+    public EmployeeList()
     {
-        Model = new EntityListModel<EmployeeRecordDto>(Definition(toggleActive));
+        Model = new EntityListModel<EmployeeRecordDto>(Definition());
         Model.EditorChanged += OnModelEditorChanged;
     }
 
@@ -51,6 +51,8 @@ public sealed class EmployeeList
     public void BeginAccount(EmployeeRecordDto employee) => Open(employee, EmployeeEditorPurpose.Account);
 
     public void BeginOvertime(EmployeeRecordDto employee) => Open(employee, EmployeeEditorPurpose.Overtime);
+
+    public void BeginLeave(EmployeeRecordDto employee) => Open(employee, EmployeeEditorPurpose.Leave);
 
     public static bool CanGiveAdvance(EmployeeRecordDto employee) => employee.IsActive;
 
@@ -90,9 +92,8 @@ public sealed class EmployeeList
 
     public static string StatusText(EmployeeRecordDto employee) => employee.IsActive ? "Activo" : "Baja";
 
-    private static string ToggleLabel(EmployeeRecordDto employee) => employee.IsActive ? "Dar de baja" : "Reincorporar";
 
-    private EntityListDefinition<EmployeeRecordDto> Definition(Func<EmployeeRecordDto, Task> toggleActive) => new(
+    private EntityListDefinition<EmployeeRecordDto> Definition() => new(
         employee => employee.Id,
         [
             new("file", "Legajo", employee => EmployeeFileNumber.Format(employee.FileNumber))
@@ -134,10 +135,10 @@ public sealed class EmployeeList
             {
                 Run = employee => { BeginOvertime(employee); return Task.CompletedTask; },
             },
-            new(ToggleActiveAction, ToggleLabel, employee => employee.IsActive ? EntityIcons.Disable : EntityIcons.Enable)
+            // employee-lifecycle E3: the leave (date and reason) and the reinstatement live in their section, as in the web.
+            new(LeaveAction, _ => "Gestionar baja", employee => employee.IsActive ? EntityIcons.Disable : EntityIcons.Enable)
             {
-                Run = toggleActive,
-                Confirmation = employee => $"¿{ToggleLabel(employee)} a {employee.FullName}?",
+                Run = employee => { BeginLeave(employee); return Task.CompletedTask; },
             },
         ],
         InitialSortKey = "name",
@@ -149,6 +150,7 @@ public sealed class EmployeeList
             EmployeeEditorPurpose.Advance => $"Adelanto a {employee.FullName}",
             EmployeeEditorPurpose.Account => $"Cuenta corriente: {employee.FullName}",
             EmployeeEditorPurpose.Overtime => $"Horas extra de {employee.FullName}",
+            EmployeeEditorPurpose.Leave => $"Baja de {employee.FullName}",
             _ => $"Editar a {employee.FullName}",
         },
         EmptyEditorHint = "Elegí un empleado de la lista o tocá «Nuevo empleado».",
@@ -201,6 +203,11 @@ public static class EmployeeIcons
 /// </summary>
 public static class EmployeeFormRules
 {
+    /// <summary>employee-lifecycle E3: "Dado de baja el 10/10/2026. Motivo: Renuncia." (or "Dado de baja.").</summary>
+    public static string LeaveStatusText(EmployeeRecordDto employee) =>
+        (employee.TerminationDate is { } date ? $"Dado de baja el {DateText(date)}." : "Dado de baja.")
+        + (string.IsNullOrWhiteSpace(employee.TerminationReason) ? string.Empty : $" Motivo: {employee.TerminationReason}.");
+
     // ---- overtime (employee-lifecycle E2), the web's EmployeeOvertimePage ----------------------
 
     /// <summary>The multiplier the day proposes, as the form shows it ("2" a Sunday, "1" any other day).</summary>
