@@ -186,6 +186,15 @@ advances (items 3, 6, 7 and 9 of the owner's 2026-10-11 request).
   key was not bound to the employee (a key reused for another employee returned the first one's registration); now
   it is refused (409 `goods-key-in-use`), and an empty key is a 400. RED: did not compile; GREEN: 32. Left: the
   goods-copy failure path is proved through the returned line only (no injected failure), log-only on failure.
+- [ ] G12 E4b review (`review-048e036ee1501797`, approved, 4 lenses), fixed right after `848ab17`: an item named twice
+  in `goodsItems` is a 400 (the store keeps the last); the item discounts are set in one `UPDATE … FROM unnest`;
+  `UpdatePayslipAsync` takes them before the cancellation token; `ItemsDiscounted` reads `AppliedItemsDiscount`; the
+  credit note says where the discount came from ("Bonificación al personal (por ítem y 10 % del resto)",
+  `PayslipPurchases.DiscountConcept`), proved on the paid run; an item taken out keeps its discount into the next
+  payroll (proved). RED: did not compile; GREEN: 35; control: without the 400, the HTTP test fails. Open:
+  - Owner decision: when the goods owed drop between preparing and paying (the employee paid part directly), the
+    percent applies to what is still owed but the item discounts apply whole (capped at what is owed), not in proportion.
+  - The run detail reads lines and items per payslip (one query each); fine for a branch's staff, batch if it grows.
 
 ## Constraints
 

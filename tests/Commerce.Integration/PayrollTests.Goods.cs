@@ -227,7 +227,12 @@ public sealed partial class PayrollTests
         // Without item discounts it is the percent on the whole, as before; items never forgive more than is owed.
         Assert.Equal((5_000m, 45_000m), (new PayslipPurchases(50_000m, 10m).Discount, new PayslipPurchases(50_000m, 10m).Deducted));
         var capped = new PayslipPurchases(1_000m, 50m, 3_000m);
-        Assert.Equal((1_000m, 0m), (capped.Discount, capped.Deducted));
+        Assert.Equal((1_000m, 1_000m, 0m), (capped.AppliedItemsDiscount, capped.Discount, capped.Deducted));
+
+        // The credit note says where the discount came from.
+        Assert.Equal("Bonificación al personal (por ítem y 12,5 % del resto)", new PayslipPurchases(30_000m, 12.5m, 5_000m).DiscountConcept);
+        Assert.Equal("Bonificación al personal (por ítem)", new PayslipPurchases(30_000m, 0m, 5_000m).DiscountConcept);
+        Assert.Equal("Bonificación al personal (10 %)", new PayslipPurchases(30_000m, 10m).DiscountConcept);
     }
 
     [Fact]
@@ -254,17 +259,17 @@ public sealed partial class PayrollTests
         var asado = slip.GoodsItems.Single(i => i.ProductName == "Asado").Id;
         PayslipLineInput[] salary = [new(PayslipLineKind.Earning, PayslipLineSource.BaseSalary, "Sueldo básico", 500_000m)];
         Assert.Equal(PayrollWriteOutcome.GoodsItemNotInPayslip, await payroll.UpdatePayslipAsync(g.W.Scope, g.W.Actor, runId.Value, slip.PayslipId,
-            salary, 10m, CancellationToken.None, [new GoodsItemDiscountInput(asado, 20m), new GoodsItemDiscountInput(Guid.NewGuid(), 5m)]));
+            salary, 10m, [new GoodsItemDiscountInput(asado, 20m), new GoodsItemDiscountInput(Guid.NewGuid(), 5m)], CancellationToken.None));
         Assert.Equal(0m, (await payroll.GetRunAsync(g.W.Scope, runId.Value, CancellationToken.None))!.Payslips.Single().PurchasesDiscount);
         Assert.Equal(PayrollWriteOutcome.Done, await payroll.UpdatePayslipAsync(g.W.Scope, g.W.Actor, runId.Value, slip.PayslipId,
-            salary, 10m, CancellationToken.None, [new GoodsItemDiscountInput(asado, 20m)]));
+            salary, 10m, [new GoodsItemDiscountInput(asado, 20m)], CancellationToken.None));
         slip = (await payroll.GetRunAsync(g.W.Scope, runId.Value, CancellationToken.None))!.Payslips.Single();
         Assert.Equal((3_000m, 5_700m, 24_300m, 475_700m), (slip.PurchasesItemsDiscount, slip.PurchasesDiscount, slip.PurchasesDeducted, slip.NetPaid));
         Assert.Equal(20m, slip.GoodsItems.Single(i => i.Id == asado).DiscountPercent);
 
         // Leaving the item discounts out keeps them.
         Assert.Equal(PayrollWriteOutcome.Done, await payroll.UpdatePayslipAsync(g.W.Scope, g.W.Actor, runId.Value, slip.PayslipId,
-            salary, 10m, CancellationToken.None));
+            salary, 10m, null, CancellationToken.None));
         Assert.Equal(5_700m, (await payroll.GetRunAsync(g.W.Scope, runId.Value, CancellationToken.None))!.Payslips.Single().PurchasesDiscount);
 
         // Paid: the goods account is settled (24.300 deducted, 5.700 forgiven) and the items are paid.
@@ -274,6 +279,8 @@ public sealed partial class PayrollTests
         using var owner = OpenOwner();
         Assert.Equal(5_700m, Scalar<decimal>(owner,
             "SELECT amount FROM current_account_movements WHERE customer_id = $1 AND kind = 'CreditNote'", g.Juan.CustomerId!.Value));
+        Assert.StartsWith("Bonificación al personal (por ítem y 10 % del resto), liquidación 1", Scalar<string>(owner,
+            "SELECT concept FROM current_account_movements WHERE customer_id = $1 AND kind = 'CreditNote'", g.Juan.CustomerId!.Value));
     }
 
     [Fact]
@@ -288,11 +295,16 @@ public sealed partial class PayrollTests
         var (_, first) = await payroll.CreateRunAsync(g.W.Scope, g.W.Actor, new DateOnly(2026, 10, 1), Today, PayFrequency.Monthly, null, CancellationToken.None);
         var slip = Assert.Single((await payroll.GetRunAsync(g.W.Scope, first!.Value, CancellationToken.None))!.Payslips);
         Assert.Equal(OvertimeStatus.InPayroll, await Status());
+        Assert.Equal(PayrollWriteOutcome.Done, await payroll.UpdatePayslipAsync(g.W.Scope, g.W.Actor, first.Value, slip.PayslipId,
+            [new(PayslipLineKind.Earning, PayslipLineSource.BaseSalary, "Sueldo básico", 500_000m)], 0m,
+            [new GoodsItemDiscountInput(slip.GoodsItems.Single().Id, 20m)], CancellationToken.None));
         Assert.Equal(PayrollWriteOutcome.Done, await payroll.RemovePayslipAsync(g.W.Scope, first.Value, slip.PayslipId, CancellationToken.None));
         Assert.Equal(OvertimeStatus.Pending, await Status());
 
+        // The next payroll takes it with the discount it was given.
         var (_, second) = await payroll.CreateRunAsync(g.W.Scope, g.W.Actor, new DateOnly(2026, 10, 1), Today, PayFrequency.Monthly, null, CancellationToken.None);
-        Assert.Single(Assert.Single((await payroll.GetRunAsync(g.W.Scope, second!.Value, CancellationToken.None))!.Payslips).GoodsItems);
+        var again = Assert.Single((await payroll.GetRunAsync(g.W.Scope, second!.Value, CancellationToken.None))!.Payslips);
+        Assert.Equal((20m, 2_000m), (Assert.Single(again.GoodsItems).DiscountPercent, again.PurchasesItemsDiscount));
         Assert.Equal(PayrollWriteOutcome.Done, await payroll.DeleteRunAsync(g.W.Scope, g.W.Actor, second.Value, CancellationToken.None));
         Assert.Equal(OvertimeStatus.Pending, await Status());
     }

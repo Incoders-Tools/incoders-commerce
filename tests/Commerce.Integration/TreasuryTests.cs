@@ -448,6 +448,8 @@ public sealed class TreasuryTests : IClassFixture<WebApplicationFactory<Program>
         var salary = new[] { new { kind = "Earning", source = "BaseSalary", concept = "Sueldo básico", amount = 1m } };
         Assert.Equal(HttpStatusCode.BadRequest, (await admin.PutAsJsonAsync($"/payroll/runs/{runId}/payslips/{payslipId}",
             new { lines = salary, purchasesDiscountPercent = 0m, goodsItems = new[] { new { itemId, discountPercent = 100.5m } } })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PutAsJsonAsync($"/payroll/runs/{runId}/payslips/{payslipId}",
+            new { lines = salary, purchasesDiscountPercent = 0m, goodsItems = new[] { new { itemId, discountPercent = 10m }, new { itemId, discountPercent = 20m } } })).StatusCode);
         var stranger = await admin.PutAsJsonAsync($"/payroll/runs/{runId}/payslips/{payslipId}",
             new { lines = salary, purchasesDiscountPercent = 0m, goodsItems = new[] { new { itemId = Guid.NewGuid(), discountPercent = 10m } } });
         Assert.Equal("goods-item-not-in-payslip", (await Json(stranger)).GetProperty("error").GetString());

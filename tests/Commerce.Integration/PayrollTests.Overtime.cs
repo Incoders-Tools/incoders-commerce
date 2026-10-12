@@ -104,13 +104,13 @@ public sealed partial class PayrollTests
         [
             new PayslipLineInput(PayslipLineKind.Earning, PayslipLineSource.BaseSalary, "Sueldo básico", 500_000m),
             new PayslipLineInput(PayslipLineKind.Earning, PayslipLineSource.Overtime, "Otra cosa", 1_000m),
-        ], 0m, CancellationToken.None));
+        ], 0m, null, CancellationToken.None));
         // An overtime line on a payslip that took none is a line added by hand.
         Assert.Equal(PayrollWriteOutcome.Done, await payroll.UpdatePayslipAsync(w.Scope, w.Actor, runId.Value, anaSlip.PayslipId,
         [
             new PayslipLineInput(PayslipLineKind.Earning, PayslipLineSource.BaseSalary, "Sueldo básico", 300_000m),
             new PayslipLineInput(PayslipLineKind.Earning, PayslipLineSource.Overtime, "Horas extra", 5_000m),
-        ], 0m, CancellationToken.None));
+        ], 0m, null, CancellationToken.None));
 
         run = (await payroll.GetRunAsync(w.Scope, runId.Value, CancellationToken.None))!;
         var overtime = Assert.Single(run.Payslips.Single(p => p.EmployeeId == juan.Id).Lines, l => l.Source == nameof(PayslipLineSource.Overtime));
@@ -169,7 +169,7 @@ public sealed partial class PayrollTests
         // Removing the overtime line from a draft payslip releases it too.
         slip = await PrepareAsync();
         Assert.Equal(PayrollWriteOutcome.Done, await payroll.UpdatePayslipAsync(w.Scope, w.Actor, slip.RunId, slip.PayslipId,
-            [new PayslipLineInput(PayslipLineKind.Earning, PayslipLineSource.BaseSalary, "Sueldo básico", 500_000m)], 0m, CancellationToken.None));
+            [new PayslipLineInput(PayslipLineKind.Earning, PayslipLineSource.BaseSalary, "Sueldo básico", 500_000m)], 0m, null, CancellationToken.None));
         await AssertAllPendingAsync();
         await payroll.DeleteRunAsync(w.Scope, w.Actor, slip.RunId, CancellationToken.None);
 

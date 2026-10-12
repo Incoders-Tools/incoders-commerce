@@ -184,7 +184,7 @@ public sealed partial class PayrollTests : IDisposable
             new PayslipLineInput(PayslipLineKind.Earning, PayslipLineSource.BaseSalary, "Sueldo básico", 500_000m),
             new PayslipLineInput(PayslipLineKind.Earning, PayslipLineSource.Manual, "Horas extra", 20_000m),
             new PayslipLineInput(PayslipLineKind.Deduction, PayslipLineSource.Advances, "Adelantos", 100_000m),
-        ], 10m, CancellationToken.None));
+        ], 10m, null, CancellationToken.None));
         slip = (await payroll.GetRunAsync(w.Scope, run.Run.RunId, CancellationToken.None))!.Payslips.Single();
         Assert.Equal((5_000m, 45_000m, 375_000m), (slip.PurchasesDiscount, slip.PurchasesDeducted, slip.NetPaid));
 

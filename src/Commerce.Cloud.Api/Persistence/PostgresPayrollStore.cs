@@ -543,11 +543,12 @@ public sealed class PostgresPayrollStore
 
     /// <summary>
     /// Replaces a Draft payslip's lines and sets its goods discount percentage, and the discount of the goods items named in
-    /// <paramref name="itemDiscounts"/> (the others keep theirs; one the payslip did not take refuses the whole update).
+    /// <paramref name="itemDiscounts"/> (null or the others: they keep theirs; named twice: the last wins; one the payslip
+    /// did not take refuses the whole update).
     /// </summary>
     public async Task<PayrollWriteOutcome> UpdatePayslipAsync(
         CloudTenantScope scope, Guid actorId, Guid runId, Guid payslipId, IReadOnlyList<PayslipLineInput> lines, decimal purchasesDiscountPercent,
-        CancellationToken ct, IReadOnlyList<GoodsItemDiscountInput>? itemDiscounts = null)
+        IReadOnlyList<GoodsItemDiscountInput>? itemDiscounts, CancellationToken ct)
     {
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
@@ -577,14 +578,19 @@ public sealed class PostgresPayrollStore
             }
         }
 
-        foreach (var item in itemDiscounts ?? [])
+        var discounts = (itemDiscounts ?? []).GroupBy(item => item.ItemId).Select(named => named.Last()).ToList();
+        if (discounts.Count > 0)
         {
             await using var discount = new NpgsqlCommand(
-                "UPDATE employee_goods_items SET discount_percent = $2 WHERE id = $1 AND payslip_id = $3", connection, tx);
-            discount.Parameters.AddWithValue(item.ItemId);
-            discount.Parameters.AddWithValue(item.DiscountPercent);
+                """
+                UPDATE employee_goods_items g SET discount_percent = d.percent
+                FROM unnest($1::uuid[], $2::numeric[]) AS d(id, percent)
+                WHERE g.id = d.id AND g.payslip_id = $3
+                """, connection, tx);
+            discount.Parameters.AddWithValue(discounts.Select(item => item.ItemId).ToArray());
+            discount.Parameters.AddWithValue(discounts.Select(item => item.DiscountPercent).ToArray());
             discount.Parameters.AddWithValue(payslipId);
-            if (await discount.ExecuteNonQueryAsync(ct) == 0)
+            if (await discount.ExecuteNonQueryAsync(ct) != discounts.Count)
             {
                 await tx.RollbackAsync(ct);
                 return PayrollWriteOutcome.GoodsItemNotInPayslip;
@@ -749,10 +755,8 @@ public sealed class PostgresPayrollStore
             {
                 var buyerAccount = AccountParty.Customer(buyer);
                 await Post(buyerAccount, AccountMovementKind.Payment, payslip.Purchases.Deducted, $"Descontado del sueldo, {label}", GoodsSource);
-                var discountText = payslip.Purchases.ItemsDiscounted > 0m
-                    ? "Bonificación al personal"
-                    : $"Bonificación al personal ({payslip.Purchases.DiscountPercent:0.##} %)";
-                await Post(buyerAccount, AccountMovementKind.CreditNote, payslip.Purchases.Discount, $"{discountText}, {label}", GoodsDiscountSource);
+                await Post(buyerAccount, AccountMovementKind.CreditNote, payslip.Purchases.Discount, $"{payslip.Purchases.DiscountConcept}, {label}",
+                    GoodsDiscountSource);
             }
 
             if (payslip.NetPaid > 0m)

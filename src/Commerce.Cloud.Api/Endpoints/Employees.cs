@@ -23,6 +23,9 @@ public static class EmployeeEndpoints
 {
     private const decimal MaxAmount = 999_999_999_999m;
 
+    /// <summary>employee-lifecycle E4: how many goods item discounts one payslip update may set.</summary>
+    private const int MaxGoodsItemDiscounts = 1_000;
+
     public static void MapEmployeeEndpoints(this IEndpointRouteBuilder app)
     {
         var employees = app.MapGroup("/employees").RequireAuthorization().AddEndpointFilter<TenantScopeEndpointFilter>();
@@ -257,6 +260,7 @@ public static class EmployeeEndpoints
             if (!PayslipRules.IsValidDiscountPercent(request.PurchasesDiscountPercent)) errors["purchasesDiscountPercent"] = ["Between 0 and 100."];
             var items = request.GoodsItems ?? [];
             if (items.Count > MaxGoodsItemDiscounts) errors["goodsItems"] = [$"At most {MaxGoodsItemDiscounts} items."];
+            else if (items.DistinctBy(item => item.ItemId).Count() != items.Count) errors["goodsItems"] = ["Each item at most once."];
             foreach (var (item, index) in items.Select((item, index) => (item, index)))
             {
                 if (item.ItemId == Guid.Empty) errors[$"goodsItems[{index}].itemId"] = ["Required."];
@@ -265,8 +269,8 @@ public static class EmployeeEndpoints
 
             if (errors.Count > 0) return Results.ValidationProblem(errors);
 
-            var outcome = await store.UpdatePayslipAsync(caller!.Scope, caller.Id, id, payslipId, lines, request.PurchasesDiscountPercent, ct,
-                request.GoodsItems is null ? null : [.. items.Select(item => new GoodsItemDiscountInput(item.ItemId, item.DiscountPercent))]);
+            var outcome = await store.UpdatePayslipAsync(caller!.Scope, caller.Id, id, payslipId, lines, request.PurchasesDiscountPercent,
+                [.. items.Select(item => new GoodsItemDiscountInput(item.ItemId, item.DiscountPercent))], ct);
             return outcome == PayrollWriteOutcome.Done ? Results.NoContent() : Refusal(outcome);
         });
 
@@ -405,9 +409,6 @@ public static class EmployeeEndpoints
         OvertimeWriteOutcome.RateMissing => Results.Conflict(new { error = "overtime-rate-missing" }),
         _ => Results.Conflict(new { error = "overtime-settled" }),
     };
-
-    /// <summary>employee-lifecycle E4: how many goods item discounts one payslip update may set.</summary>
-    private const int MaxGoodsItemDiscounts = 1_000;
 
     private static IResult Refusal(PayrollWriteOutcome outcome) => outcome switch
     {

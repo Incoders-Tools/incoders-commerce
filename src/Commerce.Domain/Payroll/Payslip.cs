@@ -41,11 +41,27 @@ public sealed record PayslipLine(PayslipLineKind Kind, PayslipLineSource Source,
 /// </summary>
 public sealed record PayslipPurchases(decimal Amount, decimal DiscountPercent, decimal ItemsDiscount = 0m)
 {
-    public decimal ItemsDiscounted => Math.Min(Math.Max(ItemsDiscount, 0m), Amount);
+    /// <summary>The item discounts actually granted: <see cref="ItemsDiscount"/> capped at what is owed.</summary>
+    public decimal AppliedItemsDiscount => Math.Min(Math.Max(ItemsDiscount, 0m), Amount);
 
-    public decimal Discount => ItemsDiscounted + Money.Round2((Amount - ItemsDiscounted) * DiscountPercent / 100m);
+    public decimal Discount => AppliedItemsDiscount + Money.Round2((Amount - AppliedItemsDiscount) * DiscountPercent / 100m);
 
     public decimal Deducted => Amount - Discount;
+
+    /// <summary>The concept of the credit note that forgives <see cref="Discount"/>: where the discount came from.</summary>
+    public string DiscountConcept
+    {
+        get
+        {
+            var percent = DiscountPercent.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture).Replace('.', ',');
+            return (AppliedItemsDiscount > 0m, DiscountPercent > 0m) switch
+            {
+                (true, true) => $"Bonificación al personal (por ítem y {percent} % del resto)",
+                (true, false) => "Bonificación al personal (por ítem)",
+                _ => $"Bonificación al personal ({percent} %)",
+            };
+        }
+    }
 }
 
 /// <summary>
