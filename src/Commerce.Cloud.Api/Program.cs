@@ -182,6 +182,7 @@ builder.Services.AddSingleton<PostgresTreasuryRecurrenceStore>();
 builder.Services.AddHostedService<TreasuryRecurrenceJob>();
 builder.Services.AddSingleton<PostgresEmployeeStore>();
 builder.Services.AddSingleton<PostgresEmployeeGoodsStore>();
+builder.Services.AddSingleton<PostgresVehicleStore>();
 builder.Services.AddSingleton<PostgresPayrollStore>();
 // commerce-price-composition slice 2: resolution composes the effective rate
 // components onto the entry's base price, so the submission service needs the
@@ -380,6 +381,7 @@ app.MapStaffOrderingEndpoints();
 app.MapFulfillmentEndpoints();
 app.MapTreasuryEndpoints();
 app.MapEmployeeEndpoints();
+app.MapVehicleEndpoints();
 app.MapCustomerEndpoints();
 app.MapCustomerSessionEndpoints();
 app.MapPricingEndpoints();

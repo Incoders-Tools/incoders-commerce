@@ -26,7 +26,14 @@ request).
 
 ## Tasks
 
-- [ ] V1 Migration + API (CRUD, alphabetical by plate).
+- [x] V1 Migration + API (CRUD, alphabetical by plate).
+  Migration 0057 (appended to `init-rls.sql`, applied locally): `vehicles` (plate normalized and unique in the
+  organization, brand, model, `model_year`, notes, active; forced RLS; audit "vehicle") and `delivery_runs.vehicle_id`
+  (for V3; the run's `vehicle` text stays). `VehicleRules` (domain): a plate is written any way and kept in capitals
+  without spaces or dashes, 5 to 10 letters or digits; year 1950 to next year; label "AB123CD · Ford F-4000".
+  `PostgresVehicleStore` + `GET /vehicles` (any staff permission, `includeInactive`), `POST /vehicles`, `PUT
+  /vehicles/{id}` (ManageUsers, as the other lookup tables; 409 `vehicle-plate-in-use`). The POS has no delivery runs:
+  vehicles stay web only. RED: did not compile; GREEN: 4; regression (RLS, fulfillment, delivery, device operator) 119.
 - [ ] V2 Web ABM under lookup tables.
 - [ ] V3 Delivery runs pick a vehicle (default: the only active one).
 
