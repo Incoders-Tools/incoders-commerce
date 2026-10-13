@@ -66,6 +66,9 @@ paid from several accounts.
   against itself. RED: the free field emptied itself; GREEN: web 845. Open: the field's change event carries the value
   only (no screen reads more); min/max are carried but not enforced on typing (each screen validates its dates).
   Refuted (P2 review): the position refreshes with the account (`refresh` reloads the holder).
+- [x] X2 X1 review (`review-6c309838eb354628`, approved), fixed right after `2743a32`: the field remembered the last date it
+  gave, so after the screen emptied it, the screen setting that same date again did not show; now a value seen from the
+  screen is forgotten as given. RED: the field stayed empty; GREEN: date field 7.
 
 ## Constraints
 

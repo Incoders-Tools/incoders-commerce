@@ -107,4 +107,15 @@ describe('DateInput (Input type="date")', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Poner 5 de enero' }))
     expect(screen.getByLabelText('Fecha')).toHaveValue('05/01/2026')
   })
+
+  it('shows a date the screen sets again after emptying the field, even the one typed before', async () => {
+    const user = userEvent.setup()
+    render(<Harness />)
+
+    await user.type(screen.getByLabelText('Fecha'), '05012026')
+    fireEvent.click(screen.getByRole('button', { name: 'Vaciar' }))
+    expect(screen.getByLabelText('Fecha')).toHaveValue('')
+    fireEvent.click(screen.getByRole('button', { name: 'Poner 5 de enero' }))
+    expect(screen.getByLabelText('Fecha')).toHaveValue('05/01/2026')
+  })
 })

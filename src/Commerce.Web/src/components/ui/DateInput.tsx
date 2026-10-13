@@ -63,6 +63,8 @@ export const DateInput = React.forwardRef<HTMLInputElement, DateInputProps>(
     if (current !== seen) {
       setSeen(current)
       if (current !== given) setText(display(current))
+      // Seen once: the next time the screen holds this value, it is the screen's own.
+      setGiven(null)
     }
 
     const emit = (iso: string) => {
