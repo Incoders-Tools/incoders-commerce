@@ -284,5 +284,43 @@
       "warehouse": "Warehouse",
       "back": "Back to branches"
     }
+  },
+  "vehicles": {
+    "title": "Vehicles",
+    "description": "The business's vehicles. Each delivery run picks one of the active ones.",
+    "create": "New vehicle",
+    "edit": "Edit",
+    "empty": "No vehicles yet.",
+    "active": "Active",
+    "inactive": "Inactive",
+    "saved": "Vehicle {{plate}} saved.",
+    "columns": {
+      "plate": "Plate",
+      "vehicle": "Vehicle",
+      "year": "Year",
+      "notes": "Notes",
+      "status": "Status"
+    },
+    "createTitle": "New vehicle",
+    "editTitle": "Edit vehicle {{plate}}",
+    "formDescription": "Plate, brand, model and year. Later: insurance, inspection, fines and service.",
+    "back": "Back to vehicles",
+    "plate": "Plate",
+    "plateHint": "Write it any way: it is kept in capitals, without spaces or dashes.",
+    "brand": "Brand",
+    "model": "Model",
+    "year": "Year",
+    "notes": "Notes",
+    "activeLabel": "Active",
+    "save": "Save vehicle",
+    "saving": "Saving…",
+    "cancel": "Cancel",
+    "errors": {
+      "load": "The vehicles could not be loaded.",
+      "plate": "A plate has 5 to 10 letters or digits (spaces and dashes do not count).",
+      "year": "The year goes from {{first}} to {{last}}.",
+      "plateInUse": "There is already a vehicle with that plate.",
+      "save": "The vehicle could not be saved. Check the data and try again."
+    }
   }
 }

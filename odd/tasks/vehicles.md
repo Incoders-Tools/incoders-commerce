@@ -34,7 +34,12 @@ request).
   `PostgresVehicleStore` + `GET /vehicles` (any staff permission, `includeInactive`), `POST /vehicles`, `PUT
   /vehicles/{id}` (ManageUsers, as the other lookup tables; 409 `vehicle-plate-in-use`). The POS has no delivery runs:
   vehicles stay web only. RED: did not compile; GREEN: 4; regression (RLS, fulfillment, delivery, device operator) 119.
-- [ ] V2 Web ABM under lookup tables.
+- [x] V2 Web ABM under lookup tables.
+  "Vehículos" after "Puestos" (`VehiclesScreen`, `/app/vehicles`, texts under `fulfillment` → `vehicles`): every vehicle
+  by plate with the inactive ones marked; "Nuevo vehículo" and "Editar" (patente, marca, modelo, año, observaciones,
+  activo on edit). The form checks the plate as the server (5 to 10 letters or digits once spaces and dashes go) and the
+  year (1950 to next year), and explains a plate in use. RED: the screen did not exist and the sidebar lacked the item;
+  GREEN: web 828 (98 files; one run had `CustomerForm` time out, green alone and on the rerun, A10).
 - [ ] V3 Delivery runs pick a vehicle (default: the only active one).
 
 ## Follow-ups

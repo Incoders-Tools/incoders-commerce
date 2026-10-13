@@ -25,7 +25,8 @@
     "treasuryAccountTypes": "Account types",
     "employees": "Staff",
     "payroll": "Payroll",
-    "employeeRoles": "Positions"
+    "employeeRoles": "Positions",
+    "vehicles": "Vehicles"
   },
   "sections": {
     "operations": "Operations",

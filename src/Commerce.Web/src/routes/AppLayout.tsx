@@ -3,6 +3,7 @@ import { NavLink, Outlet } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import {
   BadgeCheck,
+  Car,
   Banknote,
   Briefcase,
   Building2,
@@ -231,6 +232,7 @@ export function AppLayout() {
                     <NavItem to="/app/business-types" icon={Briefcase} onNavigate={closeMobileNav}>{t('items.businessTypes')}</NavItem>
                     <NavItem to="/app/treasury-account-types" icon={Wallet} onNavigate={closeMobileNav}>{t('items.treasuryAccountTypes')}</NavItem>
                     <NavItem to="/app/employee-roles" icon={BadgeCheck} onNavigate={closeMobileNav}>{t('items.employeeRoles')}</NavItem>
+                    <NavItem to="/app/vehicles" icon={Car} onNavigate={closeMobileNav}>{t('items.vehicles')}</NavItem>
                   </NavSection>
                 )}
                 {showTenantNav && (

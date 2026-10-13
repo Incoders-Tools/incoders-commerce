@@ -38,6 +38,7 @@ import { SupplierCategoriesScreen } from '@/screens/SupplierCategoriesScreen'
 import { TreasuryAccountTypesScreen } from '@/screens/TreasuryAccountTypesScreen'
 import { EmployeesScreen } from '@/screens/EmployeesScreen'
 import { EmployeeRolesScreen } from '@/screens/EmployeeRolesScreen'
+import { VehiclesScreen } from '@/screens/VehiclesScreen'
 import { EmployeeAccountScreen } from '@/screens/SupplierAccountScreen'
 import { PayrollScreen } from '@/screens/PayrollScreen'
 import { PayrollRunScreen } from '@/screens/PayrollRunScreen'
@@ -159,6 +160,7 @@ function App() {
                     <Route path="employees" element={<EmployeesScreen />} />
                     <Route path="employees/:id/account" element={<EmployeeAccountScreen />} />
                     <Route path="employee-roles" element={<EmployeeRolesScreen />} />
+                    <Route path="vehicles" element={<VehiclesScreen />} />
                     <Route path="payroll" element={<PayrollScreen />} />
                     <Route path="payroll/:id" element={<PayrollRunScreen />} />
                     <Route path="receptions" element={<ReceptionsScreen />} />
