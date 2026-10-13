@@ -6,6 +6,7 @@
   "noGoods": "Takes none",
   "owedToThem": "We owe {{amount}}",
   "owesUs": "Owes us {{amount}}",
+  "overtimeToPay": "{{amount}} ({{hours}} h)",
   "frequency": {
     "Monthly": "Monthly",
     "Biweekly": "Every two weeks",
@@ -24,7 +25,8 @@
     "pay": "Agreed pay",
     "balance": "Account",
     "balanceHint": "What we owe them (unpaid salary) or they owe us (advances)",
-    "goods": "Goods to deduct"
+    "goods": "Goods to deduct",
+    "overtime": "Overtime to pay"
   },
   "filters": {
     "branch": "Branch",

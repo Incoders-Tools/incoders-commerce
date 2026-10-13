@@ -40,6 +40,9 @@ export interface EmployeeRecord {
   overtimeHourlyRate: number | null
   /** employee-lifecycle E3: why the employee left (with terminationDate); null while active. */
   terminationReason: string | null
+  /** owner feedback P2: the overtime recorded and not paid yet (pending, or in a payroll still in draft). */
+  overtimeToPay: number
+  overtimeHoursToPay: number
 }
 
 export interface EmployeeRequest {

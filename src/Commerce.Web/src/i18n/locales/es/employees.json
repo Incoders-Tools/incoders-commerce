@@ -6,6 +6,7 @@
   "noGoods": "No lleva",
   "owedToThem": "Le debemos {{amount}}",
   "owesUs": "Nos debe {{amount}}",
+  "overtimeToPay": "{{amount}} ({{hours}} h)",
   "frequency": {
     "Monthly": "Mensual",
     "Biweekly": "Quincenal",
@@ -24,7 +25,8 @@
     "pay": "Sueldo pactado",
     "balance": "Cuenta",
     "balanceHint": "Lo que le debemos (sueldo pendiente) o nos debe (adelantos)",
-    "goods": "Mercadería a descontar"
+    "goods": "Mercadería a descontar",
+    "overtime": "Horas extra a pagar"
   },
   "filters": {
     "branch": "Sucursal",

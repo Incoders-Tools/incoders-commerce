@@ -124,6 +124,16 @@ export function EmployeesScreen() {
       cell: (e) => (e.customerId === null ? t('noGoods') : e.purchasesOwed > 0 ? formatMoney(e.purchasesOwed) : '—'),
       hideOnMobile: true,
     },
+    {
+      // owner feedback P2: what the business still owes for overtime (paid with the next payroll).
+      key: 'overtime',
+      header: t('columns.overtime'),
+      cell: (e) =>
+        e.overtimeToPay > 0
+          ? t('overtimeToPay', { amount: formatMoney(e.overtimeToPay), hours: String(e.overtimeHoursToPay).replace('.', ',') })
+          : '—',
+      hideOnMobile: true,
+    },
   ]
 
   if (page.kind === 'form') {

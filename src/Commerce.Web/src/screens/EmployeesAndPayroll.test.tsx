@@ -44,6 +44,8 @@ describe('staff and payroll screens', () => {
     purchasesOwed: 50000,
     overtimeHourlyRate: null,
     terminationReason: null,
+    overtimeToPay: 0,
+    overtimeHoursToPay: 0,
   }
   const cash: TreasuryAccount = {
     accountId: 'acc-cash', branchId: 'b-1', branchName: 'Arrecifes', kind: 'Cash', name: 'Caja efectivo · Arrecifes',
@@ -192,6 +194,18 @@ describe('staff and payroll screens', () => {
     expect(await screen.findByRole('heading', { name: 'Horas extra de Pérez, Juan' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Volver al personal' }))
     expect(await screen.findByText('Pérez, Juan')).toBeInTheDocument()
+  })
+
+  it('lists the overtime each employee has still to be paid', async () => {
+    routeFetch({
+      'GET /employees': () => json([{ ...juan, overtimeToPay: 40500, overtimeHoursToPay: 4.5 }, { ...juan, id: 'e-2', fullName: 'Gómez, Ana' }]),
+      'GET /employees/roles': () => json([]),
+    })
+    renderEmployees()
+
+    const juanRow = (await screen.findByText('Pérez, Juan')).closest('tr')!
+    expect(within(juanRow).getByText(/40\.500,00 \(4,5 h\)/)).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: /Horas extra a pagar/ })).toBeInTheDocument()
   })
 
   it('opens the goods of an employee from its row', async () => {

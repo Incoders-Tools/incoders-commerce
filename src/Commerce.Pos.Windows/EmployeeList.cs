@@ -90,6 +90,12 @@ public sealed class EmployeeList
     public static string GoodsText(EmployeeRecordDto employee) =>
         employee.CustomerId is null ? "No lleva" : employee.PurchasesOwed > 0m ? MoneyText(employee.PurchasesOwed) : "—";
 
+    /// <summary>owner feedback P2: the overtime not paid yet, "$ 40.500,00 (4,5 h)"; "—" when there is none.</summary>
+    public static string OvertimeText(EmployeeRecordDto employee) =>
+        employee.OvertimeToPay > 0m
+            ? $"{MoneyText(employee.OvertimeToPay)} ({employee.OvertimeHoursToPay.ToString("0.##", Money)} h)"
+            : "—";
+
     public static string StatusText(EmployeeRecordDto employee) => employee.IsActive ? "Activo" : "Baja";
 
 
@@ -105,6 +111,7 @@ public sealed class EmployeeList
             new("pay", "Sueldo pactado", PayText) { Width = 190, SortKey = employee => employee.BaseSalary },
             new("balance", "Cuenta", employee => BalanceText(employee.Balance)) { Width = 190, SortKey = employee => employee.Balance },
             new("goods", "Mercadería a descontar", GoodsText) { Width = 170, SortKey = employee => employee.PurchasesOwed },
+            new("overtime", "Horas extra a pagar", OvertimeText) { Width = 170, SortKey = employee => employee.OvertimeToPay },
             new("state", "Estado", StatusText) { Width = 90 },
         ],
         // "0010" contains "10" too, so both ways of typing the file number find it.

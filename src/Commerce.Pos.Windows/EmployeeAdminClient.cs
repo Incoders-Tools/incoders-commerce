@@ -214,7 +214,7 @@ public sealed record EmployeeRecordDto(
     string? DocumentNumber, string? Cuil, Guid? RoleId, string? RoleName, string? Phone, string? Email, string? Address,
     DateOnly? HireDate, DateOnly? TerminationDate, string PayFrequency, decimal BaseSalary, Guid? CustomerId, string? Notes,
     bool IsActive, DateTimeOffset CreatedAtUtc, DateTimeOffset UpdatedAtUtc, decimal Balance = 0m, decimal PurchasesOwed = 0m,
-    decimal? OvertimeHourlyRate = null, string? TerminationReason = null);
+    decimal? OvertimeHourlyRate = null, string? TerminationReason = null, decimal OvertimeToPay = 0m, decimal OvertimeHoursToPay = 0m);
 
 /// <summary>
 /// Mirrors `Commerce.Cloud.Api.Endpoints.EmployeeRequest`. `FileNumber` null on create: the next one of the organization.

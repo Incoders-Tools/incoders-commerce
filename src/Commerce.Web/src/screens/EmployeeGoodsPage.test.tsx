@@ -177,10 +177,11 @@ describe('EmployeeGoodsPage', () => {
 
     const kilos = screen.getByLabelText('Cantidad de Asado Por kg')
     expect(kilos).toHaveAttribute('placeholder', 'Kilos (Ej: 1,5)')
-    expect(kilos.closest('li')).toHaveTextContent('kg')
+    expect(within(kilos.closest('li')!).getByText('kg')).toBeInTheDocument()
     const units = screen.getByLabelText('Cantidad de Chorizo Paquete')
     expect(units).toHaveAttribute('placeholder', 'Unidades (Ej: 2)')
     expect(units).toHaveAttribute('inputmode', 'numeric')
+    expect(within(units.closest('li')!).getByText('u.')).toBeInTheDocument()
   })
 
   it('explains a product without a counter price and does not let it be registered', async () => {

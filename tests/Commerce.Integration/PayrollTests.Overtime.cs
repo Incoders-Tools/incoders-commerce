@@ -145,6 +145,15 @@ public sealed partial class PayrollTests
             new NewOvertime(new DateOnly(2026, 11, 2), 1m, 1.5m, null), CancellationToken.None);
         Assert.Equal(3_000m, later!.Amount);
 
+        // owner feedback P2: the employee reads the overtime still to pay (hours and money), for its position to date.
+        async Task<(decimal Amount, decimal Hours)> ToPayAsync()
+        {
+            var read = (await employees.GetAsync(w.Scope, juan.Id, CancellationToken.None))!;
+            return (read.OvertimeToPay, read.OvertimeHoursToPay);
+        }
+
+        Assert.Equal((26_000m, 8.5m), await ToPayAsync());
+
         // A later rate change does not move what was recorded.
         await employees.UpdateAsync(w.Scope, w.Actor, juan.Id, Input(w, "Juan", 500_000m) with { OvertimeHourlyRate = 9_999m }, false,
             CancellationToken.None);
@@ -157,6 +166,7 @@ public sealed partial class PayrollTests
         var listed = await employees.ListOvertimeAsync(w.Scope, juan.Id, CancellationToken.None);
         Assert.Equal([OvertimeStatus.Pending, OvertimeStatus.InPayroll, OvertimeStatus.InPayroll], listed.Select(o => o.Status));
         Assert.All(listed.Where(o => o.Status == OvertimeStatus.InPayroll), o => Assert.Equal(1, o.RunNumber));
+        Assert.Equal((26_000m, 8.5m), await ToPayAsync()); // taken by a draft, still not paid
 
         // In a payroll it cannot be deleted.
         Assert.Equal(OvertimeWriteOutcome.Settled, await employees.DeleteOvertimeAsync(w.Scope, w.Actor, juan.Id, sunday.Id, CancellationToken.None));
@@ -184,6 +194,7 @@ public sealed partial class PayrollTests
         Assert.Equal(PayrollWriteOutcome.Done, await payroll.PayRunAsync(w.Scope, w.Actor, slip.RunId, w.Cash, Today, CancellationToken.None));
         var settled = await employees.ListOvertimeAsync(w.Scope, juan.Id, CancellationToken.None);
         Assert.Equal([OvertimeStatus.Pending, OvertimeStatus.Paid, OvertimeStatus.Paid], settled.Select(o => o.Status));
+        Assert.Equal((3_000m, 1m), await ToPayAsync()); // only November's is left to pay
         Assert.Equal(OvertimeWriteOutcome.Settled, await employees.DeleteOvertimeAsync(w.Scope, w.Actor, juan.Id, monday.Id, CancellationToken.None));
         Assert.Equal(OvertimeWriteOutcome.Done, await employees.DeleteOvertimeAsync(w.Scope, w.Actor, juan.Id, later.Id, CancellationToken.None));
         Assert.Equal(2, (await employees.ListOvertimeAsync(w.Scope, juan.Id, CancellationToken.None)).Count);

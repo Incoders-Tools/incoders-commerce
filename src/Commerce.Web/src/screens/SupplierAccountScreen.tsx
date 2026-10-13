@@ -27,11 +27,21 @@ const AGING_KEYS = ['d0_30', 'd31_60', 'd61_90', 'd90plus'] as const
 
 const isPhone = () => typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 767px)').matches
 
+/** owner feedback P2: an employee's position, read from the employee itself (its goods and overtime live elsewhere). */
+interface EmployeePosition {
+  balance: number
+  takesGoods: boolean
+  purchasesOwed: number
+  overtimeToPay: number
+  overtimeHoursToPay: number
+}
+
 /** The account holder as the screen needs it. */
 interface AccountHolder {
   id: string
   name: string
   paymentTermsDays: number | null
+  position?: EmployeePosition
 }
 
 const PARTY = {
@@ -56,7 +66,18 @@ const PARTY = {
     back: '/app/employees',
     load: async (id: string): Promise<AccountHolder> => {
       const employee = await getEmployee(id)
-      return { id: employee.id, name: `${employee.fullName} (legajo ${formatFileNumber(employee.fileNumber)})`, paymentTermsDays: null }
+      return {
+        id: employee.id,
+        name: `${employee.fullName} (legajo ${formatFileNumber(employee.fileNumber)})`,
+        paymentTermsDays: null,
+        position: {
+          balance: employee.balance,
+          takesGoods: employee.customerId !== null,
+          purchasesOwed: employee.purchasesOwed,
+          overtimeToPay: employee.overtimeToPay,
+          overtimeHoursToPay: employee.overtimeHoursToPay,
+        },
+      }
     },
   },
 } as const
@@ -256,7 +277,8 @@ function CurrentAccountScreen({ party }: { party: AccountPartyKind }) {
           </p>
         )}
 
-        {summary && <SummaryCards party={party} summary={summary} />}
+        {/* An employee's advances have no due date: its position replaces the due dates and the aging. */}
+        {holder?.position ? <EmployeePositionCards position={holder.position} /> : summary && <SummaryCards party={party} summary={summary} />}
 
         {reversing && (
           <ReversePanel
@@ -345,6 +367,46 @@ function CurrentAccountScreen({ party }: { party: AccountPartyKind }) {
         )}
       </div>
     </FormPage>
+  )
+}
+
+/**
+ * owner feedback P2: the employee's position to date. The account holds what was paid out (advances) and the salaries
+ * once liquidated; the goods are owed on the linked customer's account and the overtime is paid with the next payroll.
+ * The position adds them up, without the month's salary (it is added when the payroll is prepared).
+ */
+function EmployeePositionCards({ position }: { position: EmployeePosition }) {
+  const { t } = useTranslation('employeeAccount')
+  const side = (amount: number) => (amount > 0 ? t('summary.owed') : amount < 0 ? t('summary.inFavour') : t('position.even'))
+  const total = position.balance + position.overtimeToPay - position.purchasesOwed
+  return (
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <Card
+        testId="position-account"
+        title={t('position.account')}
+        value={formatMoney(Math.abs(position.balance))}
+        caption={position.balance === 0 ? t('position.even') : t('position.accountSide', { side: side(position.balance) })}
+      />
+      <Card
+        testId="position-goods"
+        title={t('position.goods')}
+        value={position.takesGoods ? formatMoney(position.purchasesOwed) : '—'}
+        caption={position.takesGoods ? t('position.goodsSide') : t('position.noGoods')}
+      />
+      <Card
+        testId="position-overtime"
+        title={t('position.overtime')}
+        value={formatMoney(position.overtimeToPay)}
+        caption={t('position.overtimeSide', { hours: String(position.overtimeHoursToPay).replace('.', ',') })}
+      />
+      <Card
+        testId="position-total"
+        title={t('position.total')}
+        value={formatMoney(Math.abs(total))}
+        caption={`${side(total)}. ${t('position.totalHint')}`}
+        alert={total < 0}
+      />
+    </div>
   )
 }
 

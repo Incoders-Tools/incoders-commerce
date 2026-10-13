@@ -34,8 +34,15 @@ paid from several accounts.
   In the payslip editor, among "Haberes y descuentos", with what is deducted after the discounts (it follows them as
   they are typed) and "Se calcula con la mercadería que llevó y la bonificación de abajo."; no "Quitar", never sent
   as a line (the server keeps the goods apart). RED: no such line; GREEN: web 835, POS employees 53.
-- [ ] P2 The employee's own account view (no due dates or aging): account balance, goods to deduct, pending overtime and
+- [x] P2 The employee's own account view (no due dates or aging): account balance, goods to deduct, pending overtime and
   the position to date (without the month's salary); "Horas extra pendientes" in the staff list.
+  Server: `EmployeeRecord.OvertimeToPay` / `OvertimeHoursToPay`, the overtime no paid payroll settled (pending, or in a
+  run still in draft). Web: the employee's account shows four cards instead of the due dates and the aging: "Saldo de la
+  cuenta" (advances and balances), "Mercadería a descontar" (or "No lleva mercadería"), "Horas extra a pagar" ("Le
+  debemos (4,5 h sin liquidar)") and "Posición a hoy" (balance + overtime - goods, "Sin contar el sueldo del mes, que se
+  suma al liquidar."); the staff list (web and POS) shows "Horas extra a pagar" ("$ 40.500,00 (4,5 h)"). The goods unit
+  suffix is now proved exactly (P1a review). RED: did not compile (server, POS), no cards or column (web); GREEN: payroll
+  + treasury + POS + device operator 118, web 838 (99 files), POS employees 53.
 - [ ] P3 A date field of our own that shows and takes dd/MM/yyyy, in place of every `<input type="date">`.
 - [ ] P4 Preparing a payroll for chosen employees (multiple selection).
 - [ ] P5 Paying a payslip from several accounts.

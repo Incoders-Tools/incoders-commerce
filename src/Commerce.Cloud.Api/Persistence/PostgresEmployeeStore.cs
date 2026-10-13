@@ -40,7 +40,10 @@ public sealed record EmployeeRecord(
     decimal PurchasesOwed = 0m,
     decimal? OvertimeHourlyRate = null,
     // employee-lifecycle E3: why the employee left (with TerminationDate); null while active.
-    string? TerminationReason = null)
+    string? TerminationReason = null,
+    // owner feedback P2: the overtime recorded and not paid yet (pending, or in a payroll still in draft).
+    decimal OvertimeToPay = 0m,
+    decimal OvertimeHoursToPay = 0m)
 {
     public string FullName => $"{LastName}, {FirstName}";
 }
@@ -175,23 +178,47 @@ public sealed partial class PostgresEmployeeStore
         return employees;
     }
 
-    /// <summary>Each employee with its account balance and what its linked customer owes (the goods to deduct).</summary>
+    /// <summary>
+    /// Each employee with its account balance, what its linked customer owes (the goods to deduct) and the overtime not
+    /// paid yet.
+    /// </summary>
     private static async Task<IReadOnlyList<EmployeeRecord>> WithBalancesAsync(
         NpgsqlConnection connection, NpgsqlTransaction tx, IReadOnlyList<EmployeeRecord> employees, CancellationToken ct)
     {
         var result = new List<EmployeeRecord>(employees.Count);
         foreach (var employee in employees)
         {
+            var (overtime, hours) = await OvertimeToPayAsync(connection, tx, employee.Id, ct);
             result.Add(employee with
             {
                 Balance = await BalanceAsync(connection, tx, AccountParty.Employee(employee.Id), ct),
                 PurchasesOwed = employee.CustomerId is { } customer
                     ? Math.Max(await BalanceAsync(connection, tx, AccountParty.Customer(customer), ct), 0m)
                     : 0m,
+                OvertimeToPay = overtime,
+                OvertimeHoursToPay = hours,
             });
         }
 
         return result;
+    }
+
+    /// <summary>The overtime of an employee no paid payroll settled: pending, or taken by a run still in draft.</summary>
+    private static async Task<(decimal Amount, decimal Hours)> OvertimeToPayAsync(
+        NpgsqlConnection connection, NpgsqlTransaction tx, Guid employeeId, CancellationToken ct)
+    {
+        await using var cmd = new NpgsqlCommand(
+            """
+            SELECT COALESCE(SUM(o.amount), 0), COALESCE(SUM(o.hours), 0)
+            FROM employee_overtime o
+            LEFT JOIN payslips p ON p.id = o.payslip_id
+            LEFT JOIN payroll_runs r ON r.organization_id = p.organization_id AND r.id = p.run_id
+            WHERE o.employee_id = $1 AND (o.payslip_id IS NULL OR r.status IS DISTINCT FROM 'Paid')
+            """, connection, tx);
+        cmd.Parameters.AddWithValue(employeeId);
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        await reader.ReadAsync(ct);
+        return (reader.GetDecimal(0), reader.GetDecimal(1));
     }
 
     /// <summary>The balance of a party's account, in the party's own terms (inside the caller's transaction).</summary>

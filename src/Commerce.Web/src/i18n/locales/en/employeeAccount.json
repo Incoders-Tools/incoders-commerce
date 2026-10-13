@@ -114,5 +114,17 @@
     "confirm": "Confirm reversal",
     "confirming": "Reversing…",
     "cancel": "Cancel"
+  },
+  "position": {
+    "account": "Account balance",
+    "accountSide": "{{side}} (advances and balances)",
+    "goods": "Goods to deduct",
+    "goodsSide": "Owes us (goods to deduct)",
+    "noGoods": "Takes no goods",
+    "overtime": "Overtime to pay",
+    "overtimeSide": "We owe ({{hours}} h not yet in a payroll)",
+    "total": "Position to date",
+    "totalHint": "Without the month's salary, added when the payroll is prepared.",
+    "even": "Even"
   }
 }

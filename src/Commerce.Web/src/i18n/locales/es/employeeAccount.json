@@ -114,5 +114,17 @@
     "confirm": "Confirmar anulación",
     "confirming": "Anulando…",
     "cancel": "Cancelar"
+  },
+  "position": {
+    "account": "Saldo de la cuenta",
+    "accountSide": "{{side}} (adelantos y saldos)",
+    "goods": "Mercadería a descontar",
+    "goodsSide": "Nos debe (mercadería a descontar)",
+    "noGoods": "No lleva mercadería",
+    "overtime": "Horas extra a pagar",
+    "overtimeSide": "Le debemos ({{hours}} h sin liquidar)",
+    "total": "Posición a hoy",
+    "totalHint": "Sin contar el sueldo del mes, que se suma al liquidar.",
+    "even": "Sin saldo"
   }
 }
