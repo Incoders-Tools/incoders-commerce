@@ -141,6 +141,22 @@ describe('EmployeeGoodsPage', () => {
     expect(second.goodsId).toBe(first.goodsId)
   })
 
+  it('gives the next registration a new key once one succeeded', async () => {
+    const user = userEvent.setup()
+    render(<EmployeeGoodsPage employee={juan} onBack={vi.fn()} />)
+    await screen.findByText('No tiene mercadería registrada.')
+
+    for (const round of [1, 2]) {
+      await addAsado(user, '1,5')
+      await screen.findByText(/Total: \$\s15\.000,00/)
+      await user.click(screen.getByRole('button', { name: 'Registrar mercadería' }))
+      await waitFor(() => expect(calls('POST /employees/e-1/goods')).toHaveLength(round))
+      await screen.findByText(/Mercadería registrada por/)
+    }
+    const [first, second] = bodies('POST /employees/e-1/goods')
+    expect(second.goodsId).not.toBe(first.goodsId)
+  })
+
   it('explains a product without a counter price and does not let it be registered', async () => {
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
       const key = `${init?.method ?? 'GET'} ${url}`

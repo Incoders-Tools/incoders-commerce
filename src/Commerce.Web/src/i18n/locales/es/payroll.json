@@ -8,7 +8,7 @@
   "file": "Legajo {{number}}",
   "totals": "Totales",
   "negativeNet": "Debe más de lo que cobra: no se le paga; el resto queda en su cuenta.",
-  "goodsDiscount": "de {{amount}} con {{percent}} % de bonificación",
+  "goodsDiscount": "de {{amount}} con {{discount}} de bonificación",
   "frequency": {
     "Monthly": "Mensual",
     "Biweekly": "Quincenal",
@@ -97,7 +97,16 @@
     "goods": "Mercadería que llevó",
     "discount": "Bonificación %",
     "goodsResult": "Se le bonifica {{discount}} y se le descuenta {{deducted}} del sueldo.",
-    "goodsLine": "Mercadería ({{percent}} % de bonificación)",
+    "goodsLine": "Mercadería",
+    "goodsLineDiscount": "Mercadería (bonificación {{discount}})",
+    "goodsItems": "Mercadería de {{name}}",
+    "itemDiscount": "Bonificación % de {{name}}",
+    "discountRest": "Bonificación % sobre el resto",
+    "goodsUntracked": "Sin detalle de productos: {{amount}}",
+    "goodsSource": {
+      "Web": "Web",
+      "PosSale": "Venta POS"
+    },
     "save": "Guardar recibo",
     "saving": "Guardando…",
     "errors": {
@@ -114,7 +123,7 @@
       "employee": "Copia del empleado",
       "business": "Copia de la empresa"
     },
-    "goods": "Mercadería retirada {{amount}} ({{percent}} % de bonificación)",
+    "goods": "Mercadería retirada {{amount}} (bonificación {{discount}})",
     "net": "Neto cobrado",
     "paid": "Pagado el {{date}} ({{account}}).",
     "disclaimer": "Comprobante interno de lo pagado. No reemplaza el recibo de sueldo legal.",

@@ -252,8 +252,12 @@ export interface Payslip {
   cuil: string | null
   takesGoods: boolean
   lines: PayslipLine[]
+  /** employee-lifecycle E4: the goods items this payslip took, each with its own discount. */
+  goodsItems: GoodsItem[]
   purchasesAmount: number
   purchasesDiscountPercent: number
+  /** What the item discounts add up to; the percent applies to the rest. */
+  purchasesItemsDiscount: number
   purchasesDiscount: number
   purchasesDeducted: number
   earnings: number
@@ -297,7 +301,12 @@ export function createPayrollRun(request: {
 export function updatePayslip(
   runId: string,
   payslipId: string,
-  request: { lines: Omit<PayslipLine, 'lineNo'>[]; purchasesDiscountPercent: number },
+  request: {
+    lines: Omit<PayslipLine, 'lineNo'>[]
+    purchasesDiscountPercent: number
+    /** Omitted: every goods item keeps its discount. */
+    goodsItems?: { itemId: string; discountPercent: number }[]
+  },
 ): Promise<void> {
   return apiFetch<void>(`/payroll/runs/${runId}/payslips/${payslipId}`, { method: 'PUT', body: JSON.stringify(request) })
 }

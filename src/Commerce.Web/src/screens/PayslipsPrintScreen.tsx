@@ -135,7 +135,7 @@ function Receipt({
           {payslip.purchasesAmount > 0 && (
             <tr>
               <td>
-                {t('print.goods', { amount: formatMoney(payslip.purchasesAmount), percent: payslip.purchasesDiscountPercent })}
+                {t('print.goods', { amount: formatMoney(payslip.purchasesAmount), discount: formatMoney(payslip.purchasesDiscount) })}
               </td>
               <td className="text-right tabular-nums">−{formatMoney(payslip.purchasesDeducted)}</td>
             </tr>

@@ -91,7 +91,7 @@ advances (items 3, 6, 7 and 9 of the owner's 2026-10-11 request).
     reads "Dado de baja el … Motivo: …", is told the last salary is settled in the web, and can be reinstated. The
     client sends date and reason; `employee-in-payroll-draft` reads as the web's. RED: did not compile; GREEN: 96 (POS
     employees, list markup, device operator). The WPF panel is proved through source and rules, not rendered.
-- [ ] E4 Goods from the web: "Registrar mercadería" on the employee (a debit on its linked customer account) and the wording no longer says POS only.
+- [x] E4 Goods from the web: "Registrar mercadería" on the employee (a debit on its linked customer account) and the wording no longer says POS only.
   Owner decision 2026-10-12: the web registers products with quantity, like a sale on the counter (Mostrador) list,
   moving the stock; before paying a payroll the administrator decides a discount on the goods taken, per item and on
   the whole. So every item is kept (web and POS) and the payslip discounts them.
@@ -125,11 +125,18 @@ advances (items 3, 6, 7 and 9 of the owner's 2026-10-11 request).
     / Descontada en la liquidación N). Without a goods account it says how to turn it on. Refusals under `goods.codes`
     (not `errors.codes`, which the POS compares). RED: the page did not exist and the row action was missing; GREEN: 5;
     web suite 819, POS employees 52.
-  - [ ] E4d Web payslip editor (items with their discount) and the wording that says POS only (web + POS).
+  - [x] E4d Web payslip editor (items with their discount) and the wording that says POS only (web + POS).
     - [x] Wording: "Lleva mercadería" and its hint say the goods are registered in the web («Mercadería») or sold at
       the POS on account, and deducted with the discount decided at payroll, per product and on the total; the same
       texts in the web (es/en) and the POS form (`TakesGoods_ReadsTheWebsTexts_WhichNoLongerSayThePosOnly`). RED: the
       POS hint differed and neither said "web"; GREEN: POS employees 53, web 820.
+    - [x] Payslip editor: the goods the payslip took, item by item (product, date, quantity, origin, total) with
+      "Bonificación % de …" each, what the goods account owes beyond them ("Sin detalle de productos"), and the percent
+      "sobre el resto"; the preview mirrors the server (`lib/goodsDiscount.ts` = `PayslipPurchases`), and saving sends
+      every item's discount (`goodsItems`). A paid payslip, the run's goods column and the printed payslip read the
+      discount in money ("de $ 30.000 con $ 5.700 de bonificación"), no longer only the percent. Also proved: after a
+      registration succeeds, the next one gets a new key (G13). RED: no items list, labels or `goodsDiscount`; GREEN:
+      web 825 (97 files), POS employees 53.
 
 ## Follow-ups
 

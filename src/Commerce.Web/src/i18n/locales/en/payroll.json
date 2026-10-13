@@ -8,7 +8,7 @@
   "file": "File {{number}}",
   "totals": "Totals",
   "negativeNet": "Owes more than their pay: nothing is paid; the rest stays on their account.",
-  "goodsDiscount": "of {{amount}} with {{percent}} % off",
+  "goodsDiscount": "of {{amount}} with {{discount}} off",
   "frequency": {
     "Monthly": "Monthly",
     "Biweekly": "Every two weeks",
@@ -97,7 +97,16 @@
     "goods": "Goods taken",
     "discount": "Discount %",
     "goodsResult": "{{discount}} is forgiven and {{deducted}} is deducted from the salary.",
-    "goodsLine": "Goods ({{percent}} % off)",
+    "goodsLine": "Goods",
+    "goodsLineDiscount": "Goods ({{discount}} off)",
+    "goodsItems": "Goods of {{name}}",
+    "itemDiscount": "Discount % of {{name}}",
+    "discountRest": "Discount % on the rest",
+    "goodsUntracked": "Without product detail: {{amount}}",
+    "goodsSource": {
+      "Web": "Web",
+      "PosSale": "POS sale"
+    },
     "save": "Save payslip",
     "saving": "Saving…",
     "errors": {
@@ -114,7 +123,7 @@
       "employee": "Employee's copy",
       "business": "Business's copy"
     },
-    "goods": "Goods taken {{amount}} ({{percent}} % off)",
+    "goods": "Goods taken {{amount}} ({{discount}} off)",
     "net": "Net received",
     "paid": "Paid on {{date}} ({{account}}).",
     "disclaimer": "Internal receipt of what was paid. It does not replace the legal payslip.",

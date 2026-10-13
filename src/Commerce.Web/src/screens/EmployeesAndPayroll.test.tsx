@@ -244,11 +244,85 @@ describe('staff and payroll screens', () => {
           { lineNo: 1, kind: 'Earning', source: 'BaseSalary', concept: 'Sueldo básico', amount: 500000 },
           { lineNo: 2, kind: 'Deduction', source: 'Advances', concept: 'Adelantos y saldo pendiente', amount: 100000 },
         ],
-        purchasesAmount: 50000, purchasesDiscountPercent: 0, purchasesDiscount: 0, purchasesDeducted: 50000,
+        goodsItems: [],
+        purchasesAmount: 50000, purchasesDiscountPercent: 0, purchasesItemsDiscount: 0, purchasesDiscount: 0, purchasesDeducted: 50000,
         earnings: 500000, deductions: 100000, net: 350000, netPaid: 350000,
       },
     ],
   }
+
+  const goodsItem = (id: string, productName: string, lineTotal: number, sourceType: 'Web' | 'PosSale' = 'Web') => ({
+    id, sourceType, sourceId: `s-${id}`, lineNo: 1, occurredOn: '2026-10-12', presentationId: `p-${id}`, productName,
+    presentationName: 'Por kg', quantity: 1, unitPrice: lineTotal, lineTotal, discountPercent: 0, status: 'InPayroll' as const, runNumber: 1,
+  })
+
+  const withGoods: PayrollRunDetail = {
+    ...draft,
+    payslips: [{
+      ...draft.payslips[0],
+      purchasesAmount: 30000,
+      purchasesDeducted: 30000,
+      goodsItems: [goodsItem('g-1', 'Asado', 15000), goodsItem('g-2', 'Chorizo', 9000, 'PosSale')],
+    }],
+  }
+
+  const renderRun = () =>
+    render(
+      <MemoryRouter initialEntries={['/app/payroll/r-1']}>
+        <Routes>
+          <Route path="/app/payroll/:id" element={<PayrollRunScreen />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+  it('discounts the goods item by item and the rest by a percent, and sends each item its discount', async () => {
+    routeFetch({
+      'GET /payroll/runs/r-1': () => json(withGoods),
+      'PUT /payroll/runs/r-1/payslips/p-1': () => json(undefined, 204),
+    })
+    const user = userEvent.setup()
+    renderRun()
+
+    await user.click(await screen.findByRole('button', { name: 'Editar' }))
+    const goods = screen.getByRole('list', { name: 'Mercadería de Pérez, Juan' })
+    expect(within(goods).getByText(/12\/10\/2026 · 1 · Venta POS/)).toBeInTheDocument()
+    expect(screen.getByText(/Sin detalle de productos: .*6\.000,00/)).toBeInTheDocument()
+    await user.type(screen.getByLabelText('Bonificación % de Asado Por kg'), '20')
+    await user.type(screen.getByLabelText('Bonificación % sobre el resto'), '10')
+    // 20 % of the asado (3.000), then 10 % of the remaining 27.000 (2.700).
+    expect(screen.getByText(/Se le bonifica .*5\.700,00 y se le descuenta .*24\.300,00 del sueldo\./)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Guardar recibo' }))
+
+    await waitFor(() => expect(callsTo('PUT /payroll/runs/r-1/payslips/p-1')).toHaveLength(1))
+    expect(bodyOf('PUT /payroll/runs/r-1/payslips/p-1')).toMatchObject({
+      purchasesDiscountPercent: 10,
+      goodsItems: [{ itemId: 'g-1', discountPercent: 20 }, { itemId: 'g-2', discountPercent: 0 }],
+    })
+  })
+
+  it('refuses an item discount that is not a percentage of 0 to 100, without saving', async () => {
+    routeFetch({ 'GET /payroll/runs/r-1': () => json(withGoods) })
+    const user = userEvent.setup()
+    renderRun()
+
+    await user.click(await screen.findByRole('button', { name: 'Editar' }))
+    await user.type(screen.getByLabelText('Bonificación % de Chorizo Por kg'), '120')
+    await user.click(screen.getByRole('button', { name: 'Guardar recibo' }))
+    expect(await screen.findByText('La bonificación es un porcentaje de 0 a 100.')).toBeInTheDocument()
+    expect(callsTo('PUT /payroll/runs/r-1/payslips/p-1')).toHaveLength(0)
+  })
+
+  it('reads the goods of a paid payslip with the discount it got', async () => {
+    const paid: PayrollRunDetail = {
+      ...withGoods,
+      run: { ...withGoods.run, status: 'Paid', paidOn: '2026-10-31' },
+      payslips: [{ ...withGoods.payslips[0], purchasesItemsDiscount: 3000, purchasesDiscount: 5700, purchasesDeducted: 24300 }],
+    }
+    routeFetch({ 'GET /payroll/runs/r-1': () => json(paid) })
+    renderRun()
+
+    expect(await screen.findByText(/de .*30\.000,00 con .*5\.700,00 de bonificación/)).toBeInTheDocument()
+  })
 
   it('shows the overtime the payroll took as a fixed line that can only be taken out', async () => {
     const withOvertime: PayrollRunDetail = {

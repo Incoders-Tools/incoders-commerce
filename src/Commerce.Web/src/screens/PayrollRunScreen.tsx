@@ -25,6 +25,8 @@ import { todayIso } from '@/lib/isoDate'
 import { cn } from '@/lib/utils'
 import { parseAmount } from '@/treasury/treasuryInput'
 import { formatFileNumber } from '@/lib/fileNumber'
+import { goodsDiscount, itemDiscount } from '@/lib/goodsDiscount'
+import { parsePercentage } from '@/lib/percentage'
 
 interface EditableLine {
   key: number
@@ -247,9 +249,9 @@ export function PayrollRunScreen() {
                     {slip.purchasesAmount > 0 ? (
                       <>
                         −{formatMoney(slip.purchasesDeducted)}
-                        {slip.purchasesDiscountPercent > 0 && (
+                        {slip.purchasesDiscount > 0 && (
                           <span className="block text-xs text-muted-foreground">
-                            {t('goodsDiscount', { amount: formatMoney(slip.purchasesAmount), percent: slip.purchasesDiscountPercent })}
+                            {t('goodsDiscount', { amount: formatMoney(slip.purchasesAmount), discount: formatMoney(slip.purchasesDiscount) })}
                           </span>
                         )}
                       </>
@@ -366,7 +368,12 @@ function PayslipLines({ payslip }: { payslip: Payslip }) {
       ))}
       {payslip.purchasesAmount > 0 && (
         <li className="flex justify-between gap-4">
-          <span>− {t('editor.goodsLine', { percent: payslip.purchasesDiscountPercent })}</span>
+          <span>
+            −{' '}
+            {payslip.purchasesDiscount > 0
+              ? t('editor.goodsLineDiscount', { discount: formatMoney(payslip.purchasesDiscount) })
+              : t('editor.goodsLine')}
+          </span>
           <span className="tabular-nums">{formatMoney(payslip.purchasesDeducted)}</span>
         </li>
       )}
@@ -396,7 +403,13 @@ function PayslipEditor({
       amount: String(line.amount).replace('.', ','),
     })),
   )
-  const [percent, setPercent] = useState(String(payslip.purchasesDiscountPercent).replace('.', ','))
+  const percentText = (value: number) => (value === 0 ? '' : String(value).replace('.', ','))
+  const [percent, setPercent] = useState(percentText(payslip.purchasesDiscountPercent))
+  // employee-lifecycle E4: each goods item's discount; the percent above applies to what the items leave.
+  const items = payslip.goodsItems ?? []
+  const [itemPercents, setItemPercents] = useState<Record<string, string>>(() =>
+    Object.fromEntries(items.map((item) => [item.id, percentText(item.discountPercent)])),
+  )
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
@@ -405,19 +418,28 @@ function PayslipEditor({
   const change = (key: number, patch: Partial<EditableLine>) =>
     setLines((current) => current.map((line) => (line.key === key ? { ...line, ...patch } : line)))
 
-  const parsedPercent = Number(percent.replace(',', '.'))
-  const goodsDiscount = Math.round(payslip.purchasesAmount * (Number.isFinite(parsedPercent) ? parsedPercent : 0)) / 100
+  const readPercent = (text: string) => {
+    const reading = parsePercentage(text)
+    return reading.ok && (reading.value ?? 0) <= 100 ? (reading.value ?? 0) : null
+  }
+  const parsedPercent = readPercent(percent)
+  const parsedItems = items.map((item) => ({ item, percent: readPercent(itemPercents[item.id] ?? '') }))
+  const itemsDiscount = parsedItems.reduce((sum, { item, percent: value }) => sum + itemDiscount(item.lineTotal, value ?? 0), 0)
+  const preview = goodsDiscount(payslip.purchasesAmount, parsedPercent ?? 0, itemsDiscount)
+  // What the goods account owes beyond the items (a debt from before they were kept, or entered by hand).
+  const untracked = Math.max(payslip.purchasesAmount - items.reduce((sum, item) => sum + item.lineTotal, 0), 0)
 
   const save = async () => {
     const parsed = lines.map((line) => ({ ...line, value: parseAmount(line.amount) }))
     if (parsed.some((line) => line.concept.trim() === '' || line.value === null)) return setError(t('editor.errors.line'))
-    if (!Number.isFinite(parsedPercent) || parsedPercent < 0 || parsedPercent > 100) return setError(t('editor.errors.percent'))
+    if (parsedPercent === null || parsedItems.some((read) => read.percent === null)) return setError(t('editor.errors.percent'))
     setError(null)
     setSaving(true)
     try {
       await updatePayslip(runId, payslip.payslipId, {
         lines: parsed.map((line) => ({ kind: line.kind, source: line.source, concept: line.concept.trim(), amount: line.value! })),
-        purchasesDiscountPercent: Math.round(parsedPercent * 100) / 100,
+        purchasesDiscountPercent: parsedPercent,
+        ...(items.length > 0 ? { goodsItems: parsedItems.map(({ item, percent: value }) => ({ itemId: item.id, discountPercent: value! })) } : {}),
       })
       await onSaved()
     } catch (err) {
@@ -468,28 +490,61 @@ function PayslipEditor({
           {t('editor.addDeduction')}
         </Button>
       </div>
-      {payslip.takesGoods && (
-        <div className="flex flex-wrap items-end gap-3 rounded-md border border-border p-3">
+      {(payslip.takesGoods || items.length > 0) && (
+        <div className="flex flex-col gap-3 rounded-md border border-border p-3">
           <div className="text-sm">
             <span className="text-muted-foreground">{t('editor.goods')}</span>
             <span className="block font-medium tabular-nums">{formatMoney(payslip.purchasesAmount)}</span>
           </div>
-          <div className="flex flex-col gap-1">
-            <Label htmlFor={`discount-${payslip.payslipId}`}>{t('editor.discount')}</Label>
-            <Input
-              id={`discount-${payslip.payslipId}`}
-              className="h-8 w-24"
-              inputMode="decimal"
-              value={percent}
-              onChange={(e) => setPercent(e.target.value)}
-            />
+          {items.length > 0 && (
+            <ul className="flex flex-col gap-2" aria-label={t('editor.goodsItems', { name: payslip.employeeName })}>
+              {parsedItems.map(({ item, percent: value }) => {
+                const name = `${item.productName} ${item.presentationName}`
+                const discount = itemDiscount(item.lineTotal, value ?? 0)
+                return (
+                  <li key={item.id} className="flex flex-wrap items-center gap-2 text-sm">
+                    <span className="min-w-48 flex-1">
+                      {name}
+                      <span className="block text-xs text-muted-foreground">
+                        {formatIsoDate(item.occurredOn)} · {String(item.quantity).replace('.', ',')} · {t(`editor.goodsSource.${item.sourceType}`)}
+                      </span>
+                    </span>
+                    <span className="w-28 text-right tabular-nums">{formatMoney(item.lineTotal)}</span>
+                    <Input
+                      aria-label={t('editor.itemDiscount', { name })}
+                      className="h-8 w-20"
+                      inputMode="decimal"
+                      placeholder="0"
+                      value={itemPercents[item.id] ?? ''}
+                      onChange={(e) => setItemPercents((current) => ({ ...current, [item.id]: e.target.value }))}
+                    />
+                    <span className="w-28 text-right text-xs text-muted-foreground tabular-nums">
+                      {discount > 0 ? `−${formatMoney(discount)}` : ''}
+                    </span>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+          {items.length > 0 && untracked > 0 && (
+            <p className="text-xs text-muted-foreground">{t('editor.goodsUntracked', { amount: formatMoney(untracked) })}</p>
+          )}
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="flex flex-col gap-1">
+              <Label htmlFor={`discount-${payslip.payslipId}`}>{items.length > 0 ? t('editor.discountRest') : t('editor.discount')}</Label>
+              <Input
+                id={`discount-${payslip.payslipId}`}
+                className="h-8 w-24"
+                inputMode="decimal"
+                placeholder="0"
+                value={percent}
+                onChange={(e) => setPercent(e.target.value)}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {t('editor.goodsResult', { discount: formatMoney(preview.discount), deducted: formatMoney(preview.deducted) })}
+            </p>
           </div>
-          <p className="text-xs text-muted-foreground">
-            {t('editor.goodsResult', {
-              discount: formatMoney(goodsDiscount),
-              deducted: formatMoney(Math.max(payslip.purchasesAmount - goodsDiscount, 0)),
-            })}
-          </p>
         </div>
       )}
       {error && (
