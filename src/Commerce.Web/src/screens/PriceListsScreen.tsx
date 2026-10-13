@@ -27,6 +27,7 @@ import {
 import { ApiError } from '@/api/client'
 import { useMissingBranch } from '@/branch/useMissingBranch'
 import type { PresentationRecord, PriceListRecord, SupplierPriceMappingRecord } from '@/api/types'
+import { formatInstantDate } from '@/dashboard/format'
 
 type Tab = 'prices' | 'edit' | 'suppliers' | 'import'
 
@@ -46,8 +47,7 @@ type CompositionPage = {
 const VISIBLE_TABS = ['prices', 'edit'] as const
 
 function formatCreatedAt(value: string): string {
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? '—' : parsed.toLocaleDateString('es-AR')
+  return formatInstantDate(value)
 }
 
 /**

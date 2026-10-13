@@ -43,7 +43,17 @@ paid from several accounts.
   suma al liquidar."); the staff list (web and POS) shows "Horas extra a pagar" ("$ 40.500,00 (4,5 h)"). The goods unit
   suffix is now proved exactly (P1a review). RED: did not compile (server, POS), no cards or column (web); GREEN: payroll
   + treasury + POS + device operator 118, web 838 (99 files), POS employees 53.
-- [ ] P3 A date field of our own that shows and takes dd/MM/yyyy, in place of every `<input type="date">`.
+- [x] P3 A date field of our own that shows and takes dd/MM/yyyy, in place of every `<input type="date">`.
+  `DateInput`: `Input type="date"` draws it, so every one of the 35 date fields (21 screens) changed with no screen
+  touched. A text field "dd/mm/aaaa" that puts the slashes while typing, takes a pasted ISO date, gives the screen the
+  ISO date once it is a real day ('' while incomplete or for 31/02), follows a date the screen sets in the same render,
+  carries min/max, and a "Elegir fecha" button opens the browser's calendar. Moments shown with the browser's language or
+  without leading zeros now read `formatInstantDate(Time)` ("05/01/2026 09:07"): catalog, organizations, price lists,
+  stock movements, discount PIN. POS: `PosCulture` (es-AR) for the sales history and the sync status (no "yyyy-MM-dd",
+  no "5/1", no Windows' language for the day's name or the money). Tests that typed or read ISO dates in date fields now
+  type and read dd/mm/aaaa. RED: no `DateInput`, `formatInstant*`, `PosCulture`; GREEN: web 843 (100 files), POS 927.
+  Open: 41 other `CultureInfo.CurrentCulture` uses in the POS (some parse typed amounts; to review one by one before
+  forcing es-AR).
 - [ ] P4 Preparing a payroll for chosen employees (multiple selection).
 - [ ] P5 Paying a payslip from several accounts.
 

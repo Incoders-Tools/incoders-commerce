@@ -1,0 +1,118 @@
+import * as React from 'react'
+import { useTranslation } from 'react-i18next'
+import { CalendarDays } from 'lucide-react'
+import { cn } from '@/lib/utils'
+
+const ISO = /^(\d{4})-(\d{2})-(\d{2})$/
+
+/** "2026-10-13" when the three parts make a real day; null otherwise. */
+function toIso(day: string, month: string, year: string): string | null {
+  const [d, m, y] = [Number(day), Number(month), Number(year)]
+  const date = new Date(Date.UTC(y, m - 1, d))
+  const real = y >= 1900 && date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d
+  return real ? `${year}-${month}-${day}` : null
+}
+
+/** "dd/mm/aaaa" text as an ISO date, or '' while incomplete or not a real day. */
+function parse(text: string): string {
+  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(text)
+  return match ? (toIso(match[1], match[2], match[3]) ?? '') : ''
+}
+
+const display = (iso: string | undefined) => {
+  const match = ISO.exec(iso ?? '')
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : ''
+}
+
+/** The digits typed, with the slashes put as each part completes: "1310" reads "13/10/". */
+function withSlashes(raw: string): string {
+  const digits = raw.replace(/\D/g, '').slice(0, 8)
+  const day = digits.slice(0, 2)
+  const month = digits.slice(2, 4)
+  const year = digits.slice(4)
+  if (digits.length < 2) return digits
+  if (digits.length < 4) return `${day}/${month}`
+  return `${day}/${month}/${year}`
+}
+
+type DateInputProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type' | 'value' | 'onChange'> & {
+  /** ISO date ("2026-10-13") or ''. */
+  value?: string
+  /** Called like the browser's date field: `event.target.value` is the ISO date, or '' while incomplete. */
+  onChange?: (event: React.ChangeEvent<HTMLInputElement>) => void
+}
+
+/**
+ * owner feedback P3: a date field that always reads and takes dd/mm/aaaa (the browser's own date field follows the
+ * browser's language: mm/dd/yyyy in an English one). The screens keep handing it and getting ISO dates; a calendar
+ * button opens the browser's picker.
+ */
+export const DateInput = React.forwardRef<HTMLInputElement, DateInputProps>(
+  ({ className, value, onChange, min, max, disabled, ...props }, ref) => {
+    const { t } = useTranslation('common')
+    const [text, setText] = React.useState('')
+    const picker = React.useRef<HTMLInputElement>(null)
+
+    // What is being typed shows while it means the date the screen holds; a date the screen sets (loaded, cleared,
+    // proposed) shows at once, in the same render, as the browser's own field would.
+    const shown = parse(text) === (value ?? '') ? text : display(value)
+
+    const emit = (iso: string) => onChange?.({ target: { value: iso }, currentTarget: { value: iso } } as React.ChangeEvent<HTMLInputElement>)
+
+    const change = (raw: string) => {
+      if (ISO.test(raw)) {
+        const [, year, month, day] = ISO.exec(raw)!
+        setText(`${day}/${month}/${year}`)
+        return emit(toIso(day, month, year) ?? '')
+      }
+      // Erasing keeps what is left as it is (a slash can be erased); typing puts the slashes.
+      const next = raw.length < shown.length ? raw : withSlashes(raw)
+      setText(next)
+      emit(parse(next))
+    }
+
+    return (
+      <div className={cn('relative flex w-full items-center', className)}>
+        <input
+          ref={ref}
+          type="text"
+          inputMode="numeric"
+          autoComplete="off"
+          maxLength={10}
+          placeholder={t('dateInput.placeholder')}
+          min={min}
+          max={max}
+          disabled={disabled}
+          value={shown}
+          onChange={(e) => change(e.target.value)}
+          className="flex h-9 w-full rounded-md border border-input bg-background py-1 pr-9 pl-3 text-sm text-foreground shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+          {...props}
+        />
+        <button
+          type="button"
+          aria-label={t('dateInput.pick')}
+          disabled={disabled}
+          onClick={() => picker.current?.showPicker?.()}
+          className="absolute right-1 rounded p-1 text-muted-foreground hover:text-foreground disabled:opacity-50"
+        >
+          <CalendarDays aria-hidden="true" className="size-4" />
+        </button>
+        <input
+          ref={picker}
+          type="date"
+          tabIndex={-1}
+          aria-hidden="true"
+          className="pointer-events-none absolute right-0 bottom-0 size-0 opacity-0"
+          min={min}
+          max={max}
+          value={value ?? ''}
+          onChange={(e) => {
+            setText(display(e.target.value))
+            emit(e.target.value)
+          }}
+        />
+      </div>
+    )
+  },
+)
+DateInput.displayName = 'DateInput'

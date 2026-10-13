@@ -13,11 +13,10 @@ import { useOrganizationContext } from '@/organization/OrganizationContext'
 import { OrganizationForm } from './OrganizationForm'
 import { OrganizationBrandingForm } from './OrganizationBrandingForm'
 import { OrganizationStandingForm } from './OrganizationStandingForm'
-import { formatIsoDate } from '@/dashboard/format'
+import { formatInstantDate, formatIsoDate } from '@/dashboard/format'
 
 function formatCreatedAt(value: string): string {
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? '—' : parsed.toLocaleDateString('es-AR')
+  return formatInstantDate(value)
 }
 
 /**

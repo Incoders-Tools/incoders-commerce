@@ -16,6 +16,7 @@ import { useMissingBranch } from '@/branch/useMissingBranch'
 import { CatalogCopyForm } from './CatalogCopyForm'
 import { CatalogProductForm, type CatalogFormTarget } from './CatalogProductForm'
 import { Permission, QuantityBehavior, type CategoryRecord, type PresentationRecord, type ProductRecord } from '@/api/types'
+import { formatInstantDate } from '@/dashboard/format'
 
 const QUANTITY_BEHAVIOR_KEYS: Record<QuantityBehavior, 'fixedQuantity' | 'weighted' | 'bulk'> = {
   [QuantityBehavior.FixedQuantity]: 'fixedQuantity',
@@ -30,8 +31,7 @@ export type CatalogSort = 'name-asc' | 'name-desc' | 'code' | 'category' | 'upda
 const SORTS: CatalogSort[] = ['name-asc', 'name-desc', 'code', 'category', 'updated-desc']
 
 function formatUpdatedAt(value: string): string {
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? '—' : parsed.toLocaleDateString('es-AR')
+  return formatInstantDate(value)
 }
 
 const collator = new Intl.Collator('es', { sensitivity: 'base', numeric: true })

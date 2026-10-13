@@ -65,5 +65,9 @@
     "suspendedStaff": "Access is suspended. Please contact your company administrator.",
     "checkAgain": "Check again",
     "checking": "Checking…"
+  },
+  "dateInput": {
+    "placeholder": "dd/mm/yyyy",
+    "pick": "Pick a date"
   }
 }

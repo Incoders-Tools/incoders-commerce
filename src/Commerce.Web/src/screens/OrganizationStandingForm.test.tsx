@@ -50,7 +50,7 @@ describe('OrganizationStandingForm', () => {
 
     renderForm()
 
-    expect(await screen.findByLabelText('Vencimiento')).toHaveValue('2026-10-08')
+    expect(await screen.findByLabelText('Vencimiento')).toHaveValue('08/10/2026')
     expect(screen.getByLabelText('Días de tolerancia')).toHaveValue(30)
     expect(screen.getByText('Vencida · se suspende el 08/11/2026 (30 días)')).toBeInTheDocument()
     expect(fetchMock.mock.calls[0][0]).toBe(`/account/organizations/${vacaVerde.id}/standing`)
@@ -64,7 +64,7 @@ describe('OrganizationStandingForm', () => {
 
     const dueOn = await screen.findByLabelText('Vencimiento')
     await user.clear(dueOn)
-    await user.type(dueOn, '2026-11-10')
+    await user.type(dueOn, '10112026')
     await user.click(screen.getByRole('button', { name: 'Guardar' }))
 
     await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1))
@@ -138,7 +138,7 @@ describe('OrganizationStandingForm', () => {
 
     const dueOn = await screen.findByLabelText('Vencimiento')
     await user.clear(dueOn)
-    await user.type(dueOn, '2026-11-09')
+    await user.type(dueOn, '09112026')
     await user.click(screen.getByRole('button', { name: 'Reactivar' }))
 
     await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1))
@@ -155,12 +155,12 @@ describe('OrganizationStandingForm', () => {
 
     const dueOn = await screen.findByLabelText('Vencimiento')
     await user.clear(dueOn)
-    await user.type(dueOn, '2026-11-20')
+    await user.type(dueOn, '20112026')
     await user.click(screen.getByRole('button', { name: 'Suspender ahora' }))
     await user.click(screen.getByRole('button', { name: 'Suspender' }))
 
     await screen.findByRole('button', { name: 'Reactivar' })
-    expect(screen.getByLabelText('Vencimiento')).toHaveValue('2026-11-20')
+    expect(screen.getByLabelText('Vencimiento')).toHaveValue('20/11/2026')
   })
 
   it('does not offer to suspend an organization its dates already suspended', async () => {

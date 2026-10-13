@@ -2,6 +2,7 @@ import { render, screen, waitFor, within, fireEvent } from '@testing-library/rea
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PriceListsScreen } from './PriceListsScreen'
+import { formatIsoDate } from '@/dashboard/format'
 import { todayIso, tomorrowIso } from '@/lib/isoDate'
 import type { PriceListRecord } from '@/api/types'
 
@@ -156,7 +157,7 @@ describe('price list composition screens', () => {
     await user.click(await screen.findByRole('button', { name: 'Editar composición' }))
 
     expect(await screen.findByRole('heading', { name: 'Editar composición de Mostrador' })).toBeInTheDocument()
-    expect(screen.getByLabelText('Vigente desde')).toHaveValue(tomorrowIso())
+    expect(screen.getByLabelText('Vigente desde')).toHaveValue(formatIsoDate(tomorrowIso()))
     expect(tomorrowIso() > todayIso()).toBe(true)
     await user.click(screen.getByLabelText('Solo remarcación'))
     await user.type(screen.getByLabelText('Remarcación %'), '20')

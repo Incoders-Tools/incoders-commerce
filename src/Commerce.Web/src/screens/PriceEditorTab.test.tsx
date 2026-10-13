@@ -378,7 +378,7 @@ describe('PriceListsScreen "Editar precios" tab', () => {
     const user = await openEditor()
 
     await user.clear(screen.getByLabelText('Vigente desde'))
-    await user.type(screen.getByLabelText('Vigente desde'), '2026-10-10')
+    await user.type(screen.getByLabelText('Vigente desde'), '10102026')
     await user.type(screen.getByLabelText('Remarcar %'), '10')
     await user.click(screen.getByRole('button', { name: 'Aplicar' }))
     await user.click(screen.getByRole('button', { name: 'Publicar cambios' }))
@@ -488,7 +488,7 @@ describe('PriceListsScreen "Editar precios" tab', () => {
     const user = await openEditor()
 
     // The picked date is really in effect first (prices reload as of it), so clearing it below is a real change.
-    await user.type(screen.getByLabelText('Vigente desde'), '2099-12-31')
+    await user.type(screen.getByLabelText('Vigente desde'), '31122099')
     await waitFor(() =>
       expect(breakdownCalls(minorista.id).some(([url]) => String(url).includes('on=2099-12-31'))).toBe(true),
     )
@@ -650,7 +650,7 @@ describe('PriceListsScreen "Editar precios" tab', () => {
     await user.type(screen.getByLabelText('Nueva base de Lengua'), '1200')
     await user.type(screen.getByLabelText('Remarcar %'), '10')
     expect(screen.getByRole('button', { name: 'Publicar cambios' })).toBeEnabled()
-    await user.type(screen.getByLabelText('Vigente desde'), '2026-10-20')
+    await user.type(screen.getByLabelText('Vigente desde'), '20102026')
 
     expect(await screen.findByText('Cargando los precios vigentes en la fecha elegida…')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Publicar cambios' })).toBeDisabled()
@@ -675,7 +675,7 @@ describe('PriceListsScreen "Editar precios" tab', () => {
 
     await user.type(screen.getByLabelText('Nueva base de Lengua'), '1200')
     await user.type(screen.getByLabelText('Remarcar %'), '10')
-    await user.type(screen.getByLabelText('Vigente desde'), '2026-10-20')
+    await user.type(screen.getByLabelText('Vigente desde'), '20102026')
 
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent('No se pudo leer la lista.')
@@ -758,7 +758,7 @@ describe('PriceListsScreen "Editar precios" tab', () => {
   it('a picked date loads the prices of that date as the baseline for changes and the remark', async () => {
     const user = await openEditor()
 
-    await user.type(screen.getByLabelText('Vigente desde'), '2026-10-20')
+    await user.type(screen.getByLabelText('Vigente desde'), '20102026')
 
     await waitFor(() =>
       expect(breakdownCalls(minorista.id).map(([url]) => url)).toContain(
@@ -802,7 +802,7 @@ describe('PriceListsScreen "Editar precios" tab', () => {
       )
     const user = await openEditor()
 
-    await user.type(screen.getByLabelText('Vigente desde'), '2026-10-10')
+    await user.type(screen.getByLabelText('Vigente desde'), '10102026')
     await user.type(screen.getByLabelText('Nueva base de Lengua'), '1100')
     await user.click(screen.getByRole('button', { name: 'Publicar cambios' }))
 

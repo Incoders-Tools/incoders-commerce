@@ -9,9 +9,9 @@ import type { StockHistoryPage, StockMovement, StockQuantityBehavior } from '@/a
 import { useMissingBranch } from '@/branch/useMissingBranch'
 import { useNumberFormat } from '@/organization/NumberFormatContext'
 import { cn } from '@/lib/utils'
+import { formatInstantDateTime } from '@/dashboard/format'
 
 const PAGE_SIZE = 25
-const dateTimeFormatter = new Intl.DateTimeFormat('es-AR', { dateStyle: 'short', timeStyle: 'short' })
 
 interface NavigationState {
   label?: string
@@ -119,7 +119,7 @@ export function StockMovementsScreen() {
                   <tbody>
                     {history.items.map((movement) => (
                       <tr key={movement.id} className="border-t border-border">
-                        <td className="px-3 py-2">{dateTimeFormatter.format(new Date(movement.occurredAtUtc))}</td>
+                        <td className="px-3 py-2">{formatInstantDateTime(movement.occurredAtUtc)}</td>
                         <td className="px-3 py-2">{t(`movements.kinds.${movement.kind}`)}</td>
                         <td
                           className={cn(

@@ -506,8 +506,8 @@ public partial class MainWindow : Window
         var status = _branchNodeService.GetStatus(_pairing.BranchId, isOffline: true);
         return
             $"Operaciones por enviar: {status.PendingOperationCount}\n" +
-            $"Último envío confirmado: {status.LastAcknowledgedUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "nunca"}\n" +
-            $"Última descarga de datos: {status.LastDownloadedUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "nunca"}";
+            $"Último envío confirmado: {(status.LastAcknowledgedUtc is { } sent ? PosCulture.Moment(sent.ToLocalTime()) : "nunca")}\n" +
+            $"Última descarga de datos: {(status.LastDownloadedUtc is { } downloaded ? PosCulture.Moment(downloaded.ToLocalTime()) : "nunca")}";
     }
 
     private void RefreshStatus()
@@ -555,8 +555,8 @@ public partial class MainWindow : Window
     private string BuildCompactSyncStatus()
     {
         var status = _branchNodeService.GetStatus(_pairing.BranchId, isOffline: true);
-        var lastSent = status.LastAcknowledgedUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "nunca";
-        var lastDownloaded = status.LastDownloadedUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "nunca";
+        var lastSent = status.LastAcknowledgedUtc is { } sent ? PosCulture.Moment(sent.ToLocalTime()) : "nunca";
+        var lastDownloaded = status.LastDownloadedUtc is { } downloaded ? PosCulture.Moment(downloaded.ToLocalTime()) : "nunca";
         return $"Sincronización: {status.PendingOperationCount} por enviar - Último envío: {lastSent} - Última descarga: {lastDownloaded} - {_lastSyncResult}";
     }
 
@@ -744,8 +744,8 @@ public partial class MainWindow : Window
             return;
         }
 
-        var change = tender.ChangeGiven is { } given && given > 0m ? $" Vuelto: {given.ToString("C", CultureInfo.CurrentCulture)}." : string.Empty;
-        ShowResultText($"Cobro registrado: {name}, {window.Amount.ToString("C", CultureInfo.CurrentCulture)} ({TenderInput.Label(tender.Method)}).{change}");
+        var change = tender.ChangeGiven is { } given && given > 0m ? $" Vuelto: {given.ToString("C", PosCulture.Spanish)}." : string.Empty;
+        ShowResultText($"Cobro registrado: {name}, {window.Amount.ToString("C", PosCulture.Spanish)} ({TenderInput.Label(tender.Method)}).{change}");
         RefreshCashSession();
         FocusSearchBox();
         _ = RunSyncAsync(SyncTrigger.PostSale);

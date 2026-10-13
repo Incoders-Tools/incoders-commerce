@@ -50,6 +50,27 @@ export function formatMoney(amount: number): string {
   return moneyFormatter.format(amount)
 }
 
+const two = (n: number) => String(n).padStart(2, '0')
+
+const asDate = (instant: string | Date) => (instant instanceof Date ? instant : new Date(instant))
+
+/**
+ * owner feedback P3: a moment (a timestamp) as its local day, `05/01/2026`: leading zeros and the whole year, whatever
+ * the browser's language. "—" when it is not a date.
+ */
+export function formatInstantDate(instant: string | Date): string {
+  const date = asDate(instant)
+  if (Number.isNaN(date.getTime())) return '—'
+  return `${two(date.getDate())}/${two(date.getMonth() + 1)}/${date.getFullYear()}`
+}
+
+/** A moment with its local time, `05/01/2026 09:07` (24 h). */
+export function formatInstantDateTime(instant: string | Date): string {
+  const date = asDate(instant)
+  if (Number.isNaN(date.getTime())) return '—'
+  return `${formatInstantDate(date)} ${two(date.getHours())}:${two(date.getMinutes())}`
+}
+
 /** `2026-10-01` becomes `01/10/2026`; the string is split, never parsed, so no timezone can shift the day. */
 export function formatIsoDate(isoDate: string): string {
   const [year, month, day] = isoDate.slice(0, 10).split('-')

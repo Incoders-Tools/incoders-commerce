@@ -23,6 +23,7 @@ Status: **Aligned** (same operations, same wording), **Partial** (shared core, l
 | POS operators of a terminal (PIN sign-in) | — | `StaffView` "Operadores de esta terminal" | One layer | Local to each terminal by nature. |
 | Staff positions ("Puestos") | `EmployeeRolesScreen.tsx` (Tablas auxiliares) | read in the employee form | Partial | Catalog ABM in web; the POS picks from it. |
 | Vehicles (vehicles.md) | `VehiclesScreen.tsx` (Tablas auxiliares), the delivery run form (`DeliveryRunFormScreen.tsx`: the active vehicles, the only one preselected) | — | One layer | The POS has no delivery runs; vehicles are web only. |
+| Dates (owner feedback P3) | `components/ui/DateInput.tsx` (every `Input type="date"`), `formatIsoDate`, `formatInstantDate(Time)` | `PosCulture` (sales and sync screens), dates typed as dd/mm/aaaa | Aligned | dd/mm/aaaa everywhere, whatever the browser's or Windows' language. |
 | Categories shown on the POS rail | `CategoriesScreen.tsx` ("Mostrar en el POS", "Orden") | `Controls/CategoryRail`, `BranchSyncStore.Categories.cs` | Aligned | Configured on the web, synced with the `price-lists` snapshot. |
 | Prices and price lists | `PriceListsScreen.tsx`, `PriceEditorTab.tsx` | read-only replica (`BuyerPricing.cs`) | One layer | Edited on the web; the POS prices from the replica. |
 | Catalog (products, codes) | `CatalogScreen.tsx`, `CatalogProductForm.tsx` | read-only replica, product cards | One layer | Edited on the web. |
