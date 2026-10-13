@@ -97,6 +97,14 @@ paid from several accounts.
   (`PostgresPayrollStore.cs:850-858`, `PayrollRunScreen.tsx:561-565`); the status badge names the run's account when
   every payslip was paid from one other account (`PayrollRunScreen.tsx:173-175`).
 
+- [x] X4 P3 follow-up, the POS's other `CultureInfo.CurrentCulture` uses (41): only dates and times were Windows'.
+  A sale's due date ("Vence el …", `CustomerPaymentInput.DueText`) read "dd/MM/yyyy" through it — on a German Windows
+  "04.11.2026" — and the history's times "HH:mm"; now `PosCulture.Day` / the new `PosCulture.Time`. A source scan keeps
+  any POS file from reading a date or a time through Windows' culture. RED: "04.11.2026" and the scan; GREEN: POS 929.
+  Open, owner decision: money ("C", "0.00") is still written AND parsed through Windows' culture (cash, tender,
+  payments, discounts); on a non-Argentine Windows it reads "$1,234.50" but stays consistent. Moving it to `PosCulture`
+  means formatting and parsing together (`TenderInput`, `CashMovementInput`, `CustomerPaymentInput`, `QuantityFormat`).
+
 ## Constraints
 
 Same as `owner-requests-quick-adjustments.md` (server rules, parity, idempotent migrations, strict TDD, healthy

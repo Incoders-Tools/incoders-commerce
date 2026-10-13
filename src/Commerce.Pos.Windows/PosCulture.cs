@@ -16,6 +16,12 @@ public static class PosCulture
     /// <summary>A moment already in local time (<c>ToLocalTime()</c>): "05/01/2026 09:07".</summary>
     public static string Moment(DateTimeOffset local) => Moment(local.DateTime);
 
+    /// <summary>A local time of day: "09:07".</summary>
+    public static string Time(DateTime local) => local.ToString("HH':'mm", CultureInfo.InvariantCulture);
+
+    /// <summary>A time of day already in local time (<c>ToLocalTime()</c>): "09:07".</summary>
+    public static string Time(DateTimeOffset local) => Time(local.DateTime);
+
     /// <summary>A day: "05/01/2026".</summary>
     public static string Day(DateOnly day) => day.ToString("dd'/'MM'/'yyyy", CultureInfo.InvariantCulture);
 }

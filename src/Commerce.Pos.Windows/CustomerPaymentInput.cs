@@ -105,7 +105,7 @@ public static class CustomerPaymentInput
     /// </summary>
     public static string DueText(PaymentTerms terms, DateOnly saleDate)
     {
-        var due = terms.DueOn(saleDate).ToString("dd/MM/yyyy", CultureInfo.CurrentCulture);
+        var due = PosCulture.Day(terms.DueOn(saleDate));
         var source = terms.Source == PaymentTermsSource.Customer ? "plazo del cliente" : "plazo general de la organización";
         return terms.Days == 0
             ? $"Vence hoy, {due} (0 días, {source})."

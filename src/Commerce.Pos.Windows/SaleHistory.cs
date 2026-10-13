@@ -45,7 +45,7 @@ public sealed record SaleHistoryRow(SaleHistoryEntry Entry, bool CanVoid) : IHis
 
     public bool IsVoided => Entry.Void is not null;
 
-    public string TimeText => Entry.OccurredAtUtc.ToLocalTime().ToString("HH:mm", CultureInfo.CurrentCulture);
+    public string TimeText => PosCulture.Time(Entry.OccurredAtUtc.ToLocalTime());
 
     public string NumberText => Entry.Number ?? "Sin número";
 
@@ -79,7 +79,7 @@ public sealed record CashMovementHistoryRow(CashMovementRecord Movement) : IHist
 
     public decimal Amount => Movement.Amount;
 
-    public string TimeText => Movement.OccurredAtUtc.ToLocalTime().ToString("HH:mm", CultureInfo.CurrentCulture);
+    public string TimeText => PosCulture.Time(Movement.OccurredAtUtc.ToLocalTime());
 
     public string NumberText => IsWithdrawal ? "Retiro de caja" : "Ingreso de caja";
 
@@ -105,7 +105,7 @@ public sealed record PaymentHistoryRow(CustomerPaymentRecord Payment, bool CanVo
 
     public decimal Amount => Payment.Amount;
 
-    public string TimeText => Payment.ReceivedAtUtc.ToLocalTime().ToString("HH:mm", CultureInfo.CurrentCulture);
+    public string TimeText => PosCulture.Time(Payment.ReceivedAtUtc.ToLocalTime());
 
     public string NumberText => "Cobro cta. cte.";
 

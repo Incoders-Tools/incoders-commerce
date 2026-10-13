@@ -1,4 +1,5 @@
 using System.Globalization;
+using Commerce.Domain.CurrentAccounts;
 using Commerce.Pos.Windows;
 
 namespace Commerce.Integration;
@@ -26,6 +27,39 @@ public sealed class PosCultureTests
         finally
         {
             CultureInfo.CurrentCulture = before;
+        }
+    }
+
+    [Fact]
+    public void ADueDateAndATime_KeepTheirSlashesAndColons_OnAWindowsWithOtherSeparators()
+    {
+        var before = CultureInfo.CurrentCulture;
+        try
+        {
+            // German Windows: "." between the parts of a date; a "dd/MM/yyyy" read through it gives "04.11.2026".
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("de-DE");
+
+            Assert.Equal(
+                "Vence el 04/11/2026 (30 días, plazo general de la organización).",
+                CustomerPaymentInput.DueText(new PaymentTerms(30, PaymentTermsSource.Organization), new DateOnly(2026, 10, 5)));
+            Assert.Equal("09:07", PosCulture.Time(new DateTime(2026, 1, 5, 9, 7, 0)));
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = before;
+        }
+    }
+
+    [Fact]
+    public void NoScreen_ReadsADateOrATimeThroughWindowsCulture()
+    {
+        var root = Path.Combine(PostgresTestFixture.RepoRoot(), "src", "Commerce.Pos.Windows");
+        foreach (var file in Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories)
+                     .Where(path => !path.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}")))
+        {
+            var source = File.ReadAllText(file);
+            Assert.False(source.Contains("\"HH:mm\", CultureInfo.CurrentCulture"), file);
+            Assert.False(source.Contains("\"dd/MM/yyyy\", CultureInfo.CurrentCulture"), file);
         }
     }
 
