@@ -37,6 +37,13 @@ request).
 - [ ] V2 Web ABM under lookup tables.
 - [ ] V3 Delivery runs pick a vehicle (default: the only active one).
 
+## Follow-ups
+
+- [x] W1 V1 review (`review-7b5b401ca07948d5`, approved), fixed right after `c37a71e`: an edit without `isActive`
+  reactivated the vehicle; now an omitted flag is active on create and kept on edit. Also proved: a duplicate is a 409
+  (status, not only the code), an edit cannot take another vehicle's plate, a brand over 60 characters is a 400. RED:
+  the edited vehicle came back active; GREEN: 4.
+
 ## Constraints
 
 Same as `owner-requests-quick-adjustments.md`.

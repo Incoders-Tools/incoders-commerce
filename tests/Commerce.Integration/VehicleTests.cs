@@ -140,7 +140,9 @@ public sealed class VehicleTests : IClassFixture<WebApplicationFactory<Program>>
         var truck = await Json(created);
         Assert.Equal(("AB123CD", true), (truck.GetProperty("plate").GetString(), truck.GetProperty("isActive").GetBoolean()));
         var again = await admin.PostAsJsonAsync("/vehicles", new { plate = "AB-123-CD" });
+        Assert.Equal(HttpStatusCode.Conflict, again.StatusCode);
         Assert.Equal("vehicle-plate-in-use", (await Json(again)).GetProperty("error").GetString());
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PostAsJsonAsync("/vehicles", new { plate = "AA000AA", brand = new string('x', 61) })).StatusCode);
 
         Assert.Equal(HttpStatusCode.Forbidden, (await seller.PostAsJsonAsync("/vehicles", new { plate = "AA000AA" })).StatusCode);
         var listed = (await Json(await seller.GetAsync("/vehicles"))).EnumerateArray().ToList();
@@ -152,6 +154,16 @@ public sealed class VehicleTests : IClassFixture<WebApplicationFactory<Program>>
         Assert.Empty((await Json(await seller.GetAsync("/vehicles"))).EnumerateArray());
         Assert.Single((await Json(await admin.GetAsync("/vehicles?includeInactive=true"))).EnumerateArray());
         Assert.Equal(HttpStatusCode.NotFound, (await admin.PutAsJsonAsync($"/vehicles/{Guid.NewGuid()}", new { plate = "AA000AA" })).StatusCode);
+
+        // An edit that leaves the flag out keeps it (a deactivated vehicle stays so).
+        var renamed = await admin.PutAsJsonAsync($"/vehicles/{id}", new { plate = "AB123CD", brand = "Ford", model = "F-4000 Cargo" });
+        Assert.False((await Json(renamed)).GetProperty("isActive").GetBoolean());
+
+        // Another vehicle cannot take its plate by an edit either.
+        var van = await Json(await admin.PostAsJsonAsync("/vehicles", new { plate = "AA000AA" }));
+        var taken = await admin.PutAsJsonAsync($"/vehicles/{van.GetProperty("id").GetGuid()}", new { plate = "ab-123-cd" });
+        Assert.Equal(HttpStatusCode.Conflict, taken.StatusCode);
+        Assert.Equal("vehicle-plate-in-use", (await Json(taken)).GetProperty("error").GetString());
     }
 
     private async Task<(Guid Org, Guid Branch, Guid Actor)> SeedAsync()

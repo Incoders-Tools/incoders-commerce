@@ -17,8 +17,11 @@ public sealed record VehicleRecord(
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset UpdatedAtUtc);
 
-/// <summary>A vehicle as written: the plate already normalized (<see cref="VehicleRules.NormalizePlate"/>).</summary>
-public sealed record VehicleInput(string Plate, string? Brand, string? Model, int? Year, string? Notes, bool IsActive);
+/// <summary>
+/// A vehicle as written: the plate already normalized (<see cref="VehicleRules.NormalizePlate"/>). IsActive null: active when
+/// created, kept when edited.
+/// </summary>
+public sealed record VehicleInput(string Plate, string? Brand, string? Model, int? Year, string? Notes, bool? IsActive);
 
 public enum VehicleWriteOutcome
 {
@@ -73,11 +76,12 @@ public sealed class PostgresVehicleStore(NpgsqlDataSource dataSource)
             id is null
                 ? $"""
                    INSERT INTO vehicles (organization_id, id, plate, brand, model, model_year, notes, is_active, created_by_user_id)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8, true), $9)
                    RETURNING {Columns}
                    """
                 : $"""
-                   UPDATE vehicles SET plate = $3, brand = $4, model = $5, model_year = $6, notes = $7, is_active = $8, updated_at_utc = now()
+                   UPDATE vehicles SET plate = $3, brand = $4, model = $5, model_year = $6, notes = $7, is_active = COALESCE($8, is_active),
+                       updated_at_utc = now()
                    WHERE organization_id = $1 AND id = $2
                    RETURNING {Columns}
                    """,
@@ -89,7 +93,7 @@ public sealed class PostgresVehicleStore(NpgsqlDataSource dataSource)
         cmd.Parameters.AddWithValue(Nullable(input.Model));
         cmd.Parameters.AddWithValue(input.Year is { } year ? year : DBNull.Value);
         cmd.Parameters.AddWithValue(Nullable(input.Notes));
-        cmd.Parameters.AddWithValue(input.IsActive);
+        cmd.Parameters.Add(new NpgsqlParameter { Value = input.IsActive is { } active ? active : DBNull.Value, NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Boolean });
         if (id is null)
         {
             cmd.Parameters.AddWithValue(actorId);

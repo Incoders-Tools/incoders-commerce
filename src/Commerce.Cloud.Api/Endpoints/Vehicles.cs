@@ -63,7 +63,7 @@ public static class VehicleEndpoints
         if (request.Notes?.Trim() is { Length: > VehicleRules.MaxNotesLength }) errors["notes"] = [$"At most {VehicleRules.MaxNotesLength} characters."];
         if (errors.Count > 0) return Results.ValidationProblem(errors);
 
-        input = new VehicleInput(plate, request.Brand, request.Model, request.Year, request.Notes, request.IsActive ?? true);
+        input = new VehicleInput(plate, request.Brand, request.Model, request.Year, request.Notes, request.IsActive);
         return null;
     }
 
@@ -74,5 +74,5 @@ public static class VehicleEndpoints
     };
 }
 
-/// <summary>A vehicle as the web form sends it; IsActive omitted: active.</summary>
+/// <summary>A vehicle as the web form sends it; IsActive omitted: active when created, kept when edited.</summary>
 public sealed record VehicleRequest(string? Plate, string? Brand, string? Model, int? Year, string? Notes, bool? IsActive);
