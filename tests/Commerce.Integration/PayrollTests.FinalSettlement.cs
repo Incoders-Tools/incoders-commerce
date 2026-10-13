@@ -82,7 +82,7 @@ public sealed partial class PayrollTests
 
         // September is paid.
         var (_, september) = await payroll.CreateRunAsync(w.Scope, w.Actor, new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 30), PayFrequency.Monthly,
-            null, CancellationToken.None);
+            null, null, CancellationToken.None);
         Assert.Equal(PayrollWriteOutcome.Done, await payroll.PayRunAsync(w.Scope, w.Actor, september!.Value, w.Cash, new DateOnly(2026, 9, 30),
             CancellationToken.None));
 
@@ -94,7 +94,7 @@ public sealed partial class PayrollTests
         await employees.SetActiveAsync(w.Scope, w.Actor, juan.Id, false, new DateOnly(2026, 10, 10), "Renuncia", CancellationToken.None);
 
         // The regular October run does not take him.
-        var (_, october) = await payroll.CreateRunAsync(w.Scope, w.Actor, new DateOnly(2026, 10, 1), Today, PayFrequency.Monthly, null,
+        var (_, october) = await payroll.CreateRunAsync(w.Scope, w.Actor, new DateOnly(2026, 10, 1), Today, PayFrequency.Monthly, null, null,
             CancellationToken.None);
         Assert.Equal([ana!.Id], (await payroll.GetRunAsync(w.Scope, october!.Value, CancellationToken.None))!.Payslips.Select(p => p.EmployeeId));
 

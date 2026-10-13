@@ -44,16 +44,23 @@
   },
   "new": {
     "title": "Nueva liquidación",
-    "hint": "Se prepara un borrador con un recibo por cada empleado activo de la sucursal (de la frecuencia elegida): su sueldo pactado, sus adelantos pendientes y la mercadería que llevó. Después podés agregar horas extra, premios u otros descuentos, y fijar la bonificación de la mercadería antes de pagar.",
+    "hint": "Se prepara un borrador con un recibo por cada empleado elegido (de los activos de la sucursal que cobran con esa frecuencia): su sueldo pactado, sus adelantos pendientes, sus horas extra y la mercadería que llevó. Después podés agregar premios u otros descuentos, y fijar la bonificación de la mercadería antes de pagar.",
     "from": "Desde",
     "to": "Hasta",
     "frequency": "Empleados que cobran",
     "notes": "Nota (opcional)",
+    "employees": "Empleados a liquidar",
+    "chosenCount": "{{chosen}} de {{total}} elegidos",
+    "all": "Todos",
+    "none": "Ninguno",
+    "noStaff": "No hay empleados activos en esta sucursal con esa frecuencia de pago.",
+    "staffUnavailable": "No se pudo cargar el personal: se liquidan todos los empleados activos de la frecuencia.",
     "create": "Preparar liquidación",
     "creating": "Preparando…",
     "cancel": "Cancelar",
     "errors": {
-      "period": "Elegí un período válido: \"Desde\" no puede ser posterior a \"Hasta\"."
+      "period": "Elegí un período válido: \"Desde\" no puede ser posterior a \"Hasta\".",
+      "employees": "Elegí al menos un empleado."
     }
   },
   "run": {
@@ -140,7 +147,8 @@
       "account-not-found": "Esa cuenta de Tesorería no existe.",
       "account-inactive": "Esa cuenta de Tesorería está inactiva.",
       "nothing-to-pay": "La liquidación no tiene recibos.",
-      "branch-selection-required": "Elegí una sucursal arriba."
+      "branch-selection-required": "Elegí una sucursal arriba.",
+      "employees-not-eligible": "Algún empleado elegido ya no está activo en esta sucursal o cobra con otra frecuencia. Volvé a abrir la liquidación nueva y probá de nuevo."
     }
   }
 }

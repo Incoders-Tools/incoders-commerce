@@ -54,7 +54,13 @@ paid from several accounts.
   type and read dd/mm/aaaa. RED: no `DateInput`, `formatInstant*`, `PosCulture`; GREEN: web 843 (100 files), POS 927.
   Open: 41 other `CultureInfo.CurrentCulture` uses in the POS (some parse typed amounts; to review one by one before
   forcing es-AR).
-- [ ] P4 Preparing a payroll for chosen employees (multiple selection).
+- [x] P4 Preparing a payroll for chosen employees (multiple selection).
+  Server: `CreateRunAsync(..., employeeIds)` / `POST /payroll/runs` `employeeIds` (omitted: every active employee of the
+  frequency, as before; empty: 400); each one chosen must be an active employee of the branch paid that often, or the
+  run is refused whole (409 `employees-not-eligible`). Web: "Nueva liquidación" lists "Empleados a liquidar" (the active
+  ones of the frequency chosen, "0001 · Bacca, Ariel"), all checked at first, "Todos" / "Ninguno", "N de M elegidos";
+  at least one ("Elegí al menos un empleado."); without the staff read, every one of the frequency as before. RED: did
+  not compile (server), no list (web); GREEN: payroll + treasury + device operator 67, web 848 (101 files).
 - [ ] P5 Paying a payslip from several accounts.
 
 ## Follow-ups

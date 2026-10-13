@@ -26,6 +26,9 @@ public static class EmployeeEndpoints
     /// <summary>employee-lifecycle E4: how many goods item discounts one payslip update may set.</summary>
     private const int MaxGoodsItemDiscounts = 1_000;
 
+    /// <summary>owner feedback P4: how many employees one run may be prepared for by name.</summary>
+    private const int MaxRunEmployees = 1_000;
+
     public static void MapEmployeeEndpoints(this IEndpointRouteBuilder app)
     {
         var employees = app.MapGroup("/employees").RequireAuthorization().AddEndpointFilter<TenantScopeEndpointFilter>();
@@ -231,10 +234,12 @@ public static class EmployeeEndpoints
             else if (request.PeriodTo < request.PeriodFrom) errors["periodTo"] = ["periodTo cannot be before periodFrom."];
             if (request.PayFrequency is { } frequency && !PayFrequency.IsValid(frequency)) errors["payFrequency"] = ["Monthly, Biweekly or Weekly."];
             if (request.Notes is { Length: > 500 }) errors["notes"] = ["At most 500 characters."];
+            if (request.EmployeeIds is { Count: 0 }) errors["employeeIds"] = ["Choose at least one employee (or leave it out for every one)."];
+            else if (request.EmployeeIds is { Count: > MaxRunEmployees }) errors["employeeIds"] = [$"At most {MaxRunEmployees} employees."];
             if (errors.Count > 0) return Results.ValidationProblem(errors);
 
             var (outcome, runId) = await store.CreateRunAsync(
-                caller!.Scope, caller.Id, request.PeriodFrom, request.PeriodTo, request.PayFrequency, Blank(request.Notes), ct);
+                caller!.Scope, caller.Id, request.PeriodFrom, request.PeriodTo, request.PayFrequency, Blank(request.Notes), request.EmployeeIds, ct);
             return outcome == PayrollWriteOutcome.Done ? Results.Created($"/payroll/runs/{runId}", new { runId }) : Refusal(outcome);
         });
 
@@ -422,6 +427,7 @@ public static class EmployeeEndpoints
         PayrollWriteOutcome.OtherBranch => Results.Conflict(new { error = "employee-other-branch" }),
         PayrollWriteOutcome.AlreadySettled => Results.Conflict(new { error = "employee-already-settled" }),
         PayrollWriteOutcome.GoodsItemNotInPayslip => Results.Conflict(new { error = "goods-item-not-in-payslip" }),
+        PayrollWriteOutcome.EmployeesNotEligible => Results.Conflict(new { error = "employees-not-eligible" }),
         _ => Results.Conflict(new { error = "nothing-to-pay" }),
     };
 }
@@ -466,7 +472,9 @@ public sealed record FinalSettlementRequest(Guid EmployeeId);
 /// <summary>An advance handed out from a treasury account (Date: today when omitted).</summary>
 public sealed record EmployeeAdvanceRequest(decimal Amount, DateOnly? Date, Guid AccountId, string? Concept);
 
-public sealed record CreatePayrollRunRequest(DateOnly PeriodFrom, DateOnly PeriodTo, string? PayFrequency, string? Notes);
+/// <summary>A new payroll run; owner feedback P4: EmployeeIds, the employees chosen (omitted: every one of the branch).</summary>
+public sealed record CreatePayrollRunRequest(
+    DateOnly PeriodFrom, DateOnly PeriodTo, string? PayFrequency, string? Notes, IReadOnlyList<Guid>? EmployeeIds = null);
 
 public sealed record PayslipLineRequest(string? Kind, string? Source, string? Concept, decimal Amount);
 

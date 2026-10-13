@@ -94,7 +94,7 @@ public sealed partial class PayrollTests
         var (_, juan) = await employees.CreateAsync(w.Scope, w.Actor, Input(w, "Juan", 500_000m) with { OvertimeHourlyRate = 2_000m },
             false, CancellationToken.None);
         await employees.RecordOvertimeAsync(w.Scope, w.Actor, juan!.Id, new NewOvertime(Sunday, 4m, null, null), CancellationToken.None);
-        var (_, runId) = await payroll.CreateRunAsync(w.Scope, w.Actor, new DateOnly(2026, 10, 1), Today, PayFrequency.Monthly, null, CancellationToken.None);
+        var (_, runId) = await payroll.CreateRunAsync(w.Scope, w.Actor, new DateOnly(2026, 10, 1), Today, PayFrequency.Monthly, null, null, CancellationToken.None);
         var run = (await payroll.GetRunAsync(w.Scope, runId!.Value, CancellationToken.None))!;
         var juanSlip = run.Payslips.Single(p => p.EmployeeId == juan.Id);
         var anaSlip = run.Payslips.Single(p => p.EmployeeId == ana!.Id);
@@ -208,7 +208,7 @@ public sealed partial class PayrollTests
 
         async Task<(Guid RunId, Guid PayslipId, IReadOnlyList<PayslipLineRecord> Lines, decimal Earnings)> PrepareAsync()
         {
-            var (created, runId) = await payroll.CreateRunAsync(w.Scope, w.Actor, new DateOnly(2026, 10, 1), Today, PayFrequency.Monthly, null,
+            var (created, runId) = await payroll.CreateRunAsync(w.Scope, w.Actor, new DateOnly(2026, 10, 1), Today, PayFrequency.Monthly, null, null,
                 CancellationToken.None);
             Assert.Equal(PayrollWriteOutcome.Done, created);
             var run = (await payroll.GetRunAsync(w.Scope, runId!.Value, CancellationToken.None))!;

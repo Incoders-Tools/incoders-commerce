@@ -74,6 +74,8 @@ public enum PayrollWriteOutcome
     AlreadySettled,
     /// <summary>employee-lifecycle E4: a discount names a goods item this payslip did not take.</summary>
     GoodsItemNotInPayslip,
+    /// <summary>owner feedback P4: an employee chosen for the run is not an active one of the branch paid that often.</summary>
+    EmployeesNotEligible,
 }
 
 /// <summary>
@@ -256,17 +258,34 @@ public sealed class PostgresPayrollStore
     /// <paramref name="payFrequency"/>, when given) with its base salary, the advances pending on its account (what it owes
     /// the business) and what its linked customer owes for goods.
     /// </summary>
+    /// <summary>
+    /// A Draft run of the period with a payslip per active employee of the branch (paid that often, when a frequency is
+    /// given); owner feedback P4: <paramref name="employeeIds"/> limits it to the ones chosen, every one of which must be
+    /// such an employee (otherwise <see cref="PayrollWriteOutcome.EmployeesNotEligible"/> and nothing is prepared).
+    /// </summary>
     public async Task<(PayrollWriteOutcome Outcome, Guid? RunId)> CreateRunAsync(
-        CloudTenantScope scope, Guid actorId, DateOnly periodFrom, DateOnly periodTo, string? payFrequency, string? notes, CancellationToken ct)
+        CloudTenantScope scope, Guid actorId, DateOnly periodFrom, DateOnly periodTo, string? payFrequency, string? notes,
+        IReadOnlyList<Guid>? employeeIds, CancellationToken ct)
     {
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
         await TenantScopeSql.ApplyAsync(connection, tx, scope, ct);
         var branchId = scope.BranchId!.Value;
 
+        var chosen = employeeIds?.Distinct().ToArray();
         var employees = await PostgresEmployeeStore.ReadAsync(connection, tx,
-            "WHERE e.branch_id = $1 AND e.is_active AND ($2::text IS NULL OR e.pay_frequency = $2) ORDER BY lower(e.last_name)",
-            ct, (NpgsqlTypes.NpgsqlDbType.Uuid, branchId), (NpgsqlTypes.NpgsqlDbType.Text, payFrequency));
+            """
+            WHERE e.branch_id = $1 AND e.is_active AND ($2::text IS NULL OR e.pay_frequency = $2) AND ($3::uuid[] IS NULL OR e.id = ANY($3))
+            ORDER BY lower(e.last_name)
+            """,
+            ct, (NpgsqlTypes.NpgsqlDbType.Uuid, branchId), (NpgsqlTypes.NpgsqlDbType.Text, payFrequency),
+            (NpgsqlTypes.NpgsqlDbType.Array | NpgsqlTypes.NpgsqlDbType.Uuid, chosen));
+        if (chosen is not null && employees.Count != chosen.Length)
+        {
+            await tx.RollbackAsync(ct);
+            return (PayrollWriteOutcome.EmployeesNotEligible, null);
+        }
+
         if (employees.Count == 0)
         {
             await tx.RollbackAsync(ct);

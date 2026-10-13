@@ -460,6 +460,24 @@ public sealed class TreasuryTests : IClassFixture<WebApplicationFactory<Program>
     }
 
     [Fact]
+    public async Task APayroll_IsPreparedOverHttp_ForTheChosenEmployees()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+        var (org, branch, _) = await SeedAsync();
+        var admin = await SignedInAsync(org, branch, Permission.ManageUsers);
+        var created = await admin.PostAsJsonAsync("/employees", new { branchId = branch, firstName = "Juan", lastName = "Pérez", baseSalary = 1m });
+        var employeeId = (await Json(created)).GetProperty("id").GetGuid();
+
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PostAsJsonAsync("/payroll/runs",
+            new { periodFrom = "2026-10-01", periodTo = "2026-10-12", employeeIds = Array.Empty<Guid>() })).StatusCode);
+        var stranger = await admin.PostAsJsonAsync("/payroll/runs",
+            new { periodFrom = "2026-10-01", periodTo = "2026-10-12", employeeIds = new[] { employeeId, Guid.NewGuid() } });
+        Assert.Equal((HttpStatusCode.Conflict, "employees-not-eligible"), (stranger.StatusCode, (await Json(stranger)).GetProperty("error").GetString()));
+        Assert.Equal(HttpStatusCode.Created, (await admin.PostAsJsonAsync("/payroll/runs",
+            new { periodFrom = "2026-10-01", periodTo = "2026-10-12", employeeIds = new[] { employeeId } })).StatusCode);
+    }
+
+    [Fact]
     public async Task TheFinalSettlement_IsPreparedOverHttp_OnlyForAnEmployeeGivenTheLeave()
     {
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }

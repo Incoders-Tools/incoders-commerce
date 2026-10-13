@@ -297,6 +297,8 @@ export function createPayrollRun(request: {
   periodTo: string
   payFrequency?: PayFrequency
   notes?: string
+  /** owner feedback P4: the employees chosen; omitted, every active one of the frequency. */
+  employeeIds?: string[]
 }): Promise<{ runId: string }> {
   return apiFetch<{ runId: string }>('/payroll/runs', { method: 'POST', body: JSON.stringify(request) })
 }

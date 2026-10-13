@@ -44,16 +44,23 @@
   },
   "new": {
     "title": "New payroll",
-    "hint": "A draft is prepared with a payslip per active employee of the branch (of the chosen frequency): agreed pay, pending advances and goods taken. Then add overtime, bonuses or other deductions and set the goods discount before paying.",
+    "hint": "A draft is prepared with a payslip for each employee chosen (among the active ones of the branch paid that often): the agreed salary, pending advances, overtime and the goods taken. Then you can add bonuses or other deductions, and set the goods discount before paying.",
     "from": "From",
     "to": "To",
     "frequency": "Employees paid",
     "notes": "Note (optional)",
+    "employees": "Employees to pay",
+    "chosenCount": "{{chosen}} of {{total}} chosen",
+    "all": "All",
+    "none": "None",
+    "noStaff": "There are no active employees in this branch with that pay frequency.",
+    "staffUnavailable": "The staff could not be loaded: every active employee of the frequency is paid.",
     "create": "Prepare payroll",
     "creating": "Preparing…",
     "cancel": "Cancel",
     "errors": {
-      "period": "Choose a valid period: \"From\" cannot be after \"To\"."
+      "period": "Choose a valid period: \"From\" cannot be after \"To\".",
+      "employees": "Choose at least one employee."
     }
   },
   "run": {
@@ -140,7 +147,8 @@
       "account-not-found": "That treasury account does not exist.",
       "account-inactive": "That treasury account is inactive.",
       "nothing-to-pay": "The payroll has no payslips.",
-      "branch-selection-required": "Choose a branch above."
+      "branch-selection-required": "Choose a branch above.",
+      "employees-not-eligible": "An employee chosen is no longer active in this branch or is paid on another frequency. Open the new payroll again and retry."
     }
   }
 }

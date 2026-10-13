@@ -249,7 +249,7 @@ public sealed partial class PayrollTests
             new NewAccountMovement(Guid.NewGuid(), AccountMovementKind.Invoice, AccountDirection.Debit, 6_000m, new DateOnly(2026, 9, 30), null, null,
                 "Saldo anterior", g.W.Actor), "org-user", g.W.Actor, CancellationToken.None);
 
-        var (_, runId) = await payroll.CreateRunAsync(g.W.Scope, g.W.Actor, new DateOnly(2026, 10, 1), Today, PayFrequency.Monthly, null, CancellationToken.None);
+        var (_, runId) = await payroll.CreateRunAsync(g.W.Scope, g.W.Actor, new DateOnly(2026, 10, 1), Today, PayFrequency.Monthly, null, null, CancellationToken.None);
         var slip = Assert.Single((await payroll.GetRunAsync(g.W.Scope, runId!.Value, CancellationToken.None))!.Payslips);
         Assert.Equal(30_000m, slip.PurchasesAmount);
         Assert.Equal([("Asado", 15_000m), ("Chorizo", 9_000m)], slip.GoodsItems.Select(i => (i.ProductName, i.LineTotal)).OrderBy(i => i.Item1));
@@ -292,7 +292,7 @@ public sealed partial class PayrollTests
         await Goods().RegisterAsync(g.W.Scope, g.W.Actor, g.Juan.Id, new DateOnly(2026, 10, 12), [new(g.Asado, 1m)], CancellationToken.None);
         async Task<string> Status() => Assert.Single(await Goods().ListAsync(g.W.Scope, g.Juan.Id, CancellationToken.None)).Status;
 
-        var (_, first) = await payroll.CreateRunAsync(g.W.Scope, g.W.Actor, new DateOnly(2026, 10, 1), Today, PayFrequency.Monthly, null, CancellationToken.None);
+        var (_, first) = await payroll.CreateRunAsync(g.W.Scope, g.W.Actor, new DateOnly(2026, 10, 1), Today, PayFrequency.Monthly, null, null, CancellationToken.None);
         var slip = Assert.Single((await payroll.GetRunAsync(g.W.Scope, first!.Value, CancellationToken.None))!.Payslips);
         Assert.Equal(OvertimeStatus.InPayroll, await Status());
         Assert.Equal(PayrollWriteOutcome.Done, await payroll.UpdatePayslipAsync(g.W.Scope, g.W.Actor, first.Value, slip.PayslipId,
@@ -302,7 +302,7 @@ public sealed partial class PayrollTests
         Assert.Equal(OvertimeStatus.Pending, await Status());
 
         // The next payroll takes it with the discount it was given.
-        var (_, second) = await payroll.CreateRunAsync(g.W.Scope, g.W.Actor, new DateOnly(2026, 10, 1), Today, PayFrequency.Monthly, null, CancellationToken.None);
+        var (_, second) = await payroll.CreateRunAsync(g.W.Scope, g.W.Actor, new DateOnly(2026, 10, 1), Today, PayFrequency.Monthly, null, null, CancellationToken.None);
         var again = Assert.Single((await payroll.GetRunAsync(g.W.Scope, second!.Value, CancellationToken.None))!.Payslips);
         Assert.Equal((20m, 2_000m), (Assert.Single(again.GoodsItems).DiscountPercent, again.PurchasesItemsDiscount));
         Assert.Equal(PayrollWriteOutcome.Done, await payroll.DeleteRunAsync(g.W.Scope, g.W.Actor, second.Value, CancellationToken.None));

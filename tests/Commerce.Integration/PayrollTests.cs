@@ -172,7 +172,7 @@ public sealed partial class PayrollTests : IDisposable
         Assert.Equal(-100_000m, (await employees.GetAsync(w.Scope, juan.Id, CancellationToken.None))!.Balance);
 
         // The monthly run: only the monthly employee, with its salary, its advance and its goods.
-        var (created, runId) = await payroll.CreateRunAsync(w.Scope, w.Actor, new DateOnly(2026, 10, 1), Today, PayFrequency.Monthly, null, CancellationToken.None);
+        var (created, runId) = await payroll.CreateRunAsync(w.Scope, w.Actor, new DateOnly(2026, 10, 1), Today, PayFrequency.Monthly, null, null, CancellationToken.None);
         Assert.Equal(PayrollWriteOutcome.Done, created);
         var run = (await payroll.GetRunAsync(w.Scope, runId!.Value, CancellationToken.None))!;
         var slip = Assert.Single(run.Payslips);
@@ -207,17 +207,50 @@ public sealed partial class PayrollTests : IDisposable
     }
 
     [Fact]
+    public async Task APayroll_IsPreparedForTheChosenEmployees_AndRefusesOneThatCannotBeInIt()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+        var w = await SeedAsync();
+        var employees = Employees();
+        var payroll = new PostgresPayrollStore(_dataSource!);
+        var (_, juan) = await employees.CreateAsync(w.Scope, w.Actor, Input(w, "Juan", 500_000m), false, CancellationToken.None);
+        var (_, ana) = await employees.CreateAsync(w.Scope, w.Actor, Input(w, "Ana", 400_000m), false, CancellationToken.None);
+        var (_, luis) = await employees.CreateAsync(w.Scope, w.Actor, Input(w, "Luis", 300_000m), false, CancellationToken.None);
+        var (_, weekly) = await employees.CreateAsync(w.Scope, w.Actor, Input(w, "Semanal", 90_000m, frequency: PayFrequency.Weekly), false,
+            CancellationToken.None);
+
+        // owner feedback P4: only the ones chosen (Luis is not paid this time).
+        var (created, runId) = await payroll.CreateRunAsync(w.Scope, w.Actor, new DateOnly(2026, 10, 1), Today, PayFrequency.Monthly, null,
+            [juan!.Id, ana!.Id], CancellationToken.None);
+        Assert.Equal(PayrollWriteOutcome.Done, created);
+        var run = (await payroll.GetRunAsync(w.Scope, runId!.Value, CancellationToken.None))!;
+        Assert.Equal([ana.Id, juan.Id], run.Payslips.Select(p => p.EmployeeId).OrderBy(id => id == ana.Id ? 0 : 1));
+        Assert.Equal(2, run.Run.EmployeeCount);
+
+        // One of another frequency, one given the leave, or one that is not of the branch: refused, nothing prepared.
+        Assert.Equal(EmployeeWriteOutcome.Done,
+            await employees.SetActiveAsync(w.Scope, w.Actor, luis!.Id, false, Today, "Renuncia", CancellationToken.None));
+        foreach (var chosen in new[] { weekly!.Id, luis.Id, Guid.NewGuid() })
+        {
+            Assert.Equal(PayrollWriteOutcome.EmployeesNotEligible, (await payroll.CreateRunAsync(w.Scope, w.Actor, new DateOnly(2026, 10, 1), Today,
+                PayFrequency.Monthly, null, [juan.Id, chosen], CancellationToken.None)).Outcome);
+        }
+
+        Assert.Single(await payroll.ListRunsAsync(w.Scope, CancellationToken.None));
+    }
+
+    [Fact]
     public async Task ADraft_IsDiscarded_OrLosesAnEmployee_AndARunWithoutEmployeesIsRefused()
     {
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
         var w = await SeedAsync();
         var payroll = new PostgresPayrollStore(_dataSource!);
         Assert.Equal(PayrollWriteOutcome.NoEmployees,
-            (await payroll.CreateRunAsync(w.Scope, w.Actor, Today, Today, null, null, CancellationToken.None)).Outcome);
+            (await payroll.CreateRunAsync(w.Scope, w.Actor, Today, Today, null, null, null, CancellationToken.None)).Outcome);
 
         await Employees().CreateAsync(w.Scope, w.Actor, Input(w, "Juan", 1_000m), false, CancellationToken.None);
         await Employees().CreateAsync(w.Scope, w.Actor, Input(w, "Ana", 1_000m), false, CancellationToken.None);
-        var (_, runId) = await payroll.CreateRunAsync(w.Scope, w.Actor, Today, Today, null, null, CancellationToken.None);
+        var (_, runId) = await payroll.CreateRunAsync(w.Scope, w.Actor, Today, Today, null, null, null, CancellationToken.None);
         var run = (await payroll.GetRunAsync(w.Scope, runId!.Value, CancellationToken.None))!;
         Assert.Equal(PayrollWriteOutcome.Done, await payroll.RemovePayslipAsync(w.Scope, run.Run.RunId, run.Payslips[0].PayslipId, CancellationToken.None));
         Assert.Single((await payroll.GetRunAsync(w.Scope, run.Run.RunId, CancellationToken.None))!.Payslips);
@@ -225,6 +258,6 @@ public sealed partial class PayrollTests : IDisposable
         Assert.Equal(PayrollWriteOutcome.Done, await payroll.DeleteRunAsync(w.Scope, w.Actor, run.Run.RunId, CancellationToken.None));
         Assert.Null(await payroll.GetRunAsync(w.Scope, run.Run.RunId, CancellationToken.None));
         // A discarded draft leaves nothing behind: the period is prepared again from scratch.
-        Assert.Equal(PayrollWriteOutcome.Done, (await payroll.CreateRunAsync(w.Scope, w.Actor, Today, Today, null, null, CancellationToken.None)).Outcome);
+        Assert.Equal(PayrollWriteOutcome.Done, (await payroll.CreateRunAsync(w.Scope, w.Actor, Today, Today, null, null, null, CancellationToken.None)).Outcome);
     }
 }
