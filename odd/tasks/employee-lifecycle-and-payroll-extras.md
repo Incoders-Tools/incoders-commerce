@@ -126,6 +126,10 @@ advances (items 3, 6, 7 and 9 of the owner's 2026-10-11 request).
     (not `errors.codes`, which the POS compares). RED: the page did not exist and the row action was missing; GREEN: 5;
     web suite 819, POS employees 52.
   - [ ] E4d Web payslip editor (items with their discount) and the wording that says POS only (web + POS).
+    - [x] Wording: "Lleva mercadería" and its hint say the goods are registered in the web («Mercadería») or sold at
+      the POS on account, and deducted with the discount decided at payroll, per product and on the total; the same
+      texts in the web (es/en) and the POS form (`TakesGoods_ReadsTheWebsTexts_WhichNoLongerSayThePosOnly`). RED: the
+      POS hint differed and neither said "web"; GREEN: POS employees 53, web 820.
 
 ## Follow-ups
 

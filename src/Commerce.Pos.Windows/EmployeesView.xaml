@@ -142,9 +142,9 @@
                                     <TextBlock Text="Para las horas extra: horas × este valor × el multiplicador (el domingo, ×2). Vacío: no se cargan horas extra."
                                                Style="{StaticResource FieldHint}" />
                                     <CheckBox x:Name="TakesGoodsCheckBox" Margin="0,0,0,4"
-                                              Content="Lleva mercadería (se le vende en el POS a cuenta y se descuenta del sueldo)"
+                                              Content="Lleva mercadería (se registra en la web o se le vende en el POS a cuenta, y se descuenta del sueldo)"
                                               AutomationProperties.Name="Lleva mercadería" />
-                                    <TextBlock Text="Se crea un cliente «Apellido, Nombre (personal)» para venderle en el POS a cuenta corriente. Al liquidar, lo que debe se descuenta del sueldo con el % de bonificación que decidas en ese momento."
+                                    <TextBlock Text="Se crea un cliente «Apellido, Nombre (personal)»: la mercadería se registra en la web («Mercadería») o se le vende en el POS a cuenta corriente. Al liquidar, lo que debe se descuenta del sueldo con la bonificación que decidas en ese momento, por producto y sobre el total."
                                                Style="{StaticResource FieldHint}" Margin="0,0,0,10" />
 
                                     <TextBlock Text="Observaciones" Style="{StaticResource FieldLabel}" />

@@ -152,6 +152,21 @@ public sealed class PosEmployeesTests
     }
 
     [Fact]
+    public void TakesGoods_ReadsTheWebsTexts_WhichNoLongerSayThePosOnly()
+    {
+        // employee-lifecycle E4: the goods are registered in the web too, not only sold at the POS.
+        using var web = JsonDocument.Parse(File.ReadAllText(Path.Combine(
+            RepoRoot(), "src", "Commerce.Web", "src", "i18n", "locales", "es", "employees.json")));
+        var form = web.RootElement.GetProperty("form");
+        var xaml = Src("EmployeesView.xaml");
+        foreach (var text in new[] { form.GetProperty("takesGoods").GetString()!, form.GetProperty("takesGoodsHint").GetString()! })
+        {
+            Assert.Contains("web", text);
+            Assert.Contains(text, xaml);
+        }
+    }
+
+    [Fact]
     public async Task Overtime_HasItsRowAction_ItsPanel_AndTheWebsTexts()
     {
         var (list, ana, _, _) = List();
