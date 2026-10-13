@@ -44,6 +44,7 @@ export function DeliveryRunFormScreen() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [typedVehicle, setTypedVehicle] = useState<string | null>(null)
   const [runVehicle, setRunVehicle] = useState<{ id: string; label: string } | null>(null)
+  const [vehiclesFailed, setVehiclesFailed] = useState(false)
   const [notes, setNotes] = useState('')
   const [stops, setStops] = useState<OrderTrackingSummary[]>([])
   const [available, setAvailable] = useState<OrderTrackingSummary[]>([])
@@ -56,12 +57,14 @@ export function DeliveryRunFormScreen() {
     Promise.all([
       listOrders({ status: 'Active' }),
       editing ? getRun(id) : Promise.resolve(null),
-      // Without the vehicles the run is still planned (with none, or the one it has).
-      listVehicles().catch(() => [] as Vehicle[]),
+      // Without the vehicles the run is still planned (with none, or the one it has), and the form says so.
+      listVehicles().catch(() => null),
     ])
-      .then(([active, detail, activeVehicles]) => {
+      .then(([active, detail, readVehicles]) => {
         if (cancelled) return
+        const activeVehicles = readVehicles ?? []
         setVehicles(activeVehicles)
+        setVehiclesFailed(readVehicles === null)
         // A new run takes the only active vehicle by itself.
         if (!detail && activeVehicles.length === 1) setVehicleChoice(activeVehicles[0].id)
         const current = detail?.stops.map((stop) => stop.order) ?? active.filter((order) => preselected.includes(order.orderId))
@@ -170,7 +173,13 @@ export function DeliveryRunFormScreen() {
                 </option>
               ))}
             </Select>
-            <p className="text-xs text-muted-foreground">{t('runs.form.vehicleHint')}</p>
+            {vehiclesFailed ? (
+              <p role="status" className="text-xs text-destructive">
+                {t('runs.form.vehiclesUnavailable')}
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">{t('runs.form.vehicleHint')}</p>
+            )}
           </div>
           <div className="flex flex-col gap-1.5 sm:col-span-3">
             <Label htmlFor="notes">{t('runs.form.notes')}</Label>

@@ -56,6 +56,13 @@ request).
   (status, not only the code), an edit cannot take another vehicle's plate, a brand over 60 characters is a 400. RED:
   the edited vehicle came back active; GREEN: 4.
 
+- [x] W2 V3 review (`review-208a89e13b35a2c8`, approved, 4 lenses), fixed right after `e103007`: when the vehicles could
+  not be read, the run form showed "Sin vehículo" silently; now it says the run can be saved without one and picked
+  later. RED: no message; GREEN: fulfillment screens 14. Open: a web bundle from before V3 (cached during a deploy)
+  editing a run sends no `vehicleId`, so the run keeps the vehicle's text but loses the link
+  (`PostgresFulfillmentStore.cs:457-458`); readability suggestions (`PostgresFulfillmentStore.cs:362, 436-454`,
+  `Fulfillment.cs:316-317`); a cross-organization edit test (`VehicleTests.cs:194-199`).
+
 ## Constraints
 
 Same as `owner-requests-quick-adjustments.md`.

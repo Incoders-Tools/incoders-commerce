@@ -159,6 +159,7 @@
       "noVehicle": "Sin vehículo",
       "typedVehicle": "{{text}} (escrito a mano)",
       "vehicleHint": "Los vehículos se cargan en Tablas auxiliares → Vehículos.",
+      "vehiclesUnavailable": "No se pudieron cargar los vehículos: el reparto se puede guardar sin vehículo y elegirlo después.",
       "notes": "Observaciones",
       "orders": "Pedidos del reparto",
       "ordersHint": "El orden es el de las entregas. Solo se ofrecen pedidos en curso que no están en otro reparto.",

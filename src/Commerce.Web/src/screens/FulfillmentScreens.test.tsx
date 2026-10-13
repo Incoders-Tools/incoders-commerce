@@ -227,6 +227,18 @@ describe('fulfillment screens', () => {
     expect(JSON.parse(callsTo('POST /deliveries/runs')[0][1].body as string)).toMatchObject({ vehicleId: 'v-2', vehicle: null })
   })
 
+  it('says so when the vehicles cannot be read, instead of leaving the run without one silently', async () => {
+    routeFetch({
+      'GET /orders/tracking': () => json([order()]),
+      'GET /vehicles': () => json({ error: 'boom' }, 500),
+    })
+    renderAt('/app/deliveries/new?orders=o-1', <DeliveryRunFormScreen />, '/app/deliveries/new')
+
+    expect(await screen.findByText('No se pudieron cargar los vehículos: el reparto se puede guardar sin vehículo y elegirlo después.'))
+      .toBeInTheDocument()
+    expect(screen.getByLabelText('Vehículo')).toHaveValue('')
+  })
+
   it('keeps the vehicle typed on an older run when editing', async () => {
     routeFetch({
       'GET /orders/tracking': () => json([order({ runId: 'r-1', runNumber: 3 })]),

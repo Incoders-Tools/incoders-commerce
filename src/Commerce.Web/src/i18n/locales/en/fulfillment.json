@@ -159,6 +159,7 @@
       "noVehicle": "No vehicle",
       "typedVehicle": "{{text}} (typed by hand)",
       "vehicleHint": "Vehicles are managed in Lookup tables → Vehicles.",
+      "vehiclesUnavailable": "The vehicles could not be loaded: the run can be saved without one and picked later.",
       "notes": "Notes",
       "orders": "Orders of the run",
       "ordersHint": "The order is the delivery order. Only orders in progress that are in no other run are offered.",
