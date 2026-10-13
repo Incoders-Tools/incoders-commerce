@@ -228,30 +228,37 @@ public sealed class PostgresPayrollStore
         NpgsqlConnection connection, NpgsqlTransaction tx, List<PayslipRecord> payslips, Guid? runAccountId, string? runAccountName,
         CancellationToken ct)
     {
+        // Every part of the run's payslips in one read.
+        var parts = new Dictionary<Guid, List<PayslipPaymentRecord>>();
+        await using (var cmd = new NpgsqlCommand(
+            """
+            SELECT p.payslip_id, p.account_id, a.name, p.amount
+            FROM payslip_payments p
+            JOIN treasury_accounts a ON a.organization_id = p.organization_id AND a.id = p.account_id
+            WHERE p.payslip_id = ANY($1)
+            ORDER BY p.payslip_id, p.line_no
+            """, connection, tx))
+        {
+            cmd.Parameters.AddWithValue(payslips.Select(slip => slip.PayslipId).ToArray());
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+            {
+                var payslipId = reader.GetGuid(0);
+                if (!parts.TryGetValue(payslipId, out var list)) parts[payslipId] = list = [];
+                list.Add(new PayslipPaymentRecord(reader.GetGuid(1), reader.GetString(2), reader.GetDecimal(3)));
+            }
+        }
+
         var result = new List<PayslipRecord>(payslips.Count);
         foreach (var slip in payslips)
         {
-            var payments = new List<PayslipPaymentRecord>();
-            await using (var cmd = new NpgsqlCommand(
-                """
-                SELECT p.account_id, a.name, p.amount
-                FROM payslip_payments p
-                JOIN treasury_accounts a ON a.organization_id = p.organization_id AND a.id = p.account_id
-                WHERE p.payslip_id = $1
-                ORDER BY p.line_no
-                """, connection, tx))
-            {
-                cmd.Parameters.AddWithValue(slip.PayslipId);
-                await using var reader = await cmd.ExecuteReaderAsync(ct);
-                while (await reader.ReadAsync(ct))
-                {
-                    payments.Add(new PayslipPaymentRecord(reader.GetGuid(0), reader.GetString(1), reader.GetDecimal(2)));
-                }
-            }
+            var payments = parts.GetValueOrDefault(slip.PayslipId) ?? [];
 
+            // Since 0058 a paid payslip with a net always kept its parts (a split names at least one account): none means a
+            // run paid before, from its one account.
             if (payments.Count == 0 && runAccountId is { } legacy && slip.NetPaid > 0m)
             {
-                payments.Add(new PayslipPaymentRecord(legacy, runAccountName ?? string.Empty, slip.NetPaid));
+                payments = [new PayslipPaymentRecord(legacy, runAccountName ?? string.Empty, slip.NetPaid)];
             }
 
             result.Add(slip with { Payments = payments });

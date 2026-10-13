@@ -503,6 +503,8 @@ public sealed class TreasuryTests : IClassFixture<WebApplicationFactory<Program>
 
         Assert.Equal(HttpStatusCode.BadRequest, (await admin.PostAsJsonAsync($"/payroll/runs/{runId}/pay", Split((cash!.AccountId, 0m)))).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await admin.PostAsJsonAsync($"/payroll/runs/{runId}/pay", Split((cash.AccountId, 1.001m)))).StatusCode);
+        // A split with no account would pay that employee nothing, silently: refused (take the payslip out instead).
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PostAsJsonAsync($"/payroll/runs/{runId}/pay", Split())).StatusCode);
         var over = await admin.PostAsJsonAsync($"/payroll/runs/{runId}/pay", Split((cash.AccountId, 600m), (bank!.AccountId, 400.01m)));
         Assert.Equal((HttpStatusCode.Conflict, "payment-exceeds-net"), (over.StatusCode, (await Json(over)).GetProperty("error").GetString()));
         Assert.Equal(HttpStatusCode.NoContent,

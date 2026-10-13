@@ -317,7 +317,9 @@ public static class EmployeeEndpoints
             if (splits.DistinctBy(split => split.PayslipId).Count() != splits.Count) errors["splits"] = ["Each payslip at most once."];
             foreach (var (split, index) in splits.Select((split, index) => (split, index)))
             {
-                if ((split.Parts ?? []).Count > MaxPaymentParts) errors[$"splits[{index}].parts"] = [$"At most {MaxPaymentParts} accounts."];
+                // No account would pay the employee nothing without saying so: to leave a payslip unpaid, take it out of the run.
+                if ((split.Parts ?? []).Count == 0) errors[$"splits[{index}].parts"] = ["At least one account."];
+                else if ((split.Parts ?? []).Count > MaxPaymentParts) errors[$"splits[{index}].parts"] = [$"At most {MaxPaymentParts} accounts."];
                 else if ((split.Parts ?? []).Any(part => !PayslipRules.IsValidAmount(part.Amount)))
                 {
                     errors[$"splits[{index}].parts"] = ["Each part: positive, with at most two decimals."];

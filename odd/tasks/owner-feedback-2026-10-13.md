@@ -89,6 +89,14 @@ paid from several accounts.
   gave, so after the screen emptied it, the screen setting that same date again did not show; now a value seen from the
   screen is forgotten as given. RED: the field stayed empty; GREEN: date field 7.
 
+- [x] X3 P5 review (`review-b51cae6ea443ff43`, approved, 4 lenses), fixed right after `ded3b24`: a split naming no
+  account paid that employee nothing without saying so (and read back as the run's account); now it is a 400 ("At least
+  one account."; to leave a payslip unpaid, take it out). The parts of a run's payslips are read in one query. RED: the
+  empty split was a 204; GREEN: payroll + treasury 41. Open (locations only): the treasury source id of a salary
+  payment is now the part's id (the payslip's for runs paid before 0058) — nothing else reads it; readability
+  (`PostgresPayrollStore.cs:850-858`, `PayrollRunScreen.tsx:561-565`); the status badge names the run's account when
+  every payslip was paid from one other account (`PayrollRunScreen.tsx:173-175`).
+
 ## Constraints
 
 Same as `owner-requests-quick-adjustments.md` (server rules, parity, idempotent migrations, strict TDD, healthy
