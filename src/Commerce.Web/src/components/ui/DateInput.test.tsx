@@ -26,6 +26,9 @@ describe('DateInput (Input type="date")', () => {
         <button type="button" onClick={() => setValue('2026-01-05')}>
           Poner 5 de enero
         </button>
+        <button type="button" onClick={() => setValue('')}>
+          Vaciar
+        </button>
         <output data-testid="iso">{value}</output>
       </>
     )
@@ -73,5 +76,35 @@ describe('DateInput (Input type="date")', () => {
     fireEvent.change(screen.getByLabelText('Fecha'), { target: { value: '2026-10-11' } })
     expect(screen.getByLabelText('Fecha')).toHaveValue('11/10/2026')
     expect(screen.getByTestId('iso')).toHaveTextContent('2026-10-11')
+  })
+
+  it('keeps what is typed when the screen does not hold the value, and starts over when the screen empties it', async () => {
+    const user = userEvent.setup()
+    render(
+      <>
+        <Input type="date" aria-label="Libre" />
+        <Harness />
+      </>,
+    )
+
+    await user.type(screen.getByLabelText('Libre'), '13102026')
+    expect(screen.getByLabelText('Libre')).toHaveValue('13/10/2026')
+
+    await user.type(screen.getByLabelText('Fecha'), '13102026')
+    fireEvent.click(screen.getByRole('button', { name: 'Vaciar' }))
+    expect(screen.getByLabelText('Fecha')).toHaveValue('')
+    await user.type(screen.getByLabelText('Fecha'), '05')
+    expect(screen.getByLabelText('Fecha')).toHaveValue('05/')
+  })
+
+  it('keeps a half-typed date while the screen holds the date it had, until the screen sets another', async () => {
+    const user = userEvent.setup()
+    render(<Harness initial="2026-10-13" />)
+
+    await user.type(screen.getByLabelText('Fecha'), '{backspace}{backspace}')
+    expect(screen.getByLabelText('Fecha')).toHaveValue('13/10/20')
+    expect(screen.getByTestId('iso')).toHaveTextContent(/^$/)
+    fireEvent.click(screen.getByRole('button', { name: 'Poner 5 de enero' }))
+    expect(screen.getByLabelText('Fecha')).toHaveValue('05/01/2026')
   })
 })

@@ -50,14 +50,25 @@ type DateInputProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type' |
 export const DateInput = React.forwardRef<HTMLInputElement, DateInputProps>(
   ({ className, value, onChange, min, max, disabled, ...props }, ref) => {
     const { t } = useTranslation('common')
-    const [text, setText] = React.useState('')
+    const [text, setText] = React.useState(() => display(value))
     const picker = React.useRef<HTMLInputElement>(null)
+    // The value last seen from the screen, and the last one this field gave it.
+    const [seen, setSeen] = React.useState(value ?? '')
+    const [given, setGiven] = React.useState<string | null>(null)
 
-    // What is being typed shows while it means the date the screen holds; a date the screen sets (loaded, cleared,
-    // proposed) shows at once, in the same render, as the browser's own field would.
-    const shown = parse(text) === (value ?? '') ? text : display(value)
+    // What is typed stays (half a date, a day that does not exist, a field the screen does not hold). A date the screen
+    // sets by itself (loaded, cleared, proposed) replaces it at once, in the same render, as the browser's field would;
+    // the screen taking back what this field just gave it changes nothing.
+    const current = value ?? ''
+    if (current !== seen) {
+      setSeen(current)
+      if (current !== given) setText(display(current))
+    }
 
-    const emit = (iso: string) => onChange?.({ target: { value: iso }, currentTarget: { value: iso } } as React.ChangeEvent<HTMLInputElement>)
+    const emit = (iso: string) => {
+      setGiven(iso)
+      onChange?.({ target: { value: iso }, currentTarget: { value: iso } } as React.ChangeEvent<HTMLInputElement>)
+    }
 
     const change = (raw: string) => {
       if (ISO.test(raw)) {
@@ -66,7 +77,7 @@ export const DateInput = React.forwardRef<HTMLInputElement, DateInputProps>(
         return emit(toIso(day, month, year) ?? '')
       }
       // Erasing keeps what is left as it is (a slash can be erased); typing puts the slashes.
-      const next = raw.length < shown.length ? raw : withSlashes(raw)
+      const next = raw.length < text.length ? raw : withSlashes(raw)
       setText(next)
       emit(parse(next))
     }
@@ -83,7 +94,7 @@ export const DateInput = React.forwardRef<HTMLInputElement, DateInputProps>(
           min={min}
           max={max}
           disabled={disabled}
-          value={shown}
+          value={text}
           onChange={(e) => change(e.target.value)}
           className="flex h-9 w-full rounded-md border border-input bg-background py-1 pr-9 pl-3 text-sm text-foreground shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
           {...props}

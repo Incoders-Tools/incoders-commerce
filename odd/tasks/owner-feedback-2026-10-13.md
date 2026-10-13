@@ -57,6 +57,16 @@ paid from several accounts.
 - [ ] P4 Preparing a payroll for chosen employees (multiple selection).
 - [ ] P5 Paying a payslip from several accounts.
 
+## Follow-ups
+
+- [x] X1 P3 review (`review-dce08a8b3cbce438`, approved), fixed right after `3012a47`: the date field derived what it
+  showed from the screen's value, so a field the screen did not hold erased a typed date once complete, and text the
+  screen no longer meant could linger. Now what is typed is the field's own, replaced only when the screen sets another
+  value by itself (not when it takes back what the field gave it). The organizations test no longer checks the formatter
+  against itself. RED: the free field emptied itself; GREEN: web 845. Open: the field's change event carries the value
+  only (no screen reads more); min/max are carried but not enforced on typing (each screen validates its dates).
+  Refuted (P2 review): the position refreshes with the account (`refresh` reloads the holder).
+
 ## Constraints
 
 Same as `owner-requests-quick-adjustments.md` (server rules, parity, idempotent migrations, strict TDD, healthy

@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { OrganizationsScreen } from './OrganizationsScreen'
 import { OrganizationProvider } from '@/organization/OrganizationContext'
 import type { OrganizationSummary } from '@/api/types'
-import { formatInstantDate } from '@/dashboard/format'
 
 /**
  * platform-administration spec, "Sysadmin Acts On A Selected Organization":
@@ -80,7 +79,7 @@ describe('OrganizationsScreen', () => {
 
     const row = within(await screen.findByRole('table')).getAllByRole('row')[1]
     expect(within(row).getByText('Vaca Verde')).toBeInTheDocument()
-    expect(within(row).getByText(formatInstantDate(vacaVerde.createdAt))).toBeInTheDocument()
+    expect(within(row).getByText(/^(15\/02\/2024|14\/02\/2024)$/)).toBeInTheDocument()
   })
 
   it('shows an empty state when there are no organizations', async () => {
