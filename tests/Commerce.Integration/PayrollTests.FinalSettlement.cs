@@ -83,7 +83,7 @@ public sealed partial class PayrollTests
         // September is paid.
         var (_, september) = await payroll.CreateRunAsync(w.Scope, w.Actor, new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 30), PayFrequency.Monthly,
             null, null, CancellationToken.None);
-        Assert.Equal(PayrollWriteOutcome.Done, await payroll.PayRunAsync(w.Scope, w.Actor, september!.Value, w.Cash, new DateOnly(2026, 9, 30),
+        Assert.Equal(PayrollWriteOutcome.Done, await payroll.PayRunAsync(w.Scope, w.Actor, september!.Value, w.Cash, new DateOnly(2026, 9, 30), null,
             CancellationToken.None));
 
         // In October Juan works overtime, takes an advance and leaves on the 10th.
@@ -125,7 +125,7 @@ public sealed partial class PayrollTests
             await employees.SetActiveAsync(w.Scope, w.Actor, juan.Id, true, null, null, CancellationToken.None));
 
         // Once paid, his leave is settled: no second final settlement; reinstating him is allowed again.
-        Assert.Equal(PayrollWriteOutcome.Done, await payroll.PayRunAsync(w.Scope, w.Actor, finalRun.Value, w.Cash, Today, CancellationToken.None));
+        Assert.Equal(PayrollWriteOutcome.Done, await payroll.PayRunAsync(w.Scope, w.Actor, finalRun.Value, w.Cash, Today, null, CancellationToken.None));
         Assert.Equal(PayrollWriteOutcome.AlreadySettled,
             (await payroll.CreateFinalSettlementAsync(w.Scope, w.Actor, juan.Id, CancellationToken.None)).Outcome);
         Assert.Equal(EmployeeWriteOutcome.Done, await employees.SetActiveAsync(w.Scope, w.Actor, juan.Id, true, null, null, CancellationToken.None));

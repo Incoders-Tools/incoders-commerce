@@ -18,7 +18,8 @@
   "status": {
     "draft": "Borrador",
     "paid": "Pagada el {{date}}",
-    "paidFrom": "Pagada el {{date}} desde {{account}}"
+    "paidFrom": "Pagada el {{date}} desde {{account}}",
+    "paidFromSeveral": "Pagada el {{date}} desde varias cuentas"
   },
   "columns": {
     "number": "N°",
@@ -86,7 +87,22 @@
     "cancel": "Cancelar",
     "confirmTitle": "Pagar la liquidación {{number}}",
     "confirmMessage_one": "Se paga {{total}} desde {{account}} a {{count}} empleado. ¿Confirmás?",
-    "confirmMessage_other": "Se pagan {{total}} desde {{account}} a {{count}} empleados. ¿Confirmás?"
+    "confirmMessage_other": "Se pagan {{total}} desde {{account}} a {{count}} empleados. ¿Confirmás?",
+    "severalAccounts": "varias cuentas",
+    "splitsTitle": "Cómo se paga cada recibo",
+    "splitOf": "Pago de {{name}}",
+    "whole": "Todo desde {{account}}",
+    "split": "Dividir el pago",
+    "splitLabel": "Dividir el pago de {{name}}",
+    "unsplit": "Todo desde una cuenta",
+    "partAccount": "Cuenta {{n}} de {{name}}",
+    "partAmount": "Importe {{n}} de {{name}}",
+    "addPart": "+ Agregar cuenta",
+    "removePart": "Quitar",
+    "partsSum": "Se paga {{paid}} de {{net}}.",
+    "partsOver": "Supera el neto por {{amount}}.",
+    "partsShort": "Quedan {{amount}} a favor del empleado (Le debemos).",
+    "partsInvalid": "Cada cuenta necesita un importe mayor que cero, con hasta dos decimales."
   },
   "editor": {
     "lines": "Haberes y descuentos de {{name}}",
@@ -122,7 +138,9 @@
     },
     "overtimeHint": "Se calcula con las horas extra cargadas.",
     "goodsDeductionLine": "Mercadería (con bonificación)",
-    "goodsDeductionHint": "Se calcula con la mercadería que llevó y la bonificación de abajo."
+    "goodsDeductionHint": "Se calcula con la mercadería que llevó y la bonificación de abajo.",
+    "paidFrom": "Pagado desde {{account}}",
+    "leftOwed": "Quedó a favor del empleado"
   },
   "print": {
     "back": "Volver",
@@ -136,7 +154,9 @@
     "net": "Neto cobrado",
     "paid": "Pagado el {{date}} ({{account}}).",
     "disclaimer": "Comprobante interno de lo pagado. No reemplaza el recibo de sueldo legal.",
-    "signature": "Recibí conforme (firma y aclaración)"
+    "signature": "Recibí conforme (firma y aclaración)",
+    "paidParts": "Pagado el {{date}}: {{parts}}.",
+    "leftOwed": "Quedó a favor del empleado: {{amount}}."
   },
   "errors": {
     "load": "No se pudo cargar la liquidación.",
@@ -148,7 +168,9 @@
       "account-inactive": "Esa cuenta de Tesorería está inactiva.",
       "nothing-to-pay": "La liquidación no tiene recibos.",
       "branch-selection-required": "Elegí una sucursal arriba.",
-      "employees-not-eligible": "Algún empleado elegido ya no está activo en esta sucursal o cobra con otra frecuencia. Volvé a abrir la liquidación nueva y probá de nuevo."
+      "employees-not-eligible": "Algún empleado elegido ya no está activo en esta sucursal o cobra con otra frecuencia. Volvé a abrir la liquidación nueva y probá de nuevo.",
+      "payment-exceeds-net": "Lo que se paga desde las cuentas supera el neto de algún recibo.",
+      "payment-not-in-run": "Algún recibo ya no está en esta liquidación. Volvé a abrirla y probá de nuevo."
     }
   }
 }

@@ -61,7 +61,20 @@ paid from several accounts.
   ones of the frequency chosen, "0001 · Bacca, Ariel"), all checked at first, "Todos" / "Ninguno", "N de M elegidos";
   at least one ("Elegí al menos un empleado."); without the staff read, every one of the frequency as before. RED: did
   not compile (server), no list (web); GREEN: payroll + treasury + device operator 67, web 848 (101 files).
-- [ ] P5 Paying a payslip from several accounts.
+- [x] P5 Paying a payslip from several accounts.
+  Migration 0058 (appended to `init-rls.sql`, applied locally): `payslip_payments`, the parts of a payslip's payment
+  (account, amount; RLS); each part's treasury movement (SalaryPayment, Out) points at it, so a payslip can leave
+  several accounts (the treasury source key is unique). `PayRunAsync(..., splits)` / `POST /payroll/runs/{id}/pay`
+  `splits: [{ payslipId, parts: [{ accountId, amount }] }]`: the payslips not named are paid whole from the run's
+  account; the parts never exceed the net (409 `payment-exceeds-net`, nothing posted), name a payslip of the run (409
+  `payment-not-in-run`), active accounts; what they leave unpaid stays owed to the employee ("Le debemos"). The run
+  detail gives each paid payslip its `payments` and `paid` (runs paid before 0058: the run's account and the net). Web:
+  "Cómo se paga cada recibo" in the payment panel ("Todo desde <cuenta>", "Dividir el pago", "+ Agregar cuenta" with
+  another account and what is left, "Se paga X de Y", "Supera el neto por X" blocks paying, "Quedan X a favor del
+  empleado (Le debemos)"); a paid run reads "desde varias cuentas", each payslip "Pagado desde <cuenta>" and "Quedó a
+  favor del empleado"; the printed payslip "Pagado el <fecha>: Caja $ … + Banco $ …". RED: did not compile (server),
+  no split (web); GREEN: payroll + treasury + RLS + device operator 136, web 852 (102 files); print control: without the
+  change, the print test fails.
 
 ## Follow-ups
 

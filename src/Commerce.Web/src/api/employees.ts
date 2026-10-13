@@ -267,6 +267,22 @@ export interface Payslip {
   deductions: number
   net: number
   netPaid: number
+  /** owner feedback P5: what paid it, account by account (empty while a Draft). */
+  payments: PayslipPayment[]
+  /** What the payments add up to; below netPaid the rest stayed owed to the employee. */
+  paid: number
+}
+
+export interface PayslipPayment {
+  accountId: string
+  accountName: string
+  amount: number
+}
+
+/** owner feedback P5: one payslip's net paid part by part from several accounts ("pago mixto"). */
+export interface PayslipSplit {
+  payslipId: string
+  parts: { accountId: string; amount: number }[]
 }
 
 export interface PayrollRunDetail {
@@ -324,6 +340,6 @@ export function deletePayrollRun(runId: string): Promise<void> {
   return apiFetch<void>(`/payroll/runs/${runId}`, { method: 'DELETE' })
 }
 
-export function payPayrollRun(runId: string, request: { accountId: string; paidOn?: string }): Promise<void> {
+export function payPayrollRun(runId: string, request: { accountId: string; paidOn?: string; splits?: PayslipSplit[] }): Promise<void> {
   return apiFetch<void>(`/payroll/runs/${runId}/pay`, { method: 'POST', body: JSON.stringify(request) })
 }

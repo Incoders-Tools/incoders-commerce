@@ -51,6 +51,7 @@ describe('staff and payroll screens', () => {
     accountId: 'acc-cash', branchId: 'b-1', branchName: 'Arrecifes', kind: 'Cash', name: 'Caja efectivo · Arrecifes',
     balance: 0, todayIn: 0, todayOut: 0, isActive: true,
   }
+  const bank: TreasuryAccount = { ...cash, accountId: 'acc-bank', kind: 'Bank', name: 'Banco Nación' }
 
   function routeFetch(routes: Record<string, (init?: RequestInit) => Response>) {
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
@@ -260,7 +261,7 @@ describe('staff and payroll screens', () => {
         ],
         goodsItems: [],
         purchasesAmount: 50000, purchasesDiscountPercent: 0, purchasesItemsDiscount: 0, purchasesDiscount: 0, purchasesDeducted: 50000,
-        earnings: 500000, deductions: 100000, net: 350000, netPaid: 350000,
+        earnings: 500000, deductions: 100000, net: 350000, netPaid: 350000, payments: [], paid: 0,
       },
     ],
   }
@@ -336,6 +337,87 @@ describe('staff and payroll screens', () => {
     await user.click(screen.getByRole('button', { name: 'Guardar recibo' }))
     await waitFor(() => expect(callsTo('PUT /payroll/runs/r-1/payslips/p-1')).toHaveLength(1))
     expect(bodyOf('PUT /payroll/runs/r-1/payslips/p-1').lines.map((line: { source: string }) => line.source)).toEqual(['BaseSalary', 'Advances'])
+  })
+
+  async function openPayment() {
+    routeFetch({
+      'GET /payroll/runs/r-1': () => json(draft),
+      'GET /treasury/accounts': () => json([cash, bank]),
+      'POST /payroll/runs/r-1/pay': () => json(undefined, 204),
+    })
+    const user = userEvent.setup()
+    renderRun()
+    await user.click(await screen.findByRole('button', { name: 'Pagar liquidación' }))
+    await waitFor(() => expect(screen.getByLabelText('Se paga desde')).toHaveValue('acc-cash'))
+    await user.click(screen.getByRole('button', { name: 'Dividir el pago de Pérez, Juan' }))
+    return { user, split: screen.getByRole('listitem', { name: 'Pago de Pérez, Juan' }) }
+  }
+
+  it('pays a payslip from two accounts, part by part', async () => {
+    const { user, split } = await openPayment()
+
+    // The split starts as the whole net from the run's account.
+    expect(within(split).getByLabelText('Cuenta 1 de Pérez, Juan')).toHaveValue('acc-cash')
+    expect(within(split).getByLabelText('Importe 1 de Pérez, Juan')).toHaveValue('350000')
+    await user.clear(within(split).getByLabelText('Importe 1 de Pérez, Juan'))
+    await user.type(within(split).getByLabelText('Importe 1 de Pérez, Juan'), '200000')
+    // The next part takes another account and what is left.
+    await user.click(within(split).getByRole('button', { name: '+ Agregar cuenta' }))
+    expect(within(split).getByLabelText('Cuenta 2 de Pérez, Juan')).toHaveValue('acc-bank')
+    expect(within(split).getByLabelText('Importe 2 de Pérez, Juan')).toHaveValue('150000')
+    expect(within(split).getByText(/Se paga .*350\.000,00 de .*350\.000,00\./)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Pagar' }))
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Pagar' }))
+    await waitFor(() => expect(callsTo('POST /payroll/runs/r-1/pay')).toHaveLength(1))
+    expect(bodyOf('POST /payroll/runs/r-1/pay')).toMatchObject({
+      accountId: 'acc-cash',
+      splits: [{ payslipId: 'p-1', parts: [{ accountId: 'acc-cash', amount: 200000 }, { accountId: 'acc-bank', amount: 150000 }] }],
+    })
+  })
+
+  it('does not let the parts exceed the net, and says what they leave owed to the employee', async () => {
+    const { user, split } = await openPayment()
+    const amount = within(split).getByLabelText('Importe 1 de Pérez, Juan')
+
+    await user.clear(amount)
+    await user.type(amount, '400000')
+    expect(within(split).getByText(/Supera el neto por .*50\.000,00\./)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Pagar' })).toBeDisabled()
+
+    await user.clear(amount)
+    await user.type(amount, '300000')
+    expect(within(split).getByText(/Quedan .*50\.000,00 a favor del empleado \(Le debemos\)\./)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Pagar' })).toBeEnabled()
+
+    // Back to the whole net from one account: no split is sent.
+    await user.click(within(split).getByRole('button', { name: 'Todo desde una cuenta' }))
+    await user.click(screen.getByRole('button', { name: 'Pagar' }))
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Pagar' }))
+    await waitFor(() => expect(callsTo('POST /payroll/runs/r-1/pay')).toHaveLength(1))
+    expect(bodyOf('POST /payroll/runs/r-1/pay').splits).toBeUndefined()
+  })
+
+  it('reads what paid each payslip of a paid run, and what stayed owed', async () => {
+    const paid: PayrollRunDetail = {
+      ...draft,
+      run: { ...draft.run, status: 'Paid', paidOn: '2026-10-31', paymentAccountId: 'acc-cash' },
+      paymentAccountName: 'Caja efectivo · Arrecifes',
+      payslips: [{
+        ...draft.payslips[0],
+        payments: [
+          { accountId: 'acc-cash', accountName: 'Caja efectivo · Arrecifes', amount: 200000 },
+          { accountId: 'acc-bank', accountName: 'Banco Nación', amount: 100000 },
+        ],
+        paid: 300000,
+      }],
+    }
+    routeFetch({ 'GET /payroll/runs/r-1': () => json(paid) })
+    renderRun()
+
+    expect(await screen.findByText('Pagada el 31/10/2026 desde varias cuentas')).toBeInTheDocument()
+    expect(screen.getByText('Pagado desde Banco Nación')).toBeInTheDocument()
+    expect(screen.getByText(/Quedó a favor del empleado/)).toBeInTheDocument()
   })
 
   it('refuses an item discount that is not a percentage of 0 to 100, without saving', async () => {

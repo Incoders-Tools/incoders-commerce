@@ -29,6 +29,9 @@ public static class EmployeeEndpoints
     /// <summary>owner feedback P4: how many employees one run may be prepared for by name.</summary>
     private const int MaxRunEmployees = 1_000;
 
+    /// <summary>owner feedback P5: how many accounts one payslip may be paid from.</summary>
+    private const int MaxPaymentParts = 10;
+
     public static void MapEmployeeEndpoints(this IEndpointRouteBuilder app)
     {
         var employees = app.MapGroup("/employees").RequireAuthorization().AddEndpointFilter<TenantScopeEndpointFilter>();
@@ -308,7 +311,27 @@ public static class EmployeeEndpoints
                 return Results.ValidationProblem(new Dictionary<string, string[]> { ["paidOn"] = ["paidOn cannot be in the future."] });
             }
 
-            var outcome = await store.PayRunAsync(caller!.Scope, caller.Id, id, request.AccountId, request.PaidOn ?? httpContext.Today(), ct);
+            // owner feedback P5: a payslip's net split among accounts ("pago mixto").
+            var splits = request.Splits ?? [];
+            var errors = new Dictionary<string, string[]>();
+            if (splits.DistinctBy(split => split.PayslipId).Count() != splits.Count) errors["splits"] = ["Each payslip at most once."];
+            foreach (var (split, index) in splits.Select((split, index) => (split, index)))
+            {
+                if ((split.Parts ?? []).Count > MaxPaymentParts) errors[$"splits[{index}].parts"] = [$"At most {MaxPaymentParts} accounts."];
+                else if ((split.Parts ?? []).Any(part => !PayslipRules.IsValidAmount(part.Amount)))
+                {
+                    errors[$"splits[{index}].parts"] = ["Each part: positive, with at most two decimals."];
+                }
+            }
+
+            if (errors.Count > 0) return Results.ValidationProblem(errors);
+
+            var outcome = await store.PayRunAsync(caller!.Scope, caller.Id, id, request.AccountId, request.PaidOn ?? httpContext.Today(),
+                request.Splits is null
+                    ? null
+                    : [.. splits.Select(split => new PayslipPaymentSplit(split.PayslipId,
+                        [.. (split.Parts ?? []).Select(part => new PayslipPaymentPart(part.AccountId, part.Amount))]))],
+                ct);
             return outcome == PayrollWriteOutcome.Done ? Results.NoContent() : Refusal(outcome);
         });
     }
@@ -428,6 +451,8 @@ public static class EmployeeEndpoints
         PayrollWriteOutcome.AlreadySettled => Results.Conflict(new { error = "employee-already-settled" }),
         PayrollWriteOutcome.GoodsItemNotInPayslip => Results.Conflict(new { error = "goods-item-not-in-payslip" }),
         PayrollWriteOutcome.EmployeesNotEligible => Results.Conflict(new { error = "employees-not-eligible" }),
+        PayrollWriteOutcome.PaymentExceedsNet => Results.Conflict(new { error = "payment-exceeds-net" }),
+        PayrollWriteOutcome.PaymentNotInRun => Results.Conflict(new { error = "payment-not-in-run" }),
         _ => Results.Conflict(new { error = "nothing-to-pay" }),
     };
 }
@@ -487,4 +512,12 @@ public sealed record UpdatePayslipRequest(
 
 public sealed record GoodsItemDiscountRequest(Guid ItemId, decimal DiscountPercent);
 
-public sealed record PayPayrollRunRequest(Guid AccountId, DateOnly? PaidOn);
+/// <summary>
+/// Paying a run: from AccountId on PaidOn; owner feedback P5: Splits pays named payslips part by part from several
+/// accounts (the others whole from AccountId).
+/// </summary>
+public sealed record PayPayrollRunRequest(Guid AccountId, DateOnly? PaidOn, IReadOnlyList<PayslipSplitRequest>? Splits = null);
+
+public sealed record PayslipSplitRequest(Guid PayslipId, IReadOnlyList<PayslipPartRequest>? Parts);
+
+public sealed record PayslipPartRequest(Guid AccountId, decimal Amount);

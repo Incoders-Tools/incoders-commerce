@@ -147,7 +147,18 @@ function Receipt({
         </tbody>
       </table>
       <p className="text-xs">
-        {t('print.paid', { date: detail.run.paidOn ? formatIsoDate(detail.run.paidOn) : '', account: detail.paymentAccountName ?? '' })}
+        {(payslip.payments ?? []).length > 1
+          ? t('print.paidParts', {
+              date: detail.run.paidOn ? formatIsoDate(detail.run.paidOn) : '',
+              parts: payslip.payments.map((payment) => `${payment.accountName} ${formatMoney(payment.amount)}`).join(' + '),
+            })
+          : t('print.paid', {
+              date: detail.run.paidOn ? formatIsoDate(detail.run.paidOn) : '',
+              account: payslip.payments?.[0]?.accountName ?? detail.paymentAccountName ?? '',
+            })}
+        {(payslip.payments ?? []).length > 0 && payslip.paid < payslip.netPaid
+          ? ` ${t('print.leftOwed', { amount: formatMoney(payslip.netPaid - payslip.paid) })}`
+          : ''}
       </p>
       <footer className="mt-6 flex items-end justify-between gap-6 text-xs">
         <p className="max-w-[60%] text-black/70">{t('print.disclaimer')}</p>

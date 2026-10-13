@@ -273,7 +273,7 @@ public sealed partial class PayrollTests
         Assert.Equal(5_700m, (await payroll.GetRunAsync(g.W.Scope, runId.Value, CancellationToken.None))!.Payslips.Single().PurchasesDiscount);
 
         // Paid: the goods account is settled (24.300 deducted, 5.700 forgiven) and the items are paid.
-        Assert.Equal(PayrollWriteOutcome.Done, await payroll.PayRunAsync(g.W.Scope, g.W.Actor, runId.Value, g.W.Cash, Today, CancellationToken.None));
+        Assert.Equal(PayrollWriteOutcome.Done, await payroll.PayRunAsync(g.W.Scope, g.W.Actor, runId.Value, g.W.Cash, Today, null, CancellationToken.None));
         Assert.Equal(0m, (await Employees().GetAsync(g.W.Scope, g.Juan.Id, CancellationToken.None))!.PurchasesOwed);
         Assert.All(await Goods().ListAsync(g.W.Scope, g.Juan.Id, CancellationToken.None), i => Assert.Equal(OvertimeStatus.Paid, i.Status));
         using var owner = OpenOwner();

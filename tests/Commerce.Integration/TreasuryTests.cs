@@ -478,6 +478,42 @@ public sealed class TreasuryTests : IClassFixture<WebApplicationFactory<Program>
     }
 
     [Fact]
+    public async Task APayroll_IsPaidFromSeveralAccountsOverHttp()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+        var (org, branch, _) = await SeedAsync();
+        var admin = await SignedInAsync(org, branch, Permission.ManageUsers);
+        var treasury = new PostgresTreasuryStore(_dataSource!);
+        var scope = new CloudTenantScope(org, BranchId: branch);
+        var (_, cash) = await treasury.CreateAccountAsync(scope, Guid.NewGuid(), PostgresTreasuryStore.Other, "Caja sueldos", null, branch, null,
+            new DateOnly(2026, 10, 12), CancellationToken.None);
+        var (_, bank) = await treasury.CreateAccountAsync(scope, Guid.NewGuid(), PostgresTreasuryStore.Bank, "Banco", null, branch, null,
+            new DateOnly(2026, 10, 12), CancellationToken.None);
+        await admin.PostAsJsonAsync("/employees", new { branchId = branch, firstName = "Juan", lastName = "Pérez", baseSalary = 1000m });
+        var runId = (await Json(await admin.PostAsJsonAsync("/payroll/runs", new { periodFrom = "2026-10-01", periodTo = "2026-10-12" })))
+            .GetProperty("runId").GetGuid();
+        var payslipId = (await Json(await admin.GetAsync($"/payroll/runs/{runId}"))).GetProperty("payslips")[0].GetProperty("payslipId").GetGuid();
+
+        object Split(params (Guid Account, decimal Amount)[] parts) => new
+        {
+            accountId = cash!.AccountId,
+            paidOn = "2026-10-12",
+            splits = new[] { new { payslipId, parts = parts.Select(p => new { accountId = p.Account, amount = p.Amount }).ToArray() } },
+        };
+
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PostAsJsonAsync($"/payroll/runs/{runId}/pay", Split((cash!.AccountId, 0m)))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PostAsJsonAsync($"/payroll/runs/{runId}/pay", Split((cash.AccountId, 1.001m)))).StatusCode);
+        var over = await admin.PostAsJsonAsync($"/payroll/runs/{runId}/pay", Split((cash.AccountId, 600m), (bank!.AccountId, 400.01m)));
+        Assert.Equal((HttpStatusCode.Conflict, "payment-exceeds-net"), (over.StatusCode, (await Json(over)).GetProperty("error").GetString()));
+        Assert.Equal(HttpStatusCode.NoContent,
+            (await admin.PostAsJsonAsync($"/payroll/runs/{runId}/pay", Split((cash.AccountId, 600m), (bank.AccountId, 400m)))).StatusCode);
+
+        var payments = (await Json(await admin.GetAsync($"/payroll/runs/{runId}"))).GetProperty("payslips")[0].GetProperty("payments");
+        Assert.Equal([("Caja sueldos", 600m), ("Banco", 400m)],
+            payments.EnumerateArray().Select(p => (p.GetProperty("accountName").GetString(), p.GetProperty("amount").GetDecimal())));
+    }
+
+    [Fact]
     public async Task TheFinalSettlement_IsPreparedOverHttp_OnlyForAnEmployeeGivenTheLeave()
     {
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }

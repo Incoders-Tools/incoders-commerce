@@ -188,8 +188,8 @@ public sealed partial class PayrollTests : IDisposable
         slip = (await payroll.GetRunAsync(w.Scope, run.Run.RunId, CancellationToken.None))!.Payslips.Single();
         Assert.Equal((5_000m, 45_000m, 375_000m), (slip.PurchasesDiscount, slip.PurchasesDeducted, slip.NetPaid));
 
-        Assert.Equal(PayrollWriteOutcome.Done, await payroll.PayRunAsync(w.Scope, w.Actor, run.Run.RunId, w.Cash, Today, CancellationToken.None));
-        Assert.Equal(PayrollWriteOutcome.NotDraft, await payroll.PayRunAsync(w.Scope, w.Actor, run.Run.RunId, w.Cash, Today, CancellationToken.None));
+        Assert.Equal(PayrollWriteOutcome.Done, await payroll.PayRunAsync(w.Scope, w.Actor, run.Run.RunId, w.Cash, Today, null, CancellationToken.None));
+        Assert.Equal(PayrollWriteOutcome.NotDraft, await payroll.PayRunAsync(w.Scope, w.Actor, run.Run.RunId, w.Cash, Today, null, CancellationToken.None));
         Assert.Equal(PayrollWriteOutcome.NotDraft, await payroll.DeleteRunAsync(w.Scope, w.Actor, run.Run.RunId, CancellationToken.None));
 
         // The employee's account is settled, its goods too, and the treasury paid the advance and the net.

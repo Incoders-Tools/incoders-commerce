@@ -46,7 +46,23 @@ public sealed record PayslipRecord(
     decimal Earnings,
     decimal Deductions,
     decimal Net,
-    decimal NetPaid);
+    decimal NetPaid)
+{
+    /// <summary>owner feedback P5: what paid it, account by account (empty while the run is a Draft).</summary>
+    public IReadOnlyList<PayslipPaymentRecord> Payments { get; init; } = [];
+
+    /// <summary>What the payments add up to; below <see cref="NetPaid"/> the rest stayed owed to the employee.</summary>
+    public decimal Paid => Payments.Sum(payment => payment.Amount);
+}
+
+/// <summary>owner feedback P5: one part of a payslip's payment: the account it left and how much.</summary>
+public sealed record PayslipPaymentRecord(Guid AccountId, string AccountName, decimal Amount);
+
+/// <summary>owner feedback P5: a part of a payslip's payment as asked: from which account, how much.</summary>
+public sealed record PayslipPaymentPart(Guid AccountId, decimal Amount);
+
+/// <summary>owner feedback P5: how one payslip's net is paid, part by part (the others are paid whole from the run's account).</summary>
+public sealed record PayslipPaymentSplit(Guid PayslipId, IReadOnlyList<PayslipPaymentPart> Parts);
 
 public sealed record PayrollRunDetail(PayrollRunSummary Run, string? BranchName, string? PaymentAccountName, IReadOnlyList<PayslipRecord> Payslips);
 
@@ -76,6 +92,10 @@ public enum PayrollWriteOutcome
     GoodsItemNotInPayslip,
     /// <summary>owner feedback P4: an employee chosen for the run is not an active one of the branch paid that often.</summary>
     EmployeesNotEligible,
+    /// <summary>owner feedback P5: the parts of a payslip's payment add up to more than its net.</summary>
+    PaymentExceedsNet,
+    /// <summary>owner feedback P5: a split names a payslip that is not in the run.</summary>
+    PaymentNotInRun,
 }
 
 /// <summary>
@@ -192,7 +212,52 @@ public sealed class PostgresPayrollStore
             accountName = await account.ExecuteScalarAsync(ct) as string;
         }
 
+        if (run.Status == "Paid")
+        {
+            payslips = await WithPaymentsAsync(connection, tx, payslips, run.PaymentAccountId, accountName, ct);
+        }
+
         return new PayrollRunDetail(run with { TotalNet = payslips.Sum(p => p.NetPaid) }, branchName, accountName, payslips);
+    }
+
+    /// <summary>
+    /// owner feedback P5: each paid payslip with what paid it, account by account. A run paid before the parts were kept
+    /// reads its one account and the net.
+    /// </summary>
+    private static async Task<List<PayslipRecord>> WithPaymentsAsync(
+        NpgsqlConnection connection, NpgsqlTransaction tx, List<PayslipRecord> payslips, Guid? runAccountId, string? runAccountName,
+        CancellationToken ct)
+    {
+        var result = new List<PayslipRecord>(payslips.Count);
+        foreach (var slip in payslips)
+        {
+            var payments = new List<PayslipPaymentRecord>();
+            await using (var cmd = new NpgsqlCommand(
+                """
+                SELECT p.account_id, a.name, p.amount
+                FROM payslip_payments p
+                JOIN treasury_accounts a ON a.organization_id = p.organization_id AND a.id = p.account_id
+                WHERE p.payslip_id = $1
+                ORDER BY p.line_no
+                """, connection, tx))
+            {
+                cmd.Parameters.AddWithValue(slip.PayslipId);
+                await using var reader = await cmd.ExecuteReaderAsync(ct);
+                while (await reader.ReadAsync(ct))
+                {
+                    payments.Add(new PayslipPaymentRecord(reader.GetGuid(0), reader.GetString(1), reader.GetDecimal(2)));
+                }
+            }
+
+            if (payments.Count == 0 && runAccountId is { } legacy && slip.NetPaid > 0m)
+            {
+                payments.Add(new PayslipPaymentRecord(legacy, runAccountName ?? string.Empty, slip.NetPaid));
+            }
+
+            result.Add(slip with { Payments = payments });
+        }
+
+        return result;
     }
 
     private static async Task<List<PayslipRecord>> ReadPayslipsAsync(NpgsqlConnection connection, NpgsqlTransaction tx, Guid runId, CancellationToken ct)
@@ -707,8 +772,14 @@ public sealed class PostgresPayrollStore
     /// Pays a Draft run from a treasury account on a date: every payslip posts on the employee's account, settles the goods
     /// on the linked customer's account and takes its net out of the treasury; the run becomes Paid. All or nothing.
     /// </summary>
+    /// <remarks>
+    /// owner feedback P5: <paramref name="splits"/> pays a payslip's net part by part from several accounts (each part is
+    /// kept, and leaves its account); the parts never exceed the net, what they leave unpaid stays owed to the employee.
+    /// The payslips not named are paid whole from <paramref name="accountId"/>.
+    /// </remarks>
     public async Task<PayrollWriteOutcome> PayRunAsync(
-        CloudTenantScope scope, Guid actorId, Guid runId, Guid accountId, DateOnly paidOn, CancellationToken ct)
+        CloudTenantScope scope, Guid actorId, Guid runId, Guid accountId, DateOnly paidOn, IReadOnlyList<PayslipPaymentSplit>? splits,
+        CancellationToken ct)
     {
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
@@ -724,10 +795,12 @@ public sealed class PostgresPayrollStore
         if (status is null) return await Refuse(PayrollWriteOutcome.NotFound);
         if (status != "Draft") return await Refuse(PayrollWriteOutcome.NotDraft);
 
-        await using (var account = new NpgsqlCommand("SELECT is_active FROM treasury_accounts WHERE id = $1", connection, tx))
+        var splitBy = (splits ?? []).ToDictionary(split => split.PayslipId, split => split.Parts);
+        foreach (var account in splitBy.Values.SelectMany(parts => parts).Select(part => part.AccountId).Append(accountId).Distinct())
         {
-            account.Parameters.AddWithValue(accountId);
-            switch (await account.ExecuteScalarAsync(ct))
+            await using var check = new NpgsqlCommand("SELECT is_active FROM treasury_accounts WHERE id = $1", connection, tx);
+            check.Parameters.AddWithValue(account);
+            switch (await check.ExecuteScalarAsync(ct))
             {
                 case null: return await Refuse(PayrollWriteOutcome.AccountNotFound);
                 case false: return await Refuse(PayrollWriteOutcome.AccountInactive);
@@ -738,6 +811,11 @@ public sealed class PostgresPayrollStore
         if (detail.Payslips.Count == 0)
         {
             return await Refuse(PayrollWriteOutcome.NothingToPay);
+        }
+
+        if (splitBy.Keys.Any(payslipId => detail.Payslips.All(slip => slip.PayslipId != payslipId)))
+        {
+            return await Refuse(PayrollWriteOutcome.PaymentNotInRun);
         }
 
         var org = scope.OrganizationId;
@@ -769,7 +847,17 @@ public sealed class PostgresPayrollStore
             await Post(employee, AccountMovementKind.Adjustment, payslip.OtherDeductions, $"Descuentos, {label}", DeductionsSource, AccountDirection.Debit);
             await Post(employee, AccountMovementKind.Adjustment, payslip.Purchases.Deducted, $"Compras de mercadería descontadas, {label}",
                 GoodsSource, AccountDirection.Debit);
-            await Post(employee, AccountMovementKind.Payment, payslip.NetPaid, $"Pago de sueldo, {label}", PaymentSource);
+            // owner feedback P5: the parts asked for this payslip, or its whole net from the run's account.
+            IReadOnlyList<PayslipPaymentPart> parts = splitBy.TryGetValue(slip.PayslipId, out var asked)
+                ? asked
+                : payslip.NetPaid > 0m ? [new PayslipPaymentPart(accountId, payslip.NetPaid)] : [];
+            var paying = parts.Sum(part => part.Amount);
+            if (paying > payslip.NetPaid)
+            {
+                return await Refuse(PayrollWriteOutcome.PaymentExceedsNet);
+            }
+
+            await Post(employee, AccountMovementKind.Payment, paying, $"Pago de sueldo, {label}", PaymentSource);
             if (customerId is { } buyer)
             {
                 var buyerAccount = AccountParty.Customer(buyer);
@@ -778,11 +866,27 @@ public sealed class PostgresPayrollStore
                     GoodsDiscountSource);
             }
 
-            if (payslip.NetPaid > 0m)
+            var lineNo = 0;
+            foreach (var part in parts)
             {
+                // Each part is kept, and its treasury movement points at it (a payslip may leave several accounts).
+                var partId = Guid.NewGuid();
+                await using (var keep = new NpgsqlCommand(
+                    "INSERT INTO payslip_payments (organization_id, id, payslip_id, line_no, account_id, amount) VALUES ($1, $2, $3, $4, $5, $6)",
+                    connection, tx))
+                {
+                    keep.Parameters.AddWithValue(org);
+                    keep.Parameters.AddWithValue(partId);
+                    keep.Parameters.AddWithValue(slip.PayslipId);
+                    keep.Parameters.AddWithValue(++lineNo);
+                    keep.Parameters.AddWithValue(part.AccountId);
+                    keep.Parameters.AddWithValue(part.Amount);
+                    await keep.ExecuteNonQueryAsync(ct);
+                }
+
                 await PostgresTreasuryStore.InsertAsync(
-                    connection, tx, org, Guid.NewGuid(), accountId, "SalaryPayment", "Out", payslip.NetPaid, DateTimeOffset.UtcNow, paidOn,
-                    $"Sueldo de {slip.EmployeeName}, {label}", $"L{detail.Run.RunNumber}", null, PaymentSource, slip.PayslipId, null, actorId, ct);
+                    connection, tx, org, Guid.NewGuid(), part.AccountId, "SalaryPayment", "Out", part.Amount, DateTimeOffset.UtcNow, paidOn,
+                    $"Sueldo de {slip.EmployeeName}, {label}", $"L{detail.Run.RunNumber}", null, PaymentSource, partId, null, actorId, ct);
             }
         }
 

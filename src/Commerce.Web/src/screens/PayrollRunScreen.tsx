@@ -58,6 +58,8 @@ export function PayrollRunScreen() {
   const [accountId, setAccountId] = useState('')
   const [paidOn, setPaidOn] = useState(todayIso())
   const [busy, setBusy] = useState(false)
+  // owner feedback P5: the payslips paid part by part ("pago mixto"); the others are paid whole from `accountId`.
+  const [splits, setSplits] = useState<Record<string, SplitPart[]>>({})
 
   const errorText = useCallback(
     (err: unknown) =>
@@ -79,6 +81,7 @@ export function PayrollRunScreen() {
 
   const openPay = () => {
     setPaying(true)
+    setSplits({})
     listTreasuryAccounts().then(
       (list) => {
         const active = list.filter((account) => account.isActive !== false)
@@ -93,7 +96,11 @@ export function PayrollRunScreen() {
     setBusy(true)
     setError(null)
     try {
-      await payPayrollRun(id, { accountId, paidOn })
+      const asked = Object.entries(splits).map(([payslipId, parts]) => ({
+        payslipId,
+        parts: parts.map((part) => ({ accountId: part.accountId, amount: parseAmount(part.amount)! })),
+      }))
+      await payPayrollRun(id, { accountId, paidOn, ...(asked.length > 0 ? { splits: asked } : {}) })
       setConfirmPay(false)
       setPaying(false)
       await load()
@@ -140,6 +147,13 @@ export function PayrollRunScreen() {
     }),
     { earnings: 0, deductions: 0, goods: 0, net: 0 },
   )
+  // owner feedback P5: what this payment takes out now (a split may pay less than the net), and whether it can go.
+  const splitStates = Object.fromEntries(
+    payslips.filter((slip) => splits[slip.payslipId]).map((slip) => [slip.payslipId, splitState(splits[slip.payslipId], slip.netPaid)]),
+  )
+  const payingNow = payslips.reduce((sum, slip) => sum + (splitStates[slip.payslipId]?.paid ?? slip.netPaid), 0)
+  const splitsReady = Object.values(splitStates).every((state) => state.valid && state.over === 0)
+  const paidAccounts = new Set(payslips.flatMap((slip) => (slip.payments ?? []).map((payment) => payment.accountId)))
 
   return (
     <FormPage
@@ -156,7 +170,9 @@ export function PayrollRunScreen() {
         <span className={cn('rounded px-2 py-0.5 text-xs font-medium', draft ? 'bg-muted' : 'bg-primary/10 text-primary')}>
           {draft
             ? t('status.draft')
-            : t('status.paidFrom', { date: run.paidOn ? formatIsoDate(run.paidOn) : '', account: detail.paymentAccountName ?? '' })}
+            : paidAccounts.size > 1
+              ? t('status.paidFromSeveral', { date: run.paidOn ? formatIsoDate(run.paidOn) : '' })
+              : t('status.paidFrom', { date: run.paidOn ? formatIsoDate(run.paidOn) : '', account: detail.paymentAccountName ?? '' })}
         </span>
         <span className="ml-auto inline-flex flex-wrap gap-2">
           {draft ? (
@@ -204,11 +220,19 @@ export function PayrollRunScreen() {
             </div>
             <div className="flex flex-col justify-end text-sm">
               <span className="text-muted-foreground">{t('pay.total')}</span>
-              <span className="text-xl font-semibold tabular-nums">{formatMoney(totals.net)}</span>
+              <span className="text-xl font-semibold tabular-nums">{formatMoney(payingNow)}</span>
             </div>
           </div>
+          <PaymentSplits
+            payslips={payslips}
+            accounts={accounts}
+            defaultAccountId={accountId}
+            splits={splits}
+            states={splitStates}
+            onChange={setSplits}
+          />
           <div className="flex gap-2">
-            <Button type="button" disabled={accountId === '' || busy} onClick={() => setConfirmPay(true)}>
+            <Button type="button" disabled={accountId === '' || busy || !splitsReady} onClick={() => setConfirmPay(true)}>
               {t('pay.confirm')}
             </Button>
             <Button type="button" variant="outline" onClick={() => setPaying(false)}>
@@ -326,8 +350,9 @@ export function PayrollRunScreen() {
         <ConfirmDialog
           title={t('pay.confirmTitle', { number: run.runNumber })}
           message={t('pay.confirmMessage', {
-            total: formatMoney(totals.net),
-            account: accounts.find((a) => a.accountId === accountId)?.name ?? '',
+            total: formatMoney(payingNow),
+            account:
+              Object.keys(splits).length > 0 ? t('pay.severalAccounts') : (accounts.find((a) => a.accountId === accountId)?.name ?? ''),
             count: payslips.length,
           })}
           confirmLabel={t('pay.confirm')}
@@ -353,6 +378,155 @@ export function PayrollRunScreen() {
   )
 }
 
+interface SplitPart {
+  key: number
+  accountId: string
+  amount: string
+}
+
+/** What a payslip's parts pay, how far they are from its net, and whether every part has an amount. */
+function splitState(parts: SplitPart[], net: number) {
+  const amounts = parts.map((part) => parseAmount(part.amount))
+  const paid = Math.round(amounts.reduce<number>((sum, amount) => sum + (amount ?? 0), 0) * 100) / 100
+  return {
+    paid,
+    valid: amounts.every((amount) => amount !== null && amount > 0),
+    over: Math.max(Math.round((paid - net) * 100) / 100, 0),
+    short: Math.max(Math.round((net - paid) * 100) / 100, 0),
+  }
+}
+
+const amountText = (amount: number) => (amount > 0 ? String(amount).replace('.', ',') : '')
+
+/**
+ * owner feedback P5: how each payslip is paid: whole from the run's account, or split among accounts ("pago mixto").
+ * The parts never exceed the net (paying is blocked); what they leave unpaid stays owed to the employee.
+ */
+function PaymentSplits({
+  payslips,
+  accounts,
+  defaultAccountId,
+  splits,
+  states,
+  onChange,
+}: {
+  payslips: Payslip[]
+  accounts: TreasuryAccount[]
+  defaultAccountId: string
+  splits: Record<string, SplitPart[]>
+  states: Record<string, ReturnType<typeof splitState>>
+  onChange: (splits: Record<string, SplitPart[]>) => void
+}) {
+  const { t } = useTranslation('payroll')
+  const defaultName = accounts.find((account) => account.accountId === defaultAccountId)?.name ?? ''
+  const set = (payslipId: string, parts: SplitPart[] | null) => {
+    const next = { ...splits }
+    if (parts) next[payslipId] = parts
+    else delete next[payslipId]
+    onChange(next)
+  }
+
+  return (
+    <section aria-label={t('pay.splitsTitle')} className="flex flex-col gap-2">
+      <h3 className="text-sm font-semibold">{t('pay.splitsTitle')}</h3>
+      <ul className="flex flex-col gap-2">
+        {payslips
+          .filter((slip) => slip.netPaid > 0)
+          .map((slip) => {
+            const name = slip.employeeName
+            const parts = splits[slip.payslipId]
+            const state = states[slip.payslipId]
+            const change = (key: number, patch: Partial<SplitPart>) =>
+              set(slip.payslipId, parts.map((part) => (part.key === key ? { ...part, ...patch } : part)))
+            const add = () => {
+              const used = new Set(parts.map((part) => part.accountId))
+              const account = accounts.find((candidate) => !used.has(candidate.accountId))?.accountId ?? defaultAccountId
+              set(slip.payslipId, [...parts, { key: nextKey++, accountId: account, amount: amountText(state?.short ?? 0) }])
+            }
+            return (
+              <li key={slip.payslipId} aria-label={t('pay.splitOf', { name })} className="flex flex-col gap-2 rounded-md border border-border p-2 text-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="min-w-40 flex-1 font-medium">{name}</span>
+                  <span className="tabular-nums">{formatMoney(slip.netPaid)}</span>
+                  {parts ? (
+                    <Button type="button" variant="outline" size="sm" onClick={() => set(slip.payslipId, null)}>
+                      {t('pay.unsplit')}
+                    </Button>
+                  ) : (
+                    <>
+                      <span className="text-xs text-muted-foreground">{t('pay.whole', { account: defaultName })}</span>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        aria-label={t('pay.splitLabel', { name })}
+                        onClick={() => set(slip.payslipId, [{ key: nextKey++, accountId: defaultAccountId, amount: amountText(slip.netPaid) }])}
+                      >
+                        {t('pay.split')}
+                      </Button>
+                    </>
+                  )}
+                </div>
+                {parts && (
+                  <>
+                    {parts.map((part, index) => (
+                      <div key={part.key} className="flex flex-wrap items-center gap-2">
+                        <Select
+                          aria-label={t('pay.partAccount', { n: index + 1, name })}
+                          className="h-8 w-56"
+                          value={part.accountId}
+                          onChange={(e) => change(part.key, { accountId: e.target.value })}
+                        >
+                          {accounts.map((account) => (
+                            <option key={account.accountId} value={account.accountId}>
+                              {account.name}
+                            </option>
+                          ))}
+                        </Select>
+                        <Input
+                          aria-label={t('pay.partAmount', { n: index + 1, name })}
+                          className="h-8 w-36"
+                          inputMode="decimal"
+                          value={part.amount}
+                          onChange={(e) => change(part.key, { amount: e.target.value })}
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={parts.length === 1}
+                          onClick={() => set(slip.payslipId, parts.filter((other) => other.key !== part.key))}
+                        >
+                          {t('pay.removePart')}
+                        </Button>
+                      </div>
+                    ))}
+                    <div>
+                      <Button type="button" variant="outline" size="sm" onClick={add}>
+                        {t('pay.addPart')}
+                      </Button>
+                    </div>
+                    {state && (
+                      <p className={cn('text-xs', state.over > 0 || !state.valid ? 'text-destructive' : 'text-muted-foreground')}>
+                        {!state.valid
+                          ? t('pay.partsInvalid')
+                          : state.over > 0
+                            ? t('pay.partsOver', { amount: formatMoney(state.over) })
+                            : state.short > 0
+                              ? t('pay.partsShort', { amount: formatMoney(state.short) })
+                              : t('pay.partsSum', { paid: formatMoney(state.paid), net: formatMoney(slip.netPaid) })}
+                      </p>
+                    )}
+                  </>
+                )}
+              </li>
+            )
+          })}
+      </ul>
+    </section>
+  )
+}
+
 /** A paid payslip's lines, read-only. */
 function PayslipLines({ payslip }: { payslip: Payslip }) {
   const { t } = useTranslation('payroll')
@@ -375,6 +549,19 @@ function PayslipLines({ payslip }: { payslip: Payslip }) {
               : t('editor.goodsLine')}
           </span>
           <span className="tabular-nums">{formatMoney(payslip.purchasesDeducted)}</span>
+        </li>
+      )}
+      {/* owner feedback P5: what paid it, and what stayed owed to the employee. */}
+      {(payslip.payments ?? []).map((payment, index) => (
+        <li key={`payment-${index}`} className="flex justify-between gap-4 text-muted-foreground">
+          <span>{t('editor.paidFrom', { account: payment.accountName })}</span>
+          <span className="tabular-nums">{formatMoney(payment.amount)}</span>
+        </li>
+      ))}
+      {(payslip.payments ?? []).length > 0 && payslip.paid < payslip.netPaid && (
+        <li className="flex justify-between gap-4 text-muted-foreground">
+          <span>{t('editor.leftOwed')}</span>
+          <span className="tabular-nums">{formatMoney(payslip.netPaid - payslip.paid)}</span>
         </li>
       )}
     </ul>

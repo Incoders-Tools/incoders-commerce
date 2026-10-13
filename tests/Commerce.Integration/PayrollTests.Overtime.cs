@@ -191,7 +191,7 @@ public sealed partial class PayrollTests
         // Paying a run settles it, with the overtime in the net; pending, it can still be deleted.
         slip = await PrepareAsync();
         Assert.Equal(523_000m, slip.Earnings);
-        Assert.Equal(PayrollWriteOutcome.Done, await payroll.PayRunAsync(w.Scope, w.Actor, slip.RunId, w.Cash, Today, CancellationToken.None));
+        Assert.Equal(PayrollWriteOutcome.Done, await payroll.PayRunAsync(w.Scope, w.Actor, slip.RunId, w.Cash, Today, null, CancellationToken.None));
         var settled = await employees.ListOvertimeAsync(w.Scope, juan.Id, CancellationToken.None);
         Assert.Equal([OvertimeStatus.Pending, OvertimeStatus.Paid, OvertimeStatus.Paid], settled.Select(o => o.Status));
         Assert.Equal((3_000m, 1m), await ToPayAsync()); // only November's is left to pay

@@ -18,7 +18,8 @@
   "status": {
     "draft": "Draft",
     "paid": "Paid on {{date}}",
-    "paidFrom": "Paid on {{date}} from {{account}}"
+    "paidFrom": "Paid on {{date}} from {{account}}",
+    "paidFromSeveral": "Paid on {{date}} from several accounts"
   },
   "columns": {
     "number": "No.",
@@ -86,7 +87,22 @@
     "cancel": "Cancel",
     "confirmTitle": "Pay payroll {{number}}",
     "confirmMessage_one": "{{total}} is paid from {{account}} to {{count}} employee. Confirm?",
-    "confirmMessage_other": "{{total}} is paid from {{account}} to {{count}} employees. Confirm?"
+    "confirmMessage_other": "{{total}} is paid from {{account}} to {{count}} employees. Confirm?",
+    "severalAccounts": "several accounts",
+    "splitsTitle": "How each payslip is paid",
+    "splitOf": "Payment of {{name}}",
+    "whole": "All from {{account}}",
+    "split": "Split the payment",
+    "splitLabel": "Split the payment of {{name}}",
+    "unsplit": "All from one account",
+    "partAccount": "Account {{n}} of {{name}}",
+    "partAmount": "Amount {{n}} of {{name}}",
+    "addPart": "+ Add account",
+    "removePart": "Remove",
+    "partsSum": "{{paid}} of {{net}} is paid.",
+    "partsOver": "Exceeds the net by {{amount}}.",
+    "partsShort": "{{amount}} stays owed to the employee.",
+    "partsInvalid": "Each account needs an amount above zero, with at most two decimals."
   },
   "editor": {
     "lines": "Earnings and deductions of {{name}}",
@@ -122,7 +138,9 @@
     },
     "overtimeHint": "Computed from the recorded overtime.",
     "goodsDeductionLine": "Goods (after discount)",
-    "goodsDeductionHint": "Worked out from the goods taken and the discount below."
+    "goodsDeductionHint": "Worked out from the goods taken and the discount below.",
+    "paidFrom": "Paid from {{account}}",
+    "leftOwed": "Left owed to the employee"
   },
   "print": {
     "back": "Back",
@@ -136,7 +154,9 @@
     "net": "Net received",
     "paid": "Paid on {{date}} ({{account}}).",
     "disclaimer": "Internal receipt of what was paid. It does not replace the legal payslip.",
-    "signature": "Received (signature and name)"
+    "signature": "Received (signature and name)",
+    "paidParts": "Paid on {{date}}: {{parts}}.",
+    "leftOwed": "Left owed to the employee: {{amount}}."
   },
   "errors": {
     "load": "The payroll could not be loaded.",
@@ -148,7 +168,9 @@
       "account-inactive": "That treasury account is inactive.",
       "nothing-to-pay": "The payroll has no payslips.",
       "branch-selection-required": "Choose a branch above.",
-      "employees-not-eligible": "An employee chosen is no longer active in this branch or is paid on another frequency. Open the new payroll again and retry."
+      "employees-not-eligible": "An employee chosen is no longer active in this branch or is paid on another frequency. Open the new payroll again and retry.",
+      "payment-exceeds-net": "What the accounts pay exceeds the net of a payslip.",
+      "payment-not-in-run": "A payslip is no longer in this payroll. Open it again and retry."
     }
   }
 }
