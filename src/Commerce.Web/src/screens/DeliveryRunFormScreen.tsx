@@ -5,6 +5,7 @@ import { ArrowDown, ArrowUp, Plus, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Select } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { FormPage } from '@/components/layout/FormPage'
 import { OrderStatusBadge } from '@/components/fulfillment/StatusBadges'
@@ -17,7 +18,11 @@ import {
   type DeliveryRunSummary,
   type OrderTrackingSummary,
 } from '@/api/fulfillment'
+import { listVehicles, type Vehicle } from '@/api/vehicles'
 import { formatMoney } from '@/dashboard/format'
+
+/** The vehicle option of a run whose vehicle was typed by hand, before the vehicles existed. */
+const TYPED_VEHICLE = 'typed'
 
 /**
  * Creates a delivery run, or edits a planned one: date, driver, vehicle, notes, and its orders in delivery order (add
@@ -34,7 +39,11 @@ export function DeliveryRunFormScreen() {
   const [run, setRun] = useState<DeliveryRunSummary | null>(null)
   const [runDate, setRunDate] = useState(todayIso())
   const [driverName, setDriverName] = useState('')
-  const [vehicle, setVehicle] = useState('')
+  // vehicles V3: '' (none), a vehicle id, or TYPED_VEHICLE (the text an older run was planned with).
+  const [vehicleChoice, setVehicleChoice] = useState('')
+  const [vehicles, setVehicles] = useState<Vehicle[]>([])
+  const [typedVehicle, setTypedVehicle] = useState<string | null>(null)
+  const [runVehicle, setRunVehicle] = useState<{ id: string; label: string } | null>(null)
   const [notes, setNotes] = useState('')
   const [stops, setStops] = useState<OrderTrackingSummary[]>([])
   const [available, setAvailable] = useState<OrderTrackingSummary[]>([])
@@ -44,9 +53,17 @@ export function DeliveryRunFormScreen() {
   useEffect(() => {
     let cancelled = false
     const preselected = (searchParams.get('orders') ?? '').split(',').filter(Boolean)
-    Promise.all([listOrders({ status: 'Active' }), editing ? getRun(id) : Promise.resolve(null)])
-      .then(([active, detail]) => {
+    Promise.all([
+      listOrders({ status: 'Active' }),
+      editing ? getRun(id) : Promise.resolve(null),
+      // Without the vehicles the run is still planned (with none, or the one it has).
+      listVehicles().catch(() => [] as Vehicle[]),
+    ])
+      .then(([active, detail, activeVehicles]) => {
         if (cancelled) return
+        setVehicles(activeVehicles)
+        // A new run takes the only active vehicle by itself.
+        if (!detail && activeVehicles.length === 1) setVehicleChoice(activeVehicles[0].id)
         const current = detail?.stops.map((stop) => stop.order) ?? active.filter((order) => preselected.includes(order.orderId))
         setStops(current)
         // Free orders, plus this run's own: one taken out of the run is offered again (it is free once saved).
@@ -61,7 +78,13 @@ export function DeliveryRunFormScreen() {
           setRun(detail.run)
           setRunDate(detail.run.runDate)
           setDriverName(detail.run.driverName ?? '')
-          setVehicle(detail.run.vehicle ?? '')
+          if (detail.run.vehicleId) {
+            setRunVehicle({ id: detail.run.vehicleId, label: detail.run.vehicle ?? '' })
+            setVehicleChoice(detail.run.vehicleId)
+          } else if (detail.run.vehicle) {
+            setTypedVehicle(detail.run.vehicle)
+            setVehicleChoice(TYPED_VEHICLE)
+          }
           setNotes(detail.run.notes ?? '')
         }
       })
@@ -96,7 +119,8 @@ export function DeliveryRunFormScreen() {
     const request = {
       runDate,
       driverName: driverName.trim() || null,
-      vehicle: vehicle.trim() || null,
+      vehicle: vehicleChoice === TYPED_VEHICLE ? typedVehicle : null,
+      vehicleId: vehicleChoice === '' || vehicleChoice === TYPED_VEHICLE ? null : vehicleChoice,
       notes: notes.trim() || null,
       orderIds: stops.map((order) => order.orderId),
     }
@@ -134,7 +158,19 @@ export function DeliveryRunFormScreen() {
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="vehicle">{t('runs.form.vehicle')}</Label>
-            <Input id="vehicle" maxLength={120} value={vehicle} onChange={(e) => setVehicle(e.target.value)} />
+            <Select id="vehicle" value={vehicleChoice} onChange={(e) => setVehicleChoice(e.target.value)}>
+              <option value="">{t('runs.form.noVehicle')}</option>
+              {typedVehicle !== null && <option value={TYPED_VEHICLE}>{t('runs.form.typedVehicle', { text: typedVehicle })}</option>}
+              {runVehicle !== null && !vehicles.some((v) => v.id === runVehicle.id) && (
+                <option value={runVehicle.id}>{runVehicle.label}</option>
+              )}
+              {vehicles.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.label}
+                </option>
+              ))}
+            </Select>
+            <p className="text-xs text-muted-foreground">{t('runs.form.vehicleHint')}</p>
           </div>
           <div className="flex flex-col gap-1.5 sm:col-span-3">
             <Label htmlFor="notes">{t('runs.form.notes')}</Label>

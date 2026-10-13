@@ -114,7 +114,8 @@ public static partial class FulfillmentEndpoints
             if (Validate(request) is { } invalid) return invalid;
 
             var result = await store.CreateRunAsync(
-                auth.Scope!, request.RunDate, request.DriverName, request.Vehicle, request.Notes, request.OrderIds ?? [], auth.CallerId, ct);
+                auth.Scope!, request.RunDate, request.DriverName, request.Vehicle, request.VehicleId, request.Notes, request.OrderIds ?? [],
+                auth.CallerId, ct);
             return result.Outcome == FulfillmentOutcome.Done
                 ? Results.Created($"/deliveries/runs/{result.Id}", new { runId = result.Id })
                 : ToResult(result);
@@ -129,7 +130,7 @@ public static partial class FulfillmentEndpoints
             if (Validate(request) is { } invalid) return invalid;
 
             return ToResult(await store.UpdateRunAsync(
-                auth.Scope!, runId, request.RunDate, request.DriverName, request.Vehicle, request.Notes, request.OrderIds ?? [],
+                auth.Scope!, runId, request.RunDate, request.DriverName, request.Vehicle, request.VehicleId, request.Notes, request.OrderIds ?? [],
                 auth.CallerId, ct));
         });
 
@@ -264,6 +265,7 @@ public static partial class FulfillmentEndpoints
         if (request.RunDate == default) errors["runDate"] = ["runDate is required."];
         if (request.DriverName is { Length: > 120 }) errors["driverName"] = ["At most 120 characters."];
         if (request.Vehicle is { Length: > 120 }) errors["vehicle"] = ["At most 120 characters."];
+        if (request.VehicleId == Guid.Empty) errors["vehicleId"] = ["A vehicle id, or none."];
         if (request.Notes is { Length: > 500 }) errors["notes"] = ["At most 500 characters."];
         if (request.OrderIds is { Count: > MaxRemitosPerRequest }) errors["orderIds"] = [$"At most {MaxRemitosPerRequest} orders."];
         return errors.Count == 0 ? null : Results.ValidationProblem(errors);
@@ -310,7 +312,9 @@ public sealed record ChangeOrderStatusRequest(string Status, string? Reason);
 
 public sealed record RemitosRequest(IReadOnlyList<Guid>? OrderIds);
 
-public sealed record DeliveryRunRequest(DateOnly RunDate, string? DriverName, string? Vehicle, string? Notes, IReadOnlyList<Guid>? OrderIds);
+/// <summary>vehicles V3: VehicleId picks a vehicle (Vehicle is then its label); without it, Vehicle is the text typed.</summary>
+public sealed record DeliveryRunRequest(
+    DateOnly RunDate, string? DriverName, string? Vehicle, string? Notes, IReadOnlyList<Guid>? OrderIds, Guid? VehicleId = null);
 
 public sealed record SettleRunRequest(IReadOnlyList<OrderReturnInput>? Orders);
 

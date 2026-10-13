@@ -166,6 +166,64 @@ public sealed class VehicleTests : IClassFixture<WebApplicationFactory<Program>>
         Assert.Equal("vehicle-plate-in-use", (await Json(taken)).GetProperty("error").GetString());
     }
 
+    [Fact]
+    public async Task ADeliveryRun_PicksAnActiveVehicle_ReadsItsLabel_AndKeepsTheOneItHadEvenIfDeactivated()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+        var (org, branch, actor) = await SeedAsync();
+        var scope = new CloudTenantScope(org, BranchId: branch);
+        var vehicles = new PostgresVehicleStore(_dataSource!);
+        var runs = new PostgresFulfillmentStore(_dataSource!);
+        var (_, truck) = await vehicles.CreateAsync(scope, actor, new VehicleInput("AB123CD", "Ford", "F-4000", 2015, null, true), CancellationToken.None);
+        var (_, old) = await vehicles.CreateAsync(scope, actor, new VehicleInput("XX999XX", "Fiat", "Fiorino", null, null, false), CancellationToken.None);
+
+        // Picked: the run reads the vehicle's label and keeps which vehicle it was.
+        var created = await runs.CreateRunAsync(scope, Today, "Juan", null, truck!.Id, null, [], actor, CancellationToken.None);
+        Assert.Equal(FulfillmentOutcome.Done, created.Outcome);
+        var run = (await runs.GetRunAsync(scope, created.Id!.Value, CancellationToken.None))!.Run;
+        Assert.Equal(("AB123CD · Ford F-4000", truck.Id), (run.Vehicle, run.VehicleId));
+
+        // An inactive vehicle, or one that does not exist (or is another organization's), is refused.
+        Assert.Equal("vehicle-inactive", (await runs.CreateRunAsync(scope, Today, null, null, old!.Id, null, [], actor, CancellationToken.None)).Error);
+        Assert.Equal("vehicle-not-found", (await runs.CreateRunAsync(scope, Today, null, null, Guid.NewGuid(), null, [], actor, CancellationToken.None)).Error);
+        var (other, otherBranch, otherActor) = await SeedAsync();
+        var (_, foreign) = await vehicles.CreateAsync(new CloudTenantScope(other, BranchId: otherBranch), otherActor,
+            new VehicleInput("ZZ111ZZ", null, null, null, null, true), CancellationToken.None);
+        Assert.Equal("vehicle-not-found", (await runs.CreateRunAsync(scope, Today, null, null, foreign!.Id, null, [], actor, CancellationToken.None)).Error);
+
+        // Deactivated afterwards, the run keeps it when edited; switching to another inactive one is refused.
+        await vehicles.UpdateAsync(scope, actor, truck.Id, new VehicleInput("AB123CD", "Ford", "F-4000", 2015, null, false), CancellationToken.None);
+        Assert.Equal(FulfillmentOutcome.Done,
+            (await runs.UpdateRunAsync(scope, created.Id!.Value, Today, "Pedro", null, truck.Id, null, [], actor, CancellationToken.None)).Outcome);
+        Assert.Equal("vehicle-inactive",
+            (await runs.UpdateRunAsync(scope, created.Id!.Value, Today, "Pedro", null, old.Id, null, [], actor, CancellationToken.None)).Error);
+
+        // Without a vehicle picked, the typed text stays as before (the runs planned before the vehicles).
+        var typed = await runs.CreateRunAsync(scope, Today, null, "Kangoo de Juan", null, null, [], actor, CancellationToken.None);
+        run = (await runs.GetRunAsync(scope, typed.Id!.Value, CancellationToken.None))!.Run;
+        Assert.Equal(("Kangoo de Juan", (Guid?)null), (run.Vehicle, run.VehicleId));
+    }
+
+    [Fact]
+    public async Task ADeliveryRun_PicksAVehicle_OverHttp()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+        var (org, branch, actor) = await SeedAsync();
+        var (_, truck) = await new PostgresVehicleStore(_dataSource!).CreateAsync(new CloudTenantScope(org, BranchId: branch), actor,
+            new VehicleInput("AB123CD", "Ford", "F-4000", 2015, null, true), CancellationToken.None);
+        var seller = await SignedInAsync(org, branch, Permission.TakeOrders);
+
+        Assert.Equal(HttpStatusCode.BadRequest, (await seller.PostAsJsonAsync("/deliveries/runs",
+            new { runDate = "2026-10-13", vehicleId = Guid.Empty, orderIds = Array.Empty<Guid>() })).StatusCode);
+        var missing = await seller.PostAsJsonAsync("/deliveries/runs", new { runDate = "2026-10-13", vehicleId = Guid.NewGuid(), orderIds = Array.Empty<Guid>() });
+        Assert.Equal((HttpStatusCode.Conflict, "vehicle-not-found"), (missing.StatusCode, (await Json(missing)).GetProperty("error").GetString()));
+
+        var created = await seller.PostAsJsonAsync("/deliveries/runs", new { runDate = "2026-10-13", vehicleId = truck!.Id, orderIds = Array.Empty<Guid>() });
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var run = (await Json(await seller.GetAsync($"/deliveries/runs/{(await Json(created)).GetProperty("runId").GetGuid()}"))).GetProperty("run");
+        Assert.Equal(("AB123CD · Ford F-4000", truck.Id), (run.GetProperty("vehicle").GetString(), run.GetProperty("vehicleId").GetGuid()));
+    }
+
     private async Task<(Guid Org, Guid Branch, Guid Actor)> SeedAsync()
     {
         var userStore = new PostgresUserAccountStore(_dataSource!);

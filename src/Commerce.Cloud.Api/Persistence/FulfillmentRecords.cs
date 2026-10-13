@@ -67,7 +67,9 @@ public sealed record DeliveryRunSummary(
     decimal Total,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset? DispatchedAtUtc,
-    DateTimeOffset? CompletedAtUtc);
+    DateTimeOffset? CompletedAtUtc,
+    // vehicles V3: the vehicle picked (Vehicle then reads its label); null on the runs typed by hand before the vehicles.
+    Guid? VehicleId);
 
 public sealed record DeliveryRunStop(int StopNo, OrderTrackingSummary Order);
 
