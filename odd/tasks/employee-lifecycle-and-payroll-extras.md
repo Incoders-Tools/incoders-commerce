@@ -203,6 +203,12 @@ advances (items 3, 6, 7 and 9 of the owner's 2026-10-11 request).
   - Owner decision: when the goods owed drop between preparing and paying (the employee paid part directly), the
     percent applies to what is still owed but the item discounts apply whole (capped at what is owed), not in proportion.
   - The run detail reads lines and items per payslip (one query each); fine for a branch's staff, batch if it grows.
+- [ ] G13 E4c review (`review-bdf6f8c8de313b33`, approved), fixed right after `488a4d7`: editing the draft renewed the
+  registration key, so after a lost answer (registered on the server) an edited retry registered the goods twice; the
+  key now stays until a registration succeeds, as the staff order's (the server hands the first one back). RED: the
+  keys differed; GREEN: 15 (goods page + employees). Open (locations only): a failed quote is not retried until the
+  draft changes (`EmployeeGoodsPage.tsx:102-114`); test coverage suggestion (`EmployeeGoodsPage.test.tsx:12-145`); the
+  status cell (`EmployeeGoodsPage.tsx:284`).
 
 ## Constraints
 

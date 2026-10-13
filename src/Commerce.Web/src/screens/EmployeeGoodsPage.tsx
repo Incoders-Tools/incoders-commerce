@@ -34,7 +34,7 @@ interface QuoteResult {
  * employee-lifecycle E4c: the goods an employee takes, registered like a sale at the counter. Products and quantities;
  * the server prices them on the default list (Mostrador) and the total shows before registering. Registering takes the
  * stock out and leaves the debt on the employee's goods account; the next payroll deducts it. The registration key is
- * generated once per draft and kept across retries, so a retry after a lost answer never registers twice.
+ * generated once per registration and kept across retries and edits, so a retry after a lost answer never registers twice.
  */
 export function EmployeeGoodsPage({ employee, onBack }: { employee: EmployeeRecord; onBack: () => void }) {
   const { t } = useTranslation('employees')
@@ -116,10 +116,10 @@ export function EmployeeGoodsPage({ employee, onBack }: { employee: EmployeeReco
   const currentQuote = quoteResult !== null && quoteResult.key === quoteKey ? quoteResult : null
   const canSave = quoteKey !== null && currentQuote?.quote != null && !saving
 
-  // A changed draft is another registration: it gets a new key (an unchanged retry keeps the old one).
+  // The key stays until a registration succeeds, even if the draft is edited: after a lost answer the first attempt may
+  // have been registered, and the server hands that one back instead of registering the goods twice (as a staff order).
   const changeDraft = (change: () => void) => {
     change()
-    goodsIdRef.current = null
     setStatus(null)
     setError(null)
   }

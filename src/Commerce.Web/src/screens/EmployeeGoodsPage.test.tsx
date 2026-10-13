@@ -116,6 +116,31 @@ describe('EmployeeGoodsPage', () => {
     expect(second.goodsId).toBe(first.goodsId)
   })
 
+  it('keeps the key when the draft is edited after a lost answer, so the first registration is never doubled', async () => {
+    let attempts = 0
+    register = () => {
+      attempts += 1
+      if (attempts === 1) throw new TypeError('network down')
+      stored = [item()]
+      return json({ goodsId: 'k', total: 15000, lines: [quoteLine(1.5)] }, 201)
+    }
+    const user = userEvent.setup()
+    render(<EmployeeGoodsPage employee={juan} onBack={vi.fn()} />)
+    await screen.findByText('No tiene mercadería registrada.')
+
+    await addAsado(user, '1,5')
+    await screen.findByText(/Total: \$\s15\.000,00/)
+    await user.click(screen.getByRole('button', { name: 'Registrar mercadería' }))
+    expect(await screen.findByRole('alert')).toBeInTheDocument()
+    await user.type(screen.getByLabelText('Cantidad de Asado Por kg'), '5')
+    await screen.findByText(/Total: \$\s15\.500,00/)
+    await user.click(screen.getByRole('button', { name: 'Registrar mercadería' }))
+
+    await waitFor(() => expect(calls('POST /employees/e-1/goods')).toHaveLength(2))
+    const [first, second] = bodies('POST /employees/e-1/goods')
+    expect(second.goodsId).toBe(first.goodsId)
+  })
+
   it('explains a product without a counter price and does not let it be registered', async () => {
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
       const key = `${init?.method ?? 'GET'} ${url}`
