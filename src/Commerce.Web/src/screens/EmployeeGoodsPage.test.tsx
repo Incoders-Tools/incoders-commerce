@@ -157,6 +157,32 @@ describe('EmployeeGoodsPage', () => {
     expect(second.goodsId).not.toBe(first.goodsId)
   })
 
+  it('says in what unit each quantity goes: kilos for a weighed product, units for one sold by the unit', async () => {
+    const pack = { ...asado, presentationId: 'p-2', productName: 'Chorizo', presentationName: 'Paquete', quantityBehavior: 'FixedQuantity' }
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      const key = `${init?.method ?? 'GET'} ${url}`
+      if (key === 'GET /employees/e-1/goods') return json([])
+      if (key.startsWith('GET /orders/staff/presentations')) return json([asado, pack])
+      if (key === 'POST /employees/e-1/goods/quote') return json({ lines: [], total: 0 })
+      throw new TypeError(`unrouted ${key}`)
+    })
+    const user = userEvent.setup()
+    render(<EmployeeGoodsPage employee={juan} onBack={vi.fn()} />)
+    await screen.findByText('No tiene mercadería registrada.')
+
+    await user.type(screen.getByLabelText('Buscar producto'), 'a')
+    await user.click(await screen.findByRole('button', { name: 'Agregar Asado Por kg' }))
+    await user.type(screen.getByLabelText('Buscar producto'), 'c')
+    await user.click(await screen.findByRole('button', { name: 'Agregar Chorizo Paquete' }))
+
+    const kilos = screen.getByLabelText('Cantidad de Asado Por kg')
+    expect(kilos).toHaveAttribute('placeholder', 'Kilos (Ej: 1,5)')
+    expect(kilos.closest('li')).toHaveTextContent('kg')
+    const units = screen.getByLabelText('Cantidad de Chorizo Paquete')
+    expect(units).toHaveAttribute('placeholder', 'Unidades (Ej: 2)')
+    expect(units).toHaveAttribute('inputmode', 'numeric')
+  })
+
   it('explains a product without a counter price and does not let it be registered', async () => {
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
       const key = `${init?.method ?? 'GET'} ${url}`

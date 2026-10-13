@@ -300,6 +300,30 @@ describe('staff and payroll screens', () => {
     })
   })
 
+  it('lists the goods among the deductions as a fixed line that follows the discounts, and never sends it as a line', async () => {
+    routeFetch({
+      'GET /payroll/runs/r-1': () => json(withGoods),
+      'PUT /payroll/runs/r-1/payslips/p-1': () => json(undefined, 204),
+    })
+    const user = userEvent.setup()
+    renderRun()
+
+    await user.click(await screen.findByRole('button', { name: 'Editar' }))
+    const lines = screen.getByRole('list', { name: 'Haberes y descuentos de Pérez, Juan' })
+    const goods = within(lines).getByRole('listitem', { name: 'Mercadería (con bonificación)' })
+    expect(within(goods).getByText(/30\.000,00/)).toBeInTheDocument()
+    expect(within(goods).getByText('Se calcula con la mercadería que llevó y la bonificación de abajo.')).toBeInTheDocument()
+    expect(within(goods).queryByRole('button', { name: 'Quitar' })).not.toBeInTheDocument()
+
+    await user.type(screen.getByLabelText('Bonificación % de Asado Por kg'), '20')
+    await user.type(screen.getByLabelText('Bonificación % sobre el resto'), '10')
+    expect(within(goods).getByText(/24\.300,00/)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Guardar recibo' }))
+    await waitFor(() => expect(callsTo('PUT /payroll/runs/r-1/payslips/p-1')).toHaveLength(1))
+    expect(bodyOf('PUT /payroll/runs/r-1/payslips/p-1').lines.map((line: { source: string }) => line.source)).toEqual(['BaseSalary', 'Advances'])
+  })
+
   it('refuses an item discount that is not a percentage of 0 to 100, without saving', async () => {
     routeFetch({ 'GET /payroll/runs/r-1': () => json(withGoods) })
     const user = userEvent.setup()

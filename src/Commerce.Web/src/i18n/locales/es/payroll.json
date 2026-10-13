@@ -113,7 +113,9 @@
       "line": "Cada renglón necesita un concepto y un importe mayor que cero.",
       "percent": "La bonificación es un porcentaje de 0 a 100."
     },
-    "overtimeHint": "Se calcula con las horas extra cargadas."
+    "overtimeHint": "Se calcula con las horas extra cargadas.",
+    "goodsDeductionLine": "Mercadería (con bonificación)",
+    "goodsDeductionHint": "Se calcula con la mercadería que llevó y la bonificación de abajo."
   },
   "print": {
     "back": "Volver",

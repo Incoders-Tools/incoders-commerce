@@ -113,7 +113,9 @@
       "line": "Every line needs a concept and an amount above zero.",
       "percent": "The discount is a percentage from 0 to 100."
     },
-    "overtimeHint": "Computed from the recorded overtime."
+    "overtimeHint": "Computed from the recorded overtime.",
+    "goodsDeductionLine": "Goods (after discount)",
+    "goodsDeductionHint": "Worked out from the goods taken and the discount below."
   },
   "print": {
     "back": "Back",

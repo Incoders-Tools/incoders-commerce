@@ -481,6 +481,15 @@ function PayslipEditor({
             {line.source === 'Overtime' && <span className="basis-full pl-26 text-xs text-muted-foreground">{t('editor.overtimeHint')}</span>}
           </li>
         ))}
+        {/* owner feedback P1b: the goods deducted read among the deductions too; the block below sets their discount. */}
+        {payslip.purchasesAmount > 0 && (
+          <li aria-label={t('editor.goodsDeductionLine')} className="flex flex-wrap items-center gap-2">
+            <span className="w-24 text-xs font-medium text-destructive">{t('editor.kind.Deduction')}</span>
+            <span className="min-w-48 flex-1 text-sm">{t('editor.goodsDeductionLine')}</span>
+            <span className="w-36 text-sm tabular-nums">{formatMoney(preview.deducted)}</span>
+            <span className="basis-full pl-26 text-xs text-muted-foreground">{t('editor.goodsDeductionHint')}</span>
+          </li>
+        )}
       </ul>
       <div className="flex flex-wrap gap-2">
         <Button type="button" variant="outline" size="sm" onClick={() => add('Earning')}>

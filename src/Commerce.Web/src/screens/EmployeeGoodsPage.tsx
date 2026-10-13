@@ -175,6 +175,8 @@ export function EmployeeGoodsPage({ employee, onBack }: { employee: EmployeeReco
               <ul className="flex flex-col gap-2">
                 {readLines.map(({ line, error: quantityError }) => {
                   const name = presentationName(line.option)
+                  // owner feedback P1a: the box says its unit (a weighed or bulk product goes in kilos).
+                  const byUnit = line.option.quantityBehavior === 'FixedQuantity'
                   const quoted = quotedLine(line.option.presentationId)
                   return (
                     <li key={line.option.presentationId} className="flex flex-wrap items-start gap-3 rounded-lg border border-border bg-card px-4 py-3">
@@ -182,21 +184,25 @@ export function EmployeeGoodsPage({ employee, onBack }: { employee: EmployeeReco
                         <span className="font-medium">{line.option.productName}</span>
                         <span className="text-sm text-muted-foreground">{line.option.presentationName}</span>
                       </span>
-                      <span className="flex w-28 flex-col gap-1">
-                        <Input
-                          aria-label={t('goods.quantityLabel', { name })}
-                          inputMode="decimal"
-                          value={line.quantityText}
-                          onChange={(e) =>
-                            changeDraft(() =>
-                              setLines((previous) =>
-                                previous.map((other) =>
-                                  other.option.presentationId === line.option.presentationId ? { ...other, quantityText: e.target.value } : other,
+                      <span className="flex w-44 flex-col gap-1">
+                        <span className="flex items-center gap-2">
+                          <Input
+                            aria-label={t('goods.quantityLabel', { name })}
+                            inputMode={byUnit ? 'numeric' : 'decimal'}
+                            placeholder={byUnit ? t('goods.unitsPlaceholder') : t('goods.kilosPlaceholder', { example: numberFormat.example })}
+                            value={line.quantityText}
+                            onChange={(e) =>
+                              changeDraft(() =>
+                                setLines((previous) =>
+                                  previous.map((other) =>
+                                    other.option.presentationId === line.option.presentationId ? { ...other, quantityText: e.target.value } : other,
+                                  ),
                                 ),
-                              ),
-                            )
-                          }
-                        />
+                              )
+                            }
+                          />
+                          <span className="text-sm text-muted-foreground">{byUnit ? t('goods.unitsSuffix') : t('goods.kilosSuffix')}</span>
+                        </span>
                         {quantityError && <span className="text-xs text-destructive">{quantityError}</span>}
                       </span>
                       <span className="w-32 text-right text-sm tabular-nums">
