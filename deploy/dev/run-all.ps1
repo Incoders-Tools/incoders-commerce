@@ -1,7 +1,9 @@
 # Launches the local dev stack in separate terminal windows:
 # Postgres (Docker), a built Commerce.Web SPA hosted by Commerce.Cloud.Api,
-# a local HTTPS proxy for browser auth-cookie testing, and Commerce.Pos.Windows
-# (WPF). Run from anywhere; paths are resolved relative to this script.
+# a local HTTPS proxy for browser auth-cookie testing, the Vaca Verde public
+# website (sites/vaca-verde, the page the browser opens on), and
+# Commerce.Pos.Windows (WPF). Run from anywhere; paths are resolved relative
+# to this script.
 # For a double-click entry point that also checks tooling, starts Docker
 # Desktop and refreshes dependencies, use deploy/dev/run-all.bat.
 #
@@ -14,26 +16,32 @@
 #
 # Usage: pwsh deploy/dev/run-all.ps1
 #        pwsh deploy/dev/run-all.ps1 -NoPos      # skip the WPF POS window
-#        pwsh deploy/dev/run-all.ps1 -NoWeb      # skip SPA build/copy and HTTPS proxy
+#        pwsh deploy/dev/run-all.ps1 -NoWeb      # skip SPA build/copy, HTTPS proxy and public website
+#        pwsh deploy/dev/run-all.ps1 -NoSite     # skip the public website; the browser opens /login
 #        pwsh deploy/dev/run-all.ps1 -NoApi      # skip launching Cloud.Api (uses -ApiPort as-is)
 #        pwsh deploy/dev/run-all.ps1 -NoProvision # skip ensuring the local sign-in accounts
-#        pwsh deploy/dev/run-all.ps1 -NoBrowser  # do not open the login URL
-#        pwsh deploy/dev/run-all.ps1 -ApiPort 9080 -ProxyPort 9443 -PostgresPort 15432
+#        pwsh deploy/dev/run-all.ps1 -NoBrowser  # do not open the browser
+#        pwsh deploy/dev/run-all.ps1 -ApiPort 9080 -ProxyPort 9443 -SitePort 5180 -PostgresPort 15432
 
 param(
     [switch]$NoPos,
     [switch]$NoWeb,
+    [switch]$NoSite,
     [switch]$NoApi,
     [switch]$NoBrowser,
     [switch]$NoProvision,
     [int]$PostgresPort = 5432,
     [int]$ApiPort = 8080,
-    [int]$ProxyPort = 5443
+    [int]$ProxyPort = 5443,
+    [int]$SitePort = 4173,
+    # Organization whose catalog the public ordering screen (/order) serves.
+    [string]$GuestOrganization = "Vaca Verde"
 )
 
 $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $webRoot = Join-Path $repoRoot "src\Commerce.Web"
+$siteRoot = Join-Path $repoRoot "sites\vaca-verde"
 $composeFile = Join-Path $PSScriptRoot "compose.yaml"
 $postgresContainer = "incoders-commerce-postgres-1"
 
@@ -145,6 +153,33 @@ for ($i = 0; $i -lt 30; $i++) {
 if (-not $ready) { throw "Postgres did not become healthy within 60s." }
 Write-Host "Postgres is healthy."
 
+# --- Guest ordering target ------------------------------------------------
+# The public ordering screen (/order) only exists when the API is given
+# GuestOrdering__OrganizationId / __BranchId (Tenancy/GuestOrderTarget.cs);
+# without them every /public/* route answers 404. Ids are generated at
+# runtime, so they are looked up by name, as the Vaca Verde seed does. The
+# query runs as the container's superuser, which bypasses row-level security.
+$guestOrganizationLiteral = "'" + ($GuestOrganization.Trim().ToLowerInvariant() -replace "'", "''") + "'"
+$guestTargetQuery = @"
+SELECT o.id || ' ' || b.id
+FROM organizations o
+JOIN branches b ON b.organization_id = o.id
+WHERE lower(btrim(o.name)) = $guestOrganizationLiteral
+ORDER BY b.code NULLS LAST, b.created_at
+LIMIT 1
+"@
+$guestTarget = docker exec $postgresContainer psql -U commerce_owner -d commerce_dev -Atc $guestTargetQuery 2>$null
+if ($LASTEXITCODE -eq 0 -and "$guestTarget" -match '^([0-9a-f-]{36}) ([0-9a-f-]{36})$') {
+    $guestOrganizationId = $Matches[1]
+    $guestBranchId = $Matches[2]
+    Write-Host "Public ordering (/order) serves organization '$GuestOrganization' (branch $guestBranchId)."
+}
+else {
+    $guestOrganizationId = $null
+    $guestBranchId = $null
+    Write-Warning "Organization '$GuestOrganization' with a branch was not found, so /order is disabled for this run. After it is provisioned, run the launcher again."
+}
+
 # --- Ports for the API and the HTTPS proxy --------------------------------
 # With -NoApi the API is expected to be running already, so its port is taken
 # as given instead of being moved away from it.
@@ -159,7 +194,15 @@ $apiBaseUrl = "http://localhost:$resolvedApiPort"
 
 if (-not $NoWeb) {
     $resolvedProxyPort = Resolve-FreePort -Name "HTTPS proxy" -Preferred $ProxyPort -Exclude @($resolvedPostgresPort, $resolvedApiPort)
-    $browserUrl = "https://localhost:$resolvedProxyPort/login"
+    $appUrl = "https://localhost:$resolvedProxyPort"
+    $browserUrl = "$appUrl/login"
+
+    # The public website links into the app, so it only runs alongside it.
+    if (-not $NoSite) {
+        $resolvedSitePort = Resolve-FreePort -Name "Public website" -Preferred $SitePort -Exclude @($resolvedPostgresPort, $resolvedApiPort, $resolvedProxyPort)
+        $siteUrl = "http://localhost:$resolvedSitePort/"
+        $browserUrl = $siteUrl
+    }
 }
 
 $commerceConnectionString = "Host=localhost;Port=$resolvedPostgresPort;Database=commerce_dev;Username=app_runtime;Password=dev-only-password"
@@ -170,6 +213,7 @@ $webRootLiteral = ConvertTo-PowerShellSingleQuotedLiteral $webRoot
 $commerceConnectionStringLiteral = ConvertTo-PowerShellSingleQuotedLiteral $commerceConnectionString
 $platformReadConnectionStringLiteral = ConvertTo-PowerShellSingleQuotedLiteral $platformReadConnectionString
 $apiBaseUrlLiteral = ConvertTo-PowerShellSingleQuotedLiteral $apiBaseUrl
+$siteRootLiteral = ConvertTo-PowerShellSingleQuotedLiteral $siteRoot
 
 # --- 2. Commerce.Web built into Commerce.Cloud.Api/wwwroot ---------------
 if (-not $NoWeb) {
@@ -200,9 +244,15 @@ if (-not $NoApi) {
         "`$env:ASPNETCORE_ENVIRONMENT = 'Development'",
         "`$env:ConnectionStrings__Commerce = $commerceConnectionStringLiteral",
         "`$env:ConnectionStrings__CommercePlatformRead = $platformReadConnectionStringLiteral",
-        "`$env:PORT = '$resolvedApiPort'",
-        "dotnet run --project src/Commerce.Cloud.Api"
-    ) -join "; "
+        "`$env:PORT = '$resolvedApiPort'"
+    )
+    if ($guestOrganizationId) {
+        $apiCommand += @(
+            "`$env:GuestOrdering__OrganizationId = '$guestOrganizationId'",
+            "`$env:GuestOrdering__BranchId = '$guestBranchId'"
+        )
+    }
+    $apiCommand = ($apiCommand + "dotnet run --project src/Commerce.Cloud.Api") -join "; "
 
     Start-Process pwsh -ArgumentList @("-NoExit", "-Command", $apiCommand)
 
@@ -249,8 +299,55 @@ if (-not $NoWeb) {
 
     Start-Process pwsh -ArgumentList @("-NoExit", "-Command", $proxyCommand)
 
+    # --- 4b. Vaca Verde public website ----------------------------------
+    # Built with the proxy origin baked in, so "Hacer un pedido" and
+    # "Ingresar al sistema" land on this run's /order and /login.
+    if (-not $NoSite) {
+        Write-Host "`nBuilding the public website (sites/vaca-verde) for $appUrl..."
+        Push-Location $siteRoot
+        try {
+            if (-not (Test-Path (Join-Path $siteRoot "node_modules"))) {
+                Write-Host "node_modules not found; running npm ci..."
+                npm ci
+                if ($LASTEXITCODE -ne 0) { throw "npm ci failed in sites/vaca-verde with exit code $LASTEXITCODE" }
+            }
+
+            $env:VITE_APP_URL = $appUrl
+            try {
+                npm run build
+                if ($LASTEXITCODE -ne 0) { throw "npm run build failed in sites/vaca-verde with exit code $LASTEXITCODE" }
+            }
+            finally {
+                Remove-Item Env:VITE_APP_URL -ErrorAction SilentlyContinue
+            }
+        }
+        finally {
+            Pop-Location
+        }
+
+        Write-Host "Launching the public website $siteUrl in a new window..."
+        $siteCommand = @(
+            "cd $siteRootLiteral",
+            "Write-Host 'Vaca Verde public website $siteUrl -> $appUrl' -ForegroundColor Cyan",
+            "npm exec -- vite preview --port $resolvedSitePort --strictPort"
+        ) -join "; "
+
+        Start-Process pwsh -ArgumentList @("-NoExit", "-Command", $siteCommand)
+    }
+
     if (-not $NoBrowser) {
         Start-Sleep -Seconds 3
+        if ($siteUrl) {
+            for ($i = 0; $i -lt 20; $i++) {
+                try {
+                    $response = Invoke-WebRequest -Uri $siteUrl -UseBasicParsing -TimeoutSec 2
+                    if ($response.StatusCode -eq 200) { break }
+                }
+                catch {
+                    Start-Sleep -Seconds 1
+                }
+            }
+        }
         Write-Host "Opening browser at $browserUrl..."
         Start-Process $browserUrl
     }
@@ -272,7 +369,9 @@ if (-not $NoPos) {
 }
 
 Write-Host "`nAll requested processes launched."
-if (-not $NoWeb) { Write-Host "Browser URL: $browserUrl" }
+if ($siteUrl) { Write-Host "Website:     $siteUrl" }
+if (-not $NoWeb) { Write-Host "App login:   $appUrl/login" }
+if (-not $NoWeb -and $guestOrganizationId) { Write-Host "Client order: $appUrl/order" }
 Write-Host "API URL:     $apiBaseUrl"
 Write-Host "API health:  $apiBaseUrl/health"
 Write-Host "Postgres:    localhost:$resolvedPostgresPort"

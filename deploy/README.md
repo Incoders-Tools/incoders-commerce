@@ -8,10 +8,24 @@ Double-click `deploy/dev/run-all.bat` (or point a desktop shortcut at it). It:
    npm and Docker, and prints the `winget install` command for anything
    missing;
 2. starts Docker Desktop when the engine is not running and waits up to 180s;
-3. runs `npm ci` when `src/Commerce.Web/node_modules` is missing or older than
-   `package-lock.json`, and `dotnet restore` for Cloud.Api and the POS;
+3. runs `npm ci` when the `node_modules` of `src/Commerce.Web` or
+   `sites/vaca-verde` is missing or older than its `package-lock.json`, and
+   `dotnet restore` for Cloud.Api and the POS;
 4. hands off to `deploy/dev/run-all.ps1`, which starts Postgres, Cloud.Api,
-   the HTTPS proxy and the POS, and prints the URLs to use.
+   the HTTPS proxy, the Vaca Verde public website and the POS, and prints the
+   URLs to use.
+
+The browser opens on the public website (`http://localhost:4173/`). Its
+buttons lead to this run's app: "Hacer un pedido" to `/order` and "Ingresar al
+sistema" to `/login`, both on the HTTPS proxy. `-NoSite` skips the website and
+opens `/login` directly.
+
+`/order` needs the API's `GuestOrdering__OrganizationId` and
+`GuestOrdering__BranchId`. The launcher looks them up in `commerce_dev`: the
+organization named "Vaca Verde" (change it with `-GuestOrganization`) and its
+first branch by code. On a fresh database that organization is only created by
+the provisioning step, after the API has started, so `/order` stays disabled
+(every `/public/*` route answers 404) until the launcher runs again.
 
 Ports are preferences, not requirements:
 
@@ -20,10 +34,11 @@ Ports are preferences, not requirements:
 | Postgres | 5432 | next free port; an already running `incoders-commerce-postgres-1` keeps its port |
 | Cloud.Api | 8080 | next free port; the POS gets it through `Commerce__CloudApiBaseUrl` |
 | HTTPS proxy | 5443 | next free port; the printed browser URL follows it |
+| Public website | 4173 | next free port; it is rebuilt to link to the proxy port in use |
 
 The launcher warns about every port it moves and names the process holding
 the preferred one. Pin ports with `run-all.bat -ApiPort 9080 -ProxyPort 9443
--PostgresPort 15432`; any other `run-all.ps1` switch (`-NoPos`, `-NoBrowser`,
+-SitePort 5180 -PostgresPort 15432`; any other `run-all.ps1` switch (`-NoPos`, `-NoBrowser`,
 ...) is forwarded too.
 
 `tests/Commerce.Integration` always connects to Postgres on **5432**. If the

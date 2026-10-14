@@ -7,6 +7,7 @@ setlocal
 
 for %%I in ("%~dp0..\..") do set "REPO_ROOT=%%~fI"
 set "WEB_ROOT=%REPO_ROOT%\src\Commerce.Web"
+set "SITE_ROOT=%REPO_ROOT%\sites\vaca-verde"
 set "LAUNCHER=%REPO_ROOT%\deploy\dev\run-all.ps1"
 set "DOCKER_DESKTOP_EXE=%ProgramFiles%\Docker\Docker\Docker Desktop.exe"
 set "DOCKER_WAIT_LIMIT=180"
@@ -21,8 +22,9 @@ echo This starts everything needed for local testing:
 echo   0. Prerequisites, Docker engine and project dependencies
 echo   1. Postgres via Docker Compose          (port 5432 or next free)
 echo   2. Commerce.Cloud.Api                   (port 8080 or next free)
-echo   3. Browser-ready HTTPS app on /login    (port 5443 or next free)
-echo   4. Commerce.Pos.Windows, pointed at the API above
+echo   3. Browser-ready HTTPS app: /login, /order (port 5443 or next free)
+echo   4. Vaca Verde public website, opened in the browser (port 4173 or next free)
+echo   5. Commerce.Pos.Windows, pointed at the API above
 echo.
 echo You do NOT need Vite port 5173 for sign-in testing.
 echo.
@@ -130,24 +132,10 @@ echo.
 rem --- Dependencies --------------------------------------------------------------
 echo [3/4] Checking project dependencies...
 
-rem Reinstall node_modules when it is missing or older than package-lock.json
-rem (for example after a pull that changed dependencies). npm ci rewrites
-rem node_modules\.package-lock.json, so a fresh install is not repeated.
-pwsh -NoProfile -Command "$lock = Get-Item -LiteralPath '%WEB_ROOT%\package-lock.json'; $installed = '%WEB_ROOT%\node_modules\.package-lock.json'; if ((Test-Path -LiteralPath $installed) -and (Get-Item -LiteralPath $installed).LastWriteTime -ge $lock.LastWriteTime) { exit 0 } else { exit 1 }"
-if not errorlevel 1 goto :npm_ready
-
-echo node_modules is missing or out of date; running npm ci...
-pushd "%WEB_ROOT%"
-call npm ci
-set "NPM_EXIT=%ERRORLEVEL%"
-popd
-if not "%NPM_EXIT%"=="0" (
-  echo ERROR: npm ci failed with exit code %NPM_EXIT%.
-  goto :fail
-)
-
-:npm_ready
-echo   Commerce.Web node_modules is up to date.
+call :ensure_node_modules "%WEB_ROOT%" "Commerce.Web"
+if errorlevel 1 goto :fail
+call :ensure_node_modules "%SITE_ROOT%" "sites\vaca-verde"
+if errorlevel 1 goto :fail
 
 echo   Restoring .NET packages...
 dotnet restore "%REPO_ROOT%\src\Commerce.Cloud.Api\Commerce.Cloud.Api.csproj" --verbosity quiet
@@ -195,3 +183,25 @@ echo Nothing else will be started from this launcher until the error above is fi
 echo.
 pause
 exit /b 1
+
+rem Reinstalls node_modules of %1 (display name %2) when it is missing or older
+rem than package-lock.json (for example after a pull that changed
+rem dependencies). npm ci rewrites node_modules\.package-lock.json, so a fresh
+rem install is not repeated. Exits 1 when npm ci fails.
+:ensure_node_modules
+pwsh -NoProfile -Command "$lock = Get-Item -LiteralPath '%~1\package-lock.json'; $installed = '%~1\node_modules\.package-lock.json'; if ((Test-Path -LiteralPath $installed) -and (Get-Item -LiteralPath $installed).LastWriteTime -ge $lock.LastWriteTime) { exit 0 } else { exit 1 }"
+if not errorlevel 1 goto :ensure_node_modules_ready
+
+echo %~2 node_modules is missing or out of date; running npm ci...
+pushd "%~1"
+call npm ci
+set "NPM_EXIT=%ERRORLEVEL%"
+popd
+if not "%NPM_EXIT%"=="0" (
+  echo ERROR: npm ci failed in %~2 with exit code %NPM_EXIT%.
+  exit /b 1
+)
+
+:ensure_node_modules_ready
+echo   %~2 node_modules is up to date.
+exit /b 0
