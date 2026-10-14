@@ -26,20 +26,27 @@ const WEEKDAYS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes
  * recorded automatically on their dates in the chosen account. Each one says how often (every N weeks, months or years
  * from a start date) and when it ends (never, on a date, after a number of times); its amount is updated when it changes
  * and the repetition goes on. A recorded date is an ordinary movement of the account (it can be edited or voided there).
+ * owner feedback 2026-10-14, A5: a panel of the treasury screen, opened from its buttons like "Registrar movimiento" and in
+ * the same place: the form for a new one first, the ones already set up below (edit, pause).
  */
 export function TreasuryRecurrences({
   accounts,
   onChanged,
+  onClose,
 }: {
   accounts: readonly TreasuryAccount[]
   /** A recurrence recorded movements: the accounts and their movements reload. */
   onChanged: () => void
+  /** "Cancelar": the panel closes, as any other treasury form. */
+  onClose: () => void
 }) {
   const { t } = useTranslation('treasury')
   const [items, setItems] = useState<TreasuryRecurrence[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [editing, setEditing] = useState<TreasuryRecurrence | 'new' | null>(null)
+  const [editing, setEditing] = useState<TreasuryRecurrence | 'new'>('new')
+  // A new form after each one saved (the key of a new one does not change otherwise).
+  const [formNumber, setFormNumber] = useState(0)
   const [status, setStatus] = useState<string | null>(null)
   const formRef = useRef<HTMLDivElement>(null)
 
@@ -60,7 +67,7 @@ export function TreasuryRecurrences({
   }, [load])
 
   useEffect(() => {
-    if (editing === null) return
+    if (editing === 'new') return
     formRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
     formRef.current?.querySelector<HTMLElement>('select, input')?.focus({ preventScroll: true })
   }, [editing])
@@ -85,9 +92,6 @@ export function TreasuryRecurrences({
           </h2>
           <p className="text-sm text-muted-foreground">{t('recurrences.description')}</p>
         </div>
-        <Button type="button" variant="outline" disabled={accounts.length === 0} onClick={() => setEditing(editing === 'new' ? null : 'new')}>
-          {t('recurrences.new')}
-        </Button>
       </div>
 
       {status && (
@@ -101,22 +105,23 @@ export function TreasuryRecurrences({
         </p>
       )}
 
-      {editing !== null && (
-        <div ref={formRef} className="scroll-mt-4">
-          <RecurrenceForm
-            key={editing === 'new' ? 'new' : editing.recurrenceId}
-            recurrence={editing === 'new' ? null : editing}
-            accounts={accounts}
-            onCancel={() => setEditing(null)}
-            onSaved={async (message) => {
-              setEditing(null)
-              setStatus(message)
-              await load()
-              onChanged()
-            }}
-          />
-        </div>
-      )}
+      <div ref={formRef} className="scroll-mt-4">
+        <RecurrenceForm
+          key={editing === 'new' ? `new-${formNumber}` : editing.recurrenceId}
+          recurrence={editing === 'new' ? null : editing}
+          accounts={accounts}
+          onCancel={onClose}
+          onSaved={async (message) => {
+            setEditing('new')
+            setFormNumber((n) => n + 1)
+            setStatus(message)
+            await load()
+            onChanged()
+          }}
+        />
+      </div>
+
+      <h3 className="text-base font-semibold">{t('recurrences.listTitle')}</h3>
 
       {loading ? (
         <p className="text-sm text-muted-foreground">{t('loading')}</p>

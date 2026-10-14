@@ -281,6 +281,22 @@ describe('TreasuryScreen', () => {
     expect(await screen.findByText(/Se muestran los 1000 movimientos más recientes de estas fechas/)).toBeInTheDocument()
   })
 
+  it('names an advance and a salary payment in Spanish, never by their code', async () => {
+    const original = fetchMock.getMockImplementation()!
+    const advance = { ...manual, movementId: 'm-adv', kind: 'EmployeeAdvance', direction: 'Out', concept: 'Adelanto a Bacca, Ariel', canVoid: false, canEdit: false }
+    const salary = { ...manual, movementId: 'm-sal', kind: 'SalaryPayment', direction: 'Out', concept: 'Sueldo de Bacca, Ariel', canVoid: false, canEdit: false }
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) =>
+      url.startsWith('/treasury/accounts/acc-cash/movements') ? json([advance, salary]) : original(url, init),
+    )
+    render(<TreasuryScreen />)
+
+    const advanceRow = (await screen.findByText('Adelanto a Bacca, Ariel')).closest('tr')!
+    expect(within(advanceRow).getByText('Adelanto a empleado')).toBeInTheDocument()
+    expect(within(screen.getByText('Sueldo de Bacca, Ariel').closest('tr')!).getByText('Pago de sueldo')).toBeInTheDocument()
+    expect(screen.queryByText('EmployeeAdvance')).not.toBeInTheDocument()
+    expect(screen.queryByText('SalaryPayment')).not.toBeInTheDocument()
+  })
+
   it('never offers to deactivate the drawer of a branch', async () => {
     render(<TreasuryScreen />)
 
@@ -319,15 +335,24 @@ describe('TreasuryScreen', () => {
     expect(callsTo('POST /treasury/reprocess')).toHaveLength(1)
   })
 
-  it('lists the recurring expenses with when they repeat, and creates one that never ends', async () => {
+  // owner feedback 2026-10-14, A5: a recurring movement is registered from the same buttons and in the same place as any
+  // other movement, one form open at a time.
+  it('registers a recurring movement from the movement buttons, in the place of the form that was open', async () => {
     const user = userEvent.setup()
     render(<TreasuryScreen />)
 
+    await user.click(await screen.findByRole('button', { name: 'Registrar movimiento' }))
+    expect(screen.getByRole('heading', { name: 'Registrar movimiento' })).toBeInTheDocument()
+    expect(screen.queryByText('Luz (Edenor)')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Movimiento recurrente' }))
+    expect(screen.queryByRole('heading', { name: 'Registrar movimiento' })).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Nuevo gasto o ingreso recurrente' })).toBeInTheDocument()
+    // The ones already set up, below the form, with when they repeat.
     expect(await screen.findByText('Luz (Edenor)')).toBeInTheDocument()
     expect(screen.getByText('Todos los meses, el día 10')).toBeInTheDocument()
     expect(screen.getByText('10/11/2026')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Nuevo recurrente' }))
     await user.type(screen.getByLabelText('Concepto'), 'Internet')
     await user.type(screen.getByLabelText('Importe'), '25000')
     await user.selectOptions(screen.getByLabelText('Sale de la cuenta'), 'acc-bank')
@@ -340,5 +365,17 @@ describe('TreasuryScreen', () => {
       startDate: isoDay(new Date()), includePastDates: false,
     })
     expect(await screen.findByText('"Internet" creado: se registra solo en cada fecha.')).toBeInTheDocument()
+  })
+
+  it('closes the recurring movements with Cancelar, as any other form', async () => {
+    const user = userEvent.setup()
+    render(<TreasuryScreen />)
+
+    await user.click(await screen.findByRole('button', { name: 'Movimiento recurrente' }))
+    expect(screen.getByRole('heading', { name: 'Nuevo gasto o ingreso recurrente' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Cancelar' }))
+
+    expect(screen.queryByRole('heading', { name: 'Nuevo gasto o ingreso recurrente' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Luz (Edenor)')).not.toBeInTheDocument()
   })
 })

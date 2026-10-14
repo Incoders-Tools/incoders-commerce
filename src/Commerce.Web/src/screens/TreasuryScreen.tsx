@@ -34,6 +34,7 @@ type Panel =
   | { kind: 'newAccount' }
   | { kind: 'editAccount' }
   | { kind: 'movement' }
+  | { kind: 'recurrences' }
   | { kind: 'editMovement'; movement: TreasuryMovement }
 
 /**
@@ -259,6 +260,18 @@ export function TreasuryScreen() {
             </Button>
             <Button
               type="button"
+              variant="outline"
+              disabled={activeAccounts.length === 0}
+              onClick={() =>
+                setPanel({
+                  kind: panel.kind === 'recurrences' ? 'none' : 'recurrences',
+                })
+              }
+            >
+              {t('actions.recurring')}
+            </Button>
+            <Button
+              type="button"
               disabled={activeAccounts.length === 0}
               onClick={() =>
                 setPanel({
@@ -329,6 +342,9 @@ export function TreasuryScreen() {
               void refreshAll(accountId)
             }}
           />
+        )}
+        {panel.kind === 'recurrences' && (
+          <TreasuryRecurrences accounts={accounts} onChanged={() => void refreshAll()} onClose={() => setPanel({ kind: 'none' })} />
         )}
         {panel.kind === 'editMovement' && (
           <MovementEditForm
@@ -428,8 +444,6 @@ export function TreasuryScreen() {
           ))}
         </>
       )}
-
-      {!loading && !loadError && <TreasuryRecurrences accounts={accounts} onChanged={() => void refreshAll()} />}
 
       {(selected || showingAll) && (
         <div className="flex flex-col gap-3">

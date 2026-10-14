@@ -11,7 +11,8 @@
   "today": "Hoy: entró {{in}} · salió {{out}}",
   "actions": {
     "newAccount": "Nueva cuenta",
-    "newMovement": "Registrar movimiento"
+    "newMovement": "Registrar movimiento",
+    "recurring": "Movimiento recurrente"
   },
   "kinds": {
     "Cash": "Caja efectivo",
@@ -31,7 +32,9 @@
     "CashDeposit": "Ingreso de caja",
     "Transfer": "Transferencia",
     "ManualIn": "Ingreso manual",
-    "ManualOut": "Egreso manual"
+    "ManualOut": "Egreso manual",
+    "SalaryPayment": "Pago de sueldo",
+    "EmployeeAdvance": "Adelanto a empleado"
   },
   "accountForm": {
     "title": "Nueva cuenta",
@@ -190,8 +193,8 @@
   "recurrences": {
     "title": "Gastos e ingresos recurrentes",
     "description": "Los gastos fijos (luz, gas, internet, teléfono, alquiler…) y los ingresos que se repiten se registran solos en su fecha. Cuando cambia el monto, editalo: la repetición sigue y desde la próxima fecha se usa el nuevo.",
-    "new": "Nuevo recurrente",
     "newTitle": "Nuevo gasto o ingreso recurrente",
+    "listTitle": "Los que ya se registran solos",
     "editTitle": "Editar recurrente",
     "formHint": "Se registra como un movimiento normal de la cuenta en cada fecha. Si una fecha no corresponde (por ejemplo, se pagó aparte), anulá ese movimiento: no se vuelve a registrar.",
     "out": "Gasto (sale dinero)",
