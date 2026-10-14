@@ -46,6 +46,7 @@ describe('staff and payroll screens', () => {
     terminationReason: null,
     overtimeToPay: 0,
     overtimeHoursToPay: 0,
+    payToDate: 0,
   }
   const cash: TreasuryAccount = {
     accountId: 'acc-cash', branchId: 'b-1', branchName: 'Arrecifes', kind: 'Cash', name: 'Caja efectivo · Arrecifes',
@@ -207,6 +208,24 @@ describe('staff and payroll screens', () => {
     const juanRow = (await screen.findByText('Pérez, Juan')).closest('tr')!
     expect(within(juanRow).getByText(/40\.500,00 \(4,5 h\)/)).toBeInTheDocument()
     expect(screen.getByRole('columnheader', { name: /Horas extra a pagar/ })).toBeInTheDocument()
+  })
+
+  // owner feedback round 2, R3: the advances apart from what each employee has to collect to date.
+  it('lists the advances and what each employee has to collect to date', async () => {
+    routeFetch({
+      'GET /employees': () =>
+        json([{ ...juan, balance: -15000, payToDate: 485000 }, { ...juan, id: 'e-2', fullName: 'Gómez, Ana', balance: -60000, payToDate: -10000 }]),
+      'GET /employees/roles': () => json([]),
+    })
+    renderEmployees()
+
+    const juanRow = (await screen.findByText('Pérez, Juan')).closest('tr')!
+    expect(within(juanRow).getByText(/Nos debe \$\s15\.000,00/)).toBeInTheDocument()
+    expect(within(juanRow).getByText(/^\$\s485\.000,00$/)).toBeInTheDocument()
+    const anaRow = screen.getByText('Gómez, Ana').closest('tr')!
+    expect(within(anaRow).getByText(/Nos debe \$\s10\.000,00/)).toHaveClass('text-destructive')
+    expect(screen.getByRole('columnheader', { name: /Adelantos y saldo/ })).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: /A cobrar a hoy/ })).toBeInTheDocument()
   })
 
   it('opens the goods of an employee from its row', async () => {

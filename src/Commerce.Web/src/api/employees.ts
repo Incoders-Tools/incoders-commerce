@@ -44,6 +44,8 @@ export interface EmployeeRecord {
   /** owner feedback P2: the overtime recorded and not paid yet (pending, or in a payroll still in draft). */
   overtimeToPay: number
   overtimeHoursToPay: number
+  /** owner feedback round 2, R3: the salary plus the overtime to pay, less what the employee owes (the server's). */
+  payToDate: number
 }
 
 export interface EmployeeRequest {

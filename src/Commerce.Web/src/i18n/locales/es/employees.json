@@ -23,10 +23,12 @@
     "role": "Puesto",
     "branch": "Sucursal",
     "pay": "Sueldo pactado",
-    "balance": "Cuenta",
-    "balanceHint": "Lo que le debemos (sueldo pendiente) o nos debe (adelantos)",
+    "balance": "Adelantos y saldo",
+    "balanceHint": "Lo que nos debe por adelantos, o lo que le debemos de un sueldo que quedó sin pagar",
     "goods": "Mercadería a descontar",
-    "overtime": "Horas extra a pagar"
+    "overtime": "Horas extra a pagar",
+    "payToDate": "A cobrar a hoy",
+    "payToDateHint": "Sueldo pactado + horas extra a pagar − adelantos y mercadería. Al pagar la liquidación vuelve al sueldo pactado; lo que no se liquidó se arrastra."
   },
   "filters": {
     "branch": "Sucursal",

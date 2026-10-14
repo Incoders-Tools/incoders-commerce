@@ -46,6 +46,9 @@ public sealed record EmployeeRecord(
     decimal OvertimeHoursToPay = 0m)
 {
     public string FullName => $"{LastName}, {FirstName}";
+
+    /// <summary>owner feedback round 2, R3: the salary plus the overtime to pay, less what the employee owes.</summary>
+    public decimal PayToDate => EmployeePayRules.PayToDate(BaseSalary, Balance, OvertimeToPay, PurchasesOwed, IsActive);
 }
 
 /// <summary>What the staff form writes. <see cref="FileNumber"/> null on create: the next one of the organization.</summary>

@@ -48,10 +48,11 @@ public sealed class PosEmployeesTests
     private static EmployeeRecordDto Employee(
         string last, string first, int file = 1, bool active = true, decimal balance = 0m, Guid? customerId = null,
         decimal purchases = 0m, string frequency = "Monthly", decimal salary = 650_000m, string? role = "Carnicero",
-        decimal overtime = 0m, decimal overtimeHours = 0m) =>
+        decimal overtime = 0m, decimal overtimeHours = 0m, decimal payToDate = 0m) =>
         new(Guid.NewGuid(), Branch, "Centro", file, first, last, $"{last}, {first}", "30111222", "27301112223", null, role,
             null, null, null, new DateOnly(2024, 3, 15), null, frequency, salary, customerId, null, active,
-            DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, balance, purchases, OvertimeToPay: overtime, OvertimeHoursToPay: overtimeHours);
+            DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, balance, purchases, OvertimeToPay: overtime, OvertimeHoursToPay: overtimeHours,
+            PayToDate: payToDate);
 
     // ---- client: the same endpoints as the web -------------------------------------------
 
@@ -364,8 +365,9 @@ public sealed class PosEmployeesTests
     private static (EmployeeList List, EmployeeRecordDto Ana, EmployeeRecordDto Bruno, EmployeeRecordDto Carla) List()
     {
         var ana = Employee("Pérez", "Ana", file: 2, balance: 120_000m, customerId: Guid.NewGuid(), purchases: 15_500m,
-            overtime: 40_500m, overtimeHours: 4.5m);
-        var bruno = Employee("Acosta", "Bruno", file: 10, balance: -50_000m, frequency: "Weekly", salary: 150_000m, role: null);
+            overtime: 40_500m, overtimeHours: 4.5m, payToDate: -5_000m);
+        var bruno = Employee("Acosta", "Bruno", file: 10, balance: -50_000m, frequency: "Weekly", salary: 150_000m, role: null,
+            payToDate: 100_000m);
         var carla = Employee("Zárate", "Carla", file: 5, active: false);
         var list = new EmployeeList();
         list.Model.SetItems([ana, bruno, carla]);
@@ -378,13 +380,17 @@ public sealed class PosEmployeesTests
         var (list, _, _, _) = List();
         var model = list.Model;
 
-        Assert.Equal(["Legajo", "Apellido y nombre", "Puesto", "Sueldo pactado", "Cuenta", "Mercadería a descontar", "Horas extra a pagar", "Estado"],
+        Assert.Equal(["Legajo", "Apellido y nombre", "Puesto", "Sueldo pactado", "Adelantos y saldo", "Mercadería a descontar", "Horas extra a pagar",
+                "A cobrar a hoy", "Estado"],
             model.Columns.Select(c => c.Header));
 
         // owner feedback P2: the web's own header for the overtime still to pay.
         using var web = JsonDocument.Parse(File.ReadAllText(Path.Combine(
             RepoRoot(), "src", "Commerce.Web", "src", "i18n", "locales", "es", "employees.json")));
         Assert.Equal(web.RootElement.GetProperty("columns").GetProperty("overtime").GetString(), model.Columns[6].Header);
+        // owner feedback round 2, R3: the account column is the advances (and a salary left owed); the pay to date apart.
+        Assert.Equal(web.RootElement.GetProperty("columns").GetProperty("balance").GetString(), model.Columns[4].Header);
+        Assert.Equal(web.RootElement.GetProperty("columns").GetProperty("payToDate").GetString(), model.Columns[7].Header);
         Assert.Equal(["Acosta, Bruno", "Pérez, Ana"], list.Model.Visible.Select(e => e.FullName));
     }
 
@@ -394,9 +400,11 @@ public sealed class PosEmployeesTests
         var (list, _, _, _) = List();
         var rows = list.Model.Rows;
 
-        Assert.Equal(["0010", "Acosta, Bruno", string.Empty, "$ 150.000,00 por semana", "Nos debe $ 50.000,00", "No lleva", "—", "Activo"],
+        Assert.Equal(["0010", "Acosta, Bruno", string.Empty, "$ 150.000,00 por semana", "Nos debe $ 50.000,00", "No lleva", "—", "$ 100.000,00",
+                "Activo"],
             rows[0].Cells);
-        Assert.Equal(["0002", "Pérez, Ana", "Carnicero", "$ 650.000,00 por mes", "Le debemos $ 120.000,00", "$ 15.500,00", "$ 40.500,00 (4,5 h)", "Activo"],
+        Assert.Equal(["0002", "Pérez, Ana", "Carnicero", "$ 650.000,00 por mes", "Le debemos $ 120.000,00", "$ 15.500,00", "$ 40.500,00 (4,5 h)",
+                "Nos debe $ 5.000,00", "Activo"],
             rows[1].Cells);
     }
 

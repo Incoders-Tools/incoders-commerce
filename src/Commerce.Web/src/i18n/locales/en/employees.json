@@ -23,10 +23,12 @@
     "role": "Position",
     "branch": "Branch",
     "pay": "Agreed pay",
-    "balance": "Account",
-    "balanceHint": "What we owe them (unpaid salary) or they owe us (advances)",
+    "balance": "Advances and balance",
+    "balanceHint": "What the employee owes for advances, or what we owe from a salary left unpaid",
     "goods": "Goods to deduct",
-    "overtime": "Overtime to pay"
+    "overtime": "Overtime to pay",
+    "payToDate": "To collect to date",
+    "payToDateHint": "Agreed salary + overtime to pay − advances and goods. Paying the payroll brings it back to the salary; what was not settled carries over."
   },
   "filters": {
     "branch": "Branch",

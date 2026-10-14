@@ -134,6 +134,17 @@ export function EmployeesScreen() {
           : '—',
       hideOnMobile: true,
     },
+    {
+      // owner feedback round 2, R3: what the employee has to collect to date (the server adds it up).
+      key: 'payToDate',
+      header: t('columns.payToDate'),
+      headerHint: t('columns.payToDateHint'),
+      cell: (e) => (
+        <span className={cn('tabular-nums', e.payToDate < 0 && 'text-destructive')}>
+          {e.payToDate < 0 ? t('owesUs', { amount: formatMoney(-e.payToDate) }) : formatMoney(e.payToDate)}
+        </span>
+      ),
+    },
   ]
 
   if (page.kind === 'form') {

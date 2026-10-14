@@ -96,6 +96,10 @@ public sealed class EmployeeList
             ? $"{MoneyText(employee.OvertimeToPay)} ({employee.OvertimeHoursToPay.ToString("0.##", Money)} h)"
             : "—";
 
+    /// <summary>owner feedback round 2, R3: the server's pay to date, or "Nos debe" when the employee owes more than it.</summary>
+    public static string PayToDateText(EmployeeRecordDto employee) =>
+        employee.PayToDate < 0m ? $"Nos debe {MoneyText(-employee.PayToDate)}" : MoneyText(employee.PayToDate);
+
     public static string StatusText(EmployeeRecordDto employee) => employee.IsActive ? "Activo" : "Baja";
 
 
@@ -109,9 +113,10 @@ public sealed class EmployeeList
             new("name", "Apellido y nombre", employee => employee.FullName),
             new("role", "Puesto", employee => employee.RoleName) { Width = 130 },
             new("pay", "Sueldo pactado", PayText) { Width = 190, SortKey = employee => employee.BaseSalary },
-            new("balance", "Cuenta", employee => BalanceText(employee.Balance)) { Width = 190, SortKey = employee => employee.Balance },
+            new("balance", "Adelantos y saldo", employee => BalanceText(employee.Balance)) { Width = 190, SortKey = employee => employee.Balance },
             new("goods", "Mercadería a descontar", GoodsText) { Width = 170, SortKey = employee => employee.PurchasesOwed },
             new("overtime", "Horas extra a pagar", OvertimeText) { Width = 170, SortKey = employee => employee.OvertimeToPay },
+            new("payToDate", "A cobrar a hoy", PayToDateText) { Width = 170, SortKey = employee => employee.PayToDate },
             new("state", "Estado", StatusText) { Width = 90 },
         ],
         // "0010" contains "10" too, so both ways of typing the file number find it.

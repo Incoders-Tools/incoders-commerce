@@ -49,7 +49,13 @@ visibly go somewhere, and read every treasury account's movements in one place.
   Review `review-4791ef0b37fd2dc0` (correction): a charge reversed before this change (items pending, stock out) made
   "Anular" answer 204 and release nothing; `VoidAsync` now releases on an already reversed charge too (a no-op once
   done). RED: the items stayed; GREEN: payroll + treasury 49.
-- [ ] R3 Staff list: "Adelantos" and "A cobrar" (salary + overtime − advances − goods), computed by the server; POS too.
+- [x] R3 Staff list: "Adelantos" and "A cobrar" (salary + overtime − advances − goods), computed by the server; POS too.
+  `EmployeePayRules.PayToDate` (Domain): salary while active + account balance (advances negative, a salary left owed
+  positive) + overtime to pay − goods owed; `EmployeeRecord.PayToDate`. Web and POS: "Cuenta" is now "Adelantos y
+  saldo", and "A cobrar a hoy" reads it ("Nos debe $ X" in red when the employee owes more than its salary), with a hint
+  saying a paid payroll brings it back to the salary and what was not settled carries over. One salary only: periods
+  left unliquidated are not added up (the payroll proposes them when prepared). RED: did not compile (server, POS),
+  no column (web); GREEN: payroll + treasury + employees + device operator 139, POS employees 55, web 857.
 - [ ] R4 "Ver anulación" highlights the reversal and the reversal links back to the movement it cancels.
 - [ ] R5 Treasury: movements of all accounts with an account filter.
 
