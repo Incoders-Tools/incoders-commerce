@@ -56,7 +56,8 @@
     "reversedBadge": "Anulado",
     "reversalOf": "Anula un movimiento",
     "viewReversal": "Ver anulación",
-    "reverse": "Anular"
+    "reverse": "Anular",
+    "viewReversed": "Ver movimiento anulado"
   },
   "kinds": {
     "OpeningBalance": "Saldo inicial",

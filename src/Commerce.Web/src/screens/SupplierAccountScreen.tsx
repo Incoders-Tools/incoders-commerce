@@ -120,6 +120,13 @@ function CurrentAccountScreen({ party }: { party: AccountPartyKind }) {
   const [rangeError, setRangeError] = useState<string | null>(null)
   const [registering, setRegistering] = useState(false)
   const [reversing, setReversing] = useState<StatementLine | null>(null)
+  // owner feedback round 2, R4: the movement a link went to (a reversal and what it cancels are often side by side).
+  const [highlighted, setHighlighted] = useState<string | null>(null)
+  const show = (movementId: string) => (event: { preventDefault: () => void }) => {
+    event.preventDefault()
+    setHighlighted(movementId)
+    document.getElementById(`movement-${movementId}`)?.scrollIntoView?.({ block: 'center', behavior: 'smooth' })
+  }
   const [view, setView] = useViewPreference(PARTY[party].namespace, isPhone() ? 'cards' : 'table')
   /** Only the latest request may write state. */
   const latestRequest = useRef(0)
@@ -199,14 +206,21 @@ function CurrentAccountScreen({ party }: { party: AccountPartyKind }) {
                   {t('statement.reversedBadge')}
                 </span>
                 {reversal && (
-                  <a className="text-primary underline" href={`#movement-${reversal.id}`}>
+                  <a className="text-primary underline" href={`#movement-${reversal.id}`} onClick={show(reversal.id)}>
                     {t('statement.viewReversal')}
                   </a>
                 )}
               </span>
             )}
             {line.reversesMovementId && (
-              <span className="text-xs text-muted-foreground">{t('statement.reversalOf')}</span>
+              <span className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                {t('statement.reversalOf')}
+                {statement?.movements.some((candidate) => candidate.id === line.reversesMovementId) && (
+                  <a className="text-primary underline" href={`#movement-${line.reversesMovementId}`} onClick={show(line.reversesMovementId)}>
+                    {t('statement.viewReversed')}
+                  </a>
+                )}
+              </span>
             )}
           </span>
         )
@@ -352,6 +366,7 @@ function CurrentAccountScreen({ party }: { party: AccountPartyKind }) {
               columns={columns}
               getRowKey={(line) => line.id}
               getRowId={(line) => `movement-${line.id}`}
+              highlightedRowId={highlighted ? `movement-${highlighted}` : null}
               view={view}
               loading={loading}
               emptyMessage={t('statement.empty')}

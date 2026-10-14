@@ -248,6 +248,28 @@ describe('SupplierAccountScreen', () => {
     expect(within(reversalRow).queryByText('Anulado')).not.toBeInTheDocument()
   })
 
+  // owner feedback round 2, R4: the link shows where it goes (the reversal is usually the very next row), and back.
+  it('highlights the reversal it links to, and the reversal links back to the movement it cancels', async () => {
+    const payment = ledger.register({ kind: 'Payment', amount: 40000, concept: 'Pago parcial', occurredOn: daysAgo(5) })
+    ledger.reverse(payment.id, {})
+    const user = userEvent.setup()
+    renderScreen()
+
+    const table = await screen.findByRole('table')
+    const [, reversedRow, reversalRow] = within(table).getAllByRole('row')
+    expect(reversalRow).not.toHaveAttribute('aria-current')
+
+    await user.click(within(reversedRow).getByRole('link', { name: 'Ver anulación' }))
+    expect(reversalRow).toHaveAttribute('aria-current', 'true')
+    expect(reversedRow).not.toHaveAttribute('aria-current')
+
+    const back = within(reversalRow).getByRole('link', { name: 'Ver movimiento anulado' })
+    expect(back).toHaveAttribute('href', `#movement-${payment.id}`)
+    await user.click(back)
+    expect(reversedRow).toHaveAttribute('aria-current', 'true')
+    expect(reversalRow).not.toHaveAttribute('aria-current')
+  })
+
   it('registers an invoice and a payment, then reverses the payment: 100.000, 60.000, back to 100.000', async () => {
     const user = userEvent.setup()
     renderScreen()

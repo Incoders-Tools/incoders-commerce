@@ -56,7 +56,12 @@ visibly go somewhere, and read every treasury account's movements in one place.
   saying a paid payroll brings it back to the salary and what was not settled carries over. One salary only: periods
   left unliquidated are not added up (the payroll proposes them when prepared). RED: did not compile (server, POS),
   no column (web); GREEN: payroll + treasury + employees + device operator 139, POS employees 55, web 857.
-- [ ] R4 "Ver anulación" highlights the reversal and the reversal links back to the movement it cancels.
+- [x] R4 "Ver anulación" highlights the reversal and the reversal links back to the movement it cancels.
+  `DataView.highlightedRowId`: that row (or card) stands out (amber, `aria-current`); the account screens (customers,
+  suppliers, staff) set it from "Ver anulación" and the new "Ver movimiento anulado" on the reversal (when the original
+  is in the range shown), and scroll it to the middle. RED: nothing marked, no link back; GREEN: web 858. (One full run timed out
+  once at 5 s on `EmployeesAndPayroll` "lists the staff…", passing alone twice and in the next full run: the known
+  flaky timeout under load.)
 - [ ] R5 Treasury: movements of all accounts with an account filter.
 
 ## Constraints

@@ -52,6 +52,8 @@ export interface DataViewProps<T> {
   getRowKey: (item: T) => string
   /** Optional DOM id of a row/card, so other content can link to it (`#id`). */
   getRowId?: (item: T) => string | undefined
+  /** The `getRowId` of the row/card to stand out (`aria-current`), e.g. the one a link just went to. */
+  highlightedRowId?: string | null
   view: DataViewMode
   loading?: boolean
   emptyMessage: string
@@ -95,6 +97,7 @@ export function DataView<T>({
   columns,
   getRowKey,
   getRowId,
+  highlightedRowId = null,
   view,
   loading = false,
   emptyMessage,
@@ -138,6 +141,7 @@ export function DataView<T>({
   }
 
   const shown = sortItems(items, columns, sort)
+  const highlighted = (item: T) => highlightedRowId !== null && getRowId?.(item) === highlightedRowId
 
   if (view === 'cards') {
     return (
@@ -148,8 +152,12 @@ export function DataView<T>({
             <article
               key={getRowKey(item)}
               id={getRowId?.(item)}
+              aria-current={highlighted(item) ? 'true' : undefined}
               data-testid="data-view-card"
-              className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4 text-card-foreground shadow-sm"
+              className={cn(
+                'flex flex-col gap-3 rounded-lg border border-border bg-card p-4 text-card-foreground shadow-sm',
+                highlighted(item) && 'border-amber-500 bg-amber-500/10 ring-2 ring-amber-500/60',
+              )}
             >
               <p className="font-medium break-words">{title.cell(item)}</p>
               <dl className="flex flex-col gap-1 text-sm">
@@ -212,7 +220,15 @@ export function DataView<T>({
         <tbody>
           {shown.map((item) => {
             return (
-              <tr key={getRowKey(item)} id={getRowId?.(item)} className="border-b border-border last:border-0 hover:bg-muted/50">
+              <tr
+                key={getRowKey(item)}
+                id={getRowId?.(item)}
+                aria-current={highlighted(item) ? 'true' : undefined}
+                className={cn(
+                  'border-b border-border last:border-0 hover:bg-muted/50',
+                  highlighted(item) && 'bg-amber-500/10 ring-2 ring-inset ring-amber-500/60 hover:bg-amber-500/15',
+                )}
+              >
                 {columns.map((column) => (
                   <td
                     key={column.key}

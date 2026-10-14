@@ -56,7 +56,8 @@
     "reversedBadge": "Reversed",
     "reversalOf": "Reverses a movement",
     "viewReversal": "View reversal",
-    "reverse": "Reverse"
+    "reverse": "Reverse",
+    "viewReversed": "View reversed movement"
   },
   "kinds": {
     "OpeningBalance": "Opening balance",
