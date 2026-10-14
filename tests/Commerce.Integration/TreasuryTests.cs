@@ -381,6 +381,34 @@ public sealed class TreasuryTests : IClassFixture<WebApplicationFactory<Program>
         Assert.Equal(6_000m, Balance(branch, PostgresTreasuryStore.Cash));
     }
 
+    // owner feedback round 2, R5: every account's movements in one list, each saying its account.
+    [Fact]
+    public async Task EveryAccountsMovements_AreListedTogether_EachWithItsAccount()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+        var (org, branch, _) = await SeedAsync();
+        new PostgresCloudInboxStore(_dataSource!).TryApplyInbound(new CloudTenantScope(org), CashSale(org, branch, 8_000m));
+        var admin = await SignedInAsync(org, branch, Permission.ManageUsers);
+        var cashId = (await AccountsAsync(admin)).Single(a => a.GetProperty("kind").GetString() == "Cash").GetProperty("accountId").GetGuid();
+        var walletId = (await Json(await admin.PostAsJsonAsync("/treasury/accounts", new { kind = "Bank", name = "Mercado Pago" })))
+            .GetProperty("accountId").GetGuid();
+        var today = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-1);
+        Assert.Equal(HttpStatusCode.OK, (await admin.PostAsJsonAsync("/treasury/movements",
+            new { accountId = walletId, direction = "In", amount = 12_000m, concept = "Cobro QR", date = today })).StatusCode);
+
+        var all = (await Json(await admin.GetAsync($"/treasury/movements?from={today.AddDays(-5):yyyy-MM-dd}"))).EnumerateArray().ToList();
+        Assert.Contains(all, m => m.GetProperty("accountId").GetGuid() == walletId && m.GetProperty("amount").GetDecimal() == 12_000m);
+        Assert.Contains(all, m => m.GetProperty("accountId").GetGuid() == cashId);
+
+        // A range leaving the wallet's movement out, and a range backwards.
+        var later = (await Json(await admin.GetAsync($"/treasury/movements?from={today.AddDays(1):yyyy-MM-dd}"))).EnumerateArray().ToList();
+        Assert.DoesNotContain(later, m => m.GetProperty("accountId").GetGuid() == walletId);
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.GetAsync("/treasury/movements?from=2026-10-10&to=2026-10-01")).StatusCode);
+
+        var seller = await SignedInAsync(org, branch, Permission.ViewSales | Permission.TakeOrders);
+        Assert.Equal(HttpStatusCode.Forbidden, (await seller.GetAsync("/treasury/movements")).StatusCode);
+    }
+
     [Fact]
     public async Task TheTreasury_IsAdministrationOnly()
     {

@@ -80,6 +80,15 @@ export function listTreasuryMovements(accountId: string, range: { from?: string;
   return apiFetch<TreasuryMovement[]>(queryString ? `${path}?${queryString}` : path)
 }
 
+/** owner feedback round 2, R5: every account's movements in the range, newest first, each with its `accountId`. */
+export function listAllTreasuryMovements(range: { from?: string; to?: string } = {}): Promise<TreasuryMovement[]> {
+  const query = new URLSearchParams()
+  if (range.from) query.set('from', range.from)
+  if (range.to) query.set('to', range.to)
+  const queryString = query.toString()
+  return apiFetch<TreasuryMovement[]>(queryString ? `/treasury/movements?${queryString}` : '/treasury/movements')
+}
+
 export interface CreateTreasuryAccountRequest {
   /** Omitted: an ordinary account. Safe: the branch safe the POS withdraws "to the safe" into (needs its branch). */
   kind?: ManualAccountKind

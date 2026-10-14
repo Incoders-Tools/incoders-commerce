@@ -62,7 +62,29 @@ visibly go somewhere, and read every treasury account's movements in one place.
   is in the range shown), and scroll it to the middle. RED: nothing marked, no link back; GREEN: web 858. (One full run timed out
   once at 5 s on `EmployeesAndPayroll` "lists the staff…", passing alone twice and in the next full run: the known
   flaky timeout under load.)
-- [ ] R5 Treasury: movements of all accounts with an account filter.
+- [x] R5 Treasury: movements of all accounts with an account filter.
+  `GET /treasury/movements?from&to` (`ListAllMovementsAsync`, administration, newest first, at most 1000 as one
+  account's). Web: "Cuenta de los movimientos" above the movements, "Todas las cuentas" or one account (clicking a card
+  chooses it too; inactive ones only with "Mostrar cuentas inactivas"); all of them read with a "Cuenta" column and
+  read-only ("Para corregir o anular un movimiento, elegí su cuenta."). RED: no route (HTML back), no filter; GREEN:
+  treasury 13, web 859.
+
+## Follow-ups
+
+- Receivables ("Por cobrar"): the dashboard is sample data as a whole; when it goes real its "Por cobrar" is the sum of
+  the customers' balances (not treasury: it is not money in an account). Meanwhile a total over the customers list is
+  the cheapest real place. Not started.
+- Salary deductions (absences ÷30 per day for monthly staff, suspensions, late arrivals by the hour; justified absences
+  not deducted; presentismo lost under many agreements): postponed by the owner; manual deduction lines cover them.
+- R1/R2 review (`review-4791ef0b37fd2dc0`), open warnings: lock order between a void and a reversal of the same charge
+  (advisory lock vs. the reversal's unique index: the second one fails cleanly, not verified under load); a run being
+  paid while its goods are voided (the run status is read without locking the run); "Corregir" across branches (the
+  products load, the quote fails if they are not the selected branch's); readability (`PostgresEmployeeGoodsStore.cs`
+  382-383, 424; `EmployeeGoodsPage.tsx` 241-286).
+- R3 review (`review-dde6ea3d99dca630`): the pay-to-date test mixes fixed dates and the clock; the POS DTO's default
+  0 would hide a server that stopped sending it.
+- R4 review (`review-dcccbc23088c1fb5`): the back link when the original is out of the range is untested; the
+  highlight is kept after the range changes; cards' highlight untested.
 
 ## Constraints
 

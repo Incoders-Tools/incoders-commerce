@@ -8,6 +8,7 @@ import { PageHeader } from '@/components/data/PageHeader'
 import { ApiError } from '@/api/client'
 import { listBranchDocumentProfiles } from '@/api/fulfillment'
 import {
+  listAllTreasuryMovements,
   listTreasuryAccounts,
   listTreasuryMovements,
   reprocessTreasury,
@@ -23,6 +24,9 @@ import { cn } from '@/lib/utils'
 import { countedMovements, isoDay, subtotals, type BranchOption } from '@/treasury/treasuryInput'
 import { AccountForm, MovementEditForm, MovementForm } from './TreasuryForms'
 import { TreasuryRecurrences } from './TreasuryRecurrences'
+
+/** owner feedback round 2, R5: the movements of every account, chosen in place of one. */
+const ALL_ACCOUNTS = 'all'
 
 type Panel =
   | { kind: 'none' }
@@ -127,7 +131,7 @@ export function TreasuryScreen() {
     const request = ++latestRequest.current
     setMovementsLoading(true)
     setMovementsError(null)
-    listTreasuryMovements(selectedId, { from, to })
+    ;(selectedId === ALL_ACCOUNTS ? listAllTreasuryMovements({ from, to }) : listTreasuryMovements(selectedId, { from, to }))
       .then((result) => {
         if (request === latestRequest.current) setMovements(result)
       })
@@ -183,6 +187,8 @@ export function TreasuryScreen() {
   }
 
   const selected = accounts.find((account) => account.accountId === selectedId) ?? null
+  const showingAll = selectedId === ALL_ACCOUNTS
+  const accountName = (accountId: string) => accounts.find((account) => account.accountId === accountId)?.name ?? '—'
 
   const toggleActive = async () => {
     if (!selected) return
@@ -424,28 +430,52 @@ export function TreasuryScreen() {
 
       {!loading && !loadError && <TreasuryRecurrences accounts={accounts} onChanged={() => void refreshAll()} />}
 
-      {selected && (
+      {(selected || showingAll) && (
         <div className="flex flex-col gap-3">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div className="flex flex-col gap-2">
               <h2 className="text-lg font-semibold">
-                {t('movements.title', {
-                  account: selected.name,
-                  branch: selected.branchName ?? t('wholeCompany'),
-                })}
+                {selected
+                  ? t('movements.title', {
+                      account: selected.name,
+                      branch: selected.branchName ?? t('wholeCompany'),
+                    })
+                  : t('movements.titleAll')}
               </h2>
-              <div className="flex flex-wrap gap-2">
-                <Button type="button" variant="outline" size="sm" onClick={() => setPanel({ kind: 'editAccount' })}>
-                  {t('accounts.edit')}
-                </Button>
-                {(selected.isActive === false || !selected.isAutomatic) && (
-                  <Button type="button" variant="outline" size="sm" onClick={() => void toggleActive()}>
-                    {selected.isActive === false ? t('accounts.activate') : t('accounts.deactivate')}
+              {selected && (
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={() => setPanel({ kind: 'editAccount' })}>
+                    {t('accounts.edit')}
                   </Button>
-                )}
-              </div>
+                  {(selected.isActive === false || !selected.isAutomatic) && (
+                    <Button type="button" variant="outline" size="sm" onClick={() => void toggleActive()}>
+                      {selected.isActive === false ? t('accounts.activate') : t('accounts.deactivate')}
+                    </Button>
+                  )}
+                </div>
+              )}
             </div>
             <div className="flex flex-wrap items-end gap-3">
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="treasuryAccountFilter">{t('movements.accountFilter')}</Label>
+                <select
+                  id="treasuryAccountFilter"
+                  className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+                  value={selectedId ?? ''}
+                  onChange={(event) => {
+                    setSelectedId(event.target.value)
+                    setVoiding(null)
+                    setActionError(null)
+                  }}
+                >
+                  <option value={ALL_ACCOUNTS}>{t('movements.allAccounts')}</option>
+                  {visibleAccounts.map((account) => (
+                    <option key={account.accountId} value={account.accountId}>
+                      {account.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div className="flex flex-col gap-1">
                 <Label htmlFor="treasuryFrom">{t('movements.from')}</Label>
                 <Input id="treasuryFrom" type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
@@ -512,6 +542,7 @@ export function TreasuryScreen() {
             <p className="text-sm text-muted-foreground">{t('movements.empty')}</p>
           ) : (
             <>
+              {showingAll && <p className="text-sm text-muted-foreground">{t('movements.allReadOnly')}</p>}
               <p className="text-sm text-muted-foreground">
                 {t('movements.totals', {
                   in: formatMoney(totalIn),
@@ -524,6 +555,7 @@ export function TreasuryScreen() {
                   <thead className="bg-muted/50 text-left text-xs text-muted-foreground">
                     <tr>
                       <th className="px-3 py-2 font-medium">{t('movements.columns.date')}</th>
+                      {showingAll && <th className="px-3 py-2 font-medium">{t('movements.columns.account')}</th>}
                       <th className="px-3 py-2 font-medium">{t('movements.columns.kind')}</th>
                       <th className="px-3 py-2 font-medium">{t('movements.columns.concept')}</th>
                       <th className="px-3 py-2 font-medium">{t('movements.columns.customer')}</th>
@@ -544,6 +576,7 @@ export function TreasuryScreen() {
                         )}
                       >
                         <td className="px-3 py-2 whitespace-nowrap">{formatIsoDate(movement.businessDate)}</td>
+                        {showingAll && <td className="px-3 py-2">{accountName(movement.accountId)}</td>}
                         <td className="px-3 py-2 whitespace-nowrap">
                           {t(`movementKinds.${movement.kind}`, {
                             defaultValue: movement.kind,
@@ -578,7 +611,7 @@ export function TreasuryScreen() {
                           {movement.direction === 'Out' ? formatMoney(movement.amount) : ''}
                         </td>
                         <td className="px-3 py-2 text-right whitespace-nowrap">
-                          {(movement.canEdit || movement.canReclassify) && (
+                          {!showingAll && (movement.canEdit || movement.canReclassify) && (
                             <Button
                               type="button"
                               variant="outline"
@@ -589,7 +622,7 @@ export function TreasuryScreen() {
                               {movement.canReclassify ? t('movements.changeAccount') : t('movements.edit')}
                             </Button>
                           )}
-                          {movement.canVoid && (
+                          {!showingAll && movement.canVoid && (
                             <Button
                               type="button"
                               variant="outline"

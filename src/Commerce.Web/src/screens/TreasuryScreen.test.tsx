@@ -107,6 +107,8 @@ describe('TreasuryScreen', () => {
           return json([])
         case 'GET /treasury/accounts/acc-cash/movements':
           return json([manual, sale, voided])
+        case 'GET /treasury/movements':
+          return json([{ ...manual, movementId: 'mov-8', accountId: 'acc-bank', concept: 'Cobro QR', amount: 12_000 }, manual])
         case 'POST /treasury/accounts':
           return json({ ...bank, accountId: 'acc-new', name: 'Visa empresa' }, 201)
         case 'POST /treasury/transfers':
@@ -160,7 +162,7 @@ describe('TreasuryScreen', () => {
 
     expect(screen.queryByText('Banco cerrado')).not.toBeInTheDocument()
     await userEvent.setup().click(screen.getByLabelText('Mostrar cuentas inactivas'))
-    expect(screen.getByText('Banco cerrado')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Banco cerrado/ })).toBeInTheDocument()
   })
 
   it('creates an account of a type of the catalog, offering only active types', async () => {
@@ -239,6 +241,29 @@ describe('TreasuryScreen', () => {
     await user.click(screen.getByRole('button', { name: 'Guardar corrección' }))
     await waitFor(() => expect(callsTo('PUT /treasury/movements/mov-2')).toHaveLength(1))
     expect(bodyOf('PUT /treasury/movements/mov-2')).toEqual({ accountId: 'acc-bank', reason: 'Se cobró por transferencia' })
+  })
+
+  // owner feedback round 2, R5: the movements of one account or of all of them, chosen by name.
+  it('lists every account movements together, each with its account, read-only', async () => {
+    const user = userEvent.setup()
+    render(<TreasuryScreen />)
+
+    const accountFilter = await screen.findByLabelText('Cuenta de los movimientos')
+    expect(accountFilter).toHaveValue('acc-cash')
+    await user.click(screen.getByRole('button', { name: /Banco Nación/ }))
+    expect(accountFilter).toHaveValue('acc-bank')
+
+    await user.selectOptions(accountFilter, 'all')
+    expect(await screen.findByRole('heading', { name: 'Movimientos de todas las cuentas' })).toBeInTheDocument()
+    await waitFor(() => expect(callsTo('GET /treasury/movements')).toHaveLength(1))
+    expect(String(callsTo('GET /treasury/movements')[0][0])).toMatch(/from=\d{4}-\d{2}-\d{2}&to=\d{4}-\d{2}-\d{2}/)
+    const qr = (await screen.findByText('Cobro QR')).closest('tr')!
+    expect(within(qr).getByText('Banco Nación')).toBeInTheDocument()
+    expect(within(screen.getByText('Fondo de cambio').closest('tr')!).getByText('Caja efectivo · Arrecifes')).toBeInTheDocument()
+    expect(within(qr.closest('table')!).getByRole('columnheader', { name: 'Cuenta' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Anular' })).not.toBeInTheDocument()
+    expect(screen.getByText(/Para corregir o anular un movimiento, elegí su cuenta/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Editar cuenta' })).not.toBeInTheDocument()
   })
 
   it('never offers to deactivate the drawer of a branch', async () => {

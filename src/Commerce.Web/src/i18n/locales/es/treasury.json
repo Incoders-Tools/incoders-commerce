@@ -107,14 +107,19 @@
       "customer": "Cliente",
       "in": "Entrada",
       "out": "Salida",
-      "actions": "Acciones"
+      "actions": "Acciones",
+      "account": "Cuenta"
     },
     "voided": "anulado",
     "voidReason": "Anulado: {{reason}}",
     "correction": "Corrige un movimiento anterior",
     "edit": "Editar",
     "changeAccount": "Cambiar cuenta",
-    "recurring": "Recurrente"
+    "recurring": "Recurrente",
+    "titleAll": "Movimientos de todas las cuentas",
+    "accountFilter": "Cuenta de los movimientos",
+    "allAccounts": "Todas las cuentas",
+    "allReadOnly": "Para corregir o anular un movimiento, elegí su cuenta."
   },
   "errors": {
     "load": "No se pudo cargar la tesorería.",

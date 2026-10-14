@@ -107,14 +107,19 @@
       "customer": "Customer",
       "in": "In",
       "out": "Out",
-      "actions": "Actions"
+      "actions": "Actions",
+      "account": "Account"
     },
     "voided": "voided",
     "voidReason": "Voided: {{reason}}",
     "correction": "Corrects an earlier movement",
     "edit": "Edit",
     "changeAccount": "Change account",
-    "recurring": "Recurring"
+    "recurring": "Recurring",
+    "titleAll": "Movements of every account",
+    "accountFilter": "Account of the movements",
+    "allAccounts": "Every account",
+    "allReadOnly": "To correct or void a movement, choose its account."
   },
   "errors": {
     "load": "The treasury could not be loaded.",

@@ -435,6 +435,24 @@ public sealed class PostgresTreasuryStore
         return movements;
     }
 
+    /// <summary>
+    /// owner feedback round 2, R5: every account's movements in the range, newest first, each with its account (the
+    /// organization's; at most 1000, as one account's).
+    /// </summary>
+    public async Task<IReadOnlyList<TreasuryMovementRecord>> ListAllMovementsAsync(
+        CloudTenantScope scope, DateOnly? from, DateOnly? to, CancellationToken ct)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+        await TenantScopeSql.ApplyAsync(connection, tx, scope.OrganizationId, null, ct);
+        var movements = await ReadMovementsAsync(
+            connection, tx,
+            "m.organization_id = $1 AND ($2::date IS NULL OR m.business_date >= $2) AND ($3::date IS NULL OR m.business_date <= $3)",
+            ct, scope.OrganizationId, (NpgsqlTypes.NpgsqlDbType.Date, from), (NpgsqlTypes.NpgsqlDbType.Date, to));
+        await tx.CommitAsync(ct);
+        return movements;
+    }
+
     private static async Task<List<TreasuryMovementRecord>> ReadMovementsAsync(
         NpgsqlConnection connection, NpgsqlTransaction tx, string where, CancellationToken ct, Guid first,
         params (NpgsqlTypes.NpgsqlDbType Type, object? Value)[] more)
