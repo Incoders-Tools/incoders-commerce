@@ -52,6 +52,12 @@ export const DateInput = React.forwardRef<HTMLInputElement, DateInputProps>(
     const { t } = useTranslation('common')
     const [text, setText] = React.useState(() => display(value))
     const picker = React.useRef<HTMLInputElement>(null)
+    const field = React.useRef<HTMLInputElement | null>(null)
+    const setField = (node: HTMLInputElement | null) => {
+      field.current = node
+      if (typeof ref === 'function') ref(node)
+      else if (ref) ref.current = node
+    }
     // The value last seen from the screen, and the last one this field gave it.
     const [seen, setSeen] = React.useState(value ?? '')
     const [given, setGiven] = React.useState<string | null>(null)
@@ -84,10 +90,23 @@ export const DateInput = React.forwardRef<HTMLInputElement, DateInputProps>(
       emit(parse(next))
     }
 
+    // A date typed outside min/max is invalid, as in the browser's own date field: the form does not send it.
+    const typed = parse(text)
+    const outOfRange =
+      typed !== '' && min && typed < String(min)
+        ? t('dateInput.min', { date: display(String(min)) })
+        : typed !== '' && max && typed > String(max)
+          ? t('dateInput.max', { date: display(String(max)) })
+          : ''
+    React.useEffect(() => {
+      field.current?.setCustomValidity(outOfRange)
+    }, [outOfRange])
+
     return (
       <div className={cn('relative flex w-full items-center', className)}>
         <input
-          ref={ref}
+          ref={setField}
+          aria-invalid={outOfRange ? true : undefined}
           type="text"
           inputMode="numeric"
           autoComplete="off"
@@ -98,7 +117,7 @@ export const DateInput = React.forwardRef<HTMLInputElement, DateInputProps>(
           disabled={disabled}
           value={text}
           onChange={(e) => change(e.target.value)}
-          className="flex h-9 w-full rounded-md border border-input bg-background py-1 pr-9 pl-3 text-sm text-foreground shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex h-9 w-full rounded-md border border-input bg-background py-1 pr-9 pl-3 text-sm text-foreground shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive"
           {...props}
         />
         <button

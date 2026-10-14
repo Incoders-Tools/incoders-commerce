@@ -105,6 +105,41 @@ public sealed partial class PayrollTests
     }
 
     [Fact]
+    public async Task VoidingGoods_WaitsForAPayrollBeingPaid_AndThenRefusesWhatItDeducted()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+        var g = await GoodsSeedAsync();
+        var goods = Goods();
+        var (_, registered) = await goods.RegisterAsync(g.W.Scope, g.W.Actor, g.Juan.Id, new DateOnly(2026, 10, 12), [new(g.Asado, 1m)], CancellationToken.None);
+        var (_, runId) = await new PostgresPayrollStore(_dataSource!).CreateRunAsync(
+            g.W.Scope, g.W.Actor, new DateOnly(2026, 10, 1), Today, PayFrequency.Monthly, null, null, CancellationToken.None);
+
+        // A payment holds the run (as PayRunAsync does) and ends paid: the void waits for it, then sees it paid.
+        await using var connection = await _dataSource!.OpenConnectionAsync();
+        await using var tx = await connection.BeginTransactionAsync();
+        await TenantScopeSql.ApplyAsync(connection, tx, g.W.Org, null, CancellationToken.None);
+        await using (var hold = new Npgsql.NpgsqlCommand("SELECT status FROM payroll_runs WHERE id = $1 FOR UPDATE", connection, tx))
+        {
+            hold.Parameters.AddWithValue(runId!.Value);
+            await hold.ExecuteScalarAsync();
+        }
+
+        var voiding = goods.VoidAsync(g.W.Scope, g.W.Actor, g.Juan.Id, registered!.GoodsId, Today, CancellationToken.None);
+        await Task.Delay(500);
+        Assert.False(voiding.IsCompleted);
+
+        await using (var pay = new Npgsql.NpgsqlCommand("UPDATE payroll_runs SET status = 'Paid', paid_at_utc = now() WHERE id = $1", connection, tx))
+        {
+            pay.Parameters.AddWithValue(runId.Value);
+            await pay.ExecuteNonQueryAsync();
+        }
+
+        await tx.CommitAsync();
+        Assert.Equal(EmployeeGoodsOutcome.Settled, await voiding);
+        Assert.Single(await goods.ListAsync(g.W.Scope, g.Juan.Id, CancellationToken.None));
+    }
+
+    [Fact]
     public async Task ReversingTheGoodsCharge_OnTheCustomerAccount_VoidsTheGoods_AndAPosSalesItems()
     {
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }

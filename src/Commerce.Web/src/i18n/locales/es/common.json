@@ -68,6 +68,8 @@
   },
   "dateInput": {
     "placeholder": "dd/mm/aaaa",
-    "pick": "Elegir fecha"
+    "pick": "Elegir fecha",
+    "min": "La fecha tiene que ser desde el {{date}}.",
+    "max": "La fecha tiene que ser hasta el {{date}}."
   }
 }

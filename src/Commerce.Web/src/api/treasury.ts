@@ -80,6 +80,9 @@ export function listTreasuryMovements(accountId: string, range: { from?: string;
   return apiFetch<TreasuryMovement[]>(queryString ? `${path}?${queryString}` : path)
 }
 
+/** The most movements the server returns for a range (newest first): reaching it means older ones were left out. */
+export const MOVEMENTS_LIMIT = 1000
+
 /** owner feedback round 2, R5: every account's movements in the range, newest first, each with its `accountId`. */
 export function listAllTreasuryMovements(range: { from?: string; to?: string } = {}): Promise<TreasuryMovement[]> {
   const query = new URLSearchParams()

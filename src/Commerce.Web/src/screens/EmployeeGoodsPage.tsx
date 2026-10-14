@@ -37,6 +37,8 @@ interface QuoteResult {
   key: string
   quote: GoodsQuote | null
   error: string | null
+  /** No answer, or an unexpected one (not a refusal with a code, such as a missing price): asking again may work. */
+  retryable?: boolean
 }
 
 /**
@@ -56,6 +58,8 @@ export function EmployeeGoodsPage({ employee, onBack }: { employee: EmployeeReco
   const [lines, setLines] = useState<DraftLine[]>([])
   const [draftNumber, setDraftNumber] = useState(0)
   const [quoteResult, setQuoteResult] = useState<QuoteResult | null>(null)
+  // A failed pricing (a dropped connection) is asked again on request, the draft untouched.
+  const [quoteAttempt, setQuoteAttempt] = useState(0)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [status, setStatus] = useState<string | null>(null)
@@ -119,10 +123,15 @@ export function EmployeeGoodsPage({ employee, onBack }: { employee: EmployeeReco
       })
       .catch((err: unknown) => {
         if (request === latestQuote.current) {
-          setQuoteResult({ key: debouncedQuoteKey, quote: null, error: codeText(err, t('goods.quoteError')) })
+          setQuoteResult({
+            key: debouncedQuoteKey,
+            quote: null,
+            error: codeText(err, t('goods.quoteError')),
+            retryable: !(err instanceof ApiError && err.code),
+          })
         }
       })
-  }, [debouncedQuoteKey, employee.id, codeText, t])
+  }, [debouncedQuoteKey, quoteAttempt, employee.id, codeText, t])
 
   const currentQuote = quoteResult !== null && quoteResult.key === quoteKey ? quoteResult : null
   const canSave = quoteKey !== null && currentQuote?.quote != null && !saving
@@ -292,8 +301,21 @@ export function EmployeeGoodsPage({ employee, onBack }: { employee: EmployeeReco
               (currentQuote === null ? (
                 <p className="text-sm text-muted-foreground">{t('goods.pricing')}</p>
               ) : currentQuote.error ? (
-                <p role="alert" className="text-sm text-destructive">
+                <p role="alert" className="flex flex-wrap items-center gap-2 text-sm text-destructive">
                   {currentQuote.error}
+                  {currentQuote.retryable && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setQuoteResult(null)
+                        setQuoteAttempt((n) => n + 1)
+                      }}
+                    >
+                      {t('goods.retryQuote')}
+                    </Button>
+                  )}
                 </p>
               ) : (
                 <p className="text-sm font-medium">{t('goods.total', { amount: formatMoney(currentQuote.quote!.total) })}</p>

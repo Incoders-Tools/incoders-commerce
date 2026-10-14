@@ -227,7 +227,8 @@
     "correctTitle": "Correct goods",
     "correctMessage": "The goods of {{date}} for {{amount}} ({{products}}) are voided and their products go back to the form, to correct and register them again.",
     "correctConfirm": "Void and correct",
-    "voidedToCorrect": "Goods voided: correct the products and register them again."
+    "voidedToCorrect": "Goods voided: correct the products and register them again.",
+    "retryQuote": "Retry"
   },
   "leave": {
     "title": "Leave of {{name}}",

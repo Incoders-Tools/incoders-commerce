@@ -119,7 +119,8 @@
     "titleAll": "Movements of every account",
     "accountFilter": "Account of the movements",
     "allAccounts": "Every account",
-    "allReadOnly": "To correct or void a movement, choose its account."
+    "allReadOnly": "To correct or void a movement, choose its account.",
+    "capped": "The {{count}} most recent movements of these dates are shown; there may be more. Narrow the range to see the earlier ones."
   },
   "errors": {
     "load": "The treasury could not be loaded.",

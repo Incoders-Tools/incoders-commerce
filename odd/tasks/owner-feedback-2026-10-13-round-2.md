@@ -69,6 +69,24 @@ visibly go somewhere, and read every treasury account's movements in one place.
   read-only ("Para corregir o anular un movimiento, elegí su cuenta."). RED: no route (HTML back), no filter; GREEN:
   treasury 13, web 859.
 
+## Follow-ups closed (2026-10-14)
+
+- [x] F1 Treasury: a range reaching the server's 1000 movements says the list may be cut ("Se muestran los 1000
+  movimientos más recientes de estas fechas; puede haber más…"), for one account or all (R5 review R4-all-movements-
+  silent-cap). `MOVEMENTS_LIMIT` in `api/treasury.ts`.
+- [x] F2 Goods void vs. a payroll being paid (R1 review R3-release-run-status-toctou): `ReleaseAsync` locks the runs
+  holding the items (`FOR UPDATE OF run`, as `PayRunAsync` does) before reading whether they were paid, so a payment
+  under way finishes first and the void then refuses what it deducted. RED: the void did not wait.
+- [x] F3 Preparing a payroll (P4 review): only the latest staff read counts (one answering late after closing and
+  opening the form again is dropped), and the list is read again when the window gets the focus back (staff added in
+  another tab), keeping who was left out.
+- [x] F4 Goods pricing that failed without a refusal (a dropped connection, a 500) offers "Reintentar", the draft as
+  it is (employee-lifecycle G13); a refusal with a code (no price) does not.
+- [x] F5 `DateInput` (owner feedback X1): a date typed outside `min`/`max` is invalid as in the browser's date field
+  (`setCustomValidity`, `aria-invalid`, red border): "La fecha tiene que ser desde el 01/10/2026." / "hasta el …"; the
+  form does not send it.
+  GREEN: web 864, payroll + treasury 53.
+
 ## Follow-ups
 
 - Receivables ("Por cobrar"): the dashboard is sample data as a whole; when it goes real its "Por cobrar" is the sum of

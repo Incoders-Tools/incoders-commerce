@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { useState } from 'react'
+import { useState, type FormEvent } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { Input } from './input'
 
@@ -117,5 +117,34 @@ describe('DateInput (Input type="date")', () => {
     expect(screen.getByLabelText('Fecha')).toHaveValue('')
     fireEvent.click(screen.getByRole('button', { name: 'Poner 5 de enero' }))
     expect(screen.getByLabelText('Fecha')).toHaveValue('05/01/2026')
+  })
+  // owner feedback follow-up: a date typed outside min/max is refused as the browser's own date field refuses it.
+  it('marks a typed date outside its min or max as invalid, so the form does not send it', async () => {
+    const user = userEvent.setup()
+    const submitted = vi.fn((event: FormEvent) => event.preventDefault())
+    render(
+      <form onSubmit={submitted}>
+        <label htmlFor="limited">Fecha</label>
+        <Input id="limited" type="date" min="2026-10-01" max="2026-10-13" defaultValue="" onChange={() => {}} />
+        <button type="submit">Enviar</button>
+      </form>,
+    )
+    const field = screen.getByLabelText('Fecha') as HTMLInputElement
+
+    await user.type(field, '30092026')
+    expect(field).toBeInvalid()
+    expect(field.validationMessage).toBe('La fecha tiene que ser desde el 01/10/2026.')
+    await user.click(screen.getByRole('button', { name: 'Enviar' }))
+    expect(submitted).not.toHaveBeenCalled()
+
+    await user.clear(field)
+    await user.type(field, '14102026')
+    expect(field.validationMessage).toBe('La fecha tiene que ser hasta el 13/10/2026.')
+
+    await user.clear(field)
+    await user.type(field, '05102026')
+    expect(field).toBeValid()
+    await user.click(screen.getByRole('button', { name: 'Enviar' }))
+    expect(submitted).toHaveBeenCalledTimes(1)
   })
 })

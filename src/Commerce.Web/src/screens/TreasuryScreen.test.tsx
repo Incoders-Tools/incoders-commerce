@@ -266,6 +266,21 @@ describe('TreasuryScreen', () => {
     expect(screen.queryByRole('button', { name: 'Editar cuenta' })).not.toBeInTheDocument()
   })
 
+  it('says when the range has more movements than the list shows', async () => {
+    const original = fetchMock.getMockImplementation()!
+    const many = Array.from({ length: 1000 }, (_, i) => ({ ...manual, movementId: `m-${i}`, concept: `Mov ${i}` }))
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) =>
+      url.startsWith('/treasury/movements') ? json(many) : original(url, init),
+    )
+    const user = userEvent.setup()
+    render(<TreasuryScreen />)
+
+    expect(await screen.findByText('Fondo de cambio')).toBeInTheDocument()
+    expect(screen.queryByText(/más recientes/)).not.toBeInTheDocument()
+    await user.selectOptions(screen.getByLabelText('Cuenta de los movimientos'), 'all')
+    expect(await screen.findByText(/Se muestran los 1000 movimientos más recientes de estas fechas/)).toBeInTheDocument()
+  })
+
   it('never offers to deactivate the drawer of a branch', async () => {
     render(<TreasuryScreen />)
 

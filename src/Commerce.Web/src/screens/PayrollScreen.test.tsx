@@ -88,4 +88,49 @@ describe('PayrollScreen', () => {
     await user.click(within(chosen).getByRole('button', { name: 'Todos' }))
     expect(within(chosen).getByLabelText('0003 · Ruiz, Beto')).toBeChecked()
   })
+  it('reads the staff again when the window comes back, keeping who was left out', async () => {
+    const user = userEvent.setup()
+    renderScreen()
+    await user.click(await screen.findByRole('button', { name: 'Nueva liquidación' }))
+    const chosen = await screen.findByRole('group', { name: 'Empleados a liquidar' })
+    await user.click(await within(chosen).findByLabelText('0002 · Gómez, Ana'))
+
+    // Someone was added in another tab meanwhile.
+    const original = fetchMock.getMockImplementation()!
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) =>
+      url.startsWith('/employees')
+        ? json([employee('e-1', 'Bacca, Ariel', 1), employee('e-2', 'Gómez, Ana', 2), employee('e-4', 'Sosa, Eva', 4)])
+        : original(url, init),
+    )
+    window.dispatchEvent(new Event('focus'))
+
+    expect(await within(chosen).findByLabelText('0004 · Sosa, Eva')).toBeChecked()
+    expect(within(chosen).getByLabelText('0002 · Gómez, Ana')).not.toBeChecked()
+  })
+
+  it('never lets an older read of the staff replace a newer one', async () => {
+    let release: (response: Response) => void = () => {}
+    let reads = 0
+    const original = fetchMock.getMockImplementation()!
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (!url.startsWith('/employees')) return original(url, init)
+      reads += 1
+      // The first read answers late, with a list that no longer holds.
+      if (reads === 1) return new Promise<Response>((resolve) => (release = resolve))
+      return json([employee('e-1', 'Bacca, Ariel', 1)])
+    })
+    const user = userEvent.setup()
+    renderScreen()
+
+    const toggleForm = await screen.findByRole('button', { name: 'Nueva liquidación' })
+    await user.click(toggleForm)
+    await user.click(screen.getByRole('button', { name: 'Nueva liquidación' }))
+    await user.click(screen.getByRole('button', { name: 'Nueva liquidación' }))
+    const chosen = await screen.findByRole('group', { name: 'Empleados a liquidar' })
+    await within(chosen).findByLabelText('0001 · Bacca, Ariel')
+
+    release(json([employee('e-9', 'Viejo, Dato', 9)]))
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(within(chosen).queryByLabelText('0009 · Viejo, Dato')).not.toBeInTheDocument()
+  })
 })

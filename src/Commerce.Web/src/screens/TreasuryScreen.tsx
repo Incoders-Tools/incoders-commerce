@@ -8,6 +8,7 @@ import { PageHeader } from '@/components/data/PageHeader'
 import { ApiError } from '@/api/client'
 import { listBranchDocumentProfiles } from '@/api/fulfillment'
 import {
+  MOVEMENTS_LIMIT,
   listAllTreasuryMovements,
   listTreasuryAccounts,
   listTreasuryMovements,
@@ -543,6 +544,11 @@ export function TreasuryScreen() {
           ) : (
             <>
               {showingAll && <p className="text-sm text-muted-foreground">{t('movements.allReadOnly')}</p>}
+              {movements.length >= MOVEMENTS_LIMIT && (
+                <p role="status" className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
+                  {t('movements.capped', { count: MOVEMENTS_LIMIT })}
+                </p>
+              )}
               <p className="text-sm text-muted-foreground">
                 {t('movements.totals', {
                   in: formatMoney(totalIn),

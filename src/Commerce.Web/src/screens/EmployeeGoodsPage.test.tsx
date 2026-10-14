@@ -184,6 +184,26 @@ describe('EmployeeGoodsPage', () => {
     expect(within(units.closest('li')!).getByText('u.')).toBeInTheDocument()
   })
 
+  it('offers to price again when pricing failed (a dropped connection), without retyping', async () => {
+    let quotes = 0
+    const original = fetchMock.getMockImplementation()!
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url === '/employees/e-1/goods/quote' && ++quotes === 1) throw new TypeError('network down')
+      return original(url, init)
+    })
+    const user = userEvent.setup()
+    render(<EmployeeGoodsPage employee={juan} onBack={vi.fn()} />)
+    await screen.findByText('No tiene mercadería registrada.')
+
+    await addAsado(user, '1,5')
+    expect(await screen.findByText('No se pudieron calcular los precios. Probá de nuevo.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Registrar mercadería' })).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: 'Reintentar' }))
+
+    expect(await screen.findByText(/Total: \$\s15\.000,00/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Registrar mercadería' })).toBeEnabled()
+  })
+
   it('explains a product without a counter price and does not let it be registered', async () => {
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
       const key = `${init?.method ?? 'GET'} ${url}`
@@ -198,6 +218,7 @@ describe('EmployeeGoodsPage', () => {
 
     await addAsado(user, '1')
     expect(await screen.findByText(/no tiene precio vigente en la lista Mostrador/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Reintentar' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Registrar mercadería' })).toBeDisabled()
   })
 

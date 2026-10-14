@@ -328,6 +328,23 @@ public sealed class PostgresEmployeeGoodsStore
             return true;
         }
 
+        // The runs holding them first, as paying a run does (PayRunAsync): a payment under way finishes before this reads
+        // whether it was paid, so goods it deducted are never released.
+        await using (var lockRuns = new NpgsqlCommand(
+            """
+            SELECT run.id FROM payroll_runs run
+            JOIN payslips p ON p.organization_id = run.organization_id AND p.run_id = run.id
+            JOIN employee_goods_items g ON g.payslip_id = p.id
+            WHERE g.source_type = $1 AND g.source_id = $2
+            ORDER BY run.id
+            FOR UPDATE OF run
+            """, connection, tx))
+        {
+            lockRuns.Parameters.AddWithValue(itemSource);
+            lockRuns.Parameters.AddWithValue(sourceId);
+            await lockRuns.ExecuteNonQueryAsync(ct);
+        }
+
         Guid? employeeId = null;
         Guid? branchId = null;
         var total = 0m;

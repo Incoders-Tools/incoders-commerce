@@ -119,7 +119,8 @@
     "titleAll": "Movimientos de todas las cuentas",
     "accountFilter": "Cuenta de los movimientos",
     "allAccounts": "Todas las cuentas",
-    "allReadOnly": "Para corregir o anular un movimiento, elegí su cuenta."
+    "allReadOnly": "Para corregir o anular un movimiento, elegí su cuenta.",
+    "capped": "Se muestran los {{count}} movimientos más recientes de estas fechas; puede haber más. Achicá el rango para ver los anteriores."
   },
   "errors": {
     "load": "No se pudo cargar la tesorería.",

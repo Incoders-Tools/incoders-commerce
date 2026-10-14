@@ -68,6 +68,8 @@
   },
   "dateInput": {
     "placeholder": "dd/mm/yyyy",
-    "pick": "Pick a date"
+    "pick": "Pick a date",
+    "min": "The date must be on or after {{date}}.",
+    "max": "The date must be on or before {{date}}."
   }
 }

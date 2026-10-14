@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { Button, buttonVariants } from '@/components/ui/button'
@@ -50,6 +50,7 @@ export function PayrollScreen() {
   const [staff, setStaff] = useState<EmployeeRecord[] | null>(null)
   const [staffFailed, setStaffFailed] = useState(false)
   const [leftOut, setLeftOut] = useState<Set<string>>(() => new Set())
+  const latestStaff = useRef(0)
 
   const load = useCallback(async () => {
     if (missingBranch) return
@@ -68,19 +69,39 @@ export function PayrollScreen() {
     void load()
   }, [load])
 
-  const openNew = () => {
-    setCreating(!creating)
-    if (creating) return
-    setLeftOut(new Set())
+  // Only the latest read counts: an earlier one answering late (the form closed and opened again) is dropped.
+  const readStaff = useCallback(() => {
+    const request = ++latestStaff.current
     setStaffFailed(false)
     listEmployees({ branchId }).then(
-      (list) => setStaff(list.filter((employee) => employee.isActive)),
+      (list) => {
+        if (request === latestStaff.current) setStaff(list.filter((employee) => employee.isActive))
+      },
       () => {
+        if (request !== latestStaff.current) return
         setStaff(null)
         setStaffFailed(true)
       },
     )
+  }, [branchId])
+
+  const openNew = () => {
+    setCreating(!creating)
+    if (creating) {
+      latestStaff.current++
+      return
+    }
+    setLeftOut(new Set())
+    setStaff(null)
+    readStaff()
   }
+
+  // Back to the window (staff added in another tab meanwhile): read it again; who was left out stays out.
+  useEffect(() => {
+    if (!creating) return
+    window.addEventListener('focus', readStaff)
+    return () => window.removeEventListener('focus', readStaff)
+  }, [creating, readStaff])
 
   const offered = (staff ?? []).filter((employee) => frequency === '' || employee.payFrequency === frequency)
   const chosen = offered.filter((employee) => !leftOut.has(employee.id))

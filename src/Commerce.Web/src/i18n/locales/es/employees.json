@@ -227,7 +227,8 @@
     "correctTitle": "Corregir carga",
     "correctMessage": "Se anula la carga del {{date}} por {{amount}} ({{products}}) y sus productos vuelven al formulario para corregirlos y registrarlos de nuevo.",
     "correctConfirm": "Anular y corregir",
-    "voidedToCorrect": "Carga anulada: corregí los productos y registralos de nuevo."
+    "voidedToCorrect": "Carga anulada: corregí los productos y registralos de nuevo.",
+    "retryQuote": "Reintentar"
   },
   "leave": {
     "title": "Baja de {{name}}",
