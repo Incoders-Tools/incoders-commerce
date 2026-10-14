@@ -48,6 +48,7 @@ Editable source: [architecture overview (.drawio)](./diagrams/incoders-commerce-
 | Synchronization principles and authority | [Synchronization](./docs/architecture/synchronization.md) |
 | Product variants and release strategy | [Product variants](./PRODUCT_VARIANTS_AND_RELEASE_STRATEGY.md) |
 | UI product definitions | [UI product definitions](./UI_PRODUCT_DEFINITIONS.md) |
+| Vaca Verde public website (static landing that links into the web app) | [sites/vaca-verde](./sites/vaca-verde/README.md) |
 
 ## Branch model
 

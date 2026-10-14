@@ -16,6 +16,8 @@ if (!template.includes(placeholder)) {
   throw new Error(`dist/index.html has no ${placeholder} placeholder.`)
 }
 
-await writeFile(indexPath, template.replace(placeholder, render()))
+// A function replacement: the rendered HTML is inserted as is, never read for `$&`-style patterns.
+const html = render()
+await writeFile(indexPath, template.replace(placeholder, () => html))
 await rm(ssrDir, { recursive: true, force: true })
 console.log('Prerendered dist/index.html')

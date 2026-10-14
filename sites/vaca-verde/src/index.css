@@ -1,0 +1,72 @@
+@import "tailwindcss";
+@import "@fontsource-variable/josefin-sans";
+@import "@fontsource-variable/figtree";
+
+/* Palette from Vaca Verde's flyer: paper, field green, engraving gold, and the
+   bright green of the logo, kept for the access section only. */
+@theme {
+  --color-paper: #fbf5ea;
+  --color-paper-deep: #f2e8d5;
+  --color-ink: #2b231d;
+  --color-ink-soft: #5c5047;
+  --color-field: #3f7526;
+  --color-field-bright: #5a9a3c;
+  --color-pasture: #1e3317;
+  --color-pasture-soft: #2b4722;
+  --color-meadow: #e6eedb;
+  --color-logo: #3ad417;
+  --color-gold: #a8915a;
+  --color-gold-ink: #75613a;
+
+  --font-display: "Josefin Sans Variable", "Josefin Sans", ui-sans-serif, sans-serif;
+  --font-sans: "Figtree Variable", "Figtree", ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    scroll-padding-top: 5rem;
+  }
+
+  body {
+    background-color: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  :focus-visible {
+    outline: 3px solid var(--color-field-bright);
+    outline-offset: 3px;
+    border-radius: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+}
+
+/* The single orchestrated moment: the shop engraving is inked in from left to
+   right on page load, the way the flyer illustration reads. */
+@keyframes ink-in {
+  from {
+    clip-path: inset(0 100% 0 0);
+    opacity: 0.2;
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+    opacity: 1;
+  }
+}
+
+.ink-in {
+  animation: ink-in 1.6s cubic-bezier(0.65, 0, 0.35, 1) 0.2s both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ink-in {
+    animation: none;
+  }
+}
