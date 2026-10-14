@@ -118,6 +118,45 @@ export function giveAdvance(
   return apiFetch<{ advanceId: string }>(`/employees/${id}/advances`, { method: 'POST', body: JSON.stringify(request) })
 }
 
+/**
+ * An advance as the history reads it (owner feedback 2026-10-14). Voided: its cash movement voided and its debit reversed
+ * (`voidReason` says why); a correction links the voided one (`correctedByAdvanceId`) and its replacement
+ * (`correctsAdvanceId`). `concept` is what the operator typed, null when nothing.
+ */
+export interface EmployeeAdvance {
+  advanceId: string
+  date: string
+  amount: number
+  accountId: string
+  accountName: string
+  concept: string | null
+  isVoided: boolean
+  voidReason: string | null
+  voidedAtUtc: string | null
+  correctedByAdvanceId: string | null
+  correctsAdvanceId: string | null
+  createdAtUtc: string
+}
+
+/** The employee's advances dated from `from` to `to` (both `yyyy-MM-dd`), newest first. */
+export function listAdvances(id: string, from: string, to: string): Promise<EmployeeAdvance[]> {
+  return apiFetch<EmployeeAdvance[]>(`/employees/${id}/advances?from=${from}&to=${to}`)
+}
+
+/** Voids an advance whole: its cash movement and its debit on the employee's account. 409 `advance-in-payroll-draft`. */
+export function voidAdvance(id: string, advanceId: string, reason: string): Promise<void> {
+  return apiFetch<void>(`/employees/${id}/advances/${advanceId}/void`, { method: 'POST', body: JSON.stringify({ reason }) })
+}
+
+/** Corrects an advance: voided, and the corrected one handed out in its place. Returns the corrected one's id. */
+export function correctAdvance(
+  id: string,
+  advanceId: string,
+  request: { amount: number; accountId: string; date: string; concept?: string; reason: string },
+): Promise<{ advanceId: string }> {
+  return apiFetch<{ advanceId: string }>(`/employees/${id}/advances/${advanceId}`, { method: 'PUT', body: JSON.stringify(request) })
+}
+
 // ---- goods (employee-lifecycle E4) -------------------------------------------------------------
 
 /** Where an item came from: registered in the web, or a POS sale on account to the employee's customer. */

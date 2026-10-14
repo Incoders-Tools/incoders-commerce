@@ -1,8 +1,9 @@
 import { render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { EmployeeRecord } from '@/api/employees'
-import type { AccountStatement, AccountSummary } from '@/api/types'
+import type { AccountStatement, AccountSummary, StatementLine } from '@/api/types'
 import { EmployeeAccountScreen } from './SupplierAccountScreen'
 
 /**
@@ -73,6 +74,30 @@ describe('EmployeeAccountScreen', () => {
 
     expect(screen.queryByText('Vencido')).not.toBeInTheDocument()
     expect(screen.queryByText('Antigüedad de lo vencido')).not.toBeInTheDocument()
+  })
+
+  // owner feedback 2026-10-14, A2: an advance in a draft payroll is not reversed here either.
+  it('explains why an advance in a draft payroll is not reversed', async () => {
+    const advance = {
+      id: 'm-1', supplierId: null, kind: 'Payment', direction: 'Debit', amount: 15000, occurredOn: '2026-10-13', dueOn: null,
+      documentReference: null, concept: 'Adelanto', reversesMovementId: null, createdAtUtc: '2026-10-13T17:07:12Z',
+      createdByUserId: 'u-1', runningBalance: -15000, reversed: false, reversedByMovementId: null,
+    } as StatementLine
+    const original = fetchMock.getMockImplementation()!
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) =>
+      init?.method === 'POST'
+        ? json({ error: 'advance-in-payroll-draft' }, 409)
+        : url.startsWith('/employees/e-1/account/statement')
+          ? json({ ...statement, movements: [advance] })
+          : original(url, init),
+    )
+    const user = userEvent.setup()
+    renderScreen()
+
+    await user.click(await screen.findByRole('button', { name: 'Anular' }))
+    await user.click(screen.getByRole('button', { name: 'Confirmar anulación' }))
+
+    expect(await screen.findByText(/está en una liquidación en borrador/)).toBeInTheDocument()
   })
 
   it('says when the employee takes no goods, and an even position as such', async () => {

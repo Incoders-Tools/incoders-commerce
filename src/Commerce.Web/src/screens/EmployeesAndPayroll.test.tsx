@@ -249,13 +249,14 @@ describe('staff and payroll screens', () => {
       'GET /employees': () => json([juan]),
       'GET /employees/roles': () => json([]),
       'GET /treasury/accounts': () => json([cash]),
+      'GET /employees/e-1/advances': () => json([]),
       'POST /employees/e-1/advances': () => json({ advanceId: 'a-1' }),
     })
     const user = userEvent.setup()
     renderEmployees()
 
     await user.click(await screen.findByRole('button', { name: 'Acciones de Pérez, Juan' }))
-    await user.click(screen.getByRole('menuitem', { name: 'Adelanto' }))
+    await user.click(screen.getByRole('menuitem', { name: 'Adelantos' }))
     await user.type(screen.getByLabelText('Importe'), '50000')
     await waitFor(() => expect(screen.getByLabelText('Sale de')).toHaveValue('acc-cash'))
     await user.click(screen.getByRole('button', { name: 'Registrar adelanto' }))

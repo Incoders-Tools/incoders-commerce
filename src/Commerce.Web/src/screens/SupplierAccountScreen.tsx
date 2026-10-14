@@ -521,6 +521,8 @@ function ReversePanel({
             ? t('errors.notReversible')
             : code === 'goods-settled'
               ? t('errors.goodsSettled')
+            : code === 'advance-in-payroll-draft'
+              ? t('errors.advanceInPayrollDraft')
             : err instanceof ApiError && err.status === 400
               ? err.message
               : t('errors.unexpectedReverse'),

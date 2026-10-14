@@ -39,7 +39,7 @@
     "create": "Nuevo empleado",
     "edit": "Editar",
     "account": "Cuenta",
-    "advance": "Adelanto",
+    "advance": "Adelantos",
     "overtime": "Horas extra",
     "goods": "Mercadería",
     "leave": "Gestionar baja",
@@ -95,17 +95,61 @@
     "overtimeHourlyRateHint": "Para las horas extra: horas × este valor × el multiplicador (el domingo, ×2). Vacío: no se cargan horas extra."
   },
   "advance": {
-    "title": "Adelanto a {{name}}",
-    "description": "El dinero sale de la cuenta de Tesorería que elijas y queda en la cuenta del empleado: la próxima liquidación lo descuenta.",
+    "title": "Adelantos de {{name}}",
+    "description": "El dinero sale de la cuenta de Tesorería que elijas y queda en la cuenta del empleado: la próxima liquidación lo descuenta. Un adelanto mal cargado se corrige o se anula desde el historial, y la caja y la cuenta del empleado se corrigen juntas.",
+    "newTitle": "Nuevo adelanto",
+    "correctTitle": "Corregir el adelanto del {{date}}",
+    "correctHint": "Se anula el adelanto del {{date}} por {{amount}} y se registra este en su lugar.",
     "amount": "Importe",
     "account": "Sale de",
     "date": "Fecha",
     "concept": "Motivo (opcional)",
     "conceptPlaceholder": "Ej.: a cuenta del sueldo de octubre",
+    "reason": "Motivo de la corrección",
+    "reasonPlaceholder": "Ej.: era de 10.000, no de 12.000",
     "save": "Registrar adelanto",
+    "saveCorrection": "Guardar corrección",
+    "cancelCorrection": "Cancelar corrección",
+    "corrected": "Adelanto corregido: se anuló el del {{date}} y quedó registrado el de {{amount}}.",
+    "voided": "Adelanto del {{date}} anulado: el dinero vuelve a {{account}} y ya no se descuenta.",
+    "history": "Adelantos entregados",
+    "from": "Desde",
+    "to": "Hasta",
+    "empty": "No hay adelantos entre estas fechas.",
+    "total": "Total vigente en estas fechas: {{amount}}",
+    "columns": {
+      "date": "Fecha",
+      "amount": "Importe",
+      "account": "Salió de",
+      "concept": "Motivo",
+      "status": "Estado",
+      "actions": "Acciones"
+    },
+    "status": {
+      "active": "Vigente",
+      "voided": "Anulado",
+      "corrects": "Corrige uno anterior"
+    },
+    "void": "Anular",
+    "voidLabel": "Anular el adelanto del {{date}} por {{amount}}",
+    "voidTitle": "Anular adelanto",
+    "voidMessage": "Se anula el adelanto del {{date}} por {{amount}}: el dinero vuelve a la cuenta {{account}} y la liquidación ya no lo descuenta. Queda en el historial, tachado, con el motivo.",
+    "voidConfirm": "Anular adelanto",
+    "voidReason": "Motivo",
+    "voidReasonRequired": "Escribí por qué lo anulás.",
+    "voiding": "Anulando…",
+    "correct": "Corregir",
+    "correctLabel": "Corregir el adelanto del {{date}} por {{amount}}",
     "errors": {
       "amount": "Escribí un importe mayor que cero, con hasta dos decimales.",
-      "account": "Elegí de qué cuenta sale el dinero."
+      "account": "Elegí de qué cuenta sale el dinero.",
+      "reason": "Escribí por qué lo corregís.",
+      "load": "No se pudieron cargar los adelantos.",
+      "range": "La fecha Desde tiene que ser anterior o igual a la fecha Hasta."
+    },
+    "codes": {
+      "advance-in-payroll-draft": "{{name}} está en una liquidación en borrador que ya descuenta sus adelantos. Eliminá el borrador o sacalo de esa liquidación, y después anulá o corregí el adelanto.",
+      "advance-voided": "Ese adelanto ya está anulado."
     }
   },
   "errors": {

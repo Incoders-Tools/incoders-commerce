@@ -39,7 +39,7 @@
     "create": "New employee",
     "edit": "Edit",
     "account": "Account",
-    "advance": "Advance",
+    "advance": "Advances",
     "overtime": "Overtime",
     "goods": "Goods",
     "leave": "Manage leave",
@@ -95,17 +95,61 @@
     "overtimeHourlyRateHint": "For overtime: hours × this rate × the multiplier (Sunday ×2). Empty: no overtime can be recorded."
   },
   "advance": {
-    "title": "Advance to {{name}}",
-    "description": "The money leaves the treasury account you choose and stays on the employee's account: the next payroll deducts it.",
+    "title": "Advances of {{name}}",
+    "description": "The money leaves the Treasury account you choose and stays on the employee's account: the next payroll deducts it. An advance entered by mistake is corrected or voided from the history, and the cash and the employee's account are corrected together.",
+    "newTitle": "New advance",
+    "correctTitle": "Correct the advance of {{date}}",
+    "correctHint": "The advance of {{date}} for {{amount}} is voided and this one is recorded in its place.",
     "amount": "Amount",
     "account": "Paid from",
     "date": "Date",
     "concept": "Reason (optional)",
     "conceptPlaceholder": "E.g.: on account of October's salary",
+    "reason": "Reason for the correction",
+    "reasonPlaceholder": "E.g.: it was 10,000, not 12,000",
     "save": "Record advance",
+    "saveCorrection": "Save correction",
+    "cancelCorrection": "Cancel correction",
+    "corrected": "Advance corrected: the one of {{date}} was voided and the one for {{amount}} was recorded.",
+    "voided": "Advance of {{date}} voided: the money goes back to {{account}} and is no longer deducted.",
+    "history": "Advances handed out",
+    "from": "From",
+    "to": "To",
+    "empty": "No advances between these dates.",
+    "total": "Standing total for these dates: {{amount}}",
+    "columns": {
+      "date": "Date",
+      "amount": "Amount",
+      "account": "Paid from",
+      "concept": "Reason",
+      "status": "Status",
+      "actions": "Actions"
+    },
+    "status": {
+      "active": "Standing",
+      "voided": "Voided",
+      "corrects": "Corrects an earlier one"
+    },
+    "void": "Void",
+    "voidLabel": "Void the advance of {{date}} for {{amount}}",
+    "voidTitle": "Void advance",
+    "voidMessage": "The advance of {{date}} for {{amount}} is voided: the money goes back to the account {{account}} and the payroll no longer deducts it. It stays in the history, struck through, with the reason.",
+    "voidConfirm": "Void advance",
+    "voidReason": "Reason",
+    "voidReasonRequired": "Write why you void it.",
+    "voiding": "Voiding…",
+    "correct": "Correct",
+    "correctLabel": "Correct the advance of {{date}} for {{amount}}",
     "errors": {
       "amount": "Enter an amount above zero, with up to two decimals.",
-      "account": "Choose the account the money comes from."
+      "account": "Choose the account the money comes from.",
+      "reason": "Write why you correct it.",
+      "load": "The advances could not be loaded.",
+      "range": "The From date must be on or before the To date."
+    },
+    "codes": {
+      "advance-in-payroll-draft": "{{name}} is in a draft payroll that already deducts their advances. Delete the draft or take them out of it, then void or correct the advance.",
+      "advance-voided": "That advance is already voided."
     }
   },
   "errors": {

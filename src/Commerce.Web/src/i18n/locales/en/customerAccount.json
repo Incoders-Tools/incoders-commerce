@@ -10,7 +10,8 @@
     "alreadyReversed": "This movement was already reversed.",
     "notReversible": "This movement cannot be reversed.",
     "partyNotFound": "The customer was not found.",
-    "goodsSettled": "It cannot be reversed: these are an employee’s goods a paid payroll already deducted."
+    "goodsSettled": "It cannot be reversed: these are an employee’s goods a paid payroll already deducted.",
+    "advanceInPayrollDraft": "It cannot be voided: the employee is in a draft payroll that already deducts this advance. Delete the draft or take them out of it, then void it from Advances."
   },
   "summary": {
     "balance": "Balance",

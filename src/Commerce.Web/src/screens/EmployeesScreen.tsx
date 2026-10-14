@@ -14,22 +14,20 @@ import {
   PAY_FREQUENCIES,
   createEmployee,
   employeeRolesApi,
-  giveAdvance,
   listEmployees,
   nextFileNumber,
   updateEmployee,
   type EmployeeRecord,
   type PayFrequency,
 } from '@/api/employees'
-import { listTreasuryAccounts, type TreasuryAccount } from '@/api/treasury'
 import type { MasterDataEntry, SelectableBranch } from '@/api/types'
 import { useOptionalBranchContext } from '@/branch/BranchContext'
 import { formatMoney } from '@/dashboard/format'
 import { formatFileNumber } from '@/lib/fileNumber'
+import { EmployeeAdvancePage } from './EmployeeAdvancePage'
 import { EmployeeGoodsPage } from './EmployeeGoodsPage'
 import { EmployeeLeavePage } from './EmployeeLeavePage'
 import { EmployeeOvertimePage } from './EmployeeOvertimePage'
-import { todayIso } from '@/lib/isoDate'
 import { parseAmount } from '@/treasury/treasuryInput'
 import { cn } from '@/lib/utils'
 
@@ -166,12 +164,10 @@ export function EmployeesScreen() {
 
   if (page.kind === 'advance') {
     return (
-      <AdvanceForm
+      <EmployeeAdvancePage
         employee={page.employee}
-        onCancel={() => setPage({ kind: 'list' })}
-        onSaved={(amount) => {
+        onBack={() => {
           setPage({ kind: 'list' })
-          setStatus(t('status.advanced', { name: page.employee.fullName, amount: formatMoney(amount) }))
           void load()
         }}
       />
@@ -488,81 +484,6 @@ function EmployeeForm({
         <div className="flex gap-2">
           <Button type="submit" disabled={saving}>
             {saving ? t('form.saving') : t('form.save')}
-          </Button>
-          <Button type="button" variant="outline" onClick={onCancel}>
-            {t('form.cancel')}
-          </Button>
-        </div>
-      </form>
-    </FormPage>
-  )
-}
-
-/** An advance handed out: money out of a treasury account, a debit on the employee's account; the next payroll deducts it. */
-function AdvanceForm({ employee, onCancel, onSaved }: { employee: EmployeeRecord; onCancel: () => void; onSaved: (amount: number) => void }) {
-  const { t } = useTranslation('employees')
-  const errorText = useErrorText()
-  const [accounts, setAccounts] = useState<TreasuryAccount[]>([])
-  const [accountId, setAccountId] = useState('')
-  const [amount, setAmount] = useState('')
-  const [date, setDate] = useState(todayIso())
-  const [concept, setConcept] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [saving, setSaving] = useState(false)
-
-  useEffect(() => {
-    listTreasuryAccounts().then(
-      (list) => {
-        const active = list.filter((account) => account.isActive !== false)
-        setAccounts(active)
-        // The drawer of the employee's branch first: the usual place an advance comes from.
-        setAccountId(active.find((a) => a.branchId === employee.branchId && a.kind === 'Cash')?.accountId ?? active[0]?.accountId ?? '')
-      },
-      () => setAccounts([]),
-    )
-  }, [employee.branchId])
-
-  const submit = async (event: FormEvent) => {
-    event.preventDefault()
-    const value = parseAmount(amount)
-    if (value === null) return setError(t('advance.errors.amount'))
-    if (accountId === '') return setError(t('advance.errors.account'))
-    setError(null)
-    setSaving(true)
-    try {
-      await giveAdvance(employee.id, { amount: value, accountId, date, ...(concept.trim() ? { concept: concept.trim() } : {}) })
-      onSaved(value)
-    } catch (err) {
-      setError(errorText(err))
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <FormPage title={t('advance.title', { name: employee.fullName })} description={t('advance.description')} onBack={onCancel} backLabel={t('form.back')}>
-      <form className="flex max-w-xl flex-col gap-4" onSubmit={(event) => void submit(event)} noValidate>
-        <Field id="advanceAmount" label={t('advance.amount')} value={amount} onChange={setAmount} inputMode="decimal" placeholder="50000" autoFocus />
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="advanceAccount">{t('advance.account')}</Label>
-          <Select id="advanceAccount" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-            {accounts.map((account) => (
-              <option key={account.accountId} value={account.accountId}>
-                {account.name}
-              </option>
-            ))}
-          </Select>
-        </div>
-        <Field id="advanceDate" label={t('advance.date')} value={date} onChange={setDate} type="date" />
-        <Field id="advanceConcept" label={t('advance.concept')} value={concept} onChange={setConcept} placeholder={t('advance.conceptPlaceholder')} />
-        {error && (
-          <p role="alert" className="text-sm text-destructive">
-            {error}
-          </p>
-        )}
-        <div className="flex gap-2">
-          <Button type="submit" disabled={saving}>
-            {saving ? t('form.saving') : t('advance.save')}
           </Button>
           <Button type="button" variant="outline" onClick={onCancel}>
             {t('form.cancel')}
