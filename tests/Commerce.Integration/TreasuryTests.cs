@@ -403,6 +403,42 @@ public sealed class TreasuryTests : IClassFixture<WebApplicationFactory<Program>
     }
 
     [Fact]
+    public async Task GoodsRegisteredByMistake_AreVoidedOverHttp()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+        var (org, branch, _) = await SeedAsync();
+        var admin = await SignedInAsync(org, branch, Permission.ManageUsers);
+        var asado = Presentation(org, branch, "Asado", "Por kg");
+        using (var owner = OpenOwner())
+        {
+            var list = Scalar<Guid?>(owner, "SELECT id FROM price_lists WHERE organization_id = $1 AND is_default", org);
+            if (list is null)
+            {
+                list = Guid.NewGuid();
+                Exec(owner, "INSERT INTO price_lists (id, organization_id, branch_id, name, is_default, created_by_user_id) VALUES ($1, $2, $3, 'Mostrador', true, $4)",
+                    list.Value, org, branch, Guid.NewGuid());
+            }
+
+            Exec(owner, "INSERT INTO price_list_entries (id, organization_id, branch_id, price_list_id, presentation_id, unit_price, effective_from, created_by_user_id) VALUES ($1, $2, $3, $4, $5, 10000, '2026-01-01', $6)",
+                Guid.NewGuid(), org, branch, list.Value, asado, Guid.NewGuid());
+        }
+
+        var created = await admin.PostAsJsonAsync("/employees", new { branchId = branch, firstName = "Juan", lastName = "Pérez", baseSalary = 1m, takesGoods = true });
+        var employeeId = (await Json(created)).GetProperty("id").GetGuid();
+        var registered = await Json(await admin.PostAsJsonAsync($"/employees/{employeeId}/goods", new { lines = new[] { new { presentationId = asado, quantity = 1m } } }));
+        var goodsId = registered.GetProperty("goodsId").GetGuid();
+
+        // To correct it, the web fills its form again: each item says its product and how it is sold (selected branch).
+        var listed = Assert.Single((await Json(await admin.GetAsync($"/employees/{employeeId}/goods"))).EnumerateArray());
+        Assert.Equal("Weighted", listed.GetProperty("quantityBehavior").GetString());
+        Assert.NotEqual(Guid.Empty, listed.GetProperty("productId").GetGuid());
+
+        Assert.Equal(HttpStatusCode.NotFound, (await admin.PostAsync($"/employees/{employeeId}/goods/{Guid.NewGuid()}/void", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await admin.PostAsync($"/employees/{employeeId}/goods/{goodsId}/void", null)).StatusCode);
+        Assert.Empty((await Json(await admin.GetAsync($"/employees/{employeeId}/goods"))).EnumerateArray());
+    }
+
+    [Fact]
     public async Task GoodsTakenByAnEmployee_AreQuotedRegisteredAndListedOverHttp()
     {
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }

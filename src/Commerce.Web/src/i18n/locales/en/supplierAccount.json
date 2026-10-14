@@ -9,7 +9,8 @@
     "unexpectedReverse": "The movement could not be reversed.",
     "alreadyReversed": "This movement was already reversed.",
     "notReversible": "This movement cannot be reversed.",
-    "partyNotFound": "The supplier was not found."
+    "partyNotFound": "The supplier was not found.",
+    "goodsSettled": "It cannot be reversed: these are an employee’s goods a paid payroll already deducted."
   },
   "summary": {
     "balance": "Balance",

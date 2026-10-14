@@ -1,4 +1,5 @@
 import { apiFetch } from './client'
+import type { StockQuantityBehavior } from './types'
 import { createMasterDataApi } from './masterData'
 
 // Endpoints/Employees.cs + Persistence/PostgresEmployeeStore.cs / PostgresPayrollStore.cs, mirrored. The staff of each
@@ -163,6 +164,9 @@ export interface GoodsItem {
   status: OvertimeStatus
   /** The payroll run that took it, if any. */
   runNumber: number | null
+  /** owner feedback round 2, R2: its product and how it is sold, to load it again; null outside the selected branch. */
+  productId?: string | null
+  quantityBehavior?: StockQuantityBehavior | null
 }
 
 export function listGoods(employeeId: string): Promise<GoodsItem[]> {
@@ -179,6 +183,14 @@ export function registerGoods(
   request: { goodsId: string; occurredOn?: string; lines: GoodsLineRequest[] },
 ): Promise<GoodsRegistration> {
   return apiFetch<GoodsRegistration>(`/employees/${employeeId}/goods`, { method: 'POST', body: JSON.stringify(request) })
+}
+
+/**
+ * owner feedback round 2, R1: voids a registration made in the web, whole: its charge, its stock and its items (409
+ * `goods-settled` once a paid payroll deducted it). A retry of a void already done succeeds and moves nothing.
+ */
+export function voidGoods(employeeId: string, goodsId: string): Promise<void> {
+  return apiFetch<void>(`/employees/${employeeId}/goods/${goodsId}/void`, { method: 'POST' })
 }
 
 // ---- overtime (employee-lifecycle E2) ----------------------------------------------------------

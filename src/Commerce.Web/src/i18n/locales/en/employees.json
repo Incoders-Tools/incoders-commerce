@@ -192,7 +192,8 @@
       "price": "Price",
       "total": "Total",
       "source": "Source",
-      "status": "Status"
+      "status": "Status",
+      "actions": "Actions"
     },
     "source": {
       "Web": "Web",
@@ -209,8 +210,22 @@
     "codes": {
       "employee-no-goods-account": "Takes no goods: turn on \"Takes goods\" in their details to register some.",
       "no-effective-price": "A product has no effective price on the Mostrador list for that date.",
-      "goods-key-in-use": "This entry was already used for another employee. Reopen the goods and enter it again."
-    }
+      "goods-key-in-use": "This entry was already used for another employee. Reopen the goods and enter it again.",
+      "goods-settled": "It cannot be voided: a paid payroll already deducted it."
+    },
+    "void": "Void",
+    "voidLabel": "Void the goods of {{date}} ({{products}})",
+    "voidTitle": "Void goods",
+    "voidMessage": "The goods of {{date}} for {{amount}} ({{products}}) are voided: the stock comes back, the charge on the account is reversed and the payroll does not deduct them.",
+    "voidConfirm": "Void goods",
+    "voiding": "Voiding…",
+    "voided": "Goods voided.",
+    "correct": "Correct",
+    "correctLabel": "Correct the goods of {{date}} ({{products}})",
+    "correctTitle": "Correct goods",
+    "correctMessage": "The goods of {{date}} for {{amount}} ({{products}}) are voided and their products go back to the form, to correct and register them again.",
+    "correctConfirm": "Void and correct",
+    "voidedToCorrect": "Goods voided: correct the products and register them again."
   },
   "leave": {
     "title": "Leave of {{name}}",

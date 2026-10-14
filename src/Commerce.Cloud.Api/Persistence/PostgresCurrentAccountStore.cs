@@ -201,9 +201,29 @@ public sealed class PostgresCurrentAccountStore
             return result;
         }
 
+        // owner feedback round 2, R1: the charge of an employee's goods reversed voids them (their items, and the stock of
+        // those registered in the web); refused once a paid payroll settled them.
+        if (party.Kind == AccountPartyKind.Customer && await SourceOfAsync(connection, tx, movementId, ct) is var (sourceType, sourceId)
+            && !await PostgresEmployeeGoodsStore.ReleaseAsync(connection, tx, scope.OrganizationId, sourceType, sourceId, actorId, ct))
+        {
+            await tx.RollbackAsync(ct);
+            return new ReverseMovementResult(ReverseMovementOutcome.SettledByPayroll);
+        }
+
         await AuditAsync(connection, tx, scope.OrganizationId, actorKind, actorId, party, $"{party.EntityType}.movement_reversed", result.Reversal!, ct);
         await tx.CommitAsync(ct);
         return result;
+    }
+
+    private static async Task<(string SourceType, Guid SourceId)?> SourceOfAsync(
+        NpgsqlConnection connection, NpgsqlTransaction tx, Guid movementId, CancellationToken ct)
+    {
+        await using var cmd = new NpgsqlCommand(
+            "SELECT source_type, source_id FROM current_account_movements WHERE id = $1 AND source_type IS NOT NULL AND source_id IS NOT NULL",
+            connection, tx);
+        cmd.Parameters.AddWithValue(movementId);
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        return await reader.ReadAsync(ct) ? (reader.GetString(0), reader.GetGuid(1)) : null;
     }
 
     public Task<ReverseMovementResult> ReverseAsync(

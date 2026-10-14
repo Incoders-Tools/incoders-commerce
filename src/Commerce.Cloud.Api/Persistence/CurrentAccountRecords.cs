@@ -71,6 +71,8 @@ public enum ReverseMovementOutcome
     AlreadyReversed,
     NotReversible,
     BeforeOriginal,
+    /// <summary>owner feedback round 2, R1: the charge of an employee's goods a paid payroll already settled.</summary>
+    SettledByPayroll,
 }
 
 /// <summary>Result of reversing a movement: `Reversal` is set only when `Outcome` is <see cref="ReverseMovementOutcome.Reversed"/>.</summary>

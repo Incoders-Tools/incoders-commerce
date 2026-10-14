@@ -201,6 +201,81 @@ describe('EmployeeGoodsPage', () => {
     expect(screen.getByRole('button', { name: 'Registrar mercadería' })).toBeDisabled()
   })
 
+  // owner feedback round 2, R2: a registration made by mistake is voided whole, or corrected (voided and loaded again).
+  describe('voiding and correcting a registration', () => {
+    const chorizo = (overrides: Partial<GoodsItem> = {}) =>
+      item({ id: 'g-2', lineNo: 2, presentationId: 'p-2', productName: 'Chorizo', quantity: 2, unitPrice: 4500, lineTotal: 9000,
+        productId: 'pr-2', quantityBehavior: 'FixedQuantity', ...overrides })
+
+    function route(onVoid: () => Response) {
+      fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+        const key = `${init?.method ?? 'GET'} ${url}`
+        if (key === 'GET /employees/e-1/goods') return json(stored)
+        if (key === 'POST /employees/e-1/goods/s-1/void') return onVoid()
+        if (key === 'POST /employees/e-1/goods/quote') {
+          const lines = JSON.parse(init!.body as string).lines as { presentationId: string; quantity: number }[]
+          return json({ lines: [], total: lines.length })
+        }
+        throw new TypeError(`unrouted ${key}`)
+      })
+    }
+
+    it('voids a whole registration after confirming, and lists what is left', async () => {
+      stored = [item({ productId: 'pr-1', quantityBehavior: 'Weighted' }), chorizo(), item({ id: 'g-3', sourceId: 's-2', productName: 'Vacío' })]
+      route(() => {
+        stored = stored.filter((other) => other.sourceId !== 's-1')
+        return json(undefined, 204)
+      })
+      const user = userEvent.setup()
+      render(<EmployeeGoodsPage employee={juan} onBack={vi.fn()} />)
+
+      // One pair of actions per registration (its two items share it).
+      await user.click(await screen.findByRole('button', { name: 'Anular la carga del 12/10/2026 (Asado, Chorizo)' }))
+      const dialog = screen.getByRole('dialog')
+      expect(within(dialog).getByText(/\$\s24\.000,00/)).toBeInTheDocument()
+      expect(calls('POST /employees/e-1/goods/s-1/void')).toHaveLength(0)
+      await user.click(within(dialog).getByRole('button', { name: 'Anular carga' }))
+
+      await waitFor(() => expect(calls('POST /employees/e-1/goods/s-1/void')).toHaveLength(1))
+      expect(await screen.findByText('Carga anulada.')).toBeInTheDocument()
+      await waitFor(() => expect(screen.queryByText('Chorizo')).not.toBeInTheDocument())
+      expect(screen.getByText('Vacío')).toBeInTheDocument()
+    })
+
+    it('corrects a registration: voids it and loads its products and date again', async () => {
+      stored = [item({ occurredOn: '2026-10-10', productId: 'pr-1', quantityBehavior: 'Weighted' }), chorizo({ occurredOn: '2026-10-10' })]
+      route(() => {
+        stored = []
+        return json(undefined, 204)
+      })
+      const user = userEvent.setup()
+      render(<EmployeeGoodsPage employee={juan} onBack={vi.fn()} />)
+
+      await user.click(await screen.findByRole('button', { name: 'Corregir la carga del 10/10/2026 (Asado, Chorizo)' }))
+      await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Anular y corregir' }))
+
+      await waitFor(() => expect(calls('POST /employees/e-1/goods/s-1/void')).toHaveLength(1))
+      expect(await screen.findByText(/corregí los productos y registralos de nuevo/)).toBeInTheDocument()
+      expect(screen.getByLabelText('Cantidad de Asado Por kg')).toHaveValue('1,5')
+      expect(screen.getByLabelText('Cantidad de Chorizo Por kg')).toHaveValue('2')
+      expect(screen.getByLabelText('Cantidad de Chorizo Por kg')).toHaveAttribute('placeholder', 'Unidades (Ej: 2)')
+      expect(screen.getByLabelText('Fecha')).toHaveValue('10/10/2026')
+    })
+
+    it('explains why goods a paid payroll settled cannot be voided, and offers no action for them nor for a POS sale', async () => {
+      stored = [item({ status: 'InPayroll', runNumber: 4 }), item({ id: 'g-9', sourceId: 's-9', sourceType: 'PosSale' }),
+        item({ id: 'g-8', sourceId: 's-8', status: 'Paid', runNumber: 3 })]
+      route(() => json({ error: 'goods-settled' }, 409))
+      const user = userEvent.setup()
+      render(<EmployeeGoodsPage employee={juan} onBack={vi.fn()} />)
+
+      expect(await screen.findAllByRole('button', { name: /^Anular la carga/ })).toHaveLength(1)
+      await user.click(screen.getByRole('button', { name: /^Anular la carga/ }))
+      await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Anular carga' }))
+      expect(await screen.findByText(/una liquidación pagada ya la descontó/)).toBeInTheDocument()
+    })
+  })
+
   it('tells an employee who takes no goods how to enable them, and still lists what was taken', async () => {
     stored = [item({ sourceType: 'PosSale', status: 'Paid', runNumber: 3 })]
     render(<EmployeeGoodsPage employee={{ ...juan, customerId: null }} onBack={vi.fn()} />)

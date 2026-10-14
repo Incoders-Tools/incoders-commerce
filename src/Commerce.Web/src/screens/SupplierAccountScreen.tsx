@@ -504,6 +504,8 @@ function ReversePanel({
           ? t('errors.alreadyReversed')
           : code === 'movement-not-reversible'
             ? t('errors.notReversible')
+            : code === 'goods-settled'
+              ? t('errors.goodsSettled')
             : err instanceof ApiError && err.status === 400
               ? err.message
               : t('errors.unexpectedReverse'),

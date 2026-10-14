@@ -80,6 +80,17 @@ public static class EmployeeEndpoints
             return outcome == EmployeeGoodsOutcome.Done ? Results.Created($"/employees/{id}/goods", registration) : Refusal(outcome);
         });
 
+        // owner feedback round 2, R1: a registration made by mistake is voided whole (charge, stock and items).
+        employees.MapPost("/{id:guid}/goods/{goodsId:guid}/void", async (
+            Guid id, Guid goodsId, HttpContext httpContext, PostgresUserAccountStore userStore, PostgresEmployeeGoodsStore store,
+            CancellationToken ct) =>
+        {
+            var (denied, caller) = await StaffAuthorization.AuthorizeAsync(httpContext, userStore, ct, Permission.ManageUsers);
+            if (denied is not null) return denied;
+            var outcome = await store.VoidAsync(caller!.Scope, caller.Id, id, goodsId, httpContext.Today(), ct);
+            return outcome == EmployeeGoodsOutcome.Done ? Results.NoContent() : Refusal(outcome);
+        });
+
         employees.MapGet("/{id:guid}/goods", async (
             Guid id, HttpContext httpContext, PostgresUserAccountStore userStore, PostgresEmployeeGoodsStore store, CancellationToken ct) =>
         {
@@ -430,6 +441,7 @@ public static class EmployeeEndpoints
         EmployeeGoodsOutcome.NotFound => Results.NotFound(),
         EmployeeGoodsOutcome.NoGoodsAccount => Results.Conflict(new { error = "employee-no-goods-account" }),
         EmployeeGoodsOutcome.KeyInUse => Results.Conflict(new { error = "goods-key-in-use" }),
+        EmployeeGoodsOutcome.Settled => Results.Conflict(new { error = "goods-settled" }),
         _ => Results.Conflict(new { error = "no-effective-price" }),
     };
 

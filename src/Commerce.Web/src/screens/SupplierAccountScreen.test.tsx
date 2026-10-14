@@ -430,6 +430,21 @@ describe('SupplierAccountScreen', () => {
     expect(await screen.findByText('Este movimiento ya fue anulado.')).toBeInTheDocument()
   })
 
+  // owner feedback round 2, R1: the charge of an employee's goods a paid payroll deducted stays.
+  it('explains a charge of goods a paid payroll already deducted', async () => {
+    ledger.register({ kind: 'Payment', amount: 40000, concept: 'Pago parcial', occurredOn: daysAgo(5) })
+    const user = userEvent.setup()
+    renderScreen()
+    await user.click(await screen.findByRole('button', { name: 'Anular' }))
+    const original = fetchMock.getMockImplementation()!
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) =>
+      init?.method === 'POST' ? json({ error: 'goods-settled' }, 409) : original(url, init),
+    )
+    await user.click(screen.getByRole('button', { name: 'Confirmar anulación' }))
+
+    expect(await screen.findByText(/una liquidación pagada ya le descontó/)).toBeInTheDocument()
+  })
+
   it('does not blame an empty account when the statement cannot be loaded', async () => {
     fetchMock.mockImplementation(async (url: string) => {
       if (url === `/suppliers/${SUPPLIER.id}`) return json(SUPPLIER)

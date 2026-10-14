@@ -192,7 +192,8 @@
       "price": "Precio",
       "total": "Total",
       "source": "Origen",
-      "status": "Estado"
+      "status": "Estado",
+      "actions": "Acciones"
     },
     "source": {
       "Web": "Web",
@@ -209,8 +210,22 @@
     "codes": {
       "employee-no-goods-account": "No lleva mercadería: activá «Lleva mercadería» en sus datos para registrarle.",
       "no-effective-price": "Algún producto no tiene precio vigente en la lista Mostrador para esa fecha.",
-      "goods-key-in-use": "Esta carga ya se usó para otro empleado. Volvé a abrir la mercadería y cargala de nuevo."
-    }
+      "goods-key-in-use": "Esta carga ya se usó para otro empleado. Volvé a abrir la mercadería y cargala de nuevo.",
+      "goods-settled": "No se puede anular: una liquidación pagada ya la descontó."
+    },
+    "void": "Anular",
+    "voidLabel": "Anular la carga del {{date}} ({{products}})",
+    "voidTitle": "Anular carga",
+    "voidMessage": "Se anula la carga del {{date}} por {{amount}} ({{products}}): vuelve el stock, se anula el cargo en su cuenta y la liquidación no la descuenta.",
+    "voidConfirm": "Anular carga",
+    "voiding": "Anulando…",
+    "voided": "Carga anulada.",
+    "correct": "Corregir",
+    "correctLabel": "Corregir la carga del {{date}} ({{products}})",
+    "correctTitle": "Corregir carga",
+    "correctMessage": "Se anula la carga del {{date}} por {{amount}} ({{products}}) y sus productos vuelven al formulario para corregirlos y registrarlos de nuevo.",
+    "correctConfirm": "Anular y corregir",
+    "voidedToCorrect": "Carga anulada: corregí los productos y registralos de nuevo."
   },
   "leave": {
     "title": "Baja de {{name}}",

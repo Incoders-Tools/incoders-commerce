@@ -37,7 +37,11 @@ public sealed record GoodsItemRecord(
     decimal LineTotal,
     decimal DiscountPercent,
     string Status,
-    int? RunNumber);
+    int? RunNumber,
+    // owner feedback round 2, R2: its product and how it is sold, to fill the form again ("Corregir"); null when the
+    // presentation is not the selected branch's (the catalog is branch-owned).
+    Guid? ProductId = null,
+    string? QuantityBehavior = null);
 
 public enum EmployeeGoodsOutcome
 {
@@ -49,6 +53,8 @@ public enum EmployeeGoodsOutcome
     NoPrice,
     /// <summary>The idempotency key already names another employee's registration.</summary>
     KeyInUse,
+    /// <summary>owner feedback round 2, R1: a paid payroll already settled the goods; they can no longer be voided.</summary>
+    Settled,
 }
 
 /// <summary>
@@ -219,12 +225,211 @@ public sealed class PostgresEmployeeGoodsStore
         return (false, new GoodsRegistration(goodsId, lines.Sum(line => line.LineTotal), lines));
     }
 
+    /// <summary>
+    /// owner feedback round 2, R1: voids a registration made in the web, whole and in one transaction: its charge on the
+    /// employee's customer account is reversed, its stock comes back in the branch it left (whatever branch is selected
+    /// now) and its items stop being something to deduct (<see cref="ReleaseAsync"/>). A retry finds it voided and moves
+    /// nothing again. <see cref="EmployeeGoodsOutcome.Settled"/> (nothing written) once a paid payroll took it.
+    /// </summary>
+    public async Task<EmployeeGoodsOutcome> VoidAsync(
+        CloudTenantScope scope, Guid actorId, Guid employeeId, Guid goodsId, DateOnly today, CancellationToken ct)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+        await TenantScopeSql.ApplyAsync(connection, tx, scope.OrganizationId, null, ct);
+        await using (var lockCmd = new NpgsqlCommand("SELECT pg_advisory_xact_lock(hashtext('employee-goods:' || $1::text))", connection, tx))
+        {
+            lockCmd.Parameters.AddWithValue(goodsId);
+            await lockCmd.ExecuteNonQueryAsync(ct);
+        }
+
+        // The charge, on the customer account the employee has now (the one the goods were charged to).
+        Guid? charge = null;
+        var reversed = false;
+        await using (var find = new NpgsqlCommand(
+            """
+            SELECT m.id, EXISTS (SELECT 1 FROM current_account_movements r WHERE r.reverses_movement_id = m.id)
+            FROM current_account_movements m
+            JOIN employees e ON e.organization_id = m.organization_id AND e.customer_id = m.customer_id
+            WHERE e.id = $1 AND m.source_type = $2 AND m.source_id = $3
+            """, connection, tx))
+        {
+            find.Parameters.AddWithValue(employeeId);
+            find.Parameters.AddWithValue(StockSourceType);
+            find.Parameters.AddWithValue(goodsId);
+            await using var reader = await find.ExecuteReaderAsync(ct);
+            if (await reader.ReadAsync(ct))
+            {
+                (charge, reversed) = (reader.GetGuid(0), reader.GetBoolean(1));
+            }
+        }
+
+        if (charge is null)
+        {
+            await tx.RollbackAsync(ct);
+            return EmployeeGoodsOutcome.NotFound;
+        }
+
+        // Already reversed: a retry, or a charge reversed before reversals released goods (its items still pending, its
+        // stock out). Releasing is a no-op once done, so both end voided.
+        if (reversed)
+        {
+            if (!await ReleaseAsync(connection, tx, scope.OrganizationId, StockSourceType, goodsId, actorId, ct))
+            {
+                await tx.RollbackAsync(ct);
+                return EmployeeGoodsOutcome.Settled;
+            }
+
+            await tx.CommitAsync(ct);
+            return EmployeeGoodsOutcome.Done;
+        }
+
+        var customerId = await LinkedCustomerAsync(connection, tx, employeeId, ct);
+        var party = AccountParty.Customer(customerId);
+        var original = (await PostgresCurrentAccountStore.FindBySourceAsync(connection, tx, party, StockSourceType, goodsId, ct))!;
+        if (!await ReleaseAsync(connection, tx, scope.OrganizationId, StockSourceType, goodsId, actorId, ct))
+        {
+            await tx.RollbackAsync(ct);
+            return EmployeeGoodsOutcome.Settled;
+        }
+
+        var result = await PostgresCurrentAccountStore.ReverseWithinAsync(
+            connection, tx, scope.OrganizationId, party, original.Id, $"Anulación: {original.Concept}", null, today, actorId, ct);
+        if (result.Outcome != ReverseMovementOutcome.Reversed)
+        {
+            await tx.RollbackAsync(ct);
+            return result.Outcome == ReverseMovementOutcome.AlreadyReversed ? EmployeeGoodsOutcome.Done : EmployeeGoodsOutcome.NotFound;
+        }
+
+        await PostgresCurrentAccountStore.AuditAsync(connection, tx, scope.OrganizationId, "org-user", actorId, party, "customer.movement_reversed", result.Reversal!, ct);
+        await tx.CommitAsync(ct);
+        return EmployeeGoodsOutcome.Done;
+    }
+
+    /// <summary>
+    /// What a reversed charge takes back from the goods, inside the caller's transaction: goods registered in the web
+    /// (charge source <see cref="StockSourceType"/>) get their stock back in their own branch; a POS sale's
+    /// (<see cref="PosSaleAccountProjection.SourceType"/>) keeps its stock, as any sale whose charge is reversed. Either way
+    /// its items are deleted (a draft payslip's goods amount lowered by them) and the void is audited on the employee.
+    /// False, with nothing written, when a paid payroll already took one of them; true when there is nothing to release.
+    /// </summary>
+    internal static async Task<bool> ReleaseAsync(
+        NpgsqlConnection connection, NpgsqlTransaction tx, Guid organizationId, string chargeSourceType, Guid sourceId, Guid actorId,
+        CancellationToken ct)
+    {
+        var itemSource = chargeSourceType switch
+        {
+            StockSourceType => WebSource,
+            PosSaleAccountProjection.SourceType => PosSaleSource,
+            _ => null,
+        };
+        if (itemSource is null)
+        {
+            return true;
+        }
+
+        Guid? employeeId = null;
+        Guid? branchId = null;
+        var total = 0m;
+        var settled = false;
+        await using (var read = new NpgsqlCommand(
+            """
+            SELECT g.employee_id, g.branch_id, g.line_total, COALESCE(run.status = 'Paid', false)
+            FROM employee_goods_items g
+            LEFT JOIN payslips p ON p.id = g.payslip_id
+            LEFT JOIN payroll_runs run ON run.organization_id = p.organization_id AND run.id = p.run_id
+            WHERE g.source_type = $1 AND g.source_id = $2
+            FOR UPDATE OF g
+            """, connection, tx))
+        {
+            read.Parameters.AddWithValue(itemSource);
+            read.Parameters.AddWithValue(sourceId);
+            await using var reader = await read.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+            {
+                employeeId = reader.GetGuid(0);
+                branchId ??= reader.IsDBNull(1) ? null : reader.GetGuid(1);
+                total += reader.GetDecimal(2);
+                settled |= reader.GetBoolean(3);
+            }
+        }
+
+        if (settled)
+        {
+            return false;
+        }
+
+        if (employeeId is null)
+        {
+            return true;
+        }
+
+        // A draft payslip deducts them no more.
+        await using (var lower = new NpgsqlCommand(
+            """
+            UPDATE payslips p SET purchases_amount = GREATEST(p.purchases_amount - s.total, 0)
+            FROM (SELECT payslip_id, sum(line_total) AS total FROM employee_goods_items
+                  WHERE source_type = $1 AND source_id = $2 AND payslip_id IS NOT NULL GROUP BY payslip_id) s
+            WHERE p.id = s.payslip_id
+            """, connection, tx))
+        {
+            lower.Parameters.AddWithValue(itemSource);
+            lower.Parameters.AddWithValue(sourceId);
+            await lower.ExecuteNonQueryAsync(ct);
+        }
+
+        await using (var delete = new NpgsqlCommand("DELETE FROM employee_goods_items WHERE source_type = $1 AND source_id = $2", connection, tx))
+        {
+            delete.Parameters.AddWithValue(itemSource);
+            delete.Parameters.AddWithValue(sourceId);
+            await delete.ExecuteNonQueryAsync(ct);
+        }
+
+        if (itemSource == WebSource && branchId is { } branch)
+        {
+            // The stock is branch-scoped: read and write it in the goods' own branch.
+            await TenantScopeSql.ApplyAsync(connection, tx, organizationId, branch, ct);
+            var originals = new List<(Guid Id, Guid PresentationId, decimal Quantity)>();
+            await using (var find = new NpgsqlCommand(
+                "SELECT id, presentation_id, quantity FROM stock_movements WHERE source_type = $1 AND source_id = $2 AND kind = 'Sale'", connection, tx))
+            {
+                find.Parameters.AddWithValue(StockSourceType);
+                find.Parameters.AddWithValue(sourceId);
+                await using var reader = await find.ExecuteReaderAsync(ct);
+                while (await reader.ReadAsync(ct))
+                {
+                    originals.Add((reader.GetGuid(0), reader.GetGuid(1), reader.GetDecimal(2)));
+                }
+            }
+
+            foreach (var original in originals)
+            {
+                await StockMovementWriter.InsertAsync(connection, tx, new NewStockMovement(
+                    Guid.NewGuid(), organizationId, branch, original.PresentationId, -original.Quantity, StockMovementKind.Reversal,
+                    StockSourceType, sourceId, ReversesMovementId: original.Id, Reason: "Anulación de mercadería del personal",
+                    CreatedByUserId: actorId), ct);
+            }
+        }
+
+        await AuditLogWriter.InsertAsync(connection, tx, new UserManagementAuditEntry(
+            "org-user", actorId, organizationId, "employee", employeeId.Value, "employee.goods_voided", null,
+            JsonSerializer.Serialize(new { source = itemSource, sourceId, total })), ct);
+        return true;
+    }
+
+    private static async Task<Guid> LinkedCustomerAsync(NpgsqlConnection connection, NpgsqlTransaction tx, Guid employeeId, CancellationToken ct)
+    {
+        await using var cmd = new NpgsqlCommand("SELECT customer_id FROM employees WHERE id = $1", connection, tx);
+        cmd.Parameters.AddWithValue(employeeId);
+        return (Guid)(await cmd.ExecuteScalarAsync(ct))!;
+    }
+
     /// <summary>The employee's goods items, newest day first, with where each stands.</summary>
     public async Task<IReadOnlyList<GoodsItemRecord>> ListAsync(CloudTenantScope scope, Guid employeeId, CancellationToken ct)
     {
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
-        await TenantScopeSql.ApplyAsync(connection, tx, scope.OrganizationId, null, ct);
+        await TenantScopeSql.ApplyAsync(connection, tx, scope, ct);
         var items = await ReadItemsAsync(connection, tx, "WHERE g.employee_id = $1 ORDER BY g.occurred_on DESC, g.created_at_utc DESC, g.line_no", employeeId, ct);
         await tx.CommitAsync(ct);
         return items;
@@ -237,8 +442,10 @@ public sealed class PostgresEmployeeGoodsStore
             $"""
             SELECT g.id, g.source_type, g.source_id, g.line_no, g.occurred_on, g.presentation_id, g.product_name, g.presentation_name,
                    g.quantity, g.unit_price, g.line_total, g.discount_percent,
-                   CASE WHEN g.payslip_id IS NULL THEN 'Pending' WHEN run.status = 'Paid' THEN 'Paid' ELSE 'InPayroll' END, run.run_number
+                   CASE WHEN g.payslip_id IS NULL THEN 'Pending' WHEN run.status = 'Paid' THEN 'Paid' ELSE 'InPayroll' END, run.run_number,
+                   pres.product_id, pres.quantity_behavior
             FROM employee_goods_items g
+            LEFT JOIN presentations pres ON pres.id = g.presentation_id
             LEFT JOIN payslips p ON p.id = g.payslip_id
             LEFT JOIN payroll_runs run ON run.organization_id = p.organization_id AND run.id = p.run_id
             {where}
@@ -251,7 +458,8 @@ public sealed class PostgresEmployeeGoodsStore
             items.Add(new GoodsItemRecord(
                 reader.GetGuid(0), reader.GetString(1), reader.GetGuid(2), reader.GetInt32(3), reader.GetFieldValue<DateOnly>(4),
                 reader.IsDBNull(5) ? null : reader.GetGuid(5), reader.GetString(6), reader.GetString(7), reader.GetDecimal(8),
-                reader.GetDecimal(9), reader.GetDecimal(10), reader.GetDecimal(11), reader.GetString(12), reader.IsDBNull(13) ? null : reader.GetInt32(13)));
+                reader.GetDecimal(9), reader.GetDecimal(10), reader.GetDecimal(11), reader.GetString(12), reader.IsDBNull(13) ? null : reader.GetInt32(13),
+                reader.IsDBNull(14) ? null : reader.GetGuid(14), reader.IsDBNull(15) ? null : reader.GetString(15)));
         }
 
         return items;

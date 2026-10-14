@@ -3,11 +3,12 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { ConfirmDialog } from '@/components/layout/ConfirmDialog'
 import { FormPage } from '@/components/layout/FormPage'
 import { ProductSearch } from '@/components/staffOrder/ProductSearch'
 import { presentationName } from '@/components/staffOrder/presentationName'
 import { ApiError } from '@/api/client'
-import { listGoods, quoteGoods, registerGoods, type EmployeeRecord, type GoodsItem, type GoodsQuote } from '@/api/employees'
+import { listGoods, quoteGoods, registerGoods, voidGoods, type EmployeeRecord, type GoodsItem, type GoodsQuote } from '@/api/employees'
 import type { StaffPresentationOption } from '@/api/types'
 import { formatIsoDate, formatMoney } from '@/dashboard/format'
 import { todayIso } from '@/lib/isoDate'
@@ -21,6 +22,14 @@ const decimalText = (value: number) => String(value).replace('.', ',')
 interface DraftLine {
   option: StaffPresentationOption
   quantityText: string
+}
+
+/** A registration made in the web: the items one void takes back together. */
+interface Registration {
+  goodsId: string
+  items: GoodsItem[]
+  /** Voided whole, or voided and loaded again into the form to correct it. */
+  correct: boolean
 }
 
 /** The answer to one exact draft (`key` is the serialized quote request): a stale answer never shows. */
@@ -52,6 +61,8 @@ export function EmployeeGoodsPage({ employee, onBack }: { employee: EmployeeReco
   const [status, setStatus] = useState<string | null>(null)
   const goodsIdRef = useRef<string | null>(null)
   const latestQuote = useRef(0)
+  const [undoing, setUndoing] = useState<Registration | null>(null)
+  const [voiding, setVoiding] = useState(false)
 
   const codeText = useCallback(
     (err: unknown, fallback: string) =>
@@ -151,6 +162,54 @@ export function EmployeeGoodsPage({ employee, onBack }: { employee: EmployeeReco
     }
   }
 
+  // owner feedback round 2, R2: a registration from the web, until a paid payroll deducted it, is voided or corrected
+  // whole (a POS sale's items go with the sale).
+  const registrationOf = (goodsId: string) => items.filter((other) => other.sourceType === 'Web' && other.sourceId === goodsId)
+  const undoable = (registration: GoodsItem[]) => registration.length > 0 && registration.every((other) => other.status !== 'Paid')
+  const registrationText = (registration: GoodsItem[]) => ({
+    date: formatIsoDate(registration[0].occurredOn),
+    products: registration.map((other) => other.productName).join(', '),
+    amount: formatMoney(registration.reduce((sum, other) => sum + other.lineTotal, 0)),
+  })
+
+  const undo = async () => {
+    if (!undoing) return
+    setVoiding(true)
+    setError(null)
+    setStatus(null)
+    try {
+      await voidGoods(employee.id, undoing.goodsId)
+      if (undoing.correct) {
+        goodsIdRef.current = null
+        setOccurredOn(undoing.items[0].occurredOn)
+        setLines(
+          undoing.items
+            .filter((other) => other.presentationId !== null)
+            .map((other) => ({
+              option: {
+                presentationId: other.presentationId!,
+                productId: other.productId ?? '',
+                productName: other.productName,
+                presentationName: other.presentationName,
+                identificationCode: null,
+                // Outside the selected branch the server cannot tell: any quantity is accepted, the server checks it.
+                quantityBehavior: other.quantityBehavior ?? 'Weighted',
+              },
+              quantityText: decimalText(other.quantity),
+            })),
+        )
+        setDraftNumber((n) => n + 1)
+      }
+      setStatus(undoing.correct ? t('goods.voidedToCorrect') : t('goods.voided'))
+      await load()
+    } catch (err) {
+      setError(codeText(err, t('errors.save')))
+    } finally {
+      setVoiding(false)
+      setUndoing(null)
+    }
+  }
+
   const quotedLine = (presentationId: string) => currentQuote?.quote?.lines.find((line) => line.presentationId === presentationId)
 
   return (
@@ -179,52 +238,52 @@ export function EmployeeGoodsPage({ employee, onBack }: { employee: EmployeeReco
                   const byUnit = line.option.quantityBehavior === 'FixedQuantity'
                   const quoted = quotedLine(line.option.presentationId)
                   return (
-                    <li key={line.option.presentationId} className="flex flex-wrap items-start gap-3 rounded-lg border border-border bg-card px-4 py-3">
-                      <span className="flex min-w-40 flex-1 flex-col">
-                        <span className="font-medium">{line.option.productName}</span>
-                        <span className="text-sm text-muted-foreground">{line.option.presentationName}</span>
-                      </span>
-                      <span className="flex w-44 flex-col gap-1">
-                        <span className="flex items-center gap-2">
-                          <Input
-                            aria-label={t('goods.quantityLabel', { name })}
-                            inputMode={byUnit ? 'numeric' : 'decimal'}
-                            placeholder={byUnit ? t('goods.unitsPlaceholder') : t('goods.kilosPlaceholder', { example: numberFormat.example })}
-                            value={line.quantityText}
-                            onChange={(e) =>
-                              changeDraft(() =>
-                                setLines((previous) =>
-                                  previous.map((other) =>
-                                    other.option.presentationId === line.option.presentationId ? { ...other, quantityText: e.target.value } : other,
-                                  ),
-                                ),
-                              )
-                            }
-                          />
-                          <span className="text-sm text-muted-foreground">{byUnit ? t('goods.unitsSuffix') : t('goods.kilosSuffix')}</span>
+                      <li key={line.option.presentationId} className="flex flex-wrap items-start gap-3 rounded-lg border border-border bg-card px-4 py-3">
+                        <span className="flex min-w-40 flex-1 flex-col">
+                          <span className="font-medium">{line.option.productName}</span>
+                          <span className="text-sm text-muted-foreground">{line.option.presentationName}</span>
                         </span>
-                        {quantityError && <span className="text-xs text-destructive">{quantityError}</span>}
-                      </span>
-                      <span className="w-32 text-right text-sm tabular-nums">
-                        {quoted && (
-                          <>
-                            <span className="block text-muted-foreground">{formatMoney(quoted.unitPrice)}</span>
-                            <span className="block font-medium">{formatMoney(quoted.lineTotal)}</span>
-                          </>
-                        )}
-                      </span>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        aria-label={t('goods.removeLabel', { name })}
-                        onClick={() =>
-                          changeDraft(() => setLines((previous) => previous.filter((other) => other.option.presentationId !== line.option.presentationId)))
-                        }
-                      >
-                        {t('goods.remove')}
-                      </Button>
-                    </li>
+                        <span className="flex w-44 flex-col gap-1">
+                          <span className="flex items-center gap-2">
+                            <Input
+                              aria-label={t('goods.quantityLabel', { name })}
+                              inputMode={byUnit ? 'numeric' : 'decimal'}
+                              placeholder={byUnit ? t('goods.unitsPlaceholder') : t('goods.kilosPlaceholder', { example: numberFormat.example })}
+                              value={line.quantityText}
+                              onChange={(e) =>
+                                changeDraft(() =>
+                                  setLines((previous) =>
+                                    previous.map((other) =>
+                                      other.option.presentationId === line.option.presentationId ? { ...other, quantityText: e.target.value } : other,
+                                    ),
+                                  ),
+                                )
+                              }
+                            />
+                            <span className="text-sm text-muted-foreground">{byUnit ? t('goods.unitsSuffix') : t('goods.kilosSuffix')}</span>
+                          </span>
+                          {quantityError && <span className="text-xs text-destructive">{quantityError}</span>}
+                        </span>
+                        <span className="w-32 text-right text-sm tabular-nums">
+                          {quoted && (
+                            <>
+                              <span className="block text-muted-foreground">{formatMoney(quoted.unitPrice)}</span>
+                              <span className="block font-medium">{formatMoney(quoted.lineTotal)}</span>
+                            </>
+                          )}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          aria-label={t('goods.removeLabel', { name })}
+                          onClick={() =>
+                            changeDraft(() => setLines((previous) => previous.filter((other) => other.option.presentationId !== line.option.presentationId)))
+                          }
+                        >
+                          {t('goods.remove')}
+                        </Button>
+                      </li>
                   )
                 })}
               </ul>
@@ -277,10 +336,17 @@ export function EmployeeGoodsPage({ employee, onBack }: { employee: EmployeeReco
                   <th className="px-4 py-2 text-right font-medium">{t('goods.columns.total')}</th>
                   <th className="hidden px-4 py-2 font-medium md:table-cell">{t('goods.columns.source')}</th>
                   <th className="px-4 py-2 font-medium">{t('goods.columns.status')}</th>
+                  <th className="px-4 py-2 font-medium">
+                    <span className="sr-only">{t('goods.columns.actions')}</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
-                {items.map((item) => (
+                {items.map((item) => {
+                  const registration = item.sourceType === 'Web' ? registrationOf(item.sourceId) : []
+                  const actions = registration[0]?.id === item.id && undoable(registration)
+                  const text = actions ? registrationText(registration) : null
+                  return (
                   <tr key={item.id} className="border-b border-border last:border-0">
                     <td className="px-4 py-2">{formatIsoDate(item.occurredOn)}</td>
                     <td className="px-4 py-2">
@@ -292,13 +358,51 @@ export function EmployeeGoodsPage({ employee, onBack }: { employee: EmployeeReco
                     <td className="px-4 py-2 text-right tabular-nums">{formatMoney(item.lineTotal)}</td>
                     <td className="hidden px-4 py-2 md:table-cell">{t(`goods.source.${item.sourceType}`)}</td>
                     <td className="px-4 py-2">{t(`goods.status.${item.status}`, { run: item.runNumber })}</td>
+                    <td className="px-4 py-2">
+                      {text && (
+                        <span className="flex gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            aria-label={t('goods.voidLabel', text)}
+                            onClick={() => setUndoing({ goodsId: item.sourceId, items: registration, correct: false })}
+                          >
+                            {t('goods.void')}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            aria-label={t('goods.correctLabel', text)}
+                            onClick={() => setUndoing({ goodsId: item.sourceId, items: registration, correct: true })}
+                          >
+                            {t('goods.correct')}
+                          </Button>
+                        </span>
+                      )}
+                    </td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
           </div>
         )}
       </div>
+
+      {undoing && (
+        <ConfirmDialog
+          title={undoing.correct ? t('goods.correctTitle') : t('goods.voidTitle')}
+          message={t(undoing.correct ? 'goods.correctMessage' : 'goods.voidMessage', registrationText(undoing.items))}
+          confirmLabel={undoing.correct ? t('goods.correctConfirm') : t('goods.voidConfirm')}
+          busyLabel={t('goods.voiding')}
+          busy={voiding}
+          destructive
+          onConfirm={() => void undo()}
+          onCancel={() => setUndoing(null)}
+        />
+      )}
     </FormPage>
   )
 }

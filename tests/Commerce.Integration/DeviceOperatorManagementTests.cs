@@ -450,6 +450,7 @@ public sealed class DeviceOperatorManagementTests : IClassFixture<WebApplication
     [InlineData("POST", "/payroll/runs/final-settlement")]
     [InlineData("POST", "/employees/{customer}/goods")]
     [InlineData("GET", "/employees/{customer}/goods")]
+    [InlineData("POST", "/employees/{customer}/goods/{customer}/void")]
     [InlineData("POST", "/employees/roles")]
     [InlineData("POST", "/customers/business-types")]
     [InlineData("POST", "/treasury/accounts")]
