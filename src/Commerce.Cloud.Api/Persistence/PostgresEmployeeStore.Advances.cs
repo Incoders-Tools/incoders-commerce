@@ -210,7 +210,10 @@ public sealed partial class PostgresEmployeeStore
     {
         if (!reversed)
         {
-            // The employee is locked (LockAdvanceAsync): nobody else reversed the debit in between.
+            // The employee is locked (LockAdvanceAsync): nobody else reversed the debit in between. A reversal from the
+            // employee's account inserts through current_account_movements_employee_fk, whose KEY SHARE lock on the
+            // employee waits for this one (PayrollTests ...WaitsForAVoidHoldingTheEmployee); one already inserted held
+            // that lock first, so LockAdvanceAsync waited for it and read the debit reversed.
             var result = await PostgresCurrentAccountStore.ReverseWithinAsync(
                 connection, tx, organizationId, AccountParty.Employee(employeeId), debitId, reversalConcept, null, today, actorId, ct);
             if (result.Outcome != ReverseMovementOutcome.Reversed)

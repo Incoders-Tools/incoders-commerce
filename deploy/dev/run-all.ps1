@@ -301,7 +301,9 @@ if (-not $NoWeb) {
 
     # --- 4b. Vaca Verde public website ----------------------------------
     # Built with the proxy origin baked in, so "Hacer un pedido" and
-    # "Ingresar al sistema" land on this run's /order and /login.
+    # "Ingresar al sistema" land on this run's /order and /login. Not
+    # fatal: the app is already up, so a failed build only warns, opens
+    # /login as before and lets the POS start.
     if (-not $NoSite) {
         Write-Host "`nBuilding the public website (sites/vaca-verde) for $appUrl..."
         Push-Location $siteRoot
@@ -321,10 +323,18 @@ if (-not $NoWeb) {
                 Remove-Item Env:VITE_APP_URL -ErrorAction SilentlyContinue
             }
         }
+        catch {
+            Write-Warning "The public website was not built: $($_.Exception.Message)"
+            Write-Warning "The app keeps running; the browser opens $appUrl/login instead."
+            $siteUrl = $null
+            $browserUrl = "$appUrl/login"
+        }
         finally {
             Pop-Location
         }
+    }
 
+    if (-not $NoSite -and $siteUrl) {
         Write-Host "Launching the public website $siteUrl in a new window..."
         $siteCommand = @(
             "cd $siteRootLiteral",

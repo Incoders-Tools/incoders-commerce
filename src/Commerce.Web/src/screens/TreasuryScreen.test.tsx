@@ -365,6 +365,23 @@ describe('TreasuryScreen', () => {
       startDate: isoDay(new Date()), includePastDates: false,
     })
     expect(await screen.findByText('"Internet" creado: se registra solo en cada fecha.')).toBeInTheDocument()
+    // A new, empty form for the next one.
+    expect(screen.getByRole('heading', { name: 'Nuevo gasto o ingreso recurrente' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Concepto')).toHaveValue('')
+  })
+
+  // Follow-up F3 (review R3-edit-cancel-closes-panel): leaving an edit goes back to the new form, the list still there.
+  it('goes back to the new form when an edit of a recurring movement is cancelled', async () => {
+    const user = userEvent.setup()
+    render(<TreasuryScreen />)
+
+    await user.click(await screen.findByRole('button', { name: 'Movimiento recurrente' }))
+    await user.click(await screen.findByRole('button', { name: 'Editar Luz (Edenor)' }))
+    expect(screen.getByRole('heading', { name: 'Editar recurrente' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Cancelar' }))
+
+    expect(screen.getByRole('heading', { name: 'Nuevo gasto o ingreso recurrente' })).toBeInTheDocument()
+    expect(screen.getByText('Luz (Edenor)')).toBeInTheDocument()
   })
 
   it('closes the recurring movements with Cancelar, as any other form', async () => {

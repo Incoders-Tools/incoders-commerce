@@ -147,6 +147,38 @@ describe('EmployeeAdvancePage', () => {
     await waitFor(() => expect(callsTo('GET /employees/e-1/advances')).toHaveLength(2))
   })
 
+  // Follow-up F4 (review R3-history-load-race, R3-invalid-range-stale-list).
+  it('shows the history of the latest dates asked, never a late answer for earlier ones', async () => {
+    const original = fetchMock.getMockImplementation()!
+    let answerFirst: (r: Response) => void = () => {}
+    const first = new Promise<Response>((resolve) => (answerFirst = resolve))
+    let reads = 0
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (!url.startsWith('/employees/e-1/advances')) return original(url, init)
+      reads += 1
+      return reads === 1 ? first : json([voided])
+    })
+    const user = userEvent.setup()
+    renderPage()
+
+    const from = await screen.findByLabelText('Desde')
+    await user.clear(from)
+    await user.type(from, '01/01/2026')
+    expect(await screen.findByText('Anulado en la cuenta del empleado: Mal cargado')).toBeInTheDocument()
+    answerFirst(json([standing]))
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    expect(screen.queryByText('a cuenta')).not.toBeInTheDocument()
+    expect(screen.getByText('Anulado en la cuenta del empleado: Mal cargado')).toBeInTheDocument()
+
+    // A range the other way round says so, without the list of the dates it no longer shows.
+    const to = screen.getByLabelText('Hasta')
+    await user.clear(to)
+    await user.type(to, '01/12/2025')
+    expect(await screen.findByText(/La fecha Desde tiene que ser anterior/)).toBeInTheDocument()
+    expect(screen.queryByRole('table', { name: 'Adelantos entregados' })).not.toBeInTheDocument()
+  })
+
   it('explains why an advance in a draft payroll is not voided', async () => {
     const original = fetchMock.getMockImplementation()!
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) =>

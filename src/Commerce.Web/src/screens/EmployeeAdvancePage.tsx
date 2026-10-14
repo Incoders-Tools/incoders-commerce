@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -50,6 +50,8 @@ export function EmployeeAdvancePage({ employee, onBack }: { employee: EmployeeRe
   const [loadError, setLoadError] = useState<string | null>(null)
   const [voidingAdvance, setVoidingAdvance] = useState<EmployeeAdvance | null>(null)
   const [voiding, setVoiding] = useState(false)
+  // Only the latest read of the history counts: an answer for dates changed since is dropped.
+  const latestRead = useRef(0)
 
   const codeText = useCallback(
     (err: unknown) =>
@@ -79,15 +81,17 @@ export function EmployeeAdvancePage({ employee, onBack }: { employee: EmployeeRe
   const rangeValid = ISO_DATE.test(from) && ISO_DATE.test(to) && from <= to
 
   const load = useCallback(async () => {
+    const read = ++latestRead.current
     if (!rangeValid) return
     setLoading(true)
     setLoadError(null)
     try {
-      setAdvances(await listAdvances(employee.id, from, to))
+      const list = await listAdvances(employee.id, from, to)
+      if (read === latestRead.current) setAdvances(list)
     } catch {
-      setLoadError(t('advance.errors.load'))
+      if (read === latestRead.current) setLoadError(t('advance.errors.load'))
     } finally {
-      setLoading(false)
+      if (read === latestRead.current) setLoading(false)
     }
   }, [employee.id, from, rangeValid, t, to])
 
@@ -245,7 +249,7 @@ export function EmployeeAdvancePage({ employee, onBack }: { employee: EmployeeRe
             </p>
           )}
 
-          {loadError ? (
+          {!rangeValid ? null : loadError ? (
             <p role="alert" className="text-sm text-destructive">
               {loadError}
             </p>

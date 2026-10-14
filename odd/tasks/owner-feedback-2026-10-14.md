@@ -71,6 +71,28 @@ movements from the same place as any other movement.
 - [x] A6 Cross-layer parity map: the POS hands out advances; their history, voids and corrections are web only
   (accounting, as the account reversals). Treasury row: recurring movements and kind labels. POS employees 53.
 
+## Follow-ups (reviews of b7fb667..7404e77, pushed 2026-10-14)
+
+- [x] F1 Advance void vs. a reversal from the employee's account (`review-ce90a17fc8a5ba57` R3-undo-race-throws,
+  R4-advance-void-account-reverse-race): refuted. The reversal inserts through `current_account_movements_employee_fk`,
+  whose KEY SHARE lock on the employee waits for the void's `FOR UPDATE` (and one already inserted makes the void wait
+  and read the debit reversed). `PayrollTests ...WaitsForAVoidHoldingTheEmployee` keeps it (green before any change, so
+  no code change; the comment in `UndoAdvanceAsync` says why).
+- [x] F2 Launcher (`review-aacc510d121a0747` R3-001): a failed npm ci or build of the website warns, opens `/login` and
+  starts the rest (the POS included) instead of stopping the launcher. Checked by running the block against a site whose
+  build exits 3: two warnings, `/login`, `VITE_APP_URL` cleared, location restored.
+- [x] F3 Recurring movements (`review-1c439f78aeaec7ea` R3-edit-cancel-closes-panel, R3-form-reset-unasserted):
+  "Cancelar" on an edit goes back to the new form (on the new form it still closes the panel); a saved one leaves an
+  empty form. RED: the panel closed; GREEN: treasury screen 15.
+- [x] F4 Advances history (`review-ff03d626e87f1b71` R3-history-load-race, R3-invalid-range-stale-list): only the latest
+  read counts; a range the other way round hides the list it no longer matches. RED: a late answer replaced the list;
+  GREEN: advance page 6.
+- Open, accepted as they are: F4 side effect (while Desde or Hasta is being typed the list hides until the date is
+  complete), launcher R3-002..005 (suggestions), advances server readability R2 (`UndoAdvanceAsync` signature, nested switch guards, reason
+  limit literals), R3-correction-skips-employee-eligibility (a correction for an inactive employee: the web offers
+  "Adelantos" only to active ones, as giving one), R4-correction-retry-not-idempotent (a correction retried after a lost
+  answer finds the advance voided: 409 `advance-voided`, nothing doubled).
+
 ## Constraints
 
 - Strict TDD; business rules on the server; cross-layer parity (`skills/cross-layer-parity`).

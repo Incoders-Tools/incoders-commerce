@@ -170,6 +170,37 @@ public sealed partial class PayrollTests
             "SELECT v.reason FROM treasury_movement_voids v JOIN treasury_movements m ON m.id = v.movement_id WHERE m.source_id = $1", advance));
     }
 
+    // owner feedback 2026-10-14 follow-up F1 (review R3-undo-race-throws / R4-advance-void-account-reverse-race): a void
+    // holds the employee while it reverses the debit; a reversal from the employee's account waits for it instead of
+    // racing it (the loser used to fail with a 500).
+    [Fact]
+    public async Task ReversingAnAdvanceOnTheEmployeesAccount_WaitsForAVoidHoldingTheEmployee()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+        var (w, juan) = await AdvanceSeedAsync();
+        await GiveAsync(w, juan.Id, 15_000m, new DateOnly(2026, 10, 13));
+        var accounts = new PostgresCurrentAccountStore(_dataSource!);
+        var party = AccountParty.Employee(juan.Id);
+        var debit = (await accounts.ListMovementsAsync(w.Scope, party, CancellationToken.None))!.Single();
+
+        await using var connection = await _dataSource!.OpenConnectionAsync();
+        await using var tx = await connection.BeginTransactionAsync();
+        await TenantScopeSql.ApplyAsync(connection, tx, w.Org, null, CancellationToken.None);
+        await using (var hold = new Npgsql.NpgsqlCommand("SELECT 1 FROM employees WHERE id = $1 FOR UPDATE", connection, tx))
+        {
+            hold.Parameters.AddWithValue(juan.Id);
+            await hold.ExecuteNonQueryAsync();
+        }
+
+        var reversing = accounts.ReverseAsync(w.Scope, party, debit.Id, "Mal cargado", null, Today, "org-user", w.Actor, CancellationToken.None);
+        await Task.Delay(500);
+        Assert.False(reversing.IsCompleted);
+
+        await tx.CommitAsync();
+        Assert.Equal(ReverseMovementOutcome.Reversed, (await reversing).Outcome);
+        Assert.Equal((0m, 0m), (await CashBalanceAsync(w), await BalanceAsync(w, juan.Id)));
+    }
+
     [Fact]
     public async Task CorrectingAnAdvance_VoidsIt_AndHandsOutTheCorrectedOne_LinkedToIt()
     {

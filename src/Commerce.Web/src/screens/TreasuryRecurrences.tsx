@@ -37,7 +37,7 @@ export function TreasuryRecurrences({
   accounts: readonly TreasuryAccount[]
   /** A recurrence recorded movements: the accounts and their movements reload. */
   onChanged: () => void
-  /** "Cancelar": the panel closes, as any other treasury form. */
+  /** "Cancelar" on the new form: the panel closes, as any other treasury form. */
   onClose: () => void
 }) {
   const { t } = useTranslation('treasury')
@@ -110,7 +110,8 @@ export function TreasuryRecurrences({
           key={editing === 'new' ? `new-${formNumber}` : editing.recurrenceId}
           recurrence={editing === 'new' ? null : editing}
           accounts={accounts}
-          onCancel={onClose}
+          // Leaving an edit goes back to the new form; on the new form "Cancelar" closes the panel.
+          onCancel={editing === 'new' ? onClose : () => setEditing('new')}
           onSaved={async (message) => {
             setEditing('new')
             setFormNumber((n) => n + 1)

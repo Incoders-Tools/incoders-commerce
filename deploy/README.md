@@ -18,7 +18,8 @@ Double-click `deploy/dev/run-all.bat` (or point a desktop shortcut at it). It:
 The browser opens on the public website (`http://localhost:4173/`). Its
 buttons lead to this run's app: "Hacer un pedido" to `/order` and "Ingresar al
 sistema" to `/login`, both on the HTTPS proxy. `-NoSite` skips the website and
-opens `/login` directly.
+opens `/login` directly. If the website fails to build, the launcher warns, opens `/login` and
+starts the rest anyway.
 
 `/order` needs the API's `GuestOrdering__OrganizationId` and
 `GuestOrdering__BranchId`. The launcher looks them up in `commerce_dev`: the
