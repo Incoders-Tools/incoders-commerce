@@ -5,6 +5,7 @@ using Commerce.Cloud.Api.Endpoints;
 using Commerce.Cloud.Api.Persistence;
 using Commerce.Cloud.Api.Tenancy;
 using Commerce.Domain.CashSessions;
+using Commerce.Domain.CurrentAccounts;
 using Commerce.Domain.Discounts;
 using Commerce.Domain.Identity;
 using Commerce.Domain.Sales;
@@ -577,6 +578,55 @@ public sealed class TreasuryTests : IClassFixture<WebApplicationFactory<Program>
         var payments = (await Json(await admin.GetAsync($"/payroll/runs/{runId}"))).GetProperty("payslips")[0].GetProperty("payments");
         Assert.Equal([("Caja sueldos", 600m), ("Banco", 400m)],
             payments.EnumerateArray().Select(p => (p.GetProperty("accountName").GetString(), p.GetProperty("amount").GetDecimal())));
+    }
+
+    [Fact]
+    public async Task AnEmployeesAdvances_AreListed_Voided_AndCorrectedOverHttp()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+        var (org, branch, _) = await SeedAsync();
+        var admin = await SignedInAsync(org, branch, Permission.ManageUsers);
+        var scope = new CloudTenantScope(org, BranchId: branch);
+        var (_, cash) = await new PostgresTreasuryStore(_dataSource!).CreateAccountAsync(scope, Guid.NewGuid(), PostgresTreasuryStore.Other,
+            "Caja sueldos", null, branch, null, new DateOnly(2026, 10, 1), CancellationToken.None);
+        var employeeId = (await Json(await admin.PostAsJsonAsync("/employees", new { branchId = branch, firstName = "Juan", lastName = "Pérez", baseSalary = 1000m })))
+            .GetProperty("id").GetGuid();
+        async Task<Guid> Give(decimal amount) =>
+            (await Json(await admin.PostAsJsonAsync($"/employees/{employeeId}/advances", new { amount, accountId = cash!.AccountId })))
+                .GetProperty("advanceId").GetGuid();
+        var first = await Give(15_000m);
+
+        // The last month by default; a range the other way round is refused.
+        var listed = Assert.Single((await Json(await admin.GetAsync($"/employees/{employeeId}/advances"))).EnumerateArray());
+        Assert.Equal((first, 15_000m, "Caja sueldos", false), (listed.GetProperty("advanceId").GetGuid(), listed.GetProperty("amount").GetDecimal(),
+            listed.GetProperty("accountName").GetString(), listed.GetProperty("isVoided").GetBoolean()));
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.GetAsync($"/employees/{employeeId}/advances?from=2026-10-10&to=2026-10-01")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await admin.GetAsync($"/employees/{Guid.NewGuid()}/advances")).StatusCode);
+
+        // A void says why; a correction too, and of a voided advance it is refused.
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PostAsJsonAsync($"/employees/{employeeId}/advances/{first}/void", new { reason = " " })).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await admin.PostAsJsonAsync($"/employees/{employeeId}/advances/{first}/void", new { reason = "Mal cargado" })).StatusCode);
+        var voided = await admin.PutAsJsonAsync($"/employees/{employeeId}/advances/{first}", new { amount = 1m, accountId = cash!.AccountId, reason = "x" });
+        Assert.Equal((HttpStatusCode.Conflict, "advance-voided"), (voided.StatusCode, (await Json(voided)).GetProperty("error").GetString()));
+
+        var second = await Give(12_000m);
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await admin.PutAsJsonAsync($"/employees/{employeeId}/advances/{second}", new { amount = 10_000m, accountId = cash.AccountId })).StatusCode);
+        var corrected = await admin.PutAsJsonAsync($"/employees/{employeeId}/advances/{second}",
+            new { amount = 10_000m, accountId = cash.AccountId, concept = "a cuenta", reason = "Era de 10.000" });
+        var correctedId = (await Json(corrected)).GetProperty("advanceId").GetGuid();
+        var history = (await Json(await admin.GetAsync($"/employees/{employeeId}/advances"))).EnumerateArray().ToList();
+        Assert.Equal(3, history.Count);
+        Assert.Equal(second, history.Single(a => a.GetProperty("advanceId").GetGuid() == correctedId).GetProperty("correctsAdvanceId").GetGuid());
+
+        // In a draft payroll it stays as the draft read it, from the advance and from the employee's account alike.
+        await admin.PostAsJsonAsync("/payroll/runs", new { periodFrom = "2026-10-01", periodTo = "2026-10-12" });
+        var inDraft = await admin.PostAsJsonAsync($"/employees/{employeeId}/advances/{correctedId}/void", new { reason = "x" });
+        Assert.Equal((HttpStatusCode.Conflict, "advance-in-payroll-draft"), (inDraft.StatusCode, (await Json(inDraft)).GetProperty("error").GetString()));
+        var debit = (await new PostgresCurrentAccountStore(_dataSource!).ListMovementsAsync(scope, AccountParty.Employee(employeeId), CancellationToken.None))!
+            .Single(m => m.Amount == 10_000m && m.Kind == AccountMovementKind.Payment).Id;
+        var reverse = await admin.PostAsJsonAsync($"/employees/{employeeId}/account/movements/{debit}/reverse", new { concept = "x" });
+        Assert.Equal((HttpStatusCode.Conflict, "advance-in-payroll-draft"), (reverse.StatusCode, (await Json(reverse)).GetProperty("error").GetString()));
     }
 
     [Fact]

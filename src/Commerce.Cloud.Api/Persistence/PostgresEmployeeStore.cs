@@ -482,13 +482,7 @@ public sealed partial class PostgresEmployeeStore
 
             // Back at work while its final settlement is a draft, it would be paid that and the regular runs too. (Also
             // refused for a regular draft taken before the leave: discard or pay that one first.)
-            await using var draft = new NpgsqlCommand(
-                """
-                SELECT EXISTS (SELECT 1 FROM payslips p JOIN payroll_runs r ON r.organization_id = p.organization_id AND r.id = p.run_id
-                               WHERE p.employee_id = $1 AND r.status = 'Draft')
-                """, connection, tx);
-            draft.Parameters.AddWithValue(employeeId);
-            if ((bool)(await draft.ExecuteScalarAsync(ct))!)
+            if (await InPayrollDraftAsync(connection, tx, employeeId, ct))
             {
                 await tx.RollbackAsync(ct);
                 return EmployeeWriteOutcome.InPayrollDraft;
@@ -534,30 +528,13 @@ public sealed partial class PostgresEmployeeStore
             return (EmployeeWriteOutcome.NotFound, null);
         }
 
-        await using (var account = new NpgsqlCommand("SELECT is_active FROM treasury_accounts WHERE id = $1", connection, tx))
+        if (await AccountRefusalAsync(connection, tx, accountId, ct) is { } refused)
         {
-            account.Parameters.AddWithValue(accountId);
-            switch (await account.ExecuteScalarAsync(ct))
-            {
-                case null:
-                    await tx.RollbackAsync(ct);
-                    return (EmployeeWriteOutcome.AccountNotFound, null);
-                case false:
-                    await tx.RollbackAsync(ct);
-                    return (EmployeeWriteOutcome.AccountInactive, null);
-            }
+            await tx.RollbackAsync(ct);
+            return (refused, null);
         }
 
-        var advanceId = Guid.NewGuid();
-        var text = string.IsNullOrWhiteSpace(concept) ? $"Adelanto a {employee.FullName}" : $"Adelanto a {employee.FullName}: {concept.Trim()}";
-        await PostgresTreasuryStore.InsertAsync(
-            connection, tx, scope.OrganizationId, Guid.NewGuid(), accountId, "EmployeeAdvance", "Out", amount, DateTimeOffset.UtcNow, date, text,
-            null, null, AdvanceSourceType, advanceId, null, actorId, ct);
-        await PostgresCurrentAccountStore.InsertAsync(
-            connection, tx, scope.OrganizationId, AccountParty.Employee(employeeId),
-            new NewAccountMovement(Guid.NewGuid(), AccountMovementKind.Payment, AccountDirection.Debit, amount, date, null, null,
-                string.IsNullOrWhiteSpace(concept) ? "Adelanto" : $"Adelanto: {concept.Trim()}", actorId),
-            null, ct, AdvanceSourceType, advanceId);
+        var (advanceId, _) = await InsertAdvanceAsync(connection, tx, scope.OrganizationId, actorId, employee, amount, date, accountId, concept, ct);
         await AuditAsync(connection, tx, scope.OrganizationId, actorId, employeeId, "employee.advance_given",
             new { advanceId, amount, date, accountId, concept }, ct);
         await tx.CommitAsync(ct);

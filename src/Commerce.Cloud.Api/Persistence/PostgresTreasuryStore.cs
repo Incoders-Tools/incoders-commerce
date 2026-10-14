@@ -773,6 +773,31 @@ public sealed class PostgresTreasuryStore
                 .Where(leg => !leg.Voided).OrderBy(leg => leg.Direction == "Out" ? 0 : 1).ToList()
             : [movement];
 
+    /// <summary>
+    /// Voids the movement a source posted (owner feedback 2026-10-14: an employee's advance), unless it is voided already:
+    /// it stays, marked voided with the reason (cut to fit), and no balance counts it any more.
+    /// </summary>
+    internal static async Task VoidSourceMovementAsync(
+        NpgsqlConnection connection, NpgsqlTransaction tx, Guid organizationId, string sourceType, Guid sourceId, Guid actorId, string reason,
+        Guid? replacement, CancellationToken ct)
+    {
+        var text = reason.Trim();
+        await using var cmd = new NpgsqlCommand(
+            """
+            INSERT INTO treasury_movement_voids (organization_id, movement_id, voided_by_user_id, reason, replacement_movement_id)
+            SELECT m.organization_id, m.id, $3, $4, $5 FROM treasury_movements m
+            WHERE m.organization_id = $6 AND m.source_type = $1 AND m.source_id = $2 AND m.kind <> 'Reversal'
+            ON CONFLICT DO NOTHING
+            """, connection, tx);
+        cmd.Parameters.AddWithValue(sourceType);
+        cmd.Parameters.AddWithValue(sourceId);
+        cmd.Parameters.AddWithValue(actorId);
+        cmd.Parameters.AddWithValue(text.Length > 200 ? text[..200] : text);
+        cmd.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Uuid, (object?)replacement ?? DBNull.Value);
+        cmd.Parameters.AddWithValue(organizationId);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
     private static async Task InsertVoidAsync(
         NpgsqlConnection connection, NpgsqlTransaction tx, Guid organizationId, Guid movementId, Guid actorId, string reason, Guid? replacement,
         CancellationToken ct)

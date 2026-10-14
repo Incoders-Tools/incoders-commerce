@@ -210,6 +210,21 @@ public sealed class PostgresCurrentAccountStore
             return new ReverseMovementResult(ReverseMovementOutcome.SettledByPayroll);
         }
 
+        // owner feedback 2026-10-14, A2: the debit of an employee's advance reversed voids its cash too (one path with the
+        // advance's void); refused while the employee is in a Draft payroll, which already deducted it.
+        if (party.Kind == AccountPartyKind.Employee
+            && await SourceOfAsync(connection, tx, movementId, ct) is (PostgresEmployeeStore.AdvanceSourceType, var advanceId))
+        {
+            if (await PostgresEmployeeStore.InPayrollDraftAsync(connection, tx, party.Id, ct))
+            {
+                await tx.RollbackAsync(ct);
+                return new ReverseMovementResult(ReverseMovementOutcome.InPayrollDraft);
+            }
+
+            await PostgresTreasuryStore.VoidSourceMovementAsync(connection, tx, scope.OrganizationId, PostgresEmployeeStore.AdvanceSourceType,
+                advanceId, actorId, result.Reversal!.Concept, null, ct);
+        }
+
         await AuditAsync(connection, tx, scope.OrganizationId, actorKind, actorId, party, $"{party.EntityType}.movement_reversed", result.Reversal!, ct);
         await tx.CommitAsync(ct);
         return result;

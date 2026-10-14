@@ -10,7 +10,8 @@ namespace Commerce.Cloud.Api.Endpoints;
 /// always the caller, every write audited):
 /// <list type="bullet">
 /// <item><c>/employees</c>: the staff of each branch (list, one, create, edit, deactivate), an advance handed out (money out
-/// of the treasury, a debit on the employee's account), and the employee's account. The POS (Personal → Empleados) calls
+/// of the treasury, a debit on the employee's account; listed, voided and corrected whole in the web only), and the
+/// employee's account. The POS (Personal → Empleados) calls
 /// these same endpoints with its device credential and the signed-in operator (<c>AllowDeviceOperator</c>), so both layers
 /// manage the staff alike (<c>/employees/{id}/account</c>,
 /// <see cref="SupplierAccountEndpoints"/>). The positions are a catalog of their own (<c>/employees/roles</c>,
@@ -206,6 +207,51 @@ public static class EmployeeEndpoints
                 caller!.Scope, caller.Id, id, request.Amount, request.Date ?? httpContext.Today(), request.AccountId, request.Concept, ct);
             return outcome == EmployeeWriteOutcome.Done ? Results.Ok(new { advanceId }) : Refusal(outcome);
         }).AllowDeviceOperator();
+
+        // owner feedback 2026-10-14, A2: the advances handed out, by date (the last month by default), voided or corrected
+        // whole (their cash and the employee's account together). Web only, as the account reversals.
+        employees.MapGet("/{id:guid}/advances", async (
+            Guid id, DateOnly? from, DateOnly? to, HttpContext httpContext, PostgresUserAccountStore userStore, PostgresEmployeeStore store,
+            CancellationToken ct) =>
+        {
+            var (denied, caller) = await StaffAuthorization.AuthorizeAsync(httpContext, userStore, ct, Permission.ManageUsers);
+            if (denied is not null) return denied;
+            var end = to ?? httpContext.Today();
+            var start = from ?? end.AddMonths(-1);
+            if (start > end) return Results.ValidationProblem(new Dictionary<string, string[]> { ["from"] = ["from cannot be after to."] });
+            var advances = await store.ListAdvancesAsync(caller!.Scope, id, start, end, ct);
+            return advances is null ? Results.NotFound() : Results.Ok(advances);
+        });
+
+        employees.MapPost("/{id:guid}/advances/{advanceId:guid}/void", async (
+            Guid id, Guid advanceId, AdvanceVoidRequest request, HttpContext httpContext, PostgresUserAccountStore userStore,
+            PostgresEmployeeStore store, CancellationToken ct) =>
+        {
+            var (denied, caller) = await StaffAuthorization.AuthorizeAsync(httpContext, userStore, ct, Permission.ManageUsers);
+            if (denied is not null) return denied;
+            if (AdvanceReasonError(request.Reason) is { } invalid) return invalid;
+            var outcome = await store.VoidAdvanceAsync(caller!.Scope, caller.Id, id, advanceId, request.Reason!.Trim(), httpContext.Today(), ct);
+            return outcome == AdvanceWriteOutcome.Done ? Results.NoContent() : Refusal(outcome);
+        });
+
+        employees.MapPut("/{id:guid}/advances/{advanceId:guid}", async (
+            Guid id, Guid advanceId, AdvanceCorrectionRequest request, HttpContext httpContext, PostgresUserAccountStore userStore,
+            PostgresEmployeeStore store, CancellationToken ct) =>
+        {
+            var (denied, caller) = await StaffAuthorization.AuthorizeAsync(httpContext, userStore, ct, Permission.ManageUsers);
+            if (denied is not null) return denied;
+
+            var errors = new Dictionary<string, string[]>();
+            if (!PayslipRules.IsValidAmount(request.Amount)) errors["amount"] = ["amount is positive with at most two decimals."];
+            if (request.Date is { } date && date > httpContext.Today()) errors["date"] = ["date cannot be in the future."];
+            if (request.Concept is { Length: > PayslipRules.MaxConceptLength }) errors["concept"] = ["At most 200 characters."];
+            if (errors.Count > 0) return Results.ValidationProblem(errors);
+            if (AdvanceReasonError(request.Reason) is { } invalid) return invalid;
+
+            var (outcome, correctedId) = await store.CorrectAdvanceAsync(caller!.Scope, caller.Id, id, advanceId, request.Amount,
+                request.Date ?? httpContext.Today(), request.AccountId, request.Concept, request.Reason!.Trim(), httpContext.Today(), ct);
+            return outcome == AdvanceWriteOutcome.Done ? Results.Ok(new { advanceId = correctedId }) : Refusal(outcome);
+        });
 
         var payroll = app.MapGroup("/payroll/runs").RequireAuthorization().AddEndpointFilter<TenantScopeEndpointFilter>();
 
@@ -436,6 +482,20 @@ public static class EmployeeEndpoints
         return null;
     }
 
+    private static IResult? AdvanceReasonError(string? reason) =>
+        string.IsNullOrWhiteSpace(reason) || reason.Trim().Length > PostgresEmployeeStore.MaxAdvanceReasonLength
+            ? Results.ValidationProblem(new Dictionary<string, string[]> { ["reason"] = ["Why it is voided or corrected, up to 150 characters."] })
+            : null;
+
+    private static IResult Refusal(AdvanceWriteOutcome outcome) => outcome switch
+    {
+        AdvanceWriteOutcome.NotFound => Results.NotFound(),
+        AdvanceWriteOutcome.InPayrollDraft => Results.Conflict(new { error = "advance-in-payroll-draft" }),
+        AdvanceWriteOutcome.Voided => Results.Conflict(new { error = "advance-voided" }),
+        AdvanceWriteOutcome.AccountNotFound => Results.Conflict(new { error = "account-not-found" }),
+        _ => Results.Conflict(new { error = "account-inactive" }),
+    };
+
     private static IResult Refusal(EmployeeGoodsOutcome outcome) => outcome switch
     {
         EmployeeGoodsOutcome.NotFound => Results.NotFound(),
@@ -510,6 +570,12 @@ public sealed record FinalSettlementRequest(Guid EmployeeId);
 
 /// <summary>An advance handed out from a treasury account (Date: today when omitted).</summary>
 public sealed record EmployeeAdvanceRequest(decimal Amount, DateOnly? Date, Guid AccountId, string? Concept);
+
+/// <summary>Why an advance is voided (required).</summary>
+public sealed record AdvanceVoidRequest(string? Reason);
+
+/// <summary>An advance as it should have been (Date: today when omitted), and why it is corrected (required).</summary>
+public sealed record AdvanceCorrectionRequest(decimal Amount, DateOnly? Date, Guid AccountId, string? Concept, string? Reason);
 
 /// <summary>A new payroll run; owner feedback P4: EmployeeIds, the employees chosen (omitted: every one of the branch).</summary>
 public sealed record CreatePayrollRunRequest(

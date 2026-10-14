@@ -95,6 +95,7 @@ public static class SupplierAccountEndpoints
                 ReverseMovementOutcome.AlreadyReversed => Results.Conflict(new { error = "movement-already-reversed" }),
                 ReverseMovementOutcome.NotReversible => Results.Conflict(new { error = "movement-not-reversible" }),
                 ReverseMovementOutcome.SettledByPayroll => Results.Conflict(new { error = "goods-settled" }),
+                ReverseMovementOutcome.InPayrollDraft => Results.Conflict(new { error = "advance-in-payroll-draft" }),
                 _ => Problem("occurredOn", "occurredOn cannot be before the date of the reversed movement."),
             };
         });
