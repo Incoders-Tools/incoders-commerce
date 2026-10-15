@@ -26,7 +26,10 @@ decision). Shared by both layers for S3: `skills/cross-layer-parity`, `docs/arch
 
 ## Tasks
 
-- [ ] T1 S1 POS lock screen draws the sixth PIN dot before verifying, with "Verificando…" while it checks (route: inline).
+- [x] T1 S1 POS lock screen draws the sixth PIN dot before verifying, with "Verificando…" while it checks (route: inline).
+  `LockScreenView.QueuePinSubmit`: busy "Verificando…", then `SubmitPin` at `DispatcherPriority.Background` (after
+  Render), once (Enter or the sixth digit). RED: `PosLockScreenMarkupTests.LockScreenView_DrawsTheSixthPinDot_BeforeTheCheckRuns`
+  (`SubmitPin()` inside `PasswordChanged`). GREEN: lock screen, settings, theme, operator menu, shell, busy 129/129.
 - [ ] T2 S2 POS settings window hides the technical sections from a non-administrator (route: inline).
 - [ ] T3 S3 POS shared money reader (`MoneyInput`) used by open cash, close cash, tender, customer payment, cash
   movements and every other POS money field; preview and placeholder on open cash (route: inline).
@@ -61,3 +64,7 @@ decision). Shared by both layers for S3: `skills/cross-layer-parity`, `docs/arch
   `treasury/treasuryInput.ts` refuses it, observed in its RED) and `MovementForm.tsx` refuses `15.000` and `15,50`.
 - L3 (owner, 2026-10-15) Decisions: S3 rule as proposed; S2 non-administrators keep Apariencia, Sincronización and
   estado; this work goes to the next promotion, the current PR opens without it.
+- L4 POS tests build with `--artifacts-path artifacts/agent-tests` (gitignored): the owner's local stack (Cloud.Api and
+  the POS, started 10:14) locks the default `bin` outputs. Existing POS tests pinned the old rule ("no thousands
+  separator is ever accepted": `1.000,50`, `650.000,00` refused, `10.005` as three decimals); by S3 they are now
+  1000.50, 650000 and 10005.
