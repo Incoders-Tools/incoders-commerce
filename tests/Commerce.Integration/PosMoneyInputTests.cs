@@ -86,6 +86,50 @@ public sealed class PosMoneyInputTests
         Assert.Equal(15_000m, EmployeeFormRules.ParseAmount("15.000"));
     }
 
+    [Theory]
+    [InlineData("١٥")]       // Arabic-Indic digits
+    [InlineData("１５.０００")] // full-width digits
+    public void Read_RefusesNonAsciiDigits_WithoutThrowing(string text)
+    {
+        var reading = MoneyInput.Read(text);
+
+        Assert.False(reading.IsValid);
+        Assert.Equal(MoneyReadFailure.Format, reading.Failure);
+    }
+
+    [Theory]
+    [InlineData("en-US")]
+    [InlineData("es-AR")]
+    [InlineData("de-DE")]
+    public void PrefilledAmounts_ReadBack_WhateverTheWindowsCulture(string culture)
+    {
+        var previous = System.Globalization.CultureInfo.CurrentCulture;
+        System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.GetCultureInfo(culture);
+        try
+        {
+            Assert.Equal(15_000.5m, TenderInput.EvaluateCash(15_000.5m, TenderInput.ExactText(15_000.5m)).Received);
+            Assert.Equal(650_000.5m, EmployeeFormRules.ParseSalary(EmployeeFormRules.SalaryText(650_000.5m)));
+        }
+        finally
+        {
+            System.Globalization.CultureInfo.CurrentCulture = previous;
+        }
+    }
+
+    [Fact]
+    public void ManualSale_ReadsItsAmount_WithTheSharedRule()
+    {
+        // "Venta manual" read 15.000 as 15 and 15,50 as 1550 with its own parser.
+        var code = Src("MainWindow.xaml.cs");
+        var commit = Regex.Match(code, @"void CommitSaleButton_Click\([\s\S]*?\n    }").Value;
+        var box = Regex.Match(Src("MainWindow.xaml"), @"<TextBox[^>]*x:Name=""AmountTextBox""[^>]*/>").Value;
+
+        Assert.Contains("MoneyInput.TryRead(AmountTextBox.Text", commit);
+        Assert.DoesNotContain("decimal.TryParse(AmountTextBox.Text", code);
+        Assert.DoesNotContain("Text=\"19.99\"", box);
+        Assert.Contains("Ej.: 15.000 o 15.000,50", box);
+    }
+
     [Fact]
     public void OpenCash_SaysWithWhatItWillOpen()
     {

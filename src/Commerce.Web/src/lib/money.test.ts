@@ -32,10 +32,19 @@ describe('readMoney (one es-AR rule for every money field)', () => {
     expect(readMoney(',5')).toEqual({ ok: false, reason: 'format' })
     expect(readMoney('-15')).toEqual({ ok: false, reason: 'format' })
     expect(readMoney('abc')).toEqual({ ok: false, reason: 'format' })
+    expect(readMoney('1.000.00')).toEqual({ ok: false, reason: 'format' })
+    expect(readMoney('.5')).toEqual({ ok: false, reason: 'format' })
+    expect(readMoney('5.')).toEqual({ ok: false, reason: 'format' })
+    expect(readMoney('1 000')).toEqual({ ok: false, reason: 'format' })
+    expect(readMoney('1e3')).toEqual({ ok: false, reason: 'format' })
   })
 
   it('refuses more decimals than the field takes, and says so', () => {
     expect(readMoney('15,505')).toEqual({ ok: false, reason: 'decimals' })
+    expect(readMoney('15.000,505')).toEqual({ ok: false, reason: 'decimals' })
+    // By the rule a point followed by three digits is thousands, even after a zero: the read-back shows it.
+    expect(readMoney('0.500')).toEqual({ ok: true, value: 500 })
+    expect(readMoney('15000.00')).toEqual({ ok: true, value: 15000 })
     expect(readMoney('12,3456', 4)).toEqual({ ok: true, value: 12.3456 })
     expect(readMoney('12,34567', 4)).toEqual({ ok: false, reason: 'decimals' })
     // With four decimals allowed a point followed by three digits is still thousands.

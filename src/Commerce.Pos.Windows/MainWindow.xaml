@@ -87,7 +87,7 @@
                             <TextBlock Text="Para artículos sin código en el catálogo local. No se puede combinar con productos de la venta actual."
                                        Style="{StaticResource MutedTextBlock}" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,12" />
                             <TextBlock Text="Importe" Style="{StaticResource MutedTextBlock}" Margin="0,0,0,6" />
-                            <TextBox x:Name="AmountTextBox" Text="19.99" />
+                            <TextBox x:Name="AmountTextBox" ToolTip="Ej.: 15.000 o 15.000,50" AutomationProperties.Name="Importe de la venta manual" />
                             <TextBlock Text="Cobrar con" Style="{StaticResource MutedTextBlock}" Margin="0,12,0,6" />
                             <UniformGrid Rows="1">
                                 <Button x:Name="CommitSaleButton" Content="Efectivo" Tag="cash" Margin="0,0,6,0" Click="CommitSaleButton_Click" AutomationProperties.Name="Cobrar venta manual en efectivo" />

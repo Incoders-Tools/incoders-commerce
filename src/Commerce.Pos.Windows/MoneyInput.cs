@@ -30,13 +30,14 @@ public static partial class MoneyInput
     /// <summary>The example every money field shows, the web's.</summary>
     public const string Placeholder = "Ej.: 15.000 o 15.000,50";
 
-    [GeneratedRegex(@"^\d{1,3}(\.\d{3})+(,\d+)?$")]
+    // [0-9], never \d: .NET's \d also matches Arabic-Indic or full-width digits, which decimal.Parse then refuses.
+    [GeneratedRegex(@"^[0-9]{1,3}(\.[0-9]{3})+(,[0-9]+)?$")]
     private static partial Regex Grouped();
 
-    [GeneratedRegex(@"^\d+(,\d+)?$")]
+    [GeneratedRegex(@"^[0-9]+(,[0-9]+)?$")]
     private static partial Regex Plain();
 
-    [GeneratedRegex(@"^\d+\.\d{1,2}$")]
+    [GeneratedRegex(@"^[0-9]+\.[0-9]{1,2}$")]
     private static partial Regex PointDecimal();
 
     public static MoneyReading Read(string? text, int maxDecimals = 2)

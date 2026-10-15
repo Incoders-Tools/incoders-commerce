@@ -82,3 +82,10 @@ decision). Shared by both layers for S3: `skills/cross-layer-parity`, `docs/arch
   the POS, started 10:14) locks the default `bin` outputs. Existing POS tests pinned the old rule ("no thousands
   separator is ever accepted": `1.000,50`, `650.000,00` refused, `10.005` as three decimals); by S3 they are now
   1000.50, 650000 and 10005.
+- L5 Independent verify (gentle-ai-verify): S1 met, S2 met, S3 unmet: the POS "Venta manual" amount
+  (`MainWindow.xaml.cs` `CommitSaleButton_Click`) kept its own parser (`15.000` -> 15, `15,50` -> 1550, recorded
+  silently), prefilled "19.99". Advisory: `\d` in .NET matches non-ASCII digits, so `MoneyInput.Read("١٥")` threw from
+  `decimal.Parse`. T3 reopened: manual sale reads with `MoneyInput.TryRead` (no prefill, the example as tooltip),
+  the patterns use `[0-9]`. RED: `PosMoneyInputTests` manual sale + non-ASCII digits (3 failed). Prefills read back
+  in en-US, es-AR and de-DE (`ExactText`, `SalaryText`). Verify scratch `%TEMP%\tmp.gjugplaTD5` (1.2 GB) deleted.
+  GREEN: POS, parity, tender, cash, payments, employees, scanned and manual sale 1108/1108; vitest money 8.

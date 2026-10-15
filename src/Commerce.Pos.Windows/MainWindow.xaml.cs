@@ -596,9 +596,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (!decimal.TryParse(AmountTextBox.Text, NumberStyles.Number, CultureInfo.InvariantCulture, out var amount) || amount <= 0m)
+        // The shared money rule: "15.000" is fifteen thousand, "15,50" carries cents (it read 15 and 1550 before).
+        if (!MoneyInput.TryRead(AmountTextBox.Text, out var amount) || amount <= 0m)
         {
-            ShowResultText("Importe inválido.");
+            ShowResultText("Importe inválido. Ingrese el importe, por ejemplo 15.000 o 15.000,50.");
             return;
         }
 

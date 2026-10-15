@@ -42,7 +42,7 @@ Status: **Aligned** (same operations, same wording), **Partial** (shared core, l
   two digits is the decimal (`15,5`, `15.50`), anything else is refused (`1,234.56`, `15.0000`, a sign). The example is
   "Ej.: 15.000 o 15.000,50" ("15.000,50" in a row). Web: `lib/money.ts` (`readMoney`), `components/form/MoneyField.tsx`
   (`MoneyField`, `MoneyInput`, the read-back "Se toma como $ 15.000,00"). POS: `MoneyInput` (`MoneyInput.Read`), used by
-  open/close cash, tender, customer payment, cash movements and the employee form; the open-cash prompt reads back "Se
+  open/close cash, tender, the manual sale, customer payment, cash movements and the employee form; the open-cash prompt reads back "Se
   abrirá con $ 15.000,00". A reception unit cost takes up to four decimals, typed with a comma. Quantities keep the
   organization's own format (`lib/quantity.ts`), percentages their own rules. Tests: vitest `money`, `MoneyField`;
   `PosMoneyInputTests`.
