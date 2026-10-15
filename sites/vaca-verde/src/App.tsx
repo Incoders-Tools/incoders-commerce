@@ -10,10 +10,11 @@ import { Visit } from './sections/Visit'
 /** schema.org data so search engines can show the shop as a local business. */
 const structuredData = {
   '@context': 'https://schema.org',
-  '@type': 'ButcherShop',
+  // A distributor, with its butcher shop on Ruta 51 as a part of the business.
+  '@type': ['WholesaleStore', 'ButcherShop'],
   name: business.name,
   foundingDate: String(business.foundedYear),
-  telephone: business.phoneHref.replace('tel:', ''),
+  telephone: business.phone,
   address: {
     '@type': 'PostalAddress',
     streetAddress: business.address,

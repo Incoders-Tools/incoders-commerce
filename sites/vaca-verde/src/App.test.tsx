@@ -35,24 +35,46 @@ describe('Vaca Verde site', () => {
     expect(within(header).getByRole('link', { name: 'Ingresar' })).toHaveAttribute('href', '#ingresar')
   })
 
-  it('shows the contact details of the flyer as working links', () => {
+  it('shows the contact details of the flyer as working links, the phone opening WhatsApp', () => {
     render(<App />)
 
     expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /2161-1045/ })).toHaveAttribute('href', 'tel:+541121611045')
+    for (const link of [screen.getByRole('link', { name: /2161-1045/ }), screen.getByRole('link', { name: 'Escribir por WhatsApp' })]) {
+      expect(link).toHaveAttribute('href', 'https://wa.me/5491121611045')
+      expect(link).toHaveAttribute('target', '_blank')
+    }
+    expect(document.querySelector('a[href^="tel:"]')).toBeNull()
     expect(screen.getByRole('link', { name: /@vacaverde\.carne/i })).toHaveAttribute(
       'href',
       'https://www.instagram.com/vacaverde.carne/',
     )
   })
 
-  it('publishes the business as a ButcherShop for search engines', () => {
+  // owner feedback 2026-10-15, B2: a distributor, with a butcher shop on Ruta 51 as a part of the business.
+  it('presents Vaca Verde as a distributor with its butcher shop on Ruta 51', () => {
+    render(<App />)
+
+    expect(screen.getByText(/Somos una distribuidora/)).toBeInTheDocument()
+    expect(screen.getByText(/Distribuidora con carnicería sobre la Ruta 51/)).toBeInTheDocument()
+    expect(screen.queryByText(/Somos una carnicería/)).not.toBeInTheDocument()
+  })
+
+  it('publishes the business as a wholesale store with a butcher shop for search engines', () => {
     const { container } = render(<App />)
 
     const script = container.querySelector('script[type="application/ld+json"]')
     const data = JSON.parse(script?.textContent ?? '{}')
-    expect(data['@type']).toBe('ButcherShop')
+    expect(data['@type']).toEqual(['WholesaleStore', 'ButcherShop'])
     expect(data.telephone).toBe('+541121611045')
     expect(data.address.streetAddress).toBe('Colectora Vitelmo Carbajal 318, Ruta 51')
+  })
+
+  // owner feedback 2026-10-15, B4.
+  it('signs the footer as engineered by Incoders, linking to its site', () => {
+    render(<App />)
+
+    const footer = screen.getByRole('contentinfo')
+    expect(within(footer).getByText(/Engineered by/).textContent).toMatch(/^© \d{4} Engineered by Incoders — All rights reserved\.$/)
+    expect(within(footer).getByRole('link', { name: 'Incoders' })).toHaveAttribute('href', 'https://www.incoders.com.ar')
   })
 })

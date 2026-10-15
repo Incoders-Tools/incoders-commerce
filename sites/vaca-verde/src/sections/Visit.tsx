@@ -21,7 +21,12 @@ export function Visit() {
             </li>
             <li className="flex items-start gap-4">
               <PhoneIcon className="mt-1 size-5 shrink-0 text-gold-ink" />
-              <a href={business.phoneHref} className="underline decoration-gold/50 underline-offset-4 hover:text-field">
+              <a
+                href={business.whatsappHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline decoration-gold/50 underline-offset-4 hover:text-field"
+              >
                 {business.phoneDisplay}
               </a>
             </li>
@@ -41,8 +46,8 @@ export function Visit() {
             <a href={business.mapsHref} target="_blank" rel="noopener noreferrer" className={buttonStyles.primary}>
               Abrir en Google Maps
             </a>
-            <a href={business.phoneHref} className={buttonStyles.outline}>
-              Llamar
+            <a href={business.whatsappHref} target="_blank" rel="noopener noreferrer" className={buttonStyles.outline}>
+              Escribir por WhatsApp
             </a>
           </div>
         </div>

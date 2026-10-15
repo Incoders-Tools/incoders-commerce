@@ -15,8 +15,9 @@ export function Hero() {
             cortes honestos, naturales y frescos
           </h1>
           <p className="mt-8 max-w-[34rem] text-lg leading-relaxed text-ink-soft">
-            Somos una carnicería sobre la Ruta 51. Para nosotros, la calidad de un buen corte no empieza en la
-            parrilla: empieza en la pastura libre y en el bienestar del animal.
+            Somos una distribuidora: abastecemos a comercios y clientes de la zona, y tenemos nuestra carnicería sobre la
+            Ruta 51. Para nosotros, la calidad de un buen corte no empieza en la parrilla: empieza en la pastura libre y en
+            el bienestar del animal.
           </p>
           <div className="mt-10 flex flex-wrap gap-3">
             <a href={access.order} className={buttonStyles.primary}>

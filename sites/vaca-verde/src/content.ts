@@ -6,7 +6,10 @@ export const business = {
   name: 'Vaca Verde',
   foundedYear: 2025,
   phoneDisplay: '(+54) 11 2161-1045',
-  phoneHref: 'tel:+541121611045',
+  /** E.164, for the structured data. */
+  phone: '+541121611045',
+  /** The phone opens a WhatsApp chat (an Argentine mobile on WhatsApp carries the 9 after the country code). */
+  whatsappHref: 'https://wa.me/5491121611045',
   address: 'Colectora Vitelmo Carbajal 318, Ruta 51',
   mapsHref: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
     'Vaca Verde carnicería, Colectora Vitelmo Carbajal 318, Ruta 51',

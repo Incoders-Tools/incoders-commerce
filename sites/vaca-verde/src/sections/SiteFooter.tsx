@@ -12,7 +12,7 @@ export function SiteFooter() {
           <span className="text-field">
             <Logo />
           </span>
-          <p>Carnicería sobre la Ruta 51, desde {business.foundedYear}.</p>
+          <p>Distribuidora con carnicería sobre la Ruta 51, desde {business.foundedYear}.</p>
         </div>
         <ul className="flex flex-wrap gap-x-7 gap-y-2">
           <li>
@@ -32,7 +32,11 @@ export function SiteFooter() {
           </li>
         </ul>
         <p suppressHydrationWarning>
-          © {currentYear} {business.name}
+          © {currentYear} Engineered by{' '}
+          <a href="https://www.incoders.com.ar" target="_blank" rel="noopener noreferrer" className="underline underline-offset-4 hover:text-field">
+            Incoders
+          </a>{' '}
+          — All rights reserved.
         </p>
       </div>
     </footer>
