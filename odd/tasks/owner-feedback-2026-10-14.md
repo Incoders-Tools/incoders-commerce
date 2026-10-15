@@ -74,10 +74,13 @@ movements from the same place as any other movement.
 ## Follow-ups (reviews of b7fb667..7404e77, pushed 2026-10-14)
 
 - [x] F1 Advance void vs. a reversal from the employee's account (`review-ce90a17fc8a5ba57` R3-undo-race-throws,
-  R4-advance-void-account-reverse-race): refuted. The reversal inserts through `current_account_movements_employee_fk`,
-  whose KEY SHARE lock on the employee waits for the void's `FOR UPDATE` (and one already inserted makes the void wait
-  and read the debit reversed). `PayrollTests ...WaitsForAVoidHoldingTheEmployee` keeps it (green before any change, so
-  no code change; the comment in `UndoAdvanceAsync` says why).
+  R4-advance-void-account-reverse-race). First judged refuted in `2b09592` (the reversal's insert waits on the
+  employee foreign key's KEY SHARE lock, `...WaitsForAVoidHoldingTheEmployee`); that review (`review-4373b1c6b672dd69`
+  R3-void-race-outcome-unproved) asked for a real void against a real reversal, which deadlocked 5 of 5 runs (40P01):
+  the reversal's row is already in the unique index of reversals while its foreign key waits for the void holding the
+  employee, and the void then waits for that row. `PostgresCurrentAccountStore.ReverseAsync` now locks the employee
+  first for an employee's account, as the void and the correction do. RED: deadlock 5/5; GREEN: 8/8
+  (`...AVoidAndAReversalOfTheSameAdvance_AtOnce_UndoItOnce_AndBothAnswer`).
 - [x] F2 Launcher (`review-aacc510d121a0747` R3-001): a failed npm ci or build of the website warns, opens `/login` and
   starts the rest (the POS included) instead of stopping the launcher. Checked by running the block against a site whose
   build exits 3: two warnings, `/login`, `VITE_APP_URL` cleared, location restored.

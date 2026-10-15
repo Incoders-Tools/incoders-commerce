@@ -194,6 +194,16 @@ public sealed class PostgresCurrentAccountStore
         await using var tx = await connection.BeginTransactionAsync(ct);
         await TenantScopeSql.ApplyAsync(connection, tx, scope, ct);
 
+        // owner feedback 2026-10-14, follow-up: the employee first, as an advance's void and correction do. Otherwise this
+        // reversal's row is in the unique index while its foreign key waits for a void holding the employee, and the
+        // void then waits for that row: a deadlock that failed one of them.
+        if (party.Kind == AccountPartyKind.Employee)
+        {
+            await using var lockRow = new NpgsqlCommand("SELECT 1 FROM employees WHERE id = $1 FOR UPDATE", connection, tx);
+            lockRow.Parameters.AddWithValue(party.Id);
+            await lockRow.ExecuteNonQueryAsync(ct);
+        }
+
         var result = await ReverseWithinAsync(connection, tx, scope.OrganizationId, party, movementId, concept, occurredOn, today, actorId, ct);
         if (result.Outcome != ReverseMovementOutcome.Reversed)
         {
