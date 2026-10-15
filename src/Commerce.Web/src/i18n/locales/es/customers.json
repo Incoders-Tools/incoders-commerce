@@ -19,8 +19,7 @@
   },
   "columns": {
     "name": "Nombre",
-    "contact": "Contacto",
-    "city": "Ciudad",
+    "location": "Ubicación",
     "businessType": "Tipo de negocio",
     "phone": "Teléfono",
     "taxId": "CUIT/CUIL/DNI",
@@ -74,6 +73,7 @@
       "neighborhood": "Barrio",
       "province": "Provincia",
       "postalCode": "Código postal",
+      "locationReference": "Referencias de ubicación",
       "deliveryNotes": "Notas de entrega",
       "discountPercentage": "Porcentaje de descuento",
       "paymentTerms": "Nota sobre condiciones de pago",
@@ -138,7 +138,11 @@
     "paymentTermsNote": {
       "placeholder": "Ej.: paga los viernes, con transferencia",
       "hint": "Solo informativo: no cambia el vencimiento."
-    }
+    },
+    "locationReferencePlaceholder": "Ej.: Casa gris con 2 árboles al frente",
+    "deliveryNotesPlaceholder": "Ej.: Si no hay nadie, dejar con el vecino",
+    "discountPlaceholder": "Ej.: 10",
+    "discountHint": "De 0 a 100, sin el signo %. Admite decimales: 7,5."
   },
   "filters": {
     "city": "Ciudad",

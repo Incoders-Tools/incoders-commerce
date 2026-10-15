@@ -4,6 +4,7 @@ import { getBranchDiscountPin, setBranchDiscountPin } from '@/api/account'
 import type { BranchDiscountPinStatus, BranchSummary } from '@/api/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { formatInstantDateTime } from '@/dashboard/format'
 
 const PIN_PATTERN = /^\d{4,12}$/
 
@@ -62,7 +63,7 @@ export function DiscountPinPanel({ branch, onClose }: { branch: BranchSummary; o
     : status === null
       ? t('discountPin.loading')
       : status.isSet
-        ? t('discountPin.set', { date: status.changedAtUtc ? new Date(status.changedAtUtc).toLocaleString() : '' })
+        ? t('discountPin.set', { date: status.changedAtUtc ? formatInstantDateTime(status.changedAtUtc) : '' })
         : t('discountPin.unset')
 
   return (

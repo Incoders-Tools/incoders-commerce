@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label'
 import { DataToolbar } from '@/components/data/DataToolbar'
 import { DataView, type DataViewColumn } from '@/components/data/DataView'
 import { PageHeader } from '@/components/data/PageHeader'
+import { RowActions } from '@/components/data/RowActions'
 import { useViewPreference } from '@/components/data/useViewPreference'
 import { PriceListBreakdownPage } from './PriceListBreakdownPage'
 import { CompositionForm } from './CompositionForm'
@@ -26,6 +27,7 @@ import {
 import { ApiError } from '@/api/client'
 import { useMissingBranch } from '@/branch/useMissingBranch'
 import type { PresentationRecord, PriceListRecord, SupplierPriceMappingRecord } from '@/api/types'
+import { formatInstantDate } from '@/dashboard/format'
 
 type Tab = 'prices' | 'edit' | 'suppliers' | 'import'
 
@@ -45,8 +47,7 @@ type CompositionPage = {
 const VISIBLE_TABS = ['prices', 'edit'] as const
 
 function formatCreatedAt(value: string): string {
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? '—' : parsed.toLocaleDateString('es-AR')
+  return formatInstantDate(value)
 }
 
 /**
@@ -269,25 +270,21 @@ export function PriceListsScreen() {
             loadErrorMessage={loadError ? t('empty.loadError') : null}
             emptyMessage={priceLists.length === 0 ? t('empty.none') : t('empty.noMatch')}
             renderActions={(list) => (
-              <>
-                <Button type="button" variant="outline" size="sm" onClick={() => setPage({ kind: 'breakdown', listId: list.id })}>
-                  {t('actions.composition')}
-                </Button>
-                <Button type="button" variant="outline" size="sm" onClick={() => setPage({ kind: 'copy', listId: list.id })}>
-                  {t('actions.copy')}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setEditorListId(list.id)
-                    setTab('edit')
-                  }}
-                >
-                  {t('actions.managePrices')}
-                </Button>
-              </>
+              <RowActions
+                label={list.name}
+                actions={[
+                  {
+                    key: 'prices',
+                    label: t('actions.managePrices'),
+                    onSelect: () => {
+                      setEditorListId(list.id)
+                      setTab('edit')
+                    },
+                  },
+                  { key: 'composition', label: t('actions.composition'), onSelect: () => setPage({ kind: 'breakdown', listId: list.id }) },
+                  { key: 'copy', label: t('actions.copy'), onSelect: () => setPage({ kind: 'copy', listId: list.id }) },
+                ]}
+              />
             )}
           />
         </>

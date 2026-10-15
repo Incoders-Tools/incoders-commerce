@@ -7,6 +7,7 @@ using Commerce.Domain.CurrentAccounts;
 using Commerce.Domain.Ordering;
 using Commerce.Domain.Stock;
 using Commerce.Domain.Tenancy;
+using Commerce.Domain.Vehicles;
 using Npgsql;
 
 namespace Commerce.Cloud.Api.Persistence;
@@ -281,7 +282,7 @@ public sealed class PostgresFulfillmentStore
                          FROM delivery_run_orders ro
                          JOIN orders o ON o.organization_id = ro.organization_id AND o.order_id = ro.order_id
                          WHERE ro.organization_id = r.organization_id AND ro.run_id = r.id), 0),
-               r.created_at, r.dispatched_at, r.completed_at
+               r.created_at, r.dispatched_at, r.completed_at, r.vehicle_id
         FROM delivery_runs r
         """;
 
@@ -353,15 +354,30 @@ public sealed class PostgresFulfillmentStore
         return new DeliveryRunDetail(run, detail);
     }
 
-    /// <summary>Creates a planned run with the given orders as its stops, in that order. Every order must be able to join a run and be in no other.</summary>
+    /// <summary>
+    /// Creates a planned run with the given orders as its stops, in that order. Every order must be able to join a run and
+    /// be in no other. vehicles V3: <paramref name="vehicleId"/> picks an active vehicle (the run then reads its label);
+    /// without one, <paramref name="vehicle"/> is the text typed, as on the runs planned before the vehicles.
+    /// </summary>
     public async Task<FulfillmentResult> CreateRunAsync(
-        CloudTenantScope scope, DateOnly runDate, string? driverName, string? vehicle, string? notes,
+        CloudTenantScope scope, DateOnly runDate, string? driverName, string? vehicle, Guid? vehicleId, string? notes,
         IReadOnlyList<Guid> orderIds, Guid actorId, CancellationToken ct)
     {
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
         await TenantScopeSql.ApplyAsync(connection, tx, scope, ct);
         var branchId = scope.BranchId!.Value;
+        if (vehicleId is { } picked)
+        {
+            var (refused, label) = await ResolveVehicleAsync(connection, tx, picked, null, ct);
+            if (refused is not null)
+            {
+                await tx.RollbackAsync(ct);
+                return FulfillmentResult.Conflict(refused);
+            }
+
+            vehicle = label;
+        }
 
         // One run number at a time per branch.
         await ExecAsync(connection, tx, "SELECT pg_advisory_xact_lock(hashtext('delivery-run:' || $1::text))", ct, branchId);
@@ -376,10 +392,11 @@ public sealed class PostgresFulfillmentStore
         var runId = Guid.NewGuid();
         await ExecAsync(connection, tx,
             """
-            INSERT INTO delivery_runs (organization_id, id, branch_id, run_number, run_date, driver_name, vehicle, notes, created_by_user_id)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            INSERT INTO delivery_runs
+                (organization_id, id, branch_id, run_number, run_date, driver_name, vehicle, vehicle_id, notes, created_by_user_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             """, ct, scope.OrganizationId, runId, branchId, runNumber, runDate,
-            Nullable(driverName), Nullable(vehicle), Nullable(notes), actorId);
+            Nullable(driverName), Nullable(vehicle), vehicleId is { } chosen ? chosen : DBNull.Value, Nullable(notes), actorId);
 
         var placed = await PlaceOrdersAsync(connection, tx, scope, runId, orderIds, ct);
         if (placed is not null)
@@ -389,14 +406,14 @@ public sealed class PostgresFulfillmentStore
         }
 
         await AuditAsync(connection, tx, scope, actorId, "delivery-run", runId, "delivery-run.created",
-            new { runNumber, runDate, driverName, vehicle, orders = orderIds }, ct);
+            new { runNumber, runDate, driverName, vehicle, vehicleId, orders = orderIds }, ct);
         await tx.CommitAsync(ct);
         return FulfillmentResult.Ok(runId);
     }
 
     /// <summary>Changes a PLANNED run: its header and its stops (orders taken out are free again; new ones must be free).</summary>
     public async Task<FulfillmentResult> UpdateRunAsync(
-        CloudTenantScope scope, Guid runId, DateOnly runDate, string? driverName, string? vehicle, string? notes,
+        CloudTenantScope scope, Guid runId, DateOnly runDate, string? driverName, string? vehicle, Guid? vehicleId, string? notes,
         IReadOnlyList<Guid> orderIds, Guid actorId, CancellationToken ct)
     {
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
@@ -416,9 +433,29 @@ public sealed class PostgresFulfillmentStore
             return FulfillmentResult.Conflict("run-not-planned");
         }
 
+        if (vehicleId is { } picked)
+        {
+            // The vehicle the run already has stays valid even if deactivated since; a new pick must be active.
+            Guid? current;
+            await using (var stored = new NpgsqlCommand("SELECT vehicle_id FROM delivery_runs WHERE id = $1", connection, tx))
+            {
+                stored.Parameters.AddWithValue(runId);
+                current = await stored.ExecuteScalarAsync(ct) as Guid?;
+            }
+
+            var (refused, label) = await ResolveVehicleAsync(connection, tx, picked, current, ct);
+            if (refused is not null)
+            {
+                await tx.RollbackAsync(ct);
+                return FulfillmentResult.Conflict(refused);
+            }
+
+            vehicle = label;
+        }
+
         await ExecAsync(connection, tx,
-            "UPDATE delivery_runs SET run_date = $2, driver_name = $3, vehicle = $4, notes = $5 WHERE id = $1",
-            ct, runId, runDate, Nullable(driverName), Nullable(vehicle), Nullable(notes));
+            "UPDATE delivery_runs SET run_date = $2, driver_name = $3, vehicle = $4, vehicle_id = $5, notes = $6 WHERE id = $1",
+            ct, runId, runDate, Nullable(driverName), Nullable(vehicle), vehicleId is { } chosen ? chosen : DBNull.Value, Nullable(notes));
         await ExecAsync(connection, tx, "DELETE FROM delivery_run_orders WHERE run_id = $1", ct, runId);
 
         var placed = await PlaceOrdersAsync(connection, tx, scope, runId, orderIds, ct);
@@ -429,7 +466,7 @@ public sealed class PostgresFulfillmentStore
         }
 
         await AuditAsync(connection, tx, scope, actorId, "delivery-run", runId, "delivery-run.updated",
-            new { runDate, driverName, vehicle, orders = orderIds }, ct);
+            new { runDate, driverName, vehicle, vehicleId, orders = orderIds }, ct);
         await tx.CommitAsync(ct);
         return FulfillmentResult.Ok(runId);
     }
@@ -899,7 +936,7 @@ public sealed class PostgresFulfillmentStore
                    COALESCE(c.tax_id, o.guest_document_id), c.tax_condition, c.phone,
                    NULLIF(btrim(concat_ws(' ', c.address_street, c.address_number)), ''),
                    COALESCE(ci.name, c.locality), COALESCE(pr.name, c.province), COALESCE(c.postal_code, ci.postal_code),
-                   COALESCE(c.delivery_notes, o.guest_delivery_notes), o.guest_contact_address, o.origin
+                   COALESCE(c.delivery_notes, o.guest_delivery_notes), o.guest_contact_address, o.origin, c.location_reference
             FROM orders o
             LEFT JOIN customers c ON c.organization_id = o.organization_id AND c.id = o.customer_id
             LEFT JOIN cities ci ON ci.id = c.city_id
@@ -923,7 +960,8 @@ public sealed class PostgresFulfillmentStore
             Text(7),
             Text(8),
             Text(9),
-            Text(10));
+            Text(10),
+            Text(13));
     }
 
     private static async Task<(Guid? CustomerId, string OrderNumber, string? RemitoNumber)> ReadOrderPartyIdsAsync(
@@ -949,6 +987,21 @@ public sealed class PostgresFulfillmentStore
         return await reader.ReadAsync(ct) ? ReadRun(reader) : null;
     }
 
+    /// <summary>
+    /// vehicles V3: the label of the vehicle a run picks, or why it cannot: <c>vehicle-not-found</c> (none of the
+    /// organization's), <c>vehicle-inactive</c> (deactivated, unless it is the one the run already had).
+    /// </summary>
+    private static async Task<(string? Refused, string? Label)> ResolveVehicleAsync(
+        NpgsqlConnection connection, NpgsqlTransaction tx, Guid vehicleId, Guid? currentVehicleId, CancellationToken ct)
+    {
+        await using var cmd = new NpgsqlCommand("SELECT plate, brand, model, is_active FROM vehicles WHERE id = $1", connection, tx);
+        cmd.Parameters.AddWithValue(vehicleId);
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        if (!await reader.ReadAsync(ct)) return ("vehicle-not-found", null);
+        if (!reader.GetBoolean(3) && vehicleId != currentVehicleId) return ("vehicle-inactive", null);
+        return (null, VehicleRules.Label(reader.GetString(0), reader.IsDBNull(1) ? null : reader.GetString(1), reader.IsDBNull(2) ? null : reader.GetString(2)));
+    }
+
     private static DeliveryRunSummary ReadRun(NpgsqlDataReader reader) => new(
         reader.GetGuid(0),
         reader.GetInt32(1),
@@ -961,7 +1014,8 @@ public sealed class PostgresFulfillmentStore
         reader.GetDecimal(8),
         reader.GetFieldValue<DateTimeOffset>(9),
         reader.IsDBNull(10) ? null : reader.GetFieldValue<DateTimeOffset>(10),
-        reader.IsDBNull(11) ? null : reader.GetFieldValue<DateTimeOffset>(11));
+        reader.IsDBNull(11) ? null : reader.GetFieldValue<DateTimeOffset>(11),
+        reader.IsDBNull(12) ? null : reader.GetGuid(12));
 
     private static async Task<OrganizationDocumentProfile?> ReadOrganizationProfileAsync(
         NpgsqlConnection connection, NpgsqlTransaction tx, Guid organizationId, CancellationToken ct)

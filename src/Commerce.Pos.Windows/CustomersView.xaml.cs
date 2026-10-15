@@ -35,6 +35,7 @@ public partial class CustomersView : UserControl, ISectionView
     private readonly BusyController _busy;
     private readonly Dictionary<string, IReadOnlyList<CityOptionDto>> _citiesByProvince = new();
     private readonly EntityListModel<CustomerAdminRecordDto> _list;
+    private IReadOnlyList<BusinessTypeOptionDto> _businessTypes = [];
     private Guid? _selectedCustomerId;
 
     // The UpdatedAtUtc of the record the form was filled from: Guardar sends it so the server refuses a stale update (T7).
@@ -78,6 +79,11 @@ public partial class CustomersView : UserControl, ISectionView
             }
 
             ProvinceComboBox.ItemsSource = provinces;
+
+            // Unreadable business types leave the combo empty: an update then keeps the stored one.
+            _businessTypes = await _adminClient.ListBusinessTypesAsync(_busy.Token) ?? [];
+            BusinessTypeComboBox.ItemsSource = CustomerFormRules.BusinessTypeOptions(_businessTypes, null);
+            BusinessTypeComboBox.SelectedValue = Guid.Empty;
             await LoadCustomersAsync();
         });
     }
@@ -189,14 +195,20 @@ public partial class CustomersView : UserControl, ISectionView
         _fillingForm = false;
         TaxIdTextBox.Text = selected.TaxId ?? string.Empty;
         TaxConditionComboBox.SelectedValue = selected.TaxCondition;
+        if (_businessTypes.Count > 0)
+        {
+            BusinessTypeComboBox.ItemsSource = CustomerFormRules.BusinessTypeOptions(_businessTypes, selected.BusinessTypeId);
+            BusinessTypeComboBox.SelectedValue = selected.BusinessTypeId ?? Guid.Empty;
+        }
         PhoneTextBox.Text = selected.Phone ?? string.Empty;
         EmailTextBox.Text = selected.Email ?? string.Empty;
         AddressStreetTextBox.Text = selected.AddressStreet ?? string.Empty;
         AddressNumberTextBox.Text = selected.AddressNumber ?? string.Empty;
         NeighborhoodTextBox.Text = selected.Neighborhood ?? string.Empty;
         PostalCodeTextBox.Text = selected.PostalCode ?? string.Empty;
+        LocationReferenceTextBox.Text = selected.LocationReference ?? string.Empty;
         DeliveryNotesTextBox.Text = selected.DeliveryNotes ?? string.Empty;
-        DiscountPercentageTextBox.Text = selected.DiscountPercentage?.ToString(CultureInfo.InvariantCulture) ?? string.Empty;
+        DiscountPercentageTextBox.Text = selected.DiscountPercentage is { } discount ? CustomerFormRules.DiscountText(discount) : string.Empty;
         PaymentTermsTextBox.Text = selected.PaymentTerms ?? string.Empty;
         NotesTextBox.Text = selected.Notes ?? string.Empty;
         IsEnabledCheckBox.Visibility = Visibility.Visible;
@@ -335,16 +347,10 @@ public partial class CustomersView : UserControl, ISectionView
             return;
         }
 
-        decimal? discountPercentage = null;
-        if (!string.IsNullOrWhiteSpace(DiscountPercentageTextBox.Text))
+        if (!CustomerFormRules.TryParseDiscount(DiscountPercentageTextBox.Text, out var discountPercentage))
         {
-            if (!decimal.TryParse(DiscountPercentageTextBox.Text, NumberStyles.Number, CultureInfo.InvariantCulture, out var parsed))
-            {
-                ShowStatus(PosMessages.DiscountMustBeNumber, isError: true);
-                return;
-            }
-
-            discountPercentage = parsed;
+            ShowStatus(PosMessages.DiscountMustBeNumber, isError: true);
+            return;
         }
 
         var taxIdType = TaxIdTypeComboBox.SelectedValue as string ?? "None";
@@ -353,6 +359,8 @@ public partial class CustomersView : UserControl, ISectionView
         var partyType = PartyTypeComboBox.SelectedValue as string ?? "Person";
         var cityId = CityComboBox.SelectedValue as Guid?;
         var cityChange = CustomerFormRules.CityChange(cityId, _cityChanged);
+        // Guid.Empty ("Sin tipo") clears it on an update; null (types not loaded) keeps the stored one.
+        var businessTypeId = BusinessTypeComboBox.SelectedValue as Guid?;
         var selectedCustomerId = _selectedCustomerId;
         var loadedUpdatedAtUtc = _loadedUpdatedAtUtc;
         var isEnabled = IsEnabledCheckBox.IsChecked ?? true;
@@ -368,7 +376,7 @@ public partial class CustomersView : UserControl, ISectionView
                     form.DisplayName, taxIdType, form.TaxId, taxCondition, form.Phone, form.Email,
                     form.AddressStreet, form.AddressNumber, form.Neighborhood, form.PostalCode,
                     form.DeliveryNotes, discountPercentage, form.PaymentTerms, form.Notes, isEnabled,
-                    cityChange, partyType), _busy.Token);
+                    cityChange, partyType, BusinessTypeId: businessTypeId, LocationReference: form.LocationReference), _busy.Token);
                 outcome = result.Outcome;
                 if (result.Current is { } current && _selectedCustomerId == id)
                 {
@@ -392,7 +400,8 @@ public partial class CustomersView : UserControl, ISectionView
                 outcome = await _adminClient.CreateCustomerAsync(new CreateCustomerAdminRequestDto(
                     customerKind, form.DisplayName, taxIdType, form.TaxId, taxCondition, form.Phone, form.Email,
                     form.AddressStreet, form.AddressNumber, form.Neighborhood, form.PostalCode,
-                    form.DeliveryNotes, discountPercentage, form.PaymentTerms, form.Notes, cityId, partyType), _busy.Token);
+                    form.DeliveryNotes, discountPercentage, form.PaymentTerms, form.Notes, cityId, partyType,
+                    businessTypeId == Guid.Empty ? null : businessTypeId, LocationReference: form.LocationReference), _busy.Token);
             }
 
             if (outcome.Kind == CustomerAdminMutationKind.Succeeded)
@@ -417,12 +426,14 @@ public partial class CustomersView : UserControl, ISectionView
         DisplayNameTextBox.Text.Trim(), NullIfBlank(TaxIdTextBox.Text), NullIfBlank(PhoneTextBox.Text),
         NullIfBlank(EmailTextBox.Text)?.Trim(), NullIfBlank(AddressStreetTextBox.Text), NullIfBlank(AddressNumberTextBox.Text),
         NullIfBlank(NeighborhoodTextBox.Text), NullIfBlank(PostalCodeTextBox.Text), NullIfBlank(DeliveryNotesTextBox.Text),
-        NullIfBlank(PaymentTermsTextBox.Text), NullIfBlank(NotesTextBox.Text));
+        NullIfBlank(PaymentTermsTextBox.Text), NullIfBlank(NotesTextBox.Text),
+        // Always sent, "" when blank: on an update that clears it (null would keep the stored one).
+        LocationReferenceTextBox.Text.Trim());
 
     private sealed record FormFields(
         string DisplayName, string? TaxId, string? Phone, string? Email, string? AddressStreet,
         string? AddressNumber, string? Neighborhood, string? PostalCode,
-        string? DeliveryNotes, string? PaymentTerms, string? Notes);
+        string? DeliveryNotes, string? PaymentTerms, string? Notes, string LocationReference);
 
     private void ResetForm()
     {
@@ -435,6 +446,12 @@ public partial class CustomersView : UserControl, ISectionView
         TaxIdTypeComboBox.SelectedValue = "None";
         _fillingForm = false;
         TaxConditionComboBox.SelectedValue = "NoAplica";
+        if (_businessTypes.Count > 0)
+        {
+            BusinessTypeComboBox.ItemsSource = CustomerFormRules.BusinessTypeOptions(_businessTypes, null);
+            BusinessTypeComboBox.SelectedValue = Guid.Empty;
+        }
+
         DisplayNameTextBox.Text = string.Empty;
         TaxIdTextBox.Text = string.Empty;
         PhoneTextBox.Text = string.Empty;
@@ -443,6 +460,7 @@ public partial class CustomersView : UserControl, ISectionView
         AddressNumberTextBox.Text = string.Empty;
         NeighborhoodTextBox.Text = string.Empty;
         PostalCodeTextBox.Text = string.Empty;
+        LocationReferenceTextBox.Text = string.Empty;
         DeliveryNotesTextBox.Text = string.Empty;
         DiscountPercentageTextBox.Text = string.Empty;
         PaymentTermsTextBox.Text = string.Empty;

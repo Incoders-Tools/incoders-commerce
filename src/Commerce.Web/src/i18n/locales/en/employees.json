@@ -6,6 +6,7 @@
   "noGoods": "Takes none",
   "owedToThem": "We owe {{amount}}",
   "owesUs": "Owes us {{amount}}",
+  "overtimeToPay": "{{amount}} ({{hours}} h)",
   "frequency": {
     "Monthly": "Monthly",
     "Biweekly": "Every two weeks",
@@ -22,9 +23,12 @@
     "role": "Position",
     "branch": "Branch",
     "pay": "Agreed pay",
-    "balance": "Account",
-    "balanceHint": "What we owe them (unpaid salary) or they owe us (advances)",
-    "goods": "Goods to deduct"
+    "balance": "Advances and balance",
+    "balanceHint": "What the employee owes for advances, or what we owe from a salary left unpaid",
+    "goods": "Goods to deduct",
+    "overtime": "Overtime to pay",
+    "payToDate": "To collect to date",
+    "payToDateHint": "Agreed salary + overtime to pay − advances and goods. Paying the payroll brings it back to the salary; what was not settled carries over."
   },
   "filters": {
     "branch": "Branch",
@@ -35,7 +39,10 @@
     "create": "New employee",
     "edit": "Edit",
     "account": "Account",
-    "advance": "Advance",
+    "advance": "Advances",
+    "overtime": "Overtime",
+    "goods": "Goods",
+    "leave": "Manage leave",
     "deactivate": "Mark as left",
     "activate": "Rehire"
   },
@@ -54,6 +61,7 @@
     "firstName": "First name",
     "fileNumber": "File number",
     "fileNumberPlaceholder": "Automatic (the next one)",
+    "fileNumberPlaceholderNext": "Automatic (the next one: {{number}})",
     "branch": "Branch",
     "chooseBranch": "Choose the branch",
     "role": "Position",
@@ -70,8 +78,8 @@
     "salary": "Agreed pay per period",
     "salaryPlaceholder": "E.g.: 650000",
     "payHint": "The base amount proposed in every payroll of its frequency. Overtime, bonuses, SAC, etc. are added in each payroll.",
-    "takesGoods": "Takes goods (sold at the POS on account, deducted from the salary)",
-    "takesGoodsHint": "A customer \"Last, First (personal)\" is created to sell to at the POS on account. At payroll, what they owe is deducted with the discount you decide then.",
+    "takesGoods": "Takes goods (registered in the web or sold at the POS on account, and deducted from the salary)",
+    "takesGoodsHint": "A customer «Last, First (personal)» is created: goods are registered in the web (\"Goods\") or sold at the POS on account. At payroll, what they owe is deducted from the salary with the discount you decide then, per product and on the total.",
     "notes": "Notes",
     "save": "Save",
     "saving": "Saving…",
@@ -80,21 +88,68 @@
       "name": "Enter last and first name.",
       "branch": "Choose the branch.",
       "salary": "The pay is an amount with up to two decimals (or empty).",
-      "file": "The file number is a whole number above zero."
-    }
+      "file": "The file number is a whole number above zero.",
+      "overtimeRate": "Type a value above zero with at most two decimals, or leave it empty."
+    },
+    "overtimeHourlyRate": "Overtime hourly rate",
+    "overtimeHourlyRateHint": "For overtime: hours × this rate × the multiplier (Sunday ×2). Empty: no overtime can be recorded."
   },
   "advance": {
-    "title": "Advance to {{name}}",
-    "description": "The money leaves the treasury account you choose and stays on the employee's account: the next payroll deducts it.",
+    "title": "Advances of {{name}}",
+    "description": "The money leaves the Treasury account you choose and stays on the employee's account: the next payroll deducts it. An advance entered by mistake is corrected or voided from the history, and the cash and the employee's account are corrected together.",
+    "newTitle": "New advance",
+    "correctTitle": "Correct the advance of {{date}}",
+    "correctHint": "The advance of {{date}} for {{amount}} is voided and this one is recorded in its place.",
     "amount": "Amount",
     "account": "Paid from",
     "date": "Date",
     "concept": "Reason (optional)",
     "conceptPlaceholder": "E.g.: on account of October's salary",
+    "reason": "Reason for the correction",
+    "reasonPlaceholder": "E.g.: it was 10,000, not 12,000",
     "save": "Record advance",
+    "saveCorrection": "Save correction",
+    "cancelCorrection": "Cancel correction",
+    "corrected": "Advance corrected: the one of {{date}} was voided and the one for {{amount}} was recorded.",
+    "voided": "Advance of {{date}} voided: the money goes back to {{account}} and is no longer deducted.",
+    "history": "Advances handed out",
+    "from": "From",
+    "to": "To",
+    "empty": "No advances between these dates.",
+    "total": "Standing total for these dates: {{amount}}",
+    "columns": {
+      "date": "Date",
+      "amount": "Amount",
+      "account": "Paid from",
+      "concept": "Reason",
+      "status": "Status",
+      "actions": "Actions"
+    },
+    "status": {
+      "active": "Standing",
+      "voided": "Voided",
+      "corrects": "Corrects an earlier one"
+    },
+    "void": "Void",
+    "voidLabel": "Void the advance of {{date}} for {{amount}}",
+    "voidTitle": "Void advance",
+    "voidMessage": "The advance of {{date}} for {{amount}} is voided: the money goes back to the account {{account}} and the payroll no longer deducts it. It stays in the history, struck through, with the reason.",
+    "voidConfirm": "Void advance",
+    "voidReason": "Reason",
+    "voidReasonRequired": "Write why you void it.",
+    "voiding": "Voiding…",
+    "correct": "Correct",
+    "correctLabel": "Correct the advance of {{date}} for {{amount}}",
     "errors": {
       "amount": "Enter an amount above zero, with up to two decimals.",
-      "account": "Choose the account the money comes from."
+      "account": "Choose the account the money comes from.",
+      "reason": "Write why you correct it.",
+      "load": "The advances could not be loaded.",
+      "range": "The From date must be on or before the To date."
+    },
+    "codes": {
+      "advance-in-payroll-draft": "{{name}} is in a draft payroll that already deducts their advances. Delete the draft or take them out of it, then void or correct the advance.",
+      "advance-voided": "That advance is already voided."
     }
   },
   "errors": {
@@ -105,7 +160,148 @@
       "role-not-found": "That position does not exist.",
       "branch-not-found": "That branch does not exist.",
       "account-not-found": "That treasury account does not exist.",
-      "account-inactive": "That treasury account is inactive."
+      "account-inactive": "That treasury account is inactive.",
+      "overtime-rate-missing": "The employee has no overtime hourly rate: set it in its details.",
+      "overtime-settled": "That overtime is already in a payroll: change it there."
+    }
+  },
+  "overtime": {
+    "title": "Overtime of {{name}}",
+    "description": "Recorded when worked: hours × the overtime hourly rate × the multiplier. The next payroll takes the pending ones by itself.",
+    "rate": "Overtime hourly rate: {{rate}}",
+    "noRate": "Set the overtime hourly rate in the employee details (\"Edit\") to record overtime.",
+    "date": "Date",
+    "hours": "Hours",
+    "multiplier": "Multiplier",
+    "multiplierHint": "A Sunday proposes ×2; any other day ×1. It can be changed (1 to 3).",
+    "note": "Note (optional)",
+    "notePlaceholder": "E.g.: stocktaking",
+    "preview": "Amount: {{amount}}",
+    "save": "Record overtime",
+    "saving": "Recording…",
+    "empty": "No overtime recorded.",
+    "loadError": "The overtime could not be loaded.",
+    "columns": {
+      "date": "Date",
+      "hours": "Hours",
+      "multiplier": "Multiplier",
+      "rate": "Hourly rate",
+      "amount": "Amount",
+      "note": "Note",
+      "status": "Status"
+    },
+    "status": {
+      "Pending": "Pending",
+      "InPayroll": "In payroll {{run}}",
+      "Paid": "Paid (payroll {{run}})"
+    },
+    "delete": "Delete",
+    "deleteLabel": "Delete overtime of {{date}}",
+    "deleteTitle": "Delete overtime",
+    "deleteMessage": "Delete the overtime of {{date}} ({{hours}} h)? Only if it was recorded by mistake.",
+    "deleting": "Deleting…",
+    "errors": {
+      "hours": "Type the hours: more than 0 and up to 24, with at most two decimals.",
+      "multiplier": "Type a multiplier from 1 to 3, with at most two decimals.",
+      "date": "Pick a day that already passed (or today)."
+    }
+  },
+  "goods": {
+    "title": "Goods taken by {{name}}",
+    "description": "What the employee takes, like a counter sale: at the Mostrador list price, out of stock and onto their account. The next payroll deducts it from the salary, with the discount you decide there.",
+    "noAccount": "Takes no goods. To register some, turn on \"Takes goods\" in their details (\"Edit\").",
+    "date": "Date",
+    "linesTitle": "Products",
+    "noLines": "No products added yet.",
+    "quantityLabel": "Quantity of {{name}}",
+    "kilosPlaceholder": "Kilos ({{example}})",
+    "unitsPlaceholder": "Units (e.g. 2)",
+    "kilosSuffix": "kg",
+    "unitsSuffix": "u.",
+    "invalidQuantity": "Enter a quantity greater than 0.",
+    "invalidInteger": "This product is sold by the unit: enter a whole number.",
+    "remove": "Remove",
+    "removeLabel": "Remove {{name}}",
+    "pricing": "Pricing…",
+    "total": "Total: {{amount}}",
+    "priceList": "Prices of the {{name}} list.",
+    "save": "Register goods",
+    "saving": "Registering…",
+    "saved": "Goods registered for {{amount}}.",
+    "history": "What they took",
+    "empty": "No goods registered.",
+    "loadError": "The goods could not be loaded.",
+    "quoteError": "The prices could not be calculated. Try again.",
+    "columns": {
+      "date": "Date",
+      "product": "Product",
+      "quantity": "Quantity",
+      "price": "Price",
+      "total": "Total",
+      "source": "Source",
+      "status": "Status",
+      "actions": "Actions"
+    },
+    "source": {
+      "Web": "Web",
+      "PosSale": "POS sale"
+    },
+    "status": {
+      "Pending": "Pending",
+      "InPayroll": "In payroll {{run}}",
+      "Paid": "Deducted in payroll {{run}}"
+    },
+    "errors": {
+      "date": "Pick a past day (or today)."
+    },
+    "codes": {
+      "employee-no-goods-account": "Takes no goods: turn on \"Takes goods\" in their details to register some.",
+      "no-effective-price": "A product has no effective price on the Mostrador list for that date.",
+      "goods-key-in-use": "This entry was already used for another employee. Reopen the goods and enter it again.",
+      "goods-settled": "It cannot be voided: a paid payroll already deducted it."
+    },
+    "void": "Void",
+    "voidLabel": "Void the goods of {{date}} ({{products}})",
+    "voidTitle": "Void goods",
+    "voidMessage": "The goods of {{date}} for {{amount}} ({{products}}) are voided: the stock comes back, the charge on the account is reversed and the payroll does not deduct them.",
+    "voidConfirm": "Void goods",
+    "voiding": "Voiding…",
+    "voided": "Goods voided.",
+    "correct": "Correct",
+    "correctLabel": "Correct the goods of {{date}} ({{products}})",
+    "correctTitle": "Correct goods",
+    "correctMessage": "The goods of {{date}} for {{amount}} ({{products}}) are voided and their products go back to the form, to correct and register them again.",
+    "correctConfirm": "Void and correct",
+    "voidedToCorrect": "Goods voided: correct the products and register them again.",
+    "retryQuote": "Retry"
+  },
+  "leave": {
+    "title": "Leave of {{name}}",
+    "description": "The leave is recorded with its date and reason. Then the last salary is settled through the same \"Payroll\" flow.",
+    "date": "Leave date",
+    "reason": "Reason",
+    "reasonPlaceholder": "E.g.: resignation",
+    "save": "Give the leave",
+    "saving": "Saving…",
+    "left": "Left on {{date}}.",
+    "leftUndated": "Given the leave.",
+    "leftReason": "Reason: {{reason}}.",
+    "settleTitle": "Last salary",
+    "settleHint": "Prepares a draft with the salary in proportion to the days worked since the last paid payroll, the pending overtime, the advances and the goods. It is reviewed and paid in \"Payroll\".",
+    "settle": "Settle last salary",
+    "settling": "Preparing…",
+    "reinstateHint": "If the employee comes back, reinstate it: the leave date and reason are cleared.",
+    "reinstate": "Reinstate",
+    "errors": {
+      "reason": "Type the reason of the leave.",
+      "date": "Pick a day that already passed (or today)."
+    },
+    "codes": {
+      "employee-active": "The employee is active: record the leave first.",
+      "employee-in-draft": "There is already a draft payroll for the employee: review it in \"Payroll\".",
+      "employee-other-branch": "Pick the employee's branch in the top bar to settle it.",
+      "employee-already-settled": "Its last salary is already settled.",
+      "employee-in-payroll-draft": "There is a draft payroll for the employee: pay or discard it before reinstating."
     }
   }
 }

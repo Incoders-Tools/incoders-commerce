@@ -340,6 +340,7 @@ public partial class MainWindow : Window
         _currentOperator.Set(signedIn);
         RefreshIdentityText();
         RefreshCashSession();
+        RefreshAccountStandingNotice();
 
         if (!_openCashPrompted && _cashSession is null)
         {
@@ -360,6 +361,7 @@ public partial class MainWindow : Window
         var locked = _currentOperator.Value is null;
         ShellContent.Visibility = locked ? Visibility.Collapsed : Visibility.Visible;
         LockHost.Visibility = locked ? Visibility.Visible : Visibility.Collapsed;
+        RefreshAccountStandingNotice();
         if (locked == _locked)
         {
             return;
@@ -504,8 +506,8 @@ public partial class MainWindow : Window
         var status = _branchNodeService.GetStatus(_pairing.BranchId, isOffline: true);
         return
             $"Operaciones por enviar: {status.PendingOperationCount}\n" +
-            $"Último envío confirmado: {status.LastAcknowledgedUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "nunca"}\n" +
-            $"Última descarga de datos: {status.LastDownloadedUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "nunca"}";
+            $"Último envío confirmado: {(status.LastAcknowledgedUtc is { } sent ? PosCulture.Moment(sent.ToLocalTime()) : "nunca")}\n" +
+            $"Última descarga de datos: {(status.LastDownloadedUtc is { } downloaded ? PosCulture.Moment(downloaded.ToLocalTime()) : "nunca")}";
     }
 
     private void RefreshStatus()
@@ -553,8 +555,8 @@ public partial class MainWindow : Window
     private string BuildCompactSyncStatus()
     {
         var status = _branchNodeService.GetStatus(_pairing.BranchId, isOffline: true);
-        var lastSent = status.LastAcknowledgedUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "nunca";
-        var lastDownloaded = status.LastDownloadedUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "nunca";
+        var lastSent = status.LastAcknowledgedUtc is { } sent ? PosCulture.Moment(sent.ToLocalTime()) : "nunca";
+        var lastDownloaded = status.LastDownloadedUtc is { } downloaded ? PosCulture.Moment(downloaded.ToLocalTime()) : "nunca";
         return $"Sincronización: {status.PendingOperationCount} por enviar - Último envío: {lastSent} - Última descarga: {lastDownloaded} - {_lastSyncResult}";
     }
 
@@ -742,8 +744,8 @@ public partial class MainWindow : Window
             return;
         }
 
-        var change = tender.ChangeGiven is { } given && given > 0m ? $" Vuelto: {given.ToString("C", CultureInfo.CurrentCulture)}." : string.Empty;
-        ShowResultText($"Cobro registrado: {name}, {window.Amount.ToString("C", CultureInfo.CurrentCulture)} ({TenderInput.Label(tender.Method)}).{change}");
+        var change = tender.ChangeGiven is { } given && given > 0m ? $" Vuelto: {given.ToString("C", PosCulture.Spanish)}." : string.Empty;
+        ShowResultText($"Cobro registrado: {name}, {window.Amount.ToString("C", PosCulture.Spanish)} ({TenderInput.Label(tender.Method)}).{change}");
         RefreshCashSession();
         FocusSearchBox();
         _ = RunSyncAsync(SyncTrigger.PostSale);
@@ -1099,6 +1101,26 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
+    /// organization-account-standing T8: the red footer notice. Shown to every signed-in operator (hidden while locked),
+    /// built from the last synced standing inputs on today's business day, so it also moves when the day changes offline;
+    /// refreshed after every sync sweep (every 60s), on sign-in and on lock. It never blocks anything.
+    /// </summary>
+    private void RefreshAccountStandingNotice()
+    {
+        var signedIn = _currentOperator.Value;
+        var notice = signedIn is null
+            ? null
+            : AccountStandingNotice.Compose(
+                _store.GetAccountStanding(),
+                Commerce.Application.Time.BusinessClock.System.Today,
+                ((Permission)signedIn.Permissions).HasFlag(Permission.ManageUsers));
+
+        AccountStandingPillText.Text = notice?.Text ?? string.Empty;
+        AccountStandingPill.ToolTip = notice?.ToolTip;
+        AccountStandingPill.Visibility = notice is null ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    /// <summary>
     /// operator-ux-adjustments T5: follows a quantity separator changed in the web and synced meanwhile. The open sale's
     /// lines are restamped and the cards rebuilt only when it actually changed.
     /// </summary>
@@ -1235,7 +1257,17 @@ public partial class MainWindow : Window
             RefreshStatus();
         }
 
-        var result = await _syncRunner.RunAsync(trigger);
+        SyncRunResult? result;
+        try
+        {
+            result = await _syncRunner.RunAsync(trigger);
+        }
+        finally
+        {
+            // organization-account-standing: even a sweep that throws moves the notice to today's business day, so it
+            // follows a day change offline (the 60s timer runs with or without a connection).
+            await Dispatcher.InvokeAsync(RefreshAccountStandingNotice);
+        }
 
         // The status check may have dropped operators: follow it (the active one is signed out, the lock returns).
         await Dispatcher.InvokeAsync(ReconcileOperatorsAfterSync);

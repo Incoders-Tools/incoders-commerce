@@ -9152,3 +9152,396 @@ CREATE INDEX IF NOT EXISTS treasury_movements_recurrence_idx
     ON treasury_movements (organization_id, recurrence_id, business_date) WHERE recurrence_id IS NOT NULL;
 
 COMMIT;
+
+-- organization-account-standing: 0052_organization_account_standing.sql, appended verbatim per the hand-kept mirror convention.
+
+-- Repo-owned, idempotent, forward-only per-environment migration.
+--
+-- organization-account-standing (T2): the inputs of `AccountStandingRules.Evaluate` (Commerce.Domain). The standing
+-- itself (Active / Overdue / Suspended) is DERIVED from these on every read and never stored, so it changes on its
+-- own when the business day changes.
+--   - `billing_due_on`: the date the payment to the platform is due. NULL = billing not tracked, the organization
+--     stays Active; every existing organization starts this way, so nothing changes for it.
+--   - `billing_grace_days`: days after the due date that still work (0-90, default 30). Enforced here as well as in
+--     the domain, so bad data can never reach a rule that rejects it.
+--   - `suspended_at`: set when a system administrator suspends the organization by hand; wins over any date.
+--
+-- APPLIED AFTER: 0051_treasury_recurrences.sql.
+--
+-- Columns on `organizations`, like 0015 and 0035: its tenant-isolation RLS policy and the `app_runtime` grants
+-- already cover new columns. Only the system-administrator endpoints write them.
+--
+-- The whole file runs in ONE transaction and can be re-run safely.
+--
+-- INVERSE (rollback), shipped as a comment - NOT executed by this file:
+--   ALTER TABLE organizations DROP CONSTRAINT organizations_billing_grace_days_ck;
+--   ALTER TABLE organizations DROP COLUMN suspended_at;
+--   ALTER TABLE organizations DROP COLUMN billing_grace_days;
+--   ALTER TABLE organizations DROP COLUMN billing_due_on;
+
+BEGIN;
+
+ALTER TABLE organizations
+    ADD COLUMN IF NOT EXISTS billing_due_on date NULL,
+    ADD COLUMN IF NOT EXISTS billing_grace_days integer NOT NULL DEFAULT 30,
+    ADD COLUMN IF NOT EXISTS suspended_at timestamptz NULL;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'organizations_billing_grace_days_ck'
+    ) THEN
+        ALTER TABLE organizations
+            ADD CONSTRAINT organizations_billing_grace_days_ck
+            CHECK (billing_grace_days BETWEEN 0 AND 90);
+    END IF;
+END $$;
+
+COMMIT;
+
+-- owner-requests-quick-adjustments: 0053_customer_location_reference.sql, appended verbatim per the hand-kept mirror convention.
+
+-- Repo-owned, idempotent, forward-only per-environment migration.
+--
+-- owner-requests-quick-adjustments (Q1): the customer's location reference, how to find the place
+-- ("Casa gris con 2 árboles al frente"). It is NOT the delivery notes (`delivery_notes`, 0008), which say what to do
+-- with the delivery ("Dejar con el vecino si no hay nadie"); both are shown on the remito.
+--
+-- APPLIED AFTER: 0052_organization_account_standing.sql.
+--
+-- Nullable, no default: every existing customer simply has none. The `customers` RLS policy and the `app_runtime`
+-- grants already cover a new column.
+--
+-- The whole file runs in ONE transaction and can be re-run safely.
+--
+-- INVERSE (rollback), shipped as a comment - NOT executed by this file:
+--   ALTER TABLE customers DROP COLUMN location_reference;
+
+BEGIN;
+
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS location_reference text NULL;
+
+COMMIT;
+
+-- employee-lifecycle E2: 0054_employee_overtime.sql, appended verbatim per the hand-kept mirror convention.
+
+-- Repo-owned, transactional, idempotent, forward-only migration.
+--
+-- employee-lifecycle E2: overtime (horas extra). Each record is hours x the employee's overtime hourly rate x a
+-- multiplier (a Sunday proposes x2, any other day x1); its amount is frozen when recorded. A record is pending until a
+-- payroll run takes it into a payslip (`payslip_id`) as an "Horas extra" earning line (`payslip_lines.source`
+-- 'Overtime'); deleting that payslip (an employee taken out of a Draft, or the Draft discarded) sets it back to pending
+-- by itself (ON DELETE SET NULL on the single-column `payslips_id_uk`); a Paid run is final.
+--
+-- APPLIED AFTER: 0053_customer_location_reference.sql.
+--
+-- 1. `employees.overtime_hourly_rate`: nullable, no default (nobody has one until it is set).
+-- 2. `employee_overtime`: organization scoped, row level security like the rest of the payroll.
+-- 3. `payslip_lines.source` admits 'Overtime' (widened only when it does not yet, so a re-run never narrows it).
+--
+-- The whole file runs in ONE transaction and can be re-run safely.
+--
+-- Rollback (manual, only while no overtime was recorded):
+--   BEGIN;
+--   DROP TABLE IF EXISTS employee_overtime;
+--   ALTER TABLE employees DROP COLUMN IF EXISTS overtime_hourly_rate;
+--   COMMIT;
+
+BEGIN;
+
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS overtime_hourly_rate numeric(18,2) NULL
+    CHECK (overtime_hourly_rate IS NULL OR overtime_hourly_rate > 0);
+
+CREATE TABLE IF NOT EXISTS employee_overtime (
+    organization_id    uuid          NOT NULL,
+    id                 uuid          NOT NULL,
+    employee_id        uuid          NOT NULL,
+    work_date          date          NOT NULL,
+    hours              numeric(5,2)  NOT NULL CHECK (hours > 0 AND hours <= 24),
+    multiplier         numeric(4,2)  NOT NULL CHECK (multiplier >= 1 AND multiplier <= 3),
+    hourly_rate        numeric(18,2) NOT NULL CHECK (hourly_rate > 0),
+    amount             numeric(18,2) NOT NULL CHECK (amount > 0),
+    note               text          NULL,
+    payslip_id         uuid          NULL,
+    created_by_user_id uuid          NOT NULL,
+    created_at_utc     timestamptz   NOT NULL DEFAULT now(),
+    CONSTRAINT employee_overtime_pk PRIMARY KEY (organization_id, id),
+    CONSTRAINT employee_overtime_employee_fk FOREIGN KEY (organization_id, employee_id) REFERENCES employees (organization_id, id),
+    CONSTRAINT employee_overtime_payslip_fk FOREIGN KEY (payslip_id) REFERENCES payslips (id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS employee_overtime_employee_ix ON employee_overtime (organization_id, employee_id, work_date);
+CREATE INDEX IF NOT EXISTS employee_overtime_payslip_ix ON employee_overtime (payslip_id) WHERE payslip_id IS NOT NULL;
+
+ALTER TABLE employee_overtime ENABLE ROW LEVEL SECURITY;
+ALTER TABLE employee_overtime FORCE  ROW LEVEL SECURITY;
+REVOKE ALL ON employee_overtime FROM PUBLIC;
+-- Pending records are deleted by hand; a payroll sets and clears `payslip_id`.
+GRANT SELECT, INSERT, UPDATE, DELETE ON employee_overtime TO app_runtime;
+DROP POLICY IF EXISTS employee_overtime_tenant_isolation ON employee_overtime;
+CREATE POLICY employee_overtime_tenant_isolation ON employee_overtime
+    USING      (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid)
+    WITH CHECK (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid);
+
+-- Widened only when it does not admit 'Overtime' yet: re-running this file never narrows what a later migration widened.
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'payslip_lines_source_check'
+                   AND pg_get_constraintdef(oid) LIKE '%Overtime%') THEN
+        ALTER TABLE payslip_lines DROP CONSTRAINT IF EXISTS payslip_lines_source_check;
+        ALTER TABLE payslip_lines ADD CONSTRAINT payslip_lines_source_check
+            CHECK (source IN ('BaseSalary', 'Advances', 'Manual', 'Overtime'));
+    END IF;
+END $$;
+
+COMMIT;
+
+-- employee-lifecycle E3: 0055_employee_termination_reason.sql, appended verbatim per the hand-kept mirror convention.
+
+-- Repo-owned, transactional, idempotent, forward-only migration.
+--
+-- employee-lifecycle E3: the reason of an employee's leave ("Gestionar baja": date and reason). `termination_date`
+-- already exists (0050); the reason sits next to it and is cleared with it when the employee is reinstated.
+--
+-- APPLIED AFTER: 0054_employee_overtime.sql.
+--
+-- Nullable, no default: nobody given the leave before has one. The `employees` RLS policy and the `app_runtime` grants
+-- already cover a new column.
+--
+-- The whole file runs in ONE transaction and can be re-run safely.
+--
+-- INVERSE (rollback), shipped as a comment - NOT executed by this file:
+--   ALTER TABLE employees DROP COLUMN termination_reason;
+
+BEGIN;
+
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS termination_reason text NULL
+    CHECK (termination_reason IS NULL OR length(termination_reason) <= 500);
+
+COMMIT;
+
+-- employee-lifecycle E4: 0056_employee_goods.sql, appended verbatim per the hand-kept mirror convention.
+
+-- Repo-owned, transactional, idempotent, forward-only migration.
+--
+-- employee-lifecycle E4: the goods an employee takes, item by item, whatever the channel:
+--   'Web'      registered in the web like a sale (priced on the default list, Mostrador): the API writes the stock out
+--              (stock_movements 'Sale', source 'EmployeeGoods') and the debt on the linked customer's account.
+--   'PosSale'  a POS sale on current account to the employee's linked customer: the sale projection already wrote the
+--              stock and the debt; its lines are copied here (a sale discount spread over them) and removed if voided.
+-- A payroll takes the pending items into a payslip (`payslip_id`), where a discount per item (`discount_percent`) is
+-- decided before paying; deleting that payslip (employee taken out of a Draft, Draft discarded) sets them back to pending
+-- by itself (ON DELETE SET NULL on the single-column `payslips_id_uk`); a Paid run is final.
+--
+-- APPLIED AFTER: 0055_employee_termination_reason.sql.
+--
+-- The whole file runs in ONE transaction and can be re-run safely.
+--
+-- INVERSE (rollback), shipped as a comment - NOT executed by this file (only while no goods were recorded):
+--   DROP TABLE IF EXISTS employee_goods_items;
+
+BEGIN;
+
+CREATE TABLE IF NOT EXISTS employee_goods_items (
+    organization_id    uuid          NOT NULL,
+    id                 uuid          NOT NULL,
+    employee_id        uuid          NOT NULL,
+    customer_id        uuid          NOT NULL,
+    branch_id          uuid          NULL,
+    source_type        text          NOT NULL CHECK (source_type IN ('Web', 'PosSale')),
+    source_id          uuid          NOT NULL,
+    line_no            integer       NOT NULL CHECK (line_no > 0),
+    occurred_on        date          NOT NULL,
+    presentation_id    uuid          NULL,
+    product_name       text          NOT NULL,
+    presentation_name  text          NOT NULL,
+    quantity           numeric(18,3) NOT NULL CHECK (quantity > 0),
+    unit_price         numeric(18,2) NOT NULL CHECK (unit_price >= 0),
+    line_total         numeric(18,2) NOT NULL CHECK (line_total >= 0),
+    discount_percent   numeric(5,2)  NOT NULL DEFAULT 0 CHECK (discount_percent BETWEEN 0 AND 100),
+    payslip_id         uuid          NULL,
+    created_by_user_id uuid          NULL,
+    created_at_utc     timestamptz   NOT NULL DEFAULT now(),
+    CONSTRAINT employee_goods_items_pk PRIMARY KEY (organization_id, id),
+    CONSTRAINT employee_goods_items_source_uk UNIQUE (organization_id, source_type, source_id, line_no),
+    CONSTRAINT employee_goods_items_employee_fk FOREIGN KEY (organization_id, employee_id) REFERENCES employees (organization_id, id),
+    CONSTRAINT employee_goods_items_payslip_fk FOREIGN KEY (payslip_id) REFERENCES payslips (id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS employee_goods_items_employee_ix ON employee_goods_items (organization_id, employee_id, occurred_on);
+CREATE INDEX IF NOT EXISTS employee_goods_items_payslip_ix ON employee_goods_items (payslip_id) WHERE payslip_id IS NOT NULL;
+
+ALTER TABLE employee_goods_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE employee_goods_items FORCE  ROW LEVEL SECURITY;
+REVOKE ALL ON employee_goods_items FROM PUBLIC;
+-- A voided POS sale deletes its items; a payroll sets payslip_id and the per-item discount.
+GRANT SELECT, INSERT, UPDATE, DELETE ON employee_goods_items TO app_runtime;
+DROP POLICY IF EXISTS employee_goods_items_tenant_isolation ON employee_goods_items;
+CREATE POLICY employee_goods_items_tenant_isolation ON employee_goods_items
+    USING      (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid)
+    WITH CHECK (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid);
+
+COMMIT;
+
+-- vehicles V1: 0057_vehicles.sql, appended verbatim per the hand-kept mirror convention.
+-- Repo-owned, transactional, idempotent, forward-only migration.
+--
+-- vehicles V1/V3: the business's vehicles as a lookup table of the organization (plate, brand, model, year, notes, an
+-- active flag), and the vehicle a delivery run uses. The plate is kept normalized (capitals, no spaces or dashes) and is
+-- unique in the organization. `delivery_runs.vehicle_id` points at the vehicle picked; `delivery_runs.vehicle` (0045)
+-- stays the text the run shows ("AB123CD · Ford F-4000" when picked; whatever was typed on the runs before this).
+--
+-- APPLIED AFTER: 0056_employee_goods.sql.
+--
+-- The whole file runs in ONE transaction and can be re-run safely.
+--
+-- INVERSE (rollback), shipped as a comment - NOT executed by this file:
+--   ALTER TABLE delivery_runs DROP COLUMN IF EXISTS vehicle_id;
+--   DROP TABLE IF EXISTS vehicles;
+
+BEGIN;
+
+CREATE TABLE IF NOT EXISTS vehicles (
+    organization_id    uuid        NOT NULL,
+    id                 uuid        NOT NULL,
+    plate              text        NOT NULL CHECK (plate ~ '^[A-Z0-9]{5,10}$'),
+    brand              text        NULL CHECK (brand IS NULL OR char_length(brand) <= 60),
+    model              text        NULL CHECK (model IS NULL OR char_length(model) <= 60),
+    model_year         integer     NULL CHECK (model_year IS NULL OR model_year BETWEEN 1950 AND 2200),
+    notes              text        NULL CHECK (notes IS NULL OR char_length(notes) <= 500),
+    is_active          boolean     NOT NULL DEFAULT true,
+    created_by_user_id uuid        NOT NULL,
+    created_at_utc     timestamptz NOT NULL DEFAULT now(),
+    updated_at_utc     timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT vehicles_pk PRIMARY KEY (organization_id, id),
+    CONSTRAINT vehicles_plate_uk UNIQUE (organization_id, plate)
+);
+
+ALTER TABLE vehicles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE vehicles FORCE  ROW LEVEL SECURITY;
+REVOKE ALL ON vehicles FROM PUBLIC;
+GRANT SELECT, INSERT ON vehicles TO app_runtime;
+GRANT UPDATE (plate, brand, model, model_year, notes, is_active, updated_at_utc) ON vehicles TO app_runtime;
+DROP POLICY IF EXISTS vehicles_tenant_isolation ON vehicles;
+CREATE POLICY vehicles_tenant_isolation ON vehicles
+    USING      (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid)
+    WITH CHECK (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid);
+
+ALTER TABLE delivery_runs ADD COLUMN IF NOT EXISTS vehicle_id uuid NULL;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'delivery_runs_vehicle_fk') THEN
+        ALTER TABLE delivery_runs ADD CONSTRAINT delivery_runs_vehicle_fk
+            FOREIGN KEY (organization_id, vehicle_id) REFERENCES vehicles (organization_id, id);
+    END IF;
+END $$;
+GRANT UPDATE (vehicle_id) ON delivery_runs TO app_runtime;
+
+COMMIT;
+
+-- owner feedback P5: 0058_payslip_payments.sql, appended verbatim per the hand-kept mirror convention.
+-- Repo-owned, transactional, idempotent, forward-only migration.
+--
+-- owner feedback P5: a payslip's net is paid from one treasury account or split among several ("pago mixto"). Each part
+-- is kept here, and its treasury movement (SalaryPayment, Out) points at it (source 'PayrollPayment', source_id = the
+-- part's id), so a payslip can leave several accounts. The parts never exceed the net; what they leave unpaid stays owed
+-- to the employee on its account. Runs paid before this kept no parts: they read the run's account and the net.
+--
+-- APPLIED AFTER: 0057_vehicles.sql.
+--
+-- The whole file runs in ONE transaction and can be re-run safely.
+--
+-- INVERSE (rollback), shipped as a comment - NOT executed by this file:
+--   DROP TABLE IF EXISTS payslip_payments;
+
+BEGIN;
+
+CREATE TABLE IF NOT EXISTS payslip_payments (
+    organization_id uuid          NOT NULL,
+    id              uuid          NOT NULL,
+    payslip_id      uuid          NOT NULL,
+    line_no         integer       NOT NULL CHECK (line_no > 0),
+    account_id      uuid          NOT NULL,
+    amount          numeric(18,2) NOT NULL CHECK (amount > 0),
+    created_at_utc  timestamptz   NOT NULL DEFAULT now(),
+    CONSTRAINT payslip_payments_pk PRIMARY KEY (organization_id, id),
+    CONSTRAINT payslip_payments_line_uk UNIQUE (organization_id, payslip_id, line_no),
+    CONSTRAINT payslip_payments_payslip_fk FOREIGN KEY (organization_id, payslip_id) REFERENCES payslips (organization_id, id),
+    CONSTRAINT payslip_payments_account_fk FOREIGN KEY (organization_id, account_id) REFERENCES treasury_accounts (organization_id, id)
+);
+
+ALTER TABLE payslip_payments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE payslip_payments FORCE  ROW LEVEL SECURITY;
+REVOKE ALL ON payslip_payments FROM PUBLIC;
+GRANT SELECT, INSERT ON payslip_payments TO app_runtime;
+DROP POLICY IF EXISTS payslip_payments_tenant_isolation ON payslip_payments;
+CREATE POLICY payslip_payments_tenant_isolation ON payslip_payments
+    USING      (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid)
+    WITH CHECK (organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid);
+
+COMMIT;
+
+-- owner feedback 2026-10-14 A3: 0059_advance_cash_voids.sql, appended verbatim per the hand-kept mirror convention.
+-- Repo-owned, transactional, idempotent, forward-only migration.
+--
+-- owner feedback 2026-10-14, A3: an employee's advance is two movements keyed by its id, the cash it left (treasury,
+-- kind EmployeeAdvance, Out) and a debit on the employee's account. Until A2 they could be undone apart: reversing the
+-- debit on the employee's account left the cash movement counting, so the drawer read the advance as paid out while the
+-- employee no longer owed it. Since A2 voiding or reversing an advance undoes both sides; this voids the cash movement of
+-- every advance whose debit was already reversed, as that void would have: the movement stays, marked voided by whoever
+-- reversed the debit, when they did, with its concept as the reason, and no balance counts it any more.
+--
+-- APPLIED AFTER: 0058_payslip_payments.sql.
+--
+-- The whole file runs in ONE transaction and can be re-run safely (a movement is voided at most once: the void's
+-- primary key, and NOT EXISTS for an advance already voided).
+--
+-- INVERSE (rollback), shipped as a comment - NOT executed by this file:
+--   DELETE FROM treasury_movement_voids v USING treasury_movements m
+--   WHERE m.organization_id = v.organization_id AND m.id = v.movement_id AND m.source_type = 'EmployeeAdvance'
+--     AND v.reason LIKE 'Anulado en la cuenta del empleado: %';
+
+BEGIN;
+
+INSERT INTO treasury_movement_voids (organization_id, movement_id, voided_at_utc, voided_by_user_id, reason)
+SELECT m.organization_id, m.id, r.created_at_utc, r.created_by_user_id,
+       left('Anulado en la cuenta del empleado: ' || r.concept, 200)
+FROM treasury_movements m
+JOIN current_account_movements d
+  ON d.organization_id = m.organization_id AND d.source_type = 'EmployeeAdvance' AND d.source_id = m.source_id
+ AND d.kind <> 'Reversal'
+JOIN current_account_movements r
+  ON r.organization_id = d.organization_id AND r.reverses_movement_id = d.id
+WHERE m.source_type = 'EmployeeAdvance' AND m.kind <> 'Reversal'
+  AND NOT EXISTS (SELECT 1 FROM treasury_movement_voids v WHERE v.organization_id = m.organization_id AND v.movement_id = m.id)
+ON CONFLICT DO NOTHING;
+
+COMMIT;
+
+-- owner feedback 2026-10-15 B6: 0060_employee_customers_on_default_list.sql, appended verbatim per the hand-kept mirror convention.
+-- Repo-owned, transactional, idempotent, forward-only migration.
+--
+-- owner feedback 2026-10-15, B6: the staff buying goods are priced on the counter list (the organization's default
+-- list, `price_lists.is_default`: Mostrador). The customer linked to an employee for its goods ("Juan Perez (personal)")
+-- was created with the organization's default list for new customers (`organizations.default_customer_price_list_id`,
+-- Reparto at Vaca Verde), so a POS sale on account to it was priced on that list. Since B6 a new link gets the default
+-- list of the employee's branch; this moves every customer already linked to an employee onto it (price lists are
+-- branch-owned). Customers not linked to an employee are untouched, and so are branches with no default list.
+--
+-- APPLIED AFTER: 0059_advance_cash_voids.sql.
+--
+-- The whole file runs in ONE transaction and can be re-run safely (IS DISTINCT FROM: a customer already there is left).
+--
+-- INVERSE (rollback), shipped as a comment - NOT executed by this file: the earlier list of each customer is not kept;
+-- set it again from the customers screen if needed.
+
+BEGIN;
+
+UPDATE customers c
+SET price_list_id = pl.id, updated_at_utc = now()
+FROM employees e
+JOIN price_lists pl ON pl.organization_id = e.organization_id AND pl.branch_id = e.branch_id AND pl.is_default
+WHERE e.organization_id = c.organization_id AND e.customer_id = c.id
+  AND c.price_list_id IS DISTINCT FROM pl.id;
+
+COMMIT;

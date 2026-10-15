@@ -1,4 +1,5 @@
 import { apiFetch } from './client'
+import type { StockQuantityBehavior } from './types'
 import { createMasterDataApi } from './masterData'
 
 // Endpoints/Employees.cs + Persistence/PostgresEmployeeStore.cs / PostgresPayrollStore.cs, mirrored. The staff of each
@@ -36,6 +37,15 @@ export interface EmployeeRecord {
   balance: number
   /** What its linked customer owes for goods: the next payroll deducts it. */
   purchasesOwed: number
+  /** employee-lifecycle E2: hours x this x the multiplier; null = no overtime can be recorded. */
+  overtimeHourlyRate: number | null
+  /** employee-lifecycle E3: why the employee left (with terminationDate); null while active. */
+  terminationReason: string | null
+  /** owner feedback P2: the overtime recorded and not paid yet (pending, or in a payroll still in draft). */
+  overtimeToPay: number
+  overtimeHoursToPay: number
+  /** owner feedback round 2, R3: the salary plus the overtime to pay, less what the employee owes (the server's). */
+  payToDate: number
 }
 
 export interface EmployeeRequest {
@@ -56,6 +66,8 @@ export interface EmployeeRequest {
   notes?: string | null
   /** Link a customer so the POS can sell goods to the employee on account. */
   takesGoods?: boolean
+  /** Omitted keeps the stored rate, 0 clears it. */
+  overtimeHourlyRate?: number
 }
 
 /** The positions catalog ("puestos"). */
@@ -67,6 +79,11 @@ export function listEmployees(filters: { branchId?: string; includeInactive?: bo
   if (filters.includeInactive) query.set('includeInactive', 'true')
   const queryString = query.toString()
   return apiFetch<EmployeeRecord[]>(queryString ? `/employees?${queryString}` : '/employees')
+}
+
+/** The file number a new employee created without one will get (a preview, not a reservation). */
+export async function nextFileNumber(): Promise<number> {
+  return (await apiFetch<{ fileNumber: number }>('/employees/next-file-number')).fileNumber
 }
 
 export function getEmployee(id: string): Promise<EmployeeRecord> {
@@ -81,10 +98,15 @@ export function updateEmployee(id: string, request: EmployeeRequest): Promise<Em
   return apiFetch<EmployeeRecord>(`/employees/${id}`, { method: 'PUT', body: JSON.stringify(request) })
 }
 
-export function setEmployeeActive(id: string, isActive: boolean, terminationDate?: string): Promise<void> {
+/** The leave ("Gestionar baja": date and reason) or the reinstatement, which clears both. */
+export function setEmployeeActive(id: string, isActive: boolean, terminationDate?: string, terminationReason?: string): Promise<void> {
   return apiFetch<void>(`/employees/${id}/active`, {
     method: 'POST',
-    body: JSON.stringify({ isActive, ...(terminationDate ? { terminationDate } : {}) }),
+    body: JSON.stringify({
+      isActive,
+      ...(terminationDate ? { terminationDate } : {}),
+      ...(terminationReason ? { terminationReason } : {}),
+    }),
   })
 }
 
@@ -96,11 +118,164 @@ export function giveAdvance(
   return apiFetch<{ advanceId: string }>(`/employees/${id}/advances`, { method: 'POST', body: JSON.stringify(request) })
 }
 
+/**
+ * An advance as the history reads it (owner feedback 2026-10-14). Voided: its cash movement voided and its debit reversed
+ * (`voidReason` says why); a correction links the voided one (`correctedByAdvanceId`) and its replacement
+ * (`correctsAdvanceId`). `concept` is what the operator typed, null when nothing.
+ */
+export interface EmployeeAdvance {
+  advanceId: string
+  date: string
+  amount: number
+  accountId: string
+  accountName: string
+  concept: string | null
+  isVoided: boolean
+  voidReason: string | null
+  voidedAtUtc: string | null
+  correctedByAdvanceId: string | null
+  correctsAdvanceId: string | null
+  createdAtUtc: string
+}
+
+/** The employee's advances dated from `from` to `to` (both `yyyy-MM-dd`), newest first. */
+export function listAdvances(id: string, from: string, to: string): Promise<EmployeeAdvance[]> {
+  return apiFetch<EmployeeAdvance[]>(`/employees/${id}/advances?from=${from}&to=${to}`)
+}
+
+/** Voids an advance whole: its cash movement and its debit on the employee's account. 409 `advance-in-payroll-draft`. */
+export function voidAdvance(id: string, advanceId: string, reason: string): Promise<void> {
+  return apiFetch<void>(`/employees/${id}/advances/${advanceId}/void`, { method: 'POST', body: JSON.stringify({ reason }) })
+}
+
+/** Corrects an advance: voided, and the corrected one handed out in its place. Returns the corrected one's id. */
+export function correctAdvance(
+  id: string,
+  advanceId: string,
+  request: { amount: number; accountId: string; date: string; concept?: string; reason: string },
+): Promise<{ advanceId: string }> {
+  return apiFetch<{ advanceId: string }>(`/employees/${id}/advances/${advanceId}`, { method: 'PUT', body: JSON.stringify(request) })
+}
+
+// ---- goods (employee-lifecycle E4) -------------------------------------------------------------
+
+/** Where an item came from: registered in the web, or a POS sale on account to the employee's customer. */
+export type GoodsSource = 'Web' | 'PosSale'
+
+export interface GoodsLineRequest {
+  presentationId: string
+  quantity: number
+}
+
+export interface GoodsQuoteLine {
+  presentationId: string
+  productName: string
+  presentationName: string
+  quantity: number
+  /** The default list's (Mostrador) price on the date. */
+  unitPrice: number
+  lineTotal: number
+}
+
+export interface GoodsQuote {
+  lines: GoodsQuoteLine[]
+  total: number
+  /** The list the server priced on (the default one, Mostrador): said beside the total (owner feedback 2026-10-15). */
+  priceListName: string
+}
+
+export interface GoodsRegistration {
+  goodsId: string
+  total: number
+  lines: GoodsQuoteLine[]
+}
+
+/** One item an employee took; the payroll that takes it decides its discount. */
+export interface GoodsItem {
+  id: string
+  sourceType: GoodsSource
+  sourceId: string
+  lineNo: number
+  occurredOn: string
+  presentationId: string | null
+  productName: string
+  presentationName: string
+  quantity: number
+  unitPrice: number
+  lineTotal: number
+  discountPercent: number
+  status: OvertimeStatus
+  /** The payroll run that took it, if any. */
+  runNumber: number | null
+  /** owner feedback round 2, R2: its product and how it is sold, to load it again; null outside the selected branch. */
+  productId?: string | null
+  quantityBehavior?: StockQuantityBehavior | null
+}
+
+export function listGoods(employeeId: string): Promise<GoodsItem[]> {
+  return apiFetch<GoodsItem[]>(`/employees/${employeeId}/goods`)
+}
+
+export function quoteGoods(employeeId: string, request: { occurredOn?: string; lines: GoodsLineRequest[] }): Promise<GoodsQuote> {
+  return apiFetch<GoodsQuote>(`/employees/${employeeId}/goods/quote`, { method: 'POST', body: JSON.stringify(request) })
+}
+
+/** `goodsId` is generated once per draft and kept across retries: a retried registration is registered once. */
+export function registerGoods(
+  employeeId: string,
+  request: { goodsId: string; occurredOn?: string; lines: GoodsLineRequest[] },
+): Promise<GoodsRegistration> {
+  return apiFetch<GoodsRegistration>(`/employees/${employeeId}/goods`, { method: 'POST', body: JSON.stringify(request) })
+}
+
+/**
+ * owner feedback round 2, R1: voids a registration made in the web, whole: its charge, its stock and its items (409
+ * `goods-settled` once a paid payroll deducted it). A retry of a void already done succeeds and moves nothing.
+ */
+export function voidGoods(employeeId: string, goodsId: string): Promise<void> {
+  return apiFetch<void>(`/employees/${employeeId}/goods/${goodsId}/void`, { method: 'POST' })
+}
+
+// ---- overtime (employee-lifecycle E2) ----------------------------------------------------------
+
+export type OvertimeStatus = 'Pending' | 'InPayroll' | 'Paid'
+
+export interface OvertimeRecord {
+  id: string
+  employeeId: string
+  workDate: string
+  hours: number
+  multiplier: number
+  hourlyRate: number
+  /** Frozen when recorded: hours x the rate at that moment x the multiplier. */
+  amount: number
+  note: string | null
+  status: OvertimeStatus
+  /** The payroll run that took it, if any. */
+  runNumber: number | null
+  createdAtUtc: string
+}
+
+export function listOvertime(employeeId: string): Promise<OvertimeRecord[]> {
+  return apiFetch<OvertimeRecord[]>(`/employees/${employeeId}/overtime`)
+}
+
+export function recordOvertime(
+  employeeId: string,
+  request: { workDate: string; hours: number; multiplier: number; note?: string },
+): Promise<OvertimeRecord> {
+  return apiFetch<OvertimeRecord>(`/employees/${employeeId}/overtime`, { method: 'POST', body: JSON.stringify(request) })
+}
+
+export function deleteOvertime(employeeId: string, overtimeId: string): Promise<void> {
+  return apiFetch<void>(`/employees/${employeeId}/overtime/${overtimeId}`, { method: 'DELETE' })
+}
+
 // ---- payroll -----------------------------------------------------------------------------------
 
 export type PayrollStatus = 'Draft' | 'Paid'
 export type PayslipLineKind = 'Earning' | 'Deduction'
-export type PayslipLineSource = 'BaseSalary' | 'Advances' | 'Manual'
+export type PayslipLineSource = 'BaseSalary' | 'Advances' | 'Manual' | 'Overtime'
 
 export interface PayrollRunSummary {
   runId: string
@@ -135,14 +310,34 @@ export interface Payslip {
   cuil: string | null
   takesGoods: boolean
   lines: PayslipLine[]
+  /** employee-lifecycle E4: the goods items this payslip took, each with its own discount. */
+  goodsItems: GoodsItem[]
   purchasesAmount: number
   purchasesDiscountPercent: number
+  /** What the item discounts add up to; the percent applies to the rest. */
+  purchasesItemsDiscount: number
   purchasesDiscount: number
   purchasesDeducted: number
   earnings: number
   deductions: number
   net: number
   netPaid: number
+  /** owner feedback P5: what paid it, account by account (empty while a Draft). */
+  payments: PayslipPayment[]
+  /** What the payments add up to; below netPaid the rest stayed owed to the employee. */
+  paid: number
+}
+
+export interface PayslipPayment {
+  accountId: string
+  accountName: string
+  amount: number
+}
+
+/** owner feedback P5: one payslip's net paid part by part from several accounts ("pago mixto"). */
+export interface PayslipSplit {
+  payslipId: string
+  parts: { accountId: string; amount: number }[]
 }
 
 export interface PayrollRunDetail {
@@ -160,11 +355,21 @@ export function getPayrollRun(id: string): Promise<PayrollRunDetail> {
   return apiFetch<PayrollRunDetail>(`/payroll/runs/${id}`)
 }
 
+/**
+ * employee-lifecycle E3: the final settlement of an employee given the leave, a Draft run of it alone in the selected
+ * branch (its own): the salary in proportion to the days worked, the pending overtime, advances and goods.
+ */
+export function createFinalSettlement(employeeId: string): Promise<{ runId: string }> {
+  return apiFetch<{ runId: string }>('/payroll/runs/final-settlement', { method: 'POST', body: JSON.stringify({ employeeId }) })
+}
+
 export function createPayrollRun(request: {
   periodFrom: string
   periodTo: string
   payFrequency?: PayFrequency
   notes?: string
+  /** owner feedback P4: the employees chosen; omitted, every active one of the frequency. */
+  employeeIds?: string[]
 }): Promise<{ runId: string }> {
   return apiFetch<{ runId: string }>('/payroll/runs', { method: 'POST', body: JSON.stringify(request) })
 }
@@ -172,7 +377,12 @@ export function createPayrollRun(request: {
 export function updatePayslip(
   runId: string,
   payslipId: string,
-  request: { lines: Omit<PayslipLine, 'lineNo'>[]; purchasesDiscountPercent: number },
+  request: {
+    lines: Omit<PayslipLine, 'lineNo'>[]
+    purchasesDiscountPercent: number
+    /** Omitted: every goods item keeps its discount. */
+    goodsItems?: { itemId: string; discountPercent: number }[]
+  },
 ): Promise<void> {
   return apiFetch<void>(`/payroll/runs/${runId}/payslips/${payslipId}`, { method: 'PUT', body: JSON.stringify(request) })
 }
@@ -185,6 +395,6 @@ export function deletePayrollRun(runId: string): Promise<void> {
   return apiFetch<void>(`/payroll/runs/${runId}`, { method: 'DELETE' })
 }
 
-export function payPayrollRun(runId: string, request: { accountId: string; paidOn?: string }): Promise<void> {
+export function payPayrollRun(runId: string, request: { accountId: string; paidOn?: string; splits?: PayslipSplit[] }): Promise<void> {
   return apiFetch<void>(`/payroll/runs/${runId}/pay`, { method: 'POST', body: JSON.stringify(request) })
 }

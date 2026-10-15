@@ -22,6 +22,24 @@ export interface SignedInResponse {
   // system administrator acting on one. Returned by both sign-in and
   // `/account/me`.
   selectableBranches: SelectableBranch[]
+  // organization-account-standing T4/T7: the organization's standing, on sign-in and `/account/me` alike (this
+  // response IS the SPA's session). `suspendsOn`/`daysLeft` come only to administrators and the system administrator.
+  accountStanding?: AccountStandingSummary | null
+}
+
+export type AccountStandingStatus = 'Active' | 'Overdue' | 'Suspended'
+
+/** Endpoints/Account.cs `AccountStandingSummary`. */
+export interface AccountStandingSummary {
+  status: AccountStandingStatus
+  /** `yyyy-MM-dd`, the first suspended business day. */
+  suspendsOn: string | null
+  daysLeft: number | null
+  /**
+   * Client-only, never sent by the server: the local `yyyy-MM-dd` the SPA received this standing on (`AuthProvider`).
+   * The countdown subtracts the days elapsed since then from `daysLeft`, so a wrong PC clock does not skew it.
+   */
+  receivedOn?: string
 }
 
 export interface SelectableBranch {
@@ -239,6 +257,8 @@ export interface CustomerRecord {
   neighborhood: string | null
   postalCode: string | null
   deliveryNotes: string | null
+  // owner-requests-quick-adjustments Q1: how to find the place; apart from the delivery notes.
+  locationReference?: string | null
   discountPercentage: number | null
   paymentTerms: string | null
   /** Days a sale on current account has to be paid; null = the organization's general term. */
@@ -284,6 +304,8 @@ export interface CreateCustomerRequest {
   neighborhood: string | null
   postalCode: string | null
   deliveryNotes: string | null
+  // How to find the place. On update, omitted keeps the stored one and "" clears it.
+  locationReference?: string | null
   discountPercentage: number | null
   paymentTerms: string | null
   // Days to pay a sale on current account. Omitted on create = use the organization's general term; on PUT omitted
@@ -627,7 +649,23 @@ export interface CreateUserResponse { userId: string }
 export interface BranchSummary { branchId: string; branchName: string; code: number }
 export interface CreateBranchRequest { branchName: string }
 export interface CreateBranchResponse { branchId: string; code: number }
-export interface OrganizationSummary { id: string; name: string; createdAt: string }
+// `standing` comes only on the system-administrator list (organization-account-standing T3).
+export interface OrganizationSummary { id: string; name: string; createdAt: string; standing?: OrganizationAccountStanding | null }
+/** Endpoints/OrganizationAccountStanding.cs `OrganizationAccountStandingResponse`: the stored inputs and what they mean today. */
+export interface OrganizationAccountStanding {
+  /** `yyyy-MM-dd`; null = billing not tracked. */
+  dueOn: string | null
+  graceDays: number
+  /** Set while suspended by hand. */
+  suspendedAt: string | null
+  status: AccountStandingStatus
+  suspendsOn: string | null
+  daysLeft: number | null
+}
+/** `graceDays` is required: the server rejects an omitted value instead of reading it as 0. */
+export interface UpdateOrganizationAccountStandingRequest { dueOn: string | null; graceDays: number }
+/** `graceDays` null keeps the organization's current grace days. */
+export interface ReactivateOrganizationRequest { dueOn: string; graceDays: number | null }
 export interface CreateOrganizationRequest { organizationName: string; branchName?: string | null; adminEmail: string; adminPassword: string }
 export interface CreateOrganizationResponse { organizationId: string; branchId: string; userId: string }
 // T5b: minimal organization branding — logoUrl + primaryColor only (no upload, no other fields).

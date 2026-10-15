@@ -9,7 +9,9 @@
     "unexpectedReverse": "No se pudo anular el movimiento.",
     "alreadyReversed": "Este movimiento ya fue anulado.",
     "notReversible": "Este movimiento no se puede anular.",
-    "partyNotFound": "No se encontró el empleado."
+    "partyNotFound": "No se encontró el empleado.",
+    "goodsSettled": "No se puede anular: es mercadería del personal que una liquidación pagada ya le descontó.",
+    "advanceInPayrollDraft": "No se puede anular: el empleado está en una liquidación en borrador que ya descuenta este adelanto. Eliminá el borrador o sacalo de esa liquidación, y después anulalo desde Adelantos."
   },
   "summary": {
     "balance": "Saldo",
@@ -55,7 +57,8 @@
     "reversedBadge": "Anulado",
     "reversalOf": "Anula un movimiento",
     "viewReversal": "Ver anulación",
-    "reverse": "Anular"
+    "reverse": "Anular",
+    "viewReversed": "Ver movimiento anulado"
   },
   "kinds": {
     "OpeningBalance": "Saldo inicial",
@@ -114,5 +117,17 @@
     "confirm": "Confirmar anulación",
     "confirming": "Anulando…",
     "cancel": "Cancelar"
+  },
+  "position": {
+    "account": "Saldo de la cuenta",
+    "accountSide": "{{side}} (adelantos y saldos)",
+    "goods": "Mercadería a descontar",
+    "goodsSide": "Nos debe (mercadería a descontar)",
+    "noGoods": "No lleva mercadería",
+    "overtime": "Horas extra a pagar",
+    "overtimeSide": "Le debemos ({{hours}} h sin liquidar)",
+    "total": "Posición a hoy",
+    "totalHint": "Sin contar el sueldo del mes, que se suma al liquidar.",
+    "even": "Sin saldo"
   }
 }

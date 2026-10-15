@@ -6,6 +6,7 @@
   "noGoods": "No lleva",
   "owedToThem": "Le debemos {{amount}}",
   "owesUs": "Nos debe {{amount}}",
+  "overtimeToPay": "{{amount}} ({{hours}} h)",
   "frequency": {
     "Monthly": "Mensual",
     "Biweekly": "Quincenal",
@@ -22,9 +23,12 @@
     "role": "Puesto",
     "branch": "Sucursal",
     "pay": "Sueldo pactado",
-    "balance": "Cuenta",
-    "balanceHint": "Lo que le debemos (sueldo pendiente) o nos debe (adelantos)",
-    "goods": "Mercadería a descontar"
+    "balance": "Adelantos y saldo",
+    "balanceHint": "Lo que nos debe por adelantos, o lo que le debemos de un sueldo que quedó sin pagar",
+    "goods": "Mercadería a descontar",
+    "overtime": "Horas extra a pagar",
+    "payToDate": "A cobrar a hoy",
+    "payToDateHint": "Sueldo pactado + horas extra a pagar − adelantos y mercadería. Al pagar la liquidación vuelve al sueldo pactado; lo que no se liquidó se arrastra."
   },
   "filters": {
     "branch": "Sucursal",
@@ -35,7 +39,10 @@
     "create": "Nuevo empleado",
     "edit": "Editar",
     "account": "Cuenta",
-    "advance": "Adelanto",
+    "advance": "Adelantos",
+    "overtime": "Horas extra",
+    "goods": "Mercadería",
+    "leave": "Gestionar baja",
     "deactivate": "Dar de baja",
     "activate": "Reincorporar"
   },
@@ -54,6 +61,7 @@
     "firstName": "Nombre",
     "fileNumber": "Legajo",
     "fileNumberPlaceholder": "Automático (el siguiente)",
+    "fileNumberPlaceholderNext": "Automático (el siguiente: {{number}})",
     "branch": "Sucursal",
     "chooseBranch": "Elegí la sucursal",
     "role": "Puesto",
@@ -70,8 +78,8 @@
     "salary": "Sueldo pactado por período",
     "salaryPlaceholder": "Ej.: 650000",
     "payHint": "Es el importe base que se propone en cada liquidación de su frecuencia. En cada liquidación se pueden sumar horas extra, premios, aguinaldo, etc.",
-    "takesGoods": "Lleva mercadería (se le vende en el POS a cuenta y se descuenta del sueldo)",
-    "takesGoodsHint": "Se crea un cliente \"Apellido, Nombre (personal)\" para venderle en el POS a cuenta corriente. Al liquidar, lo que debe se descuenta del sueldo con el % de bonificación que decidas en ese momento.",
+    "takesGoods": "Lleva mercadería (se registra en la web o se le vende en el POS a cuenta, y se descuenta del sueldo)",
+    "takesGoodsHint": "Se crea un cliente «Apellido, Nombre (personal)»: la mercadería se registra en la web («Mercadería») o se le vende en el POS a cuenta corriente. Al liquidar, lo que debe se descuenta del sueldo con la bonificación que decidas en ese momento, por producto y sobre el total.",
     "notes": "Observaciones",
     "save": "Guardar",
     "saving": "Guardando…",
@@ -80,21 +88,68 @@
       "name": "Escribí apellido y nombre.",
       "branch": "Elegí la sucursal.",
       "salary": "El sueldo es un importe con hasta dos decimales (o vacío).",
-      "file": "El legajo es un número entero mayor que cero."
-    }
+      "file": "El legajo es un número entero mayor que cero.",
+      "overtimeRate": "Escribí un valor mayor que cero, con hasta dos decimales, o dejalo vacío."
+    },
+    "overtimeHourlyRate": "Valor de la hora extra",
+    "overtimeHourlyRateHint": "Para las horas extra: horas × este valor × el multiplicador (el domingo, ×2). Vacío: no se cargan horas extra."
   },
   "advance": {
-    "title": "Adelanto a {{name}}",
-    "description": "El dinero sale de la cuenta de Tesorería que elijas y queda en la cuenta del empleado: la próxima liquidación lo descuenta.",
+    "title": "Adelantos de {{name}}",
+    "description": "El dinero sale de la cuenta de Tesorería que elijas y queda en la cuenta del empleado: la próxima liquidación lo descuenta. Un adelanto mal cargado se corrige o se anula desde el historial, y la caja y la cuenta del empleado se corrigen juntas.",
+    "newTitle": "Nuevo adelanto",
+    "correctTitle": "Corregir el adelanto del {{date}}",
+    "correctHint": "Se anula el adelanto del {{date}} por {{amount}} y se registra este en su lugar.",
     "amount": "Importe",
     "account": "Sale de",
     "date": "Fecha",
     "concept": "Motivo (opcional)",
     "conceptPlaceholder": "Ej.: a cuenta del sueldo de octubre",
+    "reason": "Motivo de la corrección",
+    "reasonPlaceholder": "Ej.: era de 10.000, no de 12.000",
     "save": "Registrar adelanto",
+    "saveCorrection": "Guardar corrección",
+    "cancelCorrection": "Cancelar corrección",
+    "corrected": "Adelanto corregido: se anuló el del {{date}} y quedó registrado el de {{amount}}.",
+    "voided": "Adelanto del {{date}} anulado: el dinero vuelve a {{account}} y ya no se descuenta.",
+    "history": "Adelantos entregados",
+    "from": "Desde",
+    "to": "Hasta",
+    "empty": "No hay adelantos entre estas fechas.",
+    "total": "Total vigente en estas fechas: {{amount}}",
+    "columns": {
+      "date": "Fecha",
+      "amount": "Importe",
+      "account": "Salió de",
+      "concept": "Motivo",
+      "status": "Estado",
+      "actions": "Acciones"
+    },
+    "status": {
+      "active": "Vigente",
+      "voided": "Anulado",
+      "corrects": "Corrige uno anterior"
+    },
+    "void": "Anular",
+    "voidLabel": "Anular el adelanto del {{date}} por {{amount}}",
+    "voidTitle": "Anular adelanto",
+    "voidMessage": "Se anula el adelanto del {{date}} por {{amount}}: el dinero vuelve a la cuenta {{account}} y la liquidación ya no lo descuenta. Queda en el historial, tachado, con el motivo.",
+    "voidConfirm": "Anular adelanto",
+    "voidReason": "Motivo",
+    "voidReasonRequired": "Escribí por qué lo anulás.",
+    "voiding": "Anulando…",
+    "correct": "Corregir",
+    "correctLabel": "Corregir el adelanto del {{date}} por {{amount}}",
     "errors": {
       "amount": "Escribí un importe mayor que cero, con hasta dos decimales.",
-      "account": "Elegí de qué cuenta sale el dinero."
+      "account": "Elegí de qué cuenta sale el dinero.",
+      "reason": "Escribí por qué lo corregís.",
+      "load": "No se pudieron cargar los adelantos.",
+      "range": "La fecha Desde tiene que ser anterior o igual a la fecha Hasta."
+    },
+    "codes": {
+      "advance-in-payroll-draft": "{{name}} está en una liquidación en borrador que ya descuenta sus adelantos. Eliminá el borrador o sacalo de esa liquidación, y después anulá o corregí el adelanto.",
+      "advance-voided": "Ese adelanto ya está anulado."
     }
   },
   "errors": {
@@ -105,7 +160,148 @@
       "role-not-found": "Ese puesto no existe.",
       "branch-not-found": "Esa sucursal no existe.",
       "account-not-found": "Esa cuenta de Tesorería no existe.",
-      "account-inactive": "Esa cuenta de Tesorería está inactiva."
+      "account-inactive": "Esa cuenta de Tesorería está inactiva.",
+      "overtime-rate-missing": "El empleado no tiene valor de la hora extra: cargalo en sus datos.",
+      "overtime-settled": "Esas horas extra ya están en una liquidación: se cambian ahí."
+    }
+  },
+  "overtime": {
+    "title": "Horas extra de {{name}}",
+    "description": "Se cargan cuando se trabajan: horas × el valor de la hora extra × el multiplicador. La próxima liquidación toma las pendientes sola.",
+    "rate": "Valor de la hora extra: {{rate}}",
+    "noRate": "Cargá el valor de la hora extra en los datos del empleado («Editar») para poder registrar horas extra.",
+    "date": "Fecha",
+    "hours": "Horas",
+    "multiplier": "Multiplicador",
+    "multiplierHint": "El domingo se propone ×2; cualquier otro día, ×1. Se puede cambiar (de 1 a 3).",
+    "note": "Nota (opcional)",
+    "notePlaceholder": "Ej.: inventario",
+    "preview": "Importe: {{amount}}",
+    "save": "Registrar horas extra",
+    "saving": "Registrando…",
+    "empty": "No tiene horas extra cargadas.",
+    "loadError": "No se pudieron cargar las horas extra.",
+    "columns": {
+      "date": "Fecha",
+      "hours": "Horas",
+      "multiplier": "Multiplicador",
+      "rate": "Valor hora",
+      "amount": "Importe",
+      "note": "Nota",
+      "status": "Estado"
+    },
+    "status": {
+      "Pending": "Pendiente",
+      "InPayroll": "En la liquidación {{run}}",
+      "Paid": "Liquidada (liquidación {{run}})"
+    },
+    "delete": "Borrar",
+    "deleteLabel": "Borrar horas extra del {{date}}",
+    "deleteTitle": "Borrar horas extra",
+    "deleteMessage": "¿Borrar las horas extra del {{date}} ({{hours}} h)? Usalo solo si se cargaron por error.",
+    "deleting": "Borrando…",
+    "errors": {
+      "hours": "Escribí las horas: más de 0 y hasta 24, con hasta dos decimales.",
+      "multiplier": "Escribí un multiplicador de 1 a 3, con hasta dos decimales.",
+      "date": "Elegí un día que ya pasó (o hoy)."
+    }
+  },
+  "goods": {
+    "title": "Mercadería de {{name}}",
+    "description": "Lo que se lleva, como una venta en el mostrador: a precio de la lista Mostrador, descuenta el stock y queda en su cuenta. La próxima liquidación lo descuenta del sueldo, con la bonificación que decidas ahí.",
+    "noAccount": "No lleva mercadería. Para registrarle, activá «Lleva mercadería» en sus datos («Editar»).",
+    "date": "Fecha",
+    "linesTitle": "Productos",
+    "noLines": "Todavía no agregaste productos.",
+    "quantityLabel": "Cantidad de {{name}}",
+    "kilosPlaceholder": "Kilos ({{example}})",
+    "unitsPlaceholder": "Unidades (Ej: 2)",
+    "kilosSuffix": "kg",
+    "unitsSuffix": "u.",
+    "invalidQuantity": "Escribí una cantidad mayor que 0.",
+    "invalidInteger": "Este producto se vende por unidad: escribí un número entero.",
+    "remove": "Quitar",
+    "removeLabel": "Quitar {{name}}",
+    "pricing": "Calculando precios…",
+    "total": "Total: {{amount}}",
+    "priceList": "Precios de la lista {{name}}.",
+    "save": "Registrar mercadería",
+    "saving": "Registrando…",
+    "saved": "Mercadería registrada por {{amount}}.",
+    "history": "Lo que se llevó",
+    "empty": "No tiene mercadería registrada.",
+    "loadError": "No se pudo cargar la mercadería.",
+    "quoteError": "No se pudieron calcular los precios. Probá de nuevo.",
+    "columns": {
+      "date": "Fecha",
+      "product": "Producto",
+      "quantity": "Cantidad",
+      "price": "Precio",
+      "total": "Total",
+      "source": "Origen",
+      "status": "Estado",
+      "actions": "Acciones"
+    },
+    "source": {
+      "Web": "Web",
+      "PosSale": "Venta POS"
+    },
+    "status": {
+      "Pending": "Pendiente",
+      "InPayroll": "En la liquidación {{run}}",
+      "Paid": "Descontada en la liquidación {{run}}"
+    },
+    "errors": {
+      "date": "Elegí un día que ya pasó (o hoy)."
+    },
+    "codes": {
+      "employee-no-goods-account": "No lleva mercadería: activá «Lleva mercadería» en sus datos para registrarle.",
+      "no-effective-price": "Algún producto no tiene precio vigente en la lista Mostrador para esa fecha.",
+      "goods-key-in-use": "Esta carga ya se usó para otro empleado. Volvé a abrir la mercadería y cargala de nuevo.",
+      "goods-settled": "No se puede anular: una liquidación pagada ya la descontó."
+    },
+    "void": "Anular",
+    "voidLabel": "Anular la carga del {{date}} ({{products}})",
+    "voidTitle": "Anular carga",
+    "voidMessage": "Se anula la carga del {{date}} por {{amount}} ({{products}}): vuelve el stock, se anula el cargo en su cuenta y la liquidación no la descuenta.",
+    "voidConfirm": "Anular carga",
+    "voiding": "Anulando…",
+    "voided": "Carga anulada.",
+    "correct": "Corregir",
+    "correctLabel": "Corregir la carga del {{date}} ({{products}})",
+    "correctTitle": "Corregir carga",
+    "correctMessage": "Se anula la carga del {{date}} por {{amount}} ({{products}}) y sus productos vuelven al formulario para corregirlos y registrarlos de nuevo.",
+    "correctConfirm": "Anular y corregir",
+    "voidedToCorrect": "Carga anulada: corregí los productos y registralos de nuevo.",
+    "retryQuote": "Reintentar"
+  },
+  "leave": {
+    "title": "Baja de {{name}}",
+    "description": "La baja se registra con su fecha y su motivo. Después se liquida el último sueldo con el mismo flujo de «Sueldos».",
+    "date": "Fecha de baja",
+    "reason": "Motivo",
+    "reasonPlaceholder": "Ej.: renuncia",
+    "save": "Dar de baja",
+    "saving": "Guardando…",
+    "left": "Dado de baja el {{date}}.",
+    "leftUndated": "Dado de baja.",
+    "leftReason": "Motivo: {{reason}}.",
+    "settleTitle": "Último sueldo",
+    "settleHint": "Prepara un borrador con el sueldo proporcional a los días trabajados desde la última liquidación pagada, las horas extra pendientes, los adelantos y la mercadería. Se revisa y se paga en «Sueldos».",
+    "settle": "Liquidar último sueldo",
+    "settling": "Preparando…",
+    "reinstateHint": "Si vuelve a trabajar, reincorporalo: se borran la fecha y el motivo de la baja.",
+    "reinstate": "Reincorporar",
+    "errors": {
+      "reason": "Escribí el motivo de la baja.",
+      "date": "Elegí un día que ya pasó (o hoy)."
+    },
+    "codes": {
+      "employee-active": "El empleado está activo: primero registrá la baja.",
+      "employee-in-draft": "Ya tiene una liquidación en borrador: revisala en «Sueldos».",
+      "employee-other-branch": "Elegí la sucursal del empleado en la barra superior para liquidarlo.",
+      "employee-already-settled": "Su último sueldo ya está liquidado.",
+      "employee-in-payroll-draft": "Tiene una liquidación en borrador: pagala o descartala antes de reincorporarlo."
     }
   }
 }

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link } from 'react-router'
-import { Button, buttonVariants } from '@/components/ui/button'
+import { Button } from '@/components/ui/button'
 import { Select } from '@/components/ui/select'
 import { DataToolbar } from '@/components/data/DataToolbar'
+import { RowActions } from '@/components/data/RowActions'
 import { DataView, type DataViewColumn } from '@/components/data/DataView'
 import { PageHeader } from '@/components/data/PageHeader'
 import { useViewPreference } from '@/components/data/useViewPreference'
@@ -19,7 +19,7 @@ import { listProvinces } from '@/api/geo'
 import { listPriceLists } from '@/api/pricing'
 import { ApiError } from '@/api/client'
 import {
-  CustomerKind,
+  PartyType,
   type CustomerRecord,
   type GeoProvince,
   type MasterDataEntry,
@@ -177,8 +177,44 @@ export function CustomersScreen() {
   }
 
   const noValue = <span className="text-muted-foreground">{t('columns.noValue')}</span>
+  // The same columns, in the same order, as the POS's Clientes list (docs/architecture/cross-layer-parity.md); the
+  // balance is web-only (accounting).
   const columns: DataViewColumn<CustomerRecord>[] = [
     { key: 'displayName', header: t('columns.name'), cell: (customer) => customer.displayName },
+    {
+      key: 'partyType',
+      header: t('columns.kind'),
+      cell: (customer) => t(`form.partyTypeOptions.${customer.partyType === PartyType.Company ? 'company' : 'person'}`),
+      hideOnMobile: true,
+    },
+    {
+      key: 'taxId',
+      header: t('columns.taxId'),
+      cell: (customer) =>
+        customer.taxId ?? <span className="text-muted-foreground">{t('columns.noTaxId')}</span>,
+      hideOnMobile: true,
+    },
+    {
+      key: 'phone',
+      header: t('columns.phone'),
+      cell: (customer) => customer.phone ?? noValue,
+      hideOnMobile: true,
+    },
+    { key: 'location', header: t('columns.location'), cell: (customer) =>
+        customer.cityName ? cityLabel({ name: customer.cityName, provinceName: customer.provinceName ?? '' }) : noValue,
+    },
+    {
+      key: 'businessType',
+      header: t('columns.businessType'),
+      cell: (customer) => customer.businessTypeName ?? noValue,
+      hideOnMobile: true,
+    },
+    {
+      key: 'priceList',
+      header: t('columns.priceList'),
+      cell: (customer) => customer.priceListName ?? noValue,
+      hideOnMobile: true,
+    },
     {
       key: 'balance',
       header: t('columns.balance'),
@@ -195,49 +231,6 @@ export function CustomersScreen() {
           </span>
         )
       },
-    },
-    {
-      key: 'contact',
-      header: t('columns.contact'),
-      cell: (customer) => {
-        // The primary contact, or the first one when none is marked primary.
-        const contact = customer.contacts.find((c) => c.isPrimary) ?? customer.contacts[0]
-        return contact ? [contact.firstName, contact.lastName].filter(Boolean).join(' ') : noValue
-      },
-    },
-    { key: 'city', header: t('columns.city'), cell: (customer) =>
-        customer.cityName ? cityLabel({ name: customer.cityName, provinceName: customer.provinceName ?? '' }) : noValue,
-    },
-    {
-      key: 'businessType',
-      header: t('columns.businessType'),
-      cell: (customer) => customer.businessTypeName ?? noValue,
-      hideOnMobile: true,
-    },
-    {
-      key: 'priceList',
-      header: t('columns.priceList'),
-      cell: (customer) => customer.priceListName ?? noValue,
-      hideOnMobile: true,
-    },
-    {
-      key: 'phone',
-      header: t('columns.phone'),
-      cell: (customer) => customer.phone ?? noValue,
-      hideOnMobile: true,
-    },
-    {
-      key: 'taxId',
-      header: t('columns.taxId'),
-      cell: (customer) =>
-        customer.taxId ?? <span className="text-muted-foreground">{t('columns.noTaxId')}</span>,
-      hideOnMobile: true,
-    },
-    {
-      key: 'customerKind',
-      header: t('columns.kind'),
-      cell: (customer) => t(`kindOptions.${customer.customerKind === CustomerKind.Wholesale ? 'wholesale' : 'retail'}`),
-      hideOnMobile: true,
     },
     {
       key: 'isEnabled',
@@ -328,17 +321,14 @@ export function CustomersScreen() {
         emptyMessage={filtering ? t('empty.noMatch') : t('empty.none')}
         loadErrorMessage={loadError === null ? null : t('empty.loadError')}
         renderActions={(customer) => (
-          <>
-            <Button variant="outline" size="sm" onClick={() => setEditingCustomer(customer)}>
-              {t('actions.edit')}
-            </Button>
-            <Link to={`/app/customers/${customer.id}/account`} className={buttonVariants({ variant: 'outline', size: 'sm' })}>
-              {t('actions.account')}
-            </Link>
-            <Button variant="outline" size="sm" onClick={() => void handleIssueAccess(customer.id)}>
-              {t('actions.issueAccess')}
-            </Button>
-          </>
+          <RowActions
+            label={customer.displayName}
+            actions={[
+              { key: 'edit', label: t('actions.edit'), onSelect: () => setEditingCustomer(customer) },
+              { key: 'account', label: t('actions.account'), to: `/app/customers/${customer.id}/account` },
+              { key: 'issueAccess', label: t('actions.issueAccess'), onSelect: () => void handleIssueAccess(customer.id) },
+            ]}
+          />
         )}
       />
     </section>

@@ -26,7 +26,8 @@ public static class MasterDataEndpoints
 {
     public static IEndpointRouteBuilder MapMasterDataEndpoints(this IEndpointRouteBuilder app)
     {
-        MapCatalog<PostgresBusinessTypeStore>(app, "/customers/business-types", "business-type");
+        // The POS reads it too (Clientes form: "Tipo de negocio").
+        MapCatalog<PostgresBusinessTypeStore>(app, "/customers/business-types", "business-type", posCanRead: true);
         MapCatalog<PostgresSupplierCategoryStore>(app, "/suppliers/categories", "supplier-category");
         // The kinds of money of the treasury ("Efectivo", "Bancos", "Tarjetas de crédito"...): every account has one.
         MapCatalog<PostgresTreasuryAccountTypeStore>(app, "/treasury/account-types", "treasury-account-type");
@@ -87,7 +88,7 @@ public static class MasterDataEndpoints
             try
             {
                 var created = await store.CreateAsync(
-                    scope, new NewMasterDataEntry(Guid.NewGuid(), name, key, request.SortOrder ?? 0, request.IsActive ?? true),
+                    scope, new NewMasterDataEntry(Guid.NewGuid(), name, key, request.SortOrder, request.IsActive ?? true),
                     "org-user", caller.Id, ct);
                 return Results.Created($"{route}/{created.Id}", created);
             }
@@ -186,8 +187,10 @@ public static class MasterDataEndpoints
 
 /// <summary>
 /// Body of POST/PUT on a master data catalog. `Key` is derived from `Name` on
-/// create when omitted and kept on update when omitted; `SortOrder` defaults
-/// to 0 on create and is kept on update when omitted; `IsActive` defaults to
+/// create when omitted and kept on update when omitted; `SortOrder` places the
+/// entry after the last one on create (the web no longer sends it, so a new
+/// treasury account type never jumps ahead of "Efectivo") and is kept on
+/// update when omitted; `IsActive` defaults to
 /// true on create and is kept on update when omitted.
 /// </summary>
 public sealed record MasterDataRequest(string? Name, string? Key = null, int? SortOrder = null, bool? IsActive = null);

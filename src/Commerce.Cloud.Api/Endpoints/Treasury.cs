@@ -101,6 +101,21 @@ public static class TreasuryEndpoints
                 : Results.NotFound();
         });
 
+        // owner feedback round 2, R5: every account's movements together (one account's: /accounts/{id}/movements).
+        group.MapGet("/movements", async (
+            DateOnly? from, DateOnly? to, HttpContext httpContext, PostgresUserAccountStore userStore, PostgresTreasuryStore store,
+            CancellationToken ct) =>
+        {
+            var (denied, caller) = await StaffAuthorization.AuthorizeAsync(httpContext, userStore, ct, Permission.ManageUsers);
+            if (denied is not null) return denied;
+            if (from is { } start && to is { } end && start > end)
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]> { ["from"] = ["from cannot be after to."] });
+            }
+
+            return Results.Ok(await store.ListAllMovementsAsync(caller!.Scope, from, to, ct));
+        });
+
         group.MapPost("/movements", async (
             RecordTreasuryMovementRequest request, HttpContext httpContext, PostgresUserAccountStore userStore, PostgresTreasuryStore store,
             CancellationToken ct) =>

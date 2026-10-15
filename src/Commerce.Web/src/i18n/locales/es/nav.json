@@ -1,6 +1,8 @@
 {
   "primary": "Principal",
   "toggleNavigation": "Alternar navegación",
+  "collapseNavigation": "Contraer menú",
+  "expandNavigation": "Expandir menú",
   "items": {
     "dashboard": "Tablero",
     "catalog": "Catálogo",
@@ -23,7 +25,8 @@
     "treasuryAccountTypes": "Tipos de cuenta",
     "employees": "Personal",
     "payroll": "Sueldos",
-    "employeeRoles": "Puestos"
+    "employeeRoles": "Puestos",
+    "vehicles": "Vehículos"
   },
   "sections": {
     "operations": "Operación",

@@ -8,6 +8,7 @@ import { FormPage } from '@/components/layout/FormPage'
 import { CityPicker, type CityOption } from '@/components/geo/CityPicker'
 import { createCustomer, getCustomer, updateCustomer } from '@/api/customers'
 import { ApiError } from '@/api/client'
+import { parsePercentage } from '@/lib/percentage'
 import {
   CustomerKind,
   PartyType,
@@ -135,6 +136,8 @@ export function CustomerForm({
   const [phone, setPhone] = useState(customer?.phone ?? '')
   const [email, setEmail] = useState(customer?.email ?? '')
   const [emailError, setEmailError] = useState<string | null>(null)
+  // owner-requests-quick-adjustments Q3: the server's 0-100 rule, shown on the field with the same help text.
+  const [discountError, setDiscountError] = useState<string | null>(null)
   const [addressStreet, setAddressStreet] = useState(customer?.addressStreet ?? '')
   const [addressNumber, setAddressNumber] = useState(customer?.addressNumber ?? '')
   const [neighborhood, setNeighborhood] = useState(customer?.neighborhood ?? '')
@@ -142,6 +145,7 @@ export function CustomerForm({
   /** Whether the postal code shown came from the chosen city (so it follows the city) rather than from the user. */
   const [postalCodeFromCity, setPostalCodeFromCity] = useState(false)
   const [deliveryNotes, setDeliveryNotes] = useState(customer?.deliveryNotes ?? '')
+  const [locationReference, setLocationReference] = useState(customer?.locationReference ?? '')
   const [discountPercentage, setDiscountPercentage] = useState(
     customer?.discountPercentage !== null && customer?.discountPercentage !== undefined
       ? String(customer.discountPercentage)
@@ -206,6 +210,12 @@ export function CustomerForm({
     }
     setTaxIdError(null)
     const termsText = paymentTermsDays.trim()
+    // A number input can drop "7,5" and send nothing; read it as text, like the POS, and stop before the API if unreadable.
+    const discount = parsePercentage(discountPercentage)
+    if (!discount.ok) {
+      setDiscountError(t('form.discountHint'))
+      return
+    }
     const terms = Number(termsText)
     if (termsText !== '' && (!Number.isInteger(terms) || terms < 0 || terms > 365)) {
       setPaymentTermsDaysError(t('form.paymentTermsDays.invalid'))
@@ -236,7 +246,9 @@ export function CustomerForm({
         neighborhood: neighborhood || null,
         postalCode: postalCode.trim() || null,
         deliveryNotes: deliveryNotes || null,
-        discountPercentage: discountPercentage === '' ? null : Number(discountPercentage),
+        // Always sent, "" when blank: on an update that clears it (omitted would keep the stored one).
+        locationReference: locationReference.trim(),
+        discountPercentage: discount.value,
         paymentTerms: paymentTerms || null,
         // Empty = the organization's general term: on PUT that is the -1 sentinel, on create the value is left out.
         ...(paymentTermsDays.trim() !== ''
@@ -278,6 +290,8 @@ export function CustomerForm({
         setConflict(true)
       } else if (err instanceof ApiError && err.status === 400 && showRefusedEmails(err.fieldErrors, filledContacts)) {
         // The refused emails are flagged on their own fields.
+      } else if (err instanceof ApiError && err.status === 400 && err.fieldErrors?.discountPercentage !== undefined) {
+        setDiscountError(t('form.discountHint'))
       } else {
         setError(err instanceof ApiError ? err.message : t('errors.unexpectedSave'))
       }
@@ -416,10 +430,19 @@ export function CustomerForm({
             <Field id="addressStreet" label={t('form.fields.addressStreet')} value={addressStreet} onChange={setAddressStreet} />
             <Field id="addressNumber" label={t('form.fields.addressNumber')} value={addressNumber} onChange={setAddressNumber} />
             <Field
+              id="locationReference"
+              label={t('form.fields.locationReference')}
+              value={locationReference}
+              onChange={setLocationReference}
+              placeholder={t('form.locationReferencePlaceholder')}
+              className="md:col-span-3"
+            />
+            <Field
               id="deliveryNotes"
               label={t('form.fields.deliveryNotes')}
               value={deliveryNotes}
               onChange={setDeliveryNotes}
+              placeholder={t('form.deliveryNotesPlaceholder')}
               className="md:col-span-3"
             />
           </div>
@@ -504,8 +527,14 @@ export function CustomerForm({
             id="discountPercentage"
             label={t('form.fields.discountPercentage')}
             value={discountPercentage}
-            onChange={setDiscountPercentage}
-            type="number"
+            onChange={(value) => {
+              setDiscountPercentage(value)
+              setDiscountError(null)
+            }}
+            inputMode="decimal"
+            placeholder={t('form.discountPlaceholder')}
+            hint={t('form.discountHint')}
+            error={discountError}
           />
           <Field
             id="paymentTermsDays"

@@ -11,7 +11,8 @@
   "today": "Today: in {{in}} · out {{out}}",
   "actions": {
     "newAccount": "New account",
-    "newMovement": "Record movement"
+    "newMovement": "Record movement",
+    "recurring": "Recurring movement"
   },
   "kinds": {
     "Cash": "Cash",
@@ -31,7 +32,9 @@
     "CashDeposit": "Drawer deposit",
     "Transfer": "Transfer",
     "ManualIn": "Manual in",
-    "ManualOut": "Manual out"
+    "ManualOut": "Manual out",
+    "SalaryPayment": "Salary payment",
+    "EmployeeAdvance": "Employee advance"
   },
   "accountForm": {
     "title": "New account",
@@ -107,14 +110,20 @@
       "customer": "Customer",
       "in": "In",
       "out": "Out",
-      "actions": "Actions"
+      "actions": "Actions",
+      "account": "Account"
     },
     "voided": "voided",
     "voidReason": "Voided: {{reason}}",
     "correction": "Corrects an earlier movement",
     "edit": "Edit",
     "changeAccount": "Change account",
-    "recurring": "Recurring"
+    "recurring": "Recurring",
+    "titleAll": "Movements of every account",
+    "accountFilter": "Account of the movements",
+    "allAccounts": "Every account",
+    "allReadOnly": "To correct or void a movement, choose its account.",
+    "capped": "The {{count}} most recent movements of these dates are shown; there may be more. Narrow the range to see the earlier ones."
   },
   "errors": {
     "load": "The treasury could not be loaded.",
@@ -184,8 +193,8 @@
   "recurrences": {
     "title": "Recurring expenses and income",
     "description": "Fixed expenses (electricity, gas, internet, phone, rent…) and recurring income are recorded automatically on their dates. When the amount changes, edit it: the repetition goes on with the new amount from the next date.",
-    "new": "New recurring",
     "newTitle": "New recurring expense or income",
+    "listTitle": "The ones already recorded automatically",
     "editTitle": "Edit recurring",
     "formHint": "Each date is recorded as an ordinary movement of the account. If a date does not apply (paid apart, say), void that movement: it is not recorded again.",
     "out": "Expense (money out)",

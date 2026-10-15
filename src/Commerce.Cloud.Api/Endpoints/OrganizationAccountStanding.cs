@@ -1,0 +1,139 @@
+using System.Security.Claims;
+using System.Text.Json;
+using Commerce.Application.Time;
+using Commerce.Cloud.Api.Auditing;
+using Commerce.Cloud.Api.Authentication;
+using Commerce.Cloud.Api.Persistence;
+using Commerce.Cloud.Api.Tenancy;
+using Commerce.Domain.Identity;
+using Commerce.Domain.Tenancy;
+
+namespace Commerce.Cloud.Api.Endpoints;
+
+/// <summary>
+/// The system administrator's account-standing actions on one organization (odd/tasks/organization-account-standing.md
+/// T3): read the standing, set the billing due date and grace days (also how a payment is recorded: move the due date to
+/// the next period), suspend now, and reactivate with a new due date. Gated exactly like the branding routes: the caller
+/// must be a system administrator, checked against the store; the route id is trusted only after that. Every write is
+/// audited in its own transaction and invalidates <see cref="OrganizationStandingCache"/>, so the web block (T4) follows
+/// on the very next request. The standing is derived on the business day (<see cref="IBusinessClock"/>).
+/// </summary>
+public static class OrganizationAccountStandingEndpoints
+{
+    public static RouteGroupBuilder MapOrganizationAccountStandingEndpoints(this IEndpointRouteBuilder app)
+    {
+        var group = app.MapGroup("/account/organizations/{id:guid}/standing").RequireAuthorization();
+
+        group.MapGet("", async (Guid id, HttpContext httpContext, PostgresUserAccountStore userStore, PostgresOrganizationStore organizationStore, IBusinessClock clock, CancellationToken ct) =>
+        {
+            if (await SystemAdminIdAsync(httpContext, userStore, ct) is null) return Results.StatusCode(StatusCodes.Status403Forbidden);
+            var inputs = await organizationStore.GetAccountStandingInputsAsync(id, ct);
+            return inputs is null ? Results.NotFound() : Results.Ok(ToResponse(inputs, clock.Today));
+        });
+
+        group.MapPut("", async (Guid id, UpdateOrganizationAccountStandingRequest request, HttpContext httpContext, PostgresUserAccountStore userStore, PostgresOrganizationStore organizationStore, OrganizationStandingCache standings, CancellationToken ct) =>
+        {
+            if (await SystemAdminIdAsync(httpContext, userStore, ct) is not { } actorId) return Results.StatusCode(StatusCodes.Status403Forbidden);
+            // Required: an omitted value must never be read as 0, which would suspend an overdue organization at once.
+            if (request.GraceDays is not { } graceDays || !AccountStandingRules.IsValidGraceDays(graceDays)) return GraceDaysProblem();
+
+            var audit = Audit(actorId, id, "organization.standing_updated", new { dueOn = request.DueOn, graceDays });
+            return Written(await organizationStore.UpdateBillingAsync(id, request.DueOn, graceDays, audit, ct), id, standings);
+        });
+
+        group.MapPost("/suspend", async (Guid id, HttpContext httpContext, PostgresUserAccountStore userStore, PostgresOrganizationStore organizationStore, OrganizationStandingCache standings, CancellationToken ct) =>
+        {
+            if (await SystemAdminIdAsync(httpContext, userStore, ct) is not { } actorId) return Results.StatusCode(StatusCodes.Status403Forbidden);
+
+            return Written(await organizationStore.SuspendAsync(id, Audit(actorId, id, "organization.suspended", new { }), ct), id, standings);
+        });
+
+        group.MapPost("/reactivate", async (Guid id, ReactivateOrganizationRequest request, HttpContext httpContext, PostgresUserAccountStore userStore, PostgresOrganizationStore organizationStore, OrganizationStandingCache standings, IBusinessClock clock, CancellationToken ct) =>
+        {
+            if (await SystemAdminIdAsync(httpContext, userStore, ct) is not { } actorId) return Results.StatusCode(StatusCodes.Status403Forbidden);
+            if (request.GraceDays is { } requested && !AccountStandingRules.IsValidGraceDays(requested)) return GraceDaysProblem();
+            // A due date already behind the business day would reactivate straight into Overdue or Suspended.
+            if (request.DueOn < clock.Today)
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]> { ["dueOn"] = ["dueOn must be today or later."] });
+            }
+
+            // A null GraceDays keeps the current value inside the same UPDATE, so no read races the write; the audit row
+            // records the grace days actually stored.
+            var written = await organizationStore.ReactivateAsync(id, request.DueOn, request.GraceDays,
+                storedGraceDays => Audit(actorId, id, "organization.reactivated", new { dueOn = request.DueOn, graceDays = storedGraceDays }), ct);
+            return Written(written, id, standings);
+        });
+
+        return group;
+    }
+
+    /// <summary>204 after a write, dropping the cached standing so the web block follows at once; 404 when nothing was written.</summary>
+    private static IResult Written(bool written, Guid organizationId, OrganizationStandingCache standings)
+    {
+        if (!written) return Results.NotFound();
+        standings.Invalidate(organizationId);
+        return Results.NoContent();
+    }
+
+    /// <summary>
+    /// The caller's view of its organization's standing, for sign-in and <c>/account/me</c> (T4): every user gets the
+    /// status (the SPA shows the suspended screen from it); only administrators (<c>ManageUsers</c>) and the system
+    /// administrator get the dates behind the countdown. <c>null</c> when the organization does not exist.
+    /// </summary>
+    public static async Task<AccountStandingSummary?> SummaryForAsync(
+        Guid organizationId, UserAccount? actor, OrganizationStandingCache standings, IBusinessClock clock, CancellationToken ct)
+    {
+        var inputs = await standings.GetAsync(organizationId, ct);
+        if (inputs is null) return null;
+
+        var standing = AccountStandingRules.Evaluate(inputs.DueOn, inputs.GraceDays, inputs.SuspendedAt is not null, clock.Today);
+        var seesDates = actor is not null && (actor.IsSystemAdmin || actor.EffectivePermissions.HasFlag(Permission.ManageUsers));
+        return new AccountStandingSummary(
+            standing.Status.ToString(), seesDates ? standing.SuspendsOn : null, seesDates ? standing.DaysLeft : null);
+    }
+
+    /// <summary>The standing derived from the stored inputs on <paramref name="today"/>, plus the inputs themselves.</summary>
+    public static OrganizationAccountStandingResponse ToResponse(OrganizationAccountStandingInputs inputs, DateOnly today)
+    {
+        var standing = AccountStandingRules.Evaluate(inputs.DueOn, inputs.GraceDays, inputs.SuspendedAt is not null, today);
+        return new OrganizationAccountStandingResponse(
+            inputs.DueOn, inputs.GraceDays, inputs.SuspendedAt, standing.Status.ToString(), standing.SuspendsOn, standing.DaysLeft);
+    }
+
+    /// <summary>The caller's user id when it is a system administrator; otherwise <c>null</c>.</summary>
+    private static async Task<Guid?> SystemAdminIdAsync(HttpContext httpContext, PostgresUserAccountStore userStore, CancellationToken ct)
+    {
+        if (!TenantScopeResolver.TryResolve(httpContext.User, out var scope, out _)) return null;
+        var claim = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (claim is null || !Guid.TryParse(claim, out var actorId)) return null;
+        var actor = await userStore.LoadActorAsync(scope!, actorId, ct);
+        return actor is { IsSystemAdmin: true } ? actorId : null;
+    }
+
+    private static UserManagementAuditEntry Audit(Guid actorId, Guid organizationId, string action, object after) =>
+        new("org-user", actorId, organizationId, "organization", organizationId, action, null, JsonSerializer.Serialize(after));
+
+    private static IResult GraceDaysProblem() =>
+        Results.ValidationProblem(new Dictionary<string, string[]>
+        {
+            ["graceDays"] = [$"graceDays is required and must be between 0 and {AccountStandingRules.MaxGraceDays}."],
+        });
+}
+
+/// <summary>
+/// An organization's account standing: the stored inputs (<see cref="DueOn"/>, <see cref="GraceDays"/>,
+/// <see cref="SuspendedAt"/>) and what they mean today (<see cref="Status"/>: Active | Overdue | Suspended,
+/// <see cref="SuspendsOn"/>, <see cref="DaysLeft"/>).
+/// </summary>
+public sealed record OrganizationAccountStandingResponse(
+    DateOnly? DueOn, int GraceDays, DateTimeOffset? SuspendedAt, string Status, DateOnly? SuspendsOn, int? DaysLeft);
+
+/// <summary>
+/// <see cref="DueOn"/> null stops tracking billing for the organization. <see cref="GraceDays"/> is required; it is
+/// nullable only so an omitted value is rejected instead of defaulting to 0.
+/// </summary>
+public sealed record UpdateOrganizationAccountStandingRequest(DateOnly? DueOn, int? GraceDays);
+
+/// <summary><see cref="GraceDays"/> null keeps the organization's current grace days.</summary>
+public sealed record ReactivateOrganizationRequest(DateOnly DueOn, int? GraceDays);

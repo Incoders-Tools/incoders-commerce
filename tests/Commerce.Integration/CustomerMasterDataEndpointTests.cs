@@ -149,7 +149,7 @@ public sealed class CustomerMasterDataEndpointTests : IClassFixture<WebApplicati
         var created = await PostOkAsync(admin, route, new { name = "  San Miguel  " });
         Assert.Equal("San Miguel", created.GetProperty("name").GetString());
         Assert.Equal("san_miguel", created.GetProperty("key").GetString());
-        Assert.Equal(0, created.GetProperty("sortOrder").GetInt32());
+        Assert.Equal(10, created.GetProperty("sortOrder").GetInt32()); // after the last entry; the catalog was empty
         Assert.True(created.GetProperty("isActive").GetBoolean());
         var id = created.GetProperty("id").GetGuid();
         Assert.Equal(1, CountAudit(id, auditPrefix + ".created"));
@@ -159,7 +159,8 @@ public sealed class CustomerMasterDataEndpointTests : IClassFixture<WebApplicati
         Assert.Equal(5, explicitKey.GetProperty("sortOrder").GetInt32());
 
         var listed = await admin.GetFromJsonAsync<JsonElement>(route);
-        Assert.Equal(["San Miguel", "Moreno"], listed.EnumerateArray().Select(e => e.GetProperty("name").GetString()).ToArray());
+        // owner-requests-quick-adjustments Q2: alphabetical, whatever the stored order (Moreno has 5, San Miguel 0).
+        Assert.Equal(["Moreno", "San Miguel"], listed.EnumerateArray().Select(e => e.GetProperty("name").GetString()).ToArray());
 
         var renamed = await admin.PutAsJsonAsync($"{route}/{id}", new { name = "San Miguel Centro", sortOrder = 1, isActive = false });
         Assert.Equal(HttpStatusCode.OK, renamed.StatusCode);
@@ -279,6 +280,95 @@ public sealed class CustomerMasterDataEndpointTests : IClassFixture<WebApplicati
         var cuit = await PostOkAsync(admin, "/customers", CustomerBody("Acme", "Cuit", "30-12345678-9"));
         var cuitFetched = await admin.GetFromJsonAsync<JsonElement>($"/customers/{cuit.GetProperty("customerId").GetGuid()}");
         Assert.Equal("30123456789", cuitFetched.GetProperty("taxId").GetString());
+    }
+
+    [Theory]
+    [InlineData(120)]
+    [InlineData(-1)]
+    [InlineData(7.555)]
+    public async Task Customer_WithADiscountOutsideZeroToOneHundred_Returns400_OnCreateAndUpdate(double discount)
+    {
+        // owner-requests-quick-adjustments Q3: "7,5" once reached the server as 75; the range is the server's rule.
+        if (!_postgresAvailable) return;
+        var email = $"md-discount-{Guid.NewGuid():N}@example.com";
+        await BootstrapAsync(email);
+        var admin = await SignInAsync(email);
+
+        var create = await admin.PostAsJsonAsync("/customers", new
+        {
+            customerKind = "Retail", displayName = "Con descuento", taxIdType = "None", taxCondition = "ConsumidorFinal",
+            discountPercentage = (decimal)discount,
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, create.StatusCode);
+        Assert.Contains("discountPercentage", await create.Content.ReadAsStringAsync());
+
+        var id = (await PostOkAsync(admin, "/customers", CustomerBody("Sin descuento"))).GetProperty("customerId").GetGuid();
+        var update = await admin.PutAsJsonAsync($"/customers/{id}", new
+        {
+            displayName = "Sin descuento", taxIdType = "None", taxCondition = "ConsumidorFinal", isEnabled = true,
+            discountPercentage = (decimal)discount,
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, update.StatusCode);
+        Assert.Contains("discountPercentage", await update.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task Customer_KeepsTheLocationReferenceApartFromTheDeliveryNotes_AndAnOlderClientNeverWipesIt()
+    {
+        // owner-requests-quick-adjustments Q1: "Casa gris con 2 árboles al frente" says how to find the place;
+        // "Dejar con el vecino" says what to do with the delivery.
+        if (!_postgresAvailable) return;
+        var email = $"md-location-{Guid.NewGuid():N}@example.com";
+        await BootstrapAsync(email);
+        var admin = await SignInAsync(email);
+
+        var id = (await PostOkAsync(admin, "/customers", new
+        {
+            customerKind = "Retail", displayName = "Con referencias", taxIdType = "None", taxCondition = "ConsumidorFinal",
+            locationReference = "Casa gris con 2 árboles al frente", deliveryNotes = "Dejar con el vecino",
+        })).GetProperty("customerId").GetGuid();
+        var created = await admin.GetFromJsonAsync<JsonElement>($"/customers/{id}");
+        Assert.Equal("Casa gris con 2 árboles al frente", created.GetProperty("locationReference").GetString());
+        Assert.Equal("Dejar con el vecino", created.GetProperty("deliveryNotes").GetString());
+
+        // A client that predates the field (an older POS) sends no locationReference: the stored one stays.
+        var older = await admin.PutAsJsonAsync($"/customers/{id}", new
+        {
+            displayName = "Con referencias", taxIdType = "None", taxCondition = "ConsumidorFinal", isEnabled = true,
+            deliveryNotes = "Dejar en la puerta",
+        });
+        Assert.Equal(HttpStatusCode.OK, older.StatusCode);
+        var kept = await admin.GetFromJsonAsync<JsonElement>($"/customers/{id}");
+        Assert.Equal("Casa gris con 2 árboles al frente", kept.GetProperty("locationReference").GetString());
+        Assert.Equal("Dejar en la puerta", kept.GetProperty("deliveryNotes").GetString());
+
+        // An empty text clears it.
+        var cleared = await admin.PutAsJsonAsync($"/customers/{id}", new
+        {
+            displayName = "Con referencias", taxIdType = "None", taxCondition = "ConsumidorFinal", isEnabled = true,
+            deliveryNotes = "Dejar en la puerta", locationReference = "  ",
+        });
+        Assert.Equal(HttpStatusCode.OK, cleared.StatusCode);
+        var none = await admin.GetFromJsonAsync<JsonElement>($"/customers/{id}");
+        Assert.Equal(JsonValueKind.Null, none.GetProperty("locationReference").ValueKind);
+    }
+
+    [Fact]
+    public async Task Customer_WithADecimalDiscount_KeepsIt()
+    {
+        if (!_postgresAvailable) return;
+        var email = $"md-discount-ok-{Guid.NewGuid():N}@example.com";
+        await BootstrapAsync(email);
+        var admin = await SignInAsync(email);
+
+        var id = (await PostOkAsync(admin, "/customers", new
+        {
+            customerKind = "Retail", displayName = "Siete y medio", taxIdType = "None", taxCondition = "ConsumidorFinal",
+            discountPercentage = 7.5m,
+        })).GetProperty("customerId").GetGuid();
+
+        var stored = await admin.GetFromJsonAsync<JsonElement>($"/customers/{id}");
+        Assert.Equal(7.5m, stored.GetProperty("discountPercentage").GetDecimal());
     }
 
     [Theory]

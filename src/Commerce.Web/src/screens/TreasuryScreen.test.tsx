@@ -107,6 +107,8 @@ describe('TreasuryScreen', () => {
           return json([])
         case 'GET /treasury/accounts/acc-cash/movements':
           return json([manual, sale, voided])
+        case 'GET /treasury/movements':
+          return json([{ ...manual, movementId: 'mov-8', accountId: 'acc-bank', concept: 'Cobro QR', amount: 12_000 }, manual])
         case 'POST /treasury/accounts':
           return json({ ...bank, accountId: 'acc-new', name: 'Visa empresa' }, 201)
         case 'POST /treasury/transfers':
@@ -160,7 +162,7 @@ describe('TreasuryScreen', () => {
 
     expect(screen.queryByText('Banco cerrado')).not.toBeInTheDocument()
     await userEvent.setup().click(screen.getByLabelText('Mostrar cuentas inactivas'))
-    expect(screen.getByText('Banco cerrado')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Banco cerrado/ })).toBeInTheDocument()
   })
 
   it('creates an account of a type of the catalog, offering only active types', async () => {
@@ -241,6 +243,60 @@ describe('TreasuryScreen', () => {
     expect(bodyOf('PUT /treasury/movements/mov-2')).toEqual({ accountId: 'acc-bank', reason: 'Se cobró por transferencia' })
   })
 
+  // owner feedback round 2, R5: the movements of one account or of all of them, chosen by name.
+  it('lists every account movements together, each with its account, read-only', async () => {
+    const user = userEvent.setup()
+    render(<TreasuryScreen />)
+
+    const accountFilter = await screen.findByLabelText('Cuenta de los movimientos')
+    expect(accountFilter).toHaveValue('acc-cash')
+    await user.click(screen.getByRole('button', { name: /Banco Nación/ }))
+    expect(accountFilter).toHaveValue('acc-bank')
+
+    await user.selectOptions(accountFilter, 'all')
+    expect(await screen.findByRole('heading', { name: 'Movimientos de todas las cuentas' })).toBeInTheDocument()
+    await waitFor(() => expect(callsTo('GET /treasury/movements')).toHaveLength(1))
+    expect(String(callsTo('GET /treasury/movements')[0][0])).toMatch(/from=\d{4}-\d{2}-\d{2}&to=\d{4}-\d{2}-\d{2}/)
+    const qr = (await screen.findByText('Cobro QR')).closest('tr')!
+    expect(within(qr).getByText('Banco Nación')).toBeInTheDocument()
+    expect(within(screen.getByText('Fondo de cambio').closest('tr')!).getByText('Caja efectivo · Arrecifes')).toBeInTheDocument()
+    expect(within(qr.closest('table')!).getByRole('columnheader', { name: 'Cuenta' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Anular' })).not.toBeInTheDocument()
+    expect(screen.getByText(/Para corregir o anular un movimiento, elegí su cuenta/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Editar cuenta' })).not.toBeInTheDocument()
+  })
+
+  it('says when the range has more movements than the list shows', async () => {
+    const original = fetchMock.getMockImplementation()!
+    const many = Array.from({ length: 1000 }, (_, i) => ({ ...manual, movementId: `m-${i}`, concept: `Mov ${i}` }))
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) =>
+      url.startsWith('/treasury/movements') ? json(many) : original(url, init),
+    )
+    const user = userEvent.setup()
+    render(<TreasuryScreen />)
+
+    expect(await screen.findByText('Fondo de cambio')).toBeInTheDocument()
+    expect(screen.queryByText(/más recientes/)).not.toBeInTheDocument()
+    await user.selectOptions(screen.getByLabelText('Cuenta de los movimientos'), 'all')
+    expect(await screen.findByText(/Se muestran los 1000 movimientos más recientes de estas fechas/)).toBeInTheDocument()
+  })
+
+  it('names an advance and a salary payment in Spanish, never by their code', async () => {
+    const original = fetchMock.getMockImplementation()!
+    const advance = { ...manual, movementId: 'm-adv', kind: 'EmployeeAdvance', direction: 'Out', concept: 'Adelanto a Bacca, Ariel', canVoid: false, canEdit: false }
+    const salary = { ...manual, movementId: 'm-sal', kind: 'SalaryPayment', direction: 'Out', concept: 'Sueldo de Bacca, Ariel', canVoid: false, canEdit: false }
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) =>
+      url.startsWith('/treasury/accounts/acc-cash/movements') ? json([advance, salary]) : original(url, init),
+    )
+    render(<TreasuryScreen />)
+
+    const advanceRow = (await screen.findByText('Adelanto a Bacca, Ariel')).closest('tr')!
+    expect(within(advanceRow).getByText('Adelanto a empleado')).toBeInTheDocument()
+    expect(within(screen.getByText('Sueldo de Bacca, Ariel').closest('tr')!).getByText('Pago de sueldo')).toBeInTheDocument()
+    expect(screen.queryByText('EmployeeAdvance')).not.toBeInTheDocument()
+    expect(screen.queryByText('SalaryPayment')).not.toBeInTheDocument()
+  })
+
   it('never offers to deactivate the drawer of a branch', async () => {
     render(<TreasuryScreen />)
 
@@ -279,15 +335,24 @@ describe('TreasuryScreen', () => {
     expect(callsTo('POST /treasury/reprocess')).toHaveLength(1)
   })
 
-  it('lists the recurring expenses with when they repeat, and creates one that never ends', async () => {
+  // owner feedback 2026-10-14, A5: a recurring movement is registered from the same buttons and in the same place as any
+  // other movement, one form open at a time.
+  it('registers a recurring movement from the movement buttons, in the place of the form that was open', async () => {
     const user = userEvent.setup()
     render(<TreasuryScreen />)
 
+    await user.click(await screen.findByRole('button', { name: 'Registrar movimiento' }))
+    expect(screen.getByRole('heading', { name: 'Registrar movimiento' })).toBeInTheDocument()
+    expect(screen.queryByText('Luz (Edenor)')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Movimiento recurrente' }))
+    expect(screen.queryByRole('heading', { name: 'Registrar movimiento' })).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Nuevo gasto o ingreso recurrente' })).toBeInTheDocument()
+    // The ones already set up, below the form, with when they repeat.
     expect(await screen.findByText('Luz (Edenor)')).toBeInTheDocument()
     expect(screen.getByText('Todos los meses, el día 10')).toBeInTheDocument()
     expect(screen.getByText('10/11/2026')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Nuevo recurrente' }))
     await user.type(screen.getByLabelText('Concepto'), 'Internet')
     await user.type(screen.getByLabelText('Importe'), '25000')
     await user.selectOptions(screen.getByLabelText('Sale de la cuenta'), 'acc-bank')
@@ -300,5 +365,34 @@ describe('TreasuryScreen', () => {
       startDate: isoDay(new Date()), includePastDates: false,
     })
     expect(await screen.findByText('"Internet" creado: se registra solo en cada fecha.')).toBeInTheDocument()
+    // A new, empty form for the next one.
+    expect(screen.getByRole('heading', { name: 'Nuevo gasto o ingreso recurrente' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Concepto')).toHaveValue('')
+  })
+
+  // Follow-up F3 (review R3-edit-cancel-closes-panel): leaving an edit goes back to the new form, the list still there.
+  it('goes back to the new form when an edit of a recurring movement is cancelled', async () => {
+    const user = userEvent.setup()
+    render(<TreasuryScreen />)
+
+    await user.click(await screen.findByRole('button', { name: 'Movimiento recurrente' }))
+    await user.click(await screen.findByRole('button', { name: 'Editar Luz (Edenor)' }))
+    expect(screen.getByRole('heading', { name: 'Editar recurrente' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Cancelar' }))
+
+    expect(screen.getByRole('heading', { name: 'Nuevo gasto o ingreso recurrente' })).toBeInTheDocument()
+    expect(screen.getByText('Luz (Edenor)')).toBeInTheDocument()
+  })
+
+  it('closes the recurring movements with Cancelar, as any other form', async () => {
+    const user = userEvent.setup()
+    render(<TreasuryScreen />)
+
+    await user.click(await screen.findByRole('button', { name: 'Movimiento recurrente' }))
+    expect(screen.getByRole('heading', { name: 'Nuevo gasto o ingreso recurrente' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Cancelar' }))
+
+    expect(screen.queryByRole('heading', { name: 'Nuevo gasto o ingreso recurrente' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Luz (Edenor)')).not.toBeInTheDocument()
   })
 })

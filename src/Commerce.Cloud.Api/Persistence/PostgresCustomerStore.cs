@@ -61,7 +61,8 @@ public sealed class PostgresCustomerStore
         PriceListId: reader.IsDBNull(30) ? null : reader.GetGuid(30),
         PriceListName: reader.IsDBNull(31) ? null : reader.GetString(31),
         PartyType: Enum.Parse<PartyType>(reader.GetString(32)),
-        PaymentTermsDays: reader.IsDBNull(33) ? null : reader.GetInt16(33));
+        PaymentTermsDays: reader.IsDBNull(33) ? null : reader.GetInt16(33),
+        LocationReference: reader.IsDBNull(34) ? null : reader.GetString(34));
 
     // The LEFT JOINs resolve the display names of the optional city (global
     // geography, with its province) and business type (organization catalog;
@@ -73,7 +74,7 @@ public sealed class PostgresCustomerStore
         c.province, c.postal_code, c.delivery_notes, c.discount_percentage, c.payment_terms, c.notes,
         c.is_enabled, c.created_at_utc, c.created_by_user_id, c.updated_at_utc,
         c.city_id, ci.name, c.business_type_id, bt.name, ci.province_id, pr.name,
-        c.price_list_id, pl.name, c.party_type, c.payment_terms_days
+        c.price_list_id, pl.name, c.party_type, c.payment_terms_days, c.location_reference
         """;
 
     private const string FromClause =
@@ -229,12 +230,13 @@ public sealed class PostgresCustomerStore
                 (id, organization_id, customer_kind, display_name, legal_name, tax_id_type, tax_id,
                  tax_condition, phone, email, address_street, address_number, neighborhood, locality,
                  province, postal_code, delivery_notes, discount_percentage, payment_terms, notes,
-                 created_by_user_id, city_id, business_type_id, price_list_id, party_type, payment_terms_days)
+                 created_by_user_id, city_id, business_type_id, price_list_id, party_type, payment_terms_days,
+                 location_reference)
             VALUES
                 ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21,
                  $22, $23,
                  COALESCE($24::uuid, (SELECT default_customer_price_list_id FROM organizations WHERE id = $2)),
-                 $25, $26)
+                 $25, $26, $27)
             """, connection, tx))
         {
             cmd.Parameters.AddWithValue(customer.Id);
@@ -264,6 +266,7 @@ public sealed class PostgresCustomerStore
             cmd.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Uuid, (object?)customer.PriceListId ?? DBNull.Value);
             cmd.Parameters.AddWithValue((customer.PartyType ?? PartyTypeRules.DefaultFor(customer.TaxIdType)).ToString());
             cmd.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Smallint, (object?)(short?)customer.PaymentTermsDays ?? DBNull.Value);
+            cmd.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Text, (object?)customer.LocationReference ?? DBNull.Value);
 
             await cmd.ExecuteNonQueryAsync(ct);
         }
@@ -327,6 +330,7 @@ public sealed class PostgresCustomerStore
                 business_type_id = CASE WHEN $19 THEN $20::uuid ELSE business_type_id END,
                 price_list_id = CASE WHEN $23 THEN $24::uuid ELSE price_list_id END,
                 payment_terms_days = CASE WHEN $25 THEN $26::smallint ELSE payment_terms_days END,
+                location_reference = CASE WHEN $27 THEN $28::text ELSE location_reference END,
                 party_type = COALESCE($2::text, party_type),
                 updated_at_utc = now()
             WHERE id = $21 AND ($22::timestamptz IS NULL OR updated_at_utc = $22)
@@ -359,6 +363,8 @@ public sealed class PostgresCustomerStore
             cmd.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Uuid, (object?)update.PriceList?.Value ?? DBNull.Value);
             cmd.Parameters.AddWithValue(update.PaymentTermsDays is not null);
             cmd.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Smallint, (object?)(short?)update.PaymentTermsDays?.Value ?? DBNull.Value);
+            cmd.Parameters.AddWithValue(update.LocationReference is not null);
+            cmd.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Text, (object?)update.LocationReference?.Value ?? DBNull.Value);
 
             if (await cmd.ExecuteNonQueryAsync(ct) == 0)
             {

@@ -12,7 +12,7 @@ public enum EntityEditorMode
 }
 
 /// <summary>A column as the control renders it; <see cref="SortIndicator"/> is ▲, ▼ or empty.</summary>
-public sealed record EntityColumnState(string Key, string Header, double? Width, bool Sortable, string SortIndicator);
+public sealed record EntityColumnState(string Key, string Header, double? Width, bool Sortable, string SortIndicator, bool HideWhileEditing = false);
 
 /// <summary>A filter as the control renders it: a label and a combo of options.</summary>
 public sealed record EntityFilterState(string Key, string Label, IReadOnlyList<string> Options, int SelectedIndex);
@@ -190,7 +190,7 @@ public sealed class EntityListModel<T> : IEntityListModel where T : class
     public int RowActionCount => _definition.RowActions.Count;
 
     public IReadOnlyList<EntityColumnState> Columns => _definition.Columns
-        .Select(c => new EntityColumnState(c.Key, c.Header, c.Width, c.Sortable, SortIndicator(c.Key)))
+        .Select(c => new EntityColumnState(c.Key, c.Header, c.Width, c.Sortable, SortIndicator(c.Key), c.HideWhileEditing))
         .ToList();
 
     public IReadOnlyList<EntityFilterState> Filters => _definition.Filters

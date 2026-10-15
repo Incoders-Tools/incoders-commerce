@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { Button, buttonVariants } from '@/components/ui/button'
@@ -8,9 +8,19 @@ import { Select } from '@/components/ui/select'
 import { DataView, type DataViewColumn } from '@/components/data/DataView'
 import { PageHeader } from '@/components/data/PageHeader'
 import { ApiError } from '@/api/client'
-import { PAY_FREQUENCIES, createPayrollRun, listPayrollRuns, type PayFrequency, type PayrollRunSummary } from '@/api/employees'
+import {
+  PAY_FREQUENCIES,
+  createPayrollRun,
+  listEmployees,
+  listPayrollRuns,
+  type EmployeeRecord,
+  type PayFrequency,
+  type PayrollRunSummary,
+} from '@/api/employees'
+import { useOptionalBranchContext } from '@/branch/BranchContext'
 import { useMissingBranch } from '@/branch/useMissingBranch'
 import { formatIsoDate, formatMoney } from '@/dashboard/format'
+import { formatFileNumber } from '@/lib/fileNumber'
 import { todayIso } from '@/lib/isoDate'
 
 /** The first day of the current month, as `yyyy-MM-dd`. */
@@ -25,6 +35,7 @@ export function PayrollScreen() {
   const { t } = useTranslation('payroll')
   const navigate = useNavigate()
   const missingBranch = useMissingBranch()
+  const branchId = useOptionalBranchContext()?.selectedBranch?.id
   const [runs, setRuns] = useState<PayrollRunSummary[]>([])
   const [loading, setLoading] = useState(!missingBranch)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -35,6 +46,11 @@ export function PayrollScreen() {
   const [notes, setNotes] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  // owner feedback P4: the active employees of the branch, and the ones left out of the new run (all in at first).
+  const [staff, setStaff] = useState<EmployeeRecord[] | null>(null)
+  const [staffFailed, setStaffFailed] = useState(false)
+  const [leftOut, setLeftOut] = useState<Set<string>>(() => new Set())
+  const latestStaff = useRef(0)
 
   const load = useCallback(async () => {
     if (missingBranch) return
@@ -53,9 +69,54 @@ export function PayrollScreen() {
     void load()
   }, [load])
 
+  // Only the latest read counts: an earlier one answering late (the form closed and opened again) is dropped.
+  const readStaff = useCallback(() => {
+    const request = ++latestStaff.current
+    setStaffFailed(false)
+    listEmployees({ branchId }).then(
+      (list) => {
+        if (request === latestStaff.current) setStaff(list.filter((employee) => employee.isActive))
+      },
+      () => {
+        if (request !== latestStaff.current) return
+        setStaff(null)
+        setStaffFailed(true)
+      },
+    )
+  }, [branchId])
+
+  const openNew = () => {
+    setCreating(!creating)
+    if (creating) {
+      latestStaff.current++
+      return
+    }
+    setLeftOut(new Set())
+    setStaff(null)
+    readStaff()
+  }
+
+  // Back to the window (staff added in another tab meanwhile): read it again; who was left out stays out.
+  useEffect(() => {
+    if (!creating) return
+    window.addEventListener('focus', readStaff)
+    return () => window.removeEventListener('focus', readStaff)
+  }, [creating, readStaff])
+
+  const offered = (staff ?? []).filter((employee) => frequency === '' || employee.payFrequency === frequency)
+  const chosen = offered.filter((employee) => !leftOut.has(employee.id))
+  const toggle = (id: string) =>
+    setLeftOut((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+
   const create = async (event: FormEvent) => {
     event.preventDefault()
     if (periodFrom === '' || periodTo === '' || periodFrom > periodTo) return setError(t('new.errors.period'))
+    if (staff !== null && chosen.length === 0) return setError(t('new.errors.employees'))
     setError(null)
     setSaving(true)
     try {
@@ -64,6 +125,8 @@ export function PayrollScreen() {
         periodTo,
         ...(frequency ? { payFrequency: frequency } : {}),
         ...(notes.trim() ? { notes: notes.trim() } : {}),
+        // Without the staff read, the server takes every active employee of the frequency, as before.
+        ...(staff !== null ? { employeeIds: chosen.map((employee) => employee.id) } : {}),
       })
       navigate(`/app/payroll/${runId}`)
     } catch (err) {
@@ -106,7 +169,7 @@ export function PayrollScreen() {
         title={t('title')}
         description={t('description')}
         actions={
-          <Button type="button" onClick={() => setCreating((current) => !current)}>
+          <Button type="button" onClick={openNew}>
             {t('actions.new')}
           </Button>
         }
@@ -141,6 +204,36 @@ export function PayrollScreen() {
               <Input id="payrollNotes" maxLength={500} value={notes} onChange={(e) => setNotes(e.target.value)} />
             </div>
           </div>
+          <fieldset aria-label={t('new.employees')} className="flex flex-col gap-2 rounded-md border border-border p-3">
+            <legend className="px-1 text-sm font-medium">{t('new.employees')}</legend>
+            {staffFailed ? (
+              <p className="text-sm text-muted-foreground">{t('new.staffUnavailable')}</p>
+            ) : staff === null ? null : offered.length === 0 ? (
+              <p className="text-sm text-muted-foreground">{t('new.noStaff')}</p>
+            ) : (
+              <>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm text-muted-foreground">{t('new.chosenCount', { chosen: chosen.length, total: offered.length })}</span>
+                  <Button type="button" variant="outline" size="sm" onClick={() => setLeftOut(new Set())}>
+                    {t('new.all')}
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" onClick={() => setLeftOut(new Set(offered.map((employee) => employee.id)))}>
+                    {t('new.none')}
+                  </Button>
+                </div>
+                <ul className="grid gap-1 sm:grid-cols-2 lg:grid-cols-3">
+                  {offered.map((employee) => (
+                    <li key={employee.id}>
+                      <label className="flex items-center gap-2 text-sm">
+                        <input type="checkbox" checked={!leftOut.has(employee.id)} onChange={() => toggle(employee.id)} />
+                        {`${formatFileNumber(employee.fileNumber)} · ${employee.fullName}`}
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </fieldset>
           {error && (
             <p role="alert" className="text-sm text-destructive">
               {error}

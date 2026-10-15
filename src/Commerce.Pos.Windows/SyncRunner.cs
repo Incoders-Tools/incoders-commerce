@@ -243,8 +243,9 @@ public sealed class SyncRunner
     }
 
     /// <summary>
-    /// operator-ux-adjustments T5: refreshes the organization's quantity decimal separator. A failed pull (or an unknown
-    /// value) leaves the last known one stored, so quantities keep their format offline.
+    /// operator-ux-adjustments T5: refreshes the organization's quantity decimal separator, and (organization-account-
+    /// standing T8) its account standing inputs. A failed pull (or an unknown value) leaves the last known ones stored, so
+    /// quantities keep their format and the notice keeps counting offline.
     /// </summary>
     private async Task PullOrganizationSettingsAsync(DevicePairing pairing)
     {
@@ -257,6 +258,13 @@ public sealed class SyncRunner
         if (outcome is { Success: true, QuantityDecimalSeparator: { } separator })
         {
             _store.ApplyOrganizationSettings(separator);
+        }
+
+        // organization-account-standing T8: the standing inputs ride on the same answer; absent (older server) or a
+        // failed pull leaves the last known ones, so the footer notice keeps counting offline.
+        if (outcome is { Success: true, AccountStanding: { } standing })
+        {
+            _store.ApplyAccountStanding(standing);
         }
     }
 

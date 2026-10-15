@@ -8,7 +8,7 @@
   "file": "Legajo {{number}}",
   "totals": "Totales",
   "negativeNet": "Debe más de lo que cobra: no se le paga; el resto queda en su cuenta.",
-  "goodsDiscount": "de {{amount}} con {{percent}} % de bonificación",
+  "goodsDiscount": "de {{amount}} con {{discount}} de bonificación",
   "frequency": {
     "Monthly": "Mensual",
     "Biweekly": "Quincenal",
@@ -18,7 +18,8 @@
   "status": {
     "draft": "Borrador",
     "paid": "Pagada el {{date}}",
-    "paidFrom": "Pagada el {{date}} desde {{account}}"
+    "paidFrom": "Pagada el {{date}} desde {{account}}",
+    "paidFromSeveral": "Pagada el {{date}} desde varias cuentas"
   },
   "columns": {
     "number": "N°",
@@ -44,16 +45,23 @@
   },
   "new": {
     "title": "Nueva liquidación",
-    "hint": "Se prepara un borrador con un recibo por cada empleado activo de la sucursal (de la frecuencia elegida): su sueldo pactado, sus adelantos pendientes y la mercadería que llevó. Después podés agregar horas extra, premios u otros descuentos, y fijar la bonificación de la mercadería antes de pagar.",
+    "hint": "Se prepara un borrador con un recibo por cada empleado elegido (de los activos de la sucursal que cobran con esa frecuencia): su sueldo pactado, sus adelantos pendientes, sus horas extra y la mercadería que llevó. Después podés agregar premios u otros descuentos, y fijar la bonificación de la mercadería antes de pagar.",
     "from": "Desde",
     "to": "Hasta",
     "frequency": "Empleados que cobran",
     "notes": "Nota (opcional)",
+    "employees": "Empleados a liquidar",
+    "chosenCount": "{{chosen}} de {{total}} elegidos",
+    "all": "Todos",
+    "none": "Ninguno",
+    "noStaff": "No hay empleados activos en esta sucursal con esa frecuencia de pago.",
+    "staffUnavailable": "No se pudo cargar el personal: se liquidan todos los empleados activos de la frecuencia.",
     "create": "Preparar liquidación",
     "creating": "Preparando…",
     "cancel": "Cancelar",
     "errors": {
-      "period": "Elegí un período válido: \"Desde\" no puede ser posterior a \"Hasta\"."
+      "period": "Elegí un período válido: \"Desde\" no puede ser posterior a \"Hasta\".",
+      "employees": "Elegí al menos un empleado."
     }
   },
   "run": {
@@ -79,7 +87,22 @@
     "cancel": "Cancelar",
     "confirmTitle": "Pagar la liquidación {{number}}",
     "confirmMessage_one": "Se paga {{total}} desde {{account}} a {{count}} empleado. ¿Confirmás?",
-    "confirmMessage_other": "Se pagan {{total}} desde {{account}} a {{count}} empleados. ¿Confirmás?"
+    "confirmMessage_other": "Se pagan {{total}} desde {{account}} a {{count}} empleados. ¿Confirmás?",
+    "severalAccounts": "varias cuentas",
+    "splitsTitle": "Cómo se paga cada recibo",
+    "splitOf": "Pago de {{name}}",
+    "whole": "Todo desde {{account}}",
+    "split": "Dividir el pago",
+    "splitLabel": "Dividir el pago de {{name}}",
+    "unsplit": "Todo desde una cuenta",
+    "partAccount": "Cuenta {{n}} de {{name}}",
+    "partAmount": "Importe {{n}} de {{name}}",
+    "addPart": "+ Agregar cuenta",
+    "removePart": "Quitar",
+    "partsSum": "Se paga {{paid}} de {{net}}.",
+    "partsOver": "Supera el neto por {{amount}}.",
+    "partsShort": "Quedan {{amount}} a favor del empleado (Le debemos).",
+    "partsInvalid": "Cada cuenta necesita un importe mayor que cero, con hasta dos decimales."
   },
   "editor": {
     "lines": "Haberes y descuentos de {{name}}",
@@ -97,13 +120,27 @@
     "goods": "Mercadería que llevó",
     "discount": "Bonificación %",
     "goodsResult": "Se le bonifica {{discount}} y se le descuenta {{deducted}} del sueldo.",
-    "goodsLine": "Mercadería ({{percent}} % de bonificación)",
+    "goodsLine": "Mercadería",
+    "goodsLineDiscount": "Mercadería (bonificación {{discount}})",
+    "goodsItems": "Mercadería de {{name}}",
+    "itemDiscount": "Bonificación % de {{name}}",
+    "discountRest": "Bonificación % sobre el resto",
+    "goodsUntracked": "Sin detalle de productos: {{amount}}",
+    "goodsSource": {
+      "Web": "Web",
+      "PosSale": "Venta POS"
+    },
     "save": "Guardar recibo",
     "saving": "Guardando…",
     "errors": {
       "line": "Cada renglón necesita un concepto y un importe mayor que cero.",
       "percent": "La bonificación es un porcentaje de 0 a 100."
-    }
+    },
+    "overtimeHint": "Se calcula con las horas extra cargadas.",
+    "goodsDeductionLine": "Mercadería (con bonificación)",
+    "goodsDeductionHint": "Se calcula con la mercadería que llevó y la bonificación de abajo.",
+    "paidFrom": "Pagado desde {{account}}",
+    "leftOwed": "Quedó a favor del empleado"
   },
   "print": {
     "back": "Volver",
@@ -113,11 +150,13 @@
       "employee": "Copia del empleado",
       "business": "Copia de la empresa"
     },
-    "goods": "Mercadería retirada {{amount}} ({{percent}} % de bonificación)",
+    "goods": "Mercadería retirada {{amount}} (bonificación {{discount}})",
     "net": "Neto cobrado",
     "paid": "Pagado el {{date}} ({{account}}).",
     "disclaimer": "Comprobante interno de lo pagado. No reemplaza el recibo de sueldo legal.",
-    "signature": "Recibí conforme (firma y aclaración)"
+    "signature": "Recibí conforme (firma y aclaración)",
+    "paidParts": "Pagado el {{date}}: {{parts}}.",
+    "leftOwed": "Quedó a favor del empleado: {{amount}}."
   },
   "errors": {
     "load": "No se pudo cargar la liquidación.",
@@ -128,7 +167,10 @@
       "account-not-found": "Esa cuenta de Tesorería no existe.",
       "account-inactive": "Esa cuenta de Tesorería está inactiva.",
       "nothing-to-pay": "La liquidación no tiene recibos.",
-      "branch-selection-required": "Elegí una sucursal arriba."
+      "branch-selection-required": "Elegí una sucursal arriba.",
+      "employees-not-eligible": "Algún empleado elegido ya no está activo en esta sucursal o cobra con otra frecuencia. Volvé a abrir la liquidación nueva y probá de nuevo.",
+      "payment-exceeds-net": "Lo que se paga desde las cuentas supera el neto de algún recibo.",
+      "payment-not-in-run": "Algún recibo ya no está en esta liquidación. Volvé a abrirla y probá de nuevo."
     }
   }
 }

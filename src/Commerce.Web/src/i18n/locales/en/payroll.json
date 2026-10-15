@@ -8,7 +8,7 @@
   "file": "File {{number}}",
   "totals": "Totals",
   "negativeNet": "Owes more than their pay: nothing is paid; the rest stays on their account.",
-  "goodsDiscount": "of {{amount}} with {{percent}} % off",
+  "goodsDiscount": "of {{amount}} with {{discount}} off",
   "frequency": {
     "Monthly": "Monthly",
     "Biweekly": "Every two weeks",
@@ -18,7 +18,8 @@
   "status": {
     "draft": "Draft",
     "paid": "Paid on {{date}}",
-    "paidFrom": "Paid on {{date}} from {{account}}"
+    "paidFrom": "Paid on {{date}} from {{account}}",
+    "paidFromSeveral": "Paid on {{date}} from several accounts"
   },
   "columns": {
     "number": "No.",
@@ -44,16 +45,23 @@
   },
   "new": {
     "title": "New payroll",
-    "hint": "A draft is prepared with a payslip per active employee of the branch (of the chosen frequency): agreed pay, pending advances and goods taken. Then add overtime, bonuses or other deductions and set the goods discount before paying.",
+    "hint": "A draft is prepared with a payslip for each employee chosen (among the active ones of the branch paid that often): the agreed salary, pending advances, overtime and the goods taken. Then you can add bonuses or other deductions, and set the goods discount before paying.",
     "from": "From",
     "to": "To",
     "frequency": "Employees paid",
     "notes": "Note (optional)",
+    "employees": "Employees to pay",
+    "chosenCount": "{{chosen}} of {{total}} chosen",
+    "all": "All",
+    "none": "None",
+    "noStaff": "There are no active employees in this branch with that pay frequency.",
+    "staffUnavailable": "The staff could not be loaded: every active employee of the frequency is paid.",
     "create": "Prepare payroll",
     "creating": "Preparing…",
     "cancel": "Cancel",
     "errors": {
-      "period": "Choose a valid period: \"From\" cannot be after \"To\"."
+      "period": "Choose a valid period: \"From\" cannot be after \"To\".",
+      "employees": "Choose at least one employee."
     }
   },
   "run": {
@@ -79,7 +87,22 @@
     "cancel": "Cancel",
     "confirmTitle": "Pay payroll {{number}}",
     "confirmMessage_one": "{{total}} is paid from {{account}} to {{count}} employee. Confirm?",
-    "confirmMessage_other": "{{total}} is paid from {{account}} to {{count}} employees. Confirm?"
+    "confirmMessage_other": "{{total}} is paid from {{account}} to {{count}} employees. Confirm?",
+    "severalAccounts": "several accounts",
+    "splitsTitle": "How each payslip is paid",
+    "splitOf": "Payment of {{name}}",
+    "whole": "All from {{account}}",
+    "split": "Split the payment",
+    "splitLabel": "Split the payment of {{name}}",
+    "unsplit": "All from one account",
+    "partAccount": "Account {{n}} of {{name}}",
+    "partAmount": "Amount {{n}} of {{name}}",
+    "addPart": "+ Add account",
+    "removePart": "Remove",
+    "partsSum": "{{paid}} of {{net}} is paid.",
+    "partsOver": "Exceeds the net by {{amount}}.",
+    "partsShort": "{{amount}} stays owed to the employee.",
+    "partsInvalid": "Each account needs an amount above zero, with at most two decimals."
   },
   "editor": {
     "lines": "Earnings and deductions of {{name}}",
@@ -97,13 +120,27 @@
     "goods": "Goods taken",
     "discount": "Discount %",
     "goodsResult": "{{discount}} is forgiven and {{deducted}} is deducted from the salary.",
-    "goodsLine": "Goods ({{percent}} % off)",
+    "goodsLine": "Goods",
+    "goodsLineDiscount": "Goods ({{discount}} off)",
+    "goodsItems": "Goods of {{name}}",
+    "itemDiscount": "Discount % of {{name}}",
+    "discountRest": "Discount % on the rest",
+    "goodsUntracked": "Without product detail: {{amount}}",
+    "goodsSource": {
+      "Web": "Web",
+      "PosSale": "POS sale"
+    },
     "save": "Save payslip",
     "saving": "Saving…",
     "errors": {
       "line": "Every line needs a concept and an amount above zero.",
       "percent": "The discount is a percentage from 0 to 100."
-    }
+    },
+    "overtimeHint": "Computed from the recorded overtime.",
+    "goodsDeductionLine": "Goods (after discount)",
+    "goodsDeductionHint": "Worked out from the goods taken and the discount below.",
+    "paidFrom": "Paid from {{account}}",
+    "leftOwed": "Left owed to the employee"
   },
   "print": {
     "back": "Back",
@@ -113,11 +150,13 @@
       "employee": "Employee's copy",
       "business": "Business's copy"
     },
-    "goods": "Goods taken {{amount}} ({{percent}} % off)",
+    "goods": "Goods taken {{amount}} ({{discount}} off)",
     "net": "Net received",
     "paid": "Paid on {{date}} ({{account}}).",
     "disclaimer": "Internal receipt of what was paid. It does not replace the legal payslip.",
-    "signature": "Received (signature and name)"
+    "signature": "Received (signature and name)",
+    "paidParts": "Paid on {{date}}: {{parts}}.",
+    "leftOwed": "Left owed to the employee: {{amount}}."
   },
   "errors": {
     "load": "The payroll could not be loaded.",
@@ -128,7 +167,10 @@
       "account-not-found": "That treasury account does not exist.",
       "account-inactive": "That treasury account is inactive.",
       "nothing-to-pay": "The payroll has no payslips.",
-      "branch-selection-required": "Choose a branch above."
+      "branch-selection-required": "Choose a branch above.",
+      "employees-not-eligible": "An employee chosen is no longer active in this branch or is paid on another frequency. Open the new payroll again and retry.",
+      "payment-exceeds-net": "What the accounts pay exceeds the net of a payslip.",
+      "payment-not-in-run": "A payslip is no longer in this payroll. Open it again and retry."
     }
   }
 }

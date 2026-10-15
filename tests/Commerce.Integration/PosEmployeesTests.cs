@@ -47,10 +47,12 @@ public sealed class PosEmployeesTests
 
     private static EmployeeRecordDto Employee(
         string last, string first, int file = 1, bool active = true, decimal balance = 0m, Guid? customerId = null,
-        decimal purchases = 0m, string frequency = "Monthly", decimal salary = 650_000m, string? role = "Carnicero") =>
+        decimal purchases = 0m, string frequency = "Monthly", decimal salary = 650_000m, string? role = "Carnicero",
+        decimal overtime = 0m, decimal overtimeHours = 0m, decimal payToDate = 0m) =>
         new(Guid.NewGuid(), Branch, "Centro", file, first, last, $"{last}, {first}", "30111222", "27301112223", null, role,
             null, null, null, new DateOnly(2024, 3, 15), null, frequency, salary, customerId, null, active,
-            DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, balance, purchases);
+            DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, balance, purchases, OvertimeToPay: overtime, OvertimeHoursToPay: overtimeHours,
+            PayToDate: payToDate);
 
     // ---- client: the same endpoints as the web -------------------------------------------
 
@@ -83,6 +85,133 @@ public sealed class PosEmployeesTests
         Assert.Equal((id, 7, "Pérez, Ana", "Biweekly", 320_000.5m, -50_000m), (employee.Id, employee.FileNumber, employee.FullName,
             employee.PayFrequency, employee.BaseSalary, employee.Balance));
         Assert.Equal(new DateOnly(2024, 3, 15), employee.HireDate);
+    }
+
+    [Fact]
+    public async Task NextFileNumber_ReadsTheNumberANewEmployeeWillGet_AndIsNullWhenUnreadable()
+    {
+        var handler = new RecordingHandler(HttpStatusCode.OK, "{\"fileNumber\":8}");
+        Assert.Equal(8, await ClientFor(handler).NextFileNumberAsync());
+        Assert.Equal(HttpMethod.Get, handler.Method);
+        Assert.Equal("/employees/next-file-number", handler.PathAndQuery);
+
+        Assert.Null(await ClientFor(new RecordingHandler(HttpStatusCode.InternalServerError, "")).NextFileNumberAsync());
+    }
+
+    // ---- overtime (employee-lifecycle E2), the web's endpoints and words ----------------------
+
+    [Fact]
+    public async Task Overtime_IsListedRecordedAndDeleted_OnTheWebsEndpoints()
+    {
+        var id = Guid.NewGuid();
+        var list = new RecordingHandler(HttpStatusCode.OK, $$"""
+            [{"id":"{{id}}","employeeId":"{{id}}","workDate":"2026-10-11","hours":4,"multiplier":2,"hourlyRate":2000,"amount":16000,
+              "note":"Inventario","status":"InPayroll","runNumber":3,"createdAtUtc":"2026-10-11T20:00:00Z"}]
+            """);
+        var record = Assert.Single((await ClientFor(list).ListOvertimeAsync(id))!);
+        Assert.Equal($"/employees/{id}/overtime", list.PathAndQuery);
+        Assert.Equal((new DateOnly(2026, 10, 11), 4m, 2m, 16_000m, "InPayroll", 3), (record.WorkDate, record.Hours, record.Multiplier,
+            record.Amount, record.Status, record.RunNumber));
+
+        var post = new RecordingHandler(HttpStatusCode.Created, "{}");
+        var recorded = await ClientFor(post).RecordOvertimeAsync(id, new OvertimeRequestDto(new DateOnly(2026, 10, 11), 2.5m, 1.5m, "Carga"));
+        Assert.Equal(EmployeeAdminMutationKind.Succeeded, recorded.Kind);
+        Assert.Equal((HttpMethod.Post, $"/employees/{id}/overtime"), (post.Method, post.PathAndQuery));
+        using (var body = JsonDocument.Parse(post.Body!))
+        {
+            Assert.Equal(("2026-10-11", 2.5m, 1.5m, "Carga"), (body.RootElement.GetProperty("workDate").GetString(),
+                body.RootElement.GetProperty("hours").GetDecimal(), body.RootElement.GetProperty("multiplier").GetDecimal(),
+                body.RootElement.GetProperty("note").GetString()));
+        }
+
+        var delete = new RecordingHandler(HttpStatusCode.Conflict, "{\"error\":\"overtime-settled\"}");
+        var refused = await ClientFor(delete).DeleteOvertimeAsync(id, id);
+        Assert.Equal((HttpMethod.Delete, $"/employees/{id}/overtime/{id}"), (delete.Method, delete.PathAndQuery));
+        Assert.Equal("Esas horas extra ya están en una liquidación: se cambian ahí.", refused.ErrorMessage);
+    }
+
+    [Fact]
+    public void Overtime_ProposesTheDaysMultiplier_ReadsHoursAndMultiplierLikeTheWeb_AndNamesEachStatus()
+    {
+        Assert.Equal("2", EmployeeFormRules.ProposedMultiplierText(new DateOnly(2026, 10, 11)));
+        Assert.Equal("1", EmployeeFormRules.ProposedMultiplierText(new DateOnly(2026, 10, 12)));
+
+        Assert.Equal(2.5m, EmployeeFormRules.ParseHours("2,5"));
+        Assert.Null(EmployeeFormRules.ParseHours("0"));
+        Assert.Null(EmployeeFormRules.ParseHours("25"));
+        Assert.Equal(1.5m, EmployeeFormRules.ParseMultiplier("1,5"));
+        Assert.Null(EmployeeFormRules.ParseMultiplier("0,5"));
+        Assert.Null(EmployeeFormRules.ParseMultiplier("3,5"));
+        Assert.Equal("Importe: $ 16.000,00".Replace(' ', '\u00a0'), EmployeeFormRules.OvertimePreview(4m, 2_000m, 2m)?.Replace(' ', '\u00a0'));
+
+        OvertimeRecordDto Record(string status, int? run) =>
+            new(Guid.NewGuid(), Guid.NewGuid(), new DateOnly(2026, 10, 11), 4m, 2m, 2_000m, 16_000m, null, status, run, DateTimeOffset.UnixEpoch);
+        Assert.Equal("Pendiente", EmployeeFormRules.OvertimeStatusText(Record("Pending", null)));
+        Assert.Equal("En la liquidación 3", EmployeeFormRules.OvertimeStatusText(Record("InPayroll", 3)));
+        Assert.Equal("Liquidada (liquidación 2)", EmployeeFormRules.OvertimeStatusText(Record("Paid", 2)));
+        Assert.Equal("¿Borrar las horas extra del 11/10/2026 (4 h)? Usalo solo si se cargaron por error.",
+            EmployeeFormRules.OvertimeDeleteQuestion(Record("Pending", null)));
+    }
+
+    [Fact]
+    public void TakesGoods_ReadsTheWebsTexts_WhichNoLongerSayThePosOnly()
+    {
+        // employee-lifecycle E4: the goods are registered in the web too, not only sold at the POS.
+        using var web = JsonDocument.Parse(File.ReadAllText(Path.Combine(
+            RepoRoot(), "src", "Commerce.Web", "src", "i18n", "locales", "es", "employees.json")));
+        var form = web.RootElement.GetProperty("form");
+        var xaml = Src("EmployeesView.xaml");
+        foreach (var text in new[] { form.GetProperty("takesGoods").GetString()!, form.GetProperty("takesGoodsHint").GetString()! })
+        {
+            Assert.Contains("web", text);
+            Assert.Contains(text, xaml);
+        }
+    }
+
+    [Fact]
+    public async Task Overtime_HasItsRowAction_ItsPanel_AndTheWebsTexts()
+    {
+        var (list, ana, _, _) = List();
+        await list.Model.InvokeAsync(ana, EmployeeList.OvertimeAction);
+        Assert.Equal(EmployeeEditorPurpose.Overtime, list.Purpose);
+        Assert.Equal("Horas extra de Pérez, Ana", list.Model.EditorTitle);
+
+        using var web = JsonDocument.Parse(File.ReadAllText(Path.Combine(
+            RepoRoot(), "src", "Commerce.Web", "src", "i18n", "locales", "es", "employees.json")));
+        var overtime = web.RootElement.GetProperty("overtime");
+        var form = web.RootElement.GetProperty("form");
+        var xaml = Src("EmployeesView.xaml");
+        foreach (var text in new[]
+        {
+            overtime.GetProperty("description").GetString()!, overtime.GetProperty("noRate").GetString()!,
+            overtime.GetProperty("multiplierHint").GetString()!, overtime.GetProperty("save").GetString()!,
+            overtime.GetProperty("empty").GetString()!, form.GetProperty("overtimeHourlyRate").GetString()!,
+            form.GetProperty("overtimeHourlyRateHint").GetString()!,
+        })
+        {
+            Assert.Contains(text, xaml);
+        }
+
+        Assert.Equal(PosMessages.OvertimeHoursInvalid, overtime.GetProperty("errors").GetProperty("hours").GetString());
+        Assert.Equal(PosMessages.OvertimeMultiplierInvalid, overtime.GetProperty("errors").GetProperty("multiplier").GetString());
+        Assert.Equal(PosMessages.OvertimeDateInvalid, overtime.GetProperty("errors").GetProperty("date").GetString());
+        Assert.Equal(PosMessages.OvertimeRateInvalid, form.GetProperty("errors").GetProperty("overtimeRate").GetString());
+
+        var view = Src("EmployeesView.xaml.cs");
+        Assert.Contains("x:Name=\"OvertimePanel\"", xaml);
+        Assert.Contains("x:Name=\"OvertimeRateTextBox\"", xaml);
+        Assert.Contains("await _client.ListOvertimeAsync(", view);
+        Assert.Contains("await _client.RecordOvertimeAsync(", view);
+        Assert.Contains("await _client.DeleteOvertimeAsync(", view);
+        // An older terminal must not wipe the rate: the POS always sends it, 0 when emptied on an edit.
+        Assert.Contains("OvertimeHourlyRate: overtimeRate", view);
+
+        // Opening the panel on another employee (the same day: the date text does not change, so TextChanged does not
+        // fire) must not keep the previous one's multiplier or list. Proved on the source: the panel is not rendered here.
+        var open = view[view.IndexOf("private Task OpenOvertimeAsync", StringComparison.Ordinal)..];
+        open = open[..open.IndexOf("private async Task LoadOvertimeAsync", StringComparison.Ordinal)];
+        Assert.Contains("OvertimeItemsControl.ItemsSource = null;", open);
+        Assert.Contains("OvertimeMultiplierTextBox.Text = EmployeeFormRules.ProposedMultiplierText(today);", open);
     }
 
     [Fact]
@@ -123,17 +252,26 @@ public sealed class PosEmployeesTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task SetActive_PostsTheFlag_TheServerDatesTheTermination(bool isActive)
+    public async Task SetActive_PostsTheLeaveWithItsDateAndReason_OrTheReinstatement(bool isActive)
     {
         var id = Guid.NewGuid();
         var handler = new RecordingHandler(HttpStatusCode.NoContent);
 
-        var outcome = await ClientFor(handler).SetActiveAsync(id, isActive);
+        // employee-lifecycle E3: "Gestionar baja" sends the date and the reason, as the web.
+        var outcome = isActive
+            ? await ClientFor(handler).SetActiveAsync(id, true)
+            : await ClientFor(handler).SetActiveAsync(id, false, new DateOnly(2026, 10, 10), "Renuncia");
 
         Assert.Equal(EmployeeAdminMutationKind.Succeeded, outcome.Kind);
         Assert.Equal(HttpMethod.Post, handler.Method);
         Assert.Equal($"/employees/{id}/active", handler.PathAndQuery);
-        Assert.Equal(isActive ? """{"isActive":true}""" : """{"isActive":false}""", handler.Body);
+        using var body = JsonDocument.Parse(handler.Body!);
+        Assert.Equal(isActive, body.RootElement.GetProperty("isActive").GetBoolean());
+        if (!isActive)
+        {
+            Assert.Equal(("2026-10-10", "Renuncia"), (body.RootElement.GetProperty("terminationDate").GetString(),
+                body.RootElement.GetProperty("terminationReason").GetString()));
+        }
     }
 
     [Fact]
@@ -226,10 +364,12 @@ public sealed class PosEmployeesTests
 
     private static (EmployeeList List, EmployeeRecordDto Ana, EmployeeRecordDto Bruno, EmployeeRecordDto Carla) List()
     {
-        var ana = Employee("Pérez", "Ana", file: 2, balance: 120_000m, customerId: Guid.NewGuid(), purchases: 15_500m);
-        var bruno = Employee("Acosta", "Bruno", file: 10, balance: -50_000m, frequency: "Weekly", salary: 150_000m, role: null);
+        var ana = Employee("Pérez", "Ana", file: 2, balance: 120_000m, customerId: Guid.NewGuid(), purchases: 15_500m,
+            overtime: 40_500m, overtimeHours: 4.5m, payToDate: -5_000m);
+        var bruno = Employee("Acosta", "Bruno", file: 10, balance: -50_000m, frequency: "Weekly", salary: 150_000m, role: null,
+            payToDate: 100_000m);
         var carla = Employee("Zárate", "Carla", file: 5, active: false);
-        var list = new EmployeeList(_ => Task.CompletedTask);
+        var list = new EmployeeList();
         list.Model.SetItems([ana, bruno, carla]);
         return (list, ana, bruno, carla);
     }
@@ -240,8 +380,17 @@ public sealed class PosEmployeesTests
         var (list, _, _, _) = List();
         var model = list.Model;
 
-        Assert.Equal(["Legajo", "Apellido y nombre", "Puesto", "Sueldo pactado", "Cuenta", "Mercadería a descontar", "Estado"],
+        Assert.Equal(["Legajo", "Apellido y nombre", "Puesto", "Sueldo pactado", "Adelantos y saldo", "Mercadería a descontar", "Horas extra a pagar",
+                "A cobrar a hoy", "Estado"],
             model.Columns.Select(c => c.Header));
+
+        // owner feedback P2: the web's own header for the overtime still to pay.
+        using var web = JsonDocument.Parse(File.ReadAllText(Path.Combine(
+            RepoRoot(), "src", "Commerce.Web", "src", "i18n", "locales", "es", "employees.json")));
+        Assert.Equal(web.RootElement.GetProperty("columns").GetProperty("overtime").GetString(), model.Columns[6].Header);
+        // owner feedback round 2, R3: the account column is the advances (and a salary left owed); the pay to date apart.
+        Assert.Equal(web.RootElement.GetProperty("columns").GetProperty("balance").GetString(), model.Columns[4].Header);
+        Assert.Equal(web.RootElement.GetProperty("columns").GetProperty("payToDate").GetString(), model.Columns[7].Header);
         Assert.Equal(["Acosta, Bruno", "Pérez, Ana"], list.Model.Visible.Select(e => e.FullName));
     }
 
@@ -251,9 +400,11 @@ public sealed class PosEmployeesTests
         var (list, _, _, _) = List();
         var rows = list.Model.Rows;
 
-        Assert.Equal(["10", "Acosta, Bruno", string.Empty, "$ 150.000,00 por semana", "Nos debe $ 50.000,00", "No lleva", "Activo"],
+        Assert.Equal(["0010", "Acosta, Bruno", string.Empty, "$ 150.000,00 por semana", "Nos debe $ 50.000,00", "No lleva", "—", "$ 100.000,00",
+                "Activo"],
             rows[0].Cells);
-        Assert.Equal(["2", "Pérez, Ana", "Carnicero", "$ 650.000,00 por mes", "Le debemos $ 120.000,00", "$ 15.500,00", "Activo"],
+        Assert.Equal(["0002", "Pérez, Ana", "Carnicero", "$ 650.000,00 por mes", "Le debemos $ 120.000,00", "$ 15.500,00", "$ 40.500,00 (4,5 h)",
+                "Nos debe $ 5.000,00", "Activo"],
             rows[1].Cells);
     }
 
@@ -272,6 +423,7 @@ public sealed class PosEmployeesTests
     [Theory]
     [InlineData("perez")]
     [InlineData("10")]
+    [InlineData("0010")]
     [InlineData("30111222")]
     [InlineData("27301112223")]
     public void Search_CoversNameFileNumberDniAndCuil(string text)
@@ -300,19 +452,50 @@ public sealed class PosEmployeesTests
     }
 
     [Fact]
-    public async Task DarDeBaja_AsksFirst_ThenRunsTheToggle()
+    public async Task TheLeave_IsItsOwnSection_InsteadOfAQuickToggle_AndReadsLikeTheWeb()
     {
-        EmployeeRecordDto? toggled = null;
         var ana = Employee("Pérez", "Ana");
-        var list = new EmployeeList(employee => { toggled = employee; return Task.CompletedTask; });
+        var list = new EmployeeList();
         list.Model.SetItems([ana]);
 
-        await list.Model.InvokeAsync(ana, EmployeeList.ToggleActiveAction);
-        Assert.Null(toggled);
-        Assert.Equal("¿Dar de baja a Pérez, Ana?", list.Model.PendingConfirmation?.Question);
+        await list.Model.InvokeAsync(ana, EmployeeList.LeaveAction);
+        Assert.Equal(EmployeeEditorPurpose.Leave, list.Purpose);
+        Assert.Equal("Baja de Pérez, Ana", list.Model.EditorTitle);
+        Assert.DoesNotContain("ToggleActiveAction", Src("EmployeeList.cs"));
 
-        await list.Model.ConfirmAsync();
-        Assert.Same(ana, toggled);
+        var left = ana with { IsActive = false, TerminationDate = new DateOnly(2026, 10, 10), TerminationReason = "Renuncia" };
+        Assert.Equal("Dado de baja el 10/10/2026. Motivo: Renuncia.", EmployeeFormRules.LeaveStatusText(left));
+        Assert.Equal("Dado de baja.", EmployeeFormRules.LeaveStatusText(ana with { IsActive = false }));
+        Assert.Equal("Dado de baja el 10/10/2026. Motivo: Renuncia.", EmployeeFormRules.LeaveStatusText(left with { TerminationReason = "Renuncia." }));
+
+        // The form's checks, as the web's: a reason is required and the date is dd/mm/aaaa, up to today.
+        var today = new DateOnly(2026, 10, 12);
+        Assert.Equal(PosMessages.LeaveReasonRequired, EmployeeFormRules.LeaveInputError("10/10/2026", "  ", today, out _));
+        Assert.Equal(PosMessages.LeaveDateInvalid, EmployeeFormRules.LeaveInputError("13/10/2026", "Renuncia", today, out _));
+        Assert.Equal(PosMessages.LeaveDateInvalid, EmployeeFormRules.LeaveInputError("", "Renuncia", today, out _));
+        Assert.Null(EmployeeFormRules.LeaveInputError("12/10/2026", "Renuncia", today, out var date));
+        Assert.Equal(today, date);
+        Assert.Contains("EmployeeFormRules.LeaveInputError(", Src("EmployeesView.xaml.cs"));
+
+        using var web = JsonDocument.Parse(File.ReadAllText(Path.Combine(
+            RepoRoot(), "src", "Commerce.Web", "src", "i18n", "locales", "es", "employees.json")));
+        var leave = web.RootElement.GetProperty("leave");
+        var xaml = Src("EmployeesView.xaml");
+        foreach (var key in new[] { "description", "date", "reason", "save", "reinstate", "reinstateHint" })
+        {
+            Assert.Contains(leave.GetProperty(key).GetString()!, xaml);
+        }
+
+        Assert.Equal(PosMessages.LeaveReasonRequired, leave.GetProperty("errors").GetProperty("reason").GetString());
+        Assert.Equal(PosMessages.LeaveDateInvalid, leave.GetProperty("errors").GetProperty("date").GetString());
+        Assert.Equal(leave.GetProperty("codes").GetProperty("employee-in-payroll-draft").GetString(),
+            EmployeeAdminClient.ConflictMessage("employee-in-payroll-draft"));
+
+        // The payroll is web only: the POS says where the last salary is settled.
+        Assert.Contains("El último sueldo se liquida en la web", xaml);
+        var view = Src("EmployeesView.xaml.cs");
+        Assert.Contains("x:Name=\"LeavePanel\"", xaml);
+        Assert.Contains("await _client.SetActiveAsync(employee.Id, false, date, reason", view);
     }
 
     // ---- the form rules, the web's ---------------------------------------------------------
@@ -335,6 +518,20 @@ public sealed class PosEmployeesTests
     public void ParseAmount_RefusesWhatTheWebRefuses(string text) => Assert.Null(EmployeeFormRules.ParseAmount(text));
 
     [Fact]
+    public void TheFileNumber_ReadsZeroPadded_AndANewEmployeeShowsWhichOneItWillGet()
+    {
+        // employee-lifecycle E1, the same words as the web's placeholder.
+        Assert.Equal("Legajo vacío: automático (el siguiente: 0008).", EmployeeFormRules.FileNumberHint(8));
+        Assert.Equal("Legajo vacío: automático (el siguiente).", EmployeeFormRules.FileNumberHint(null));
+
+        var view = Src("EmployeesView.xaml.cs");
+        Assert.Contains("EmployeeFileNumber.Format(employee.FileNumber)", view);
+        Assert.Contains("await _client.NextFileNumberAsync(", view);
+        Assert.Contains("EmployeeFormRules.FileNumberHint(", view);
+        Assert.Contains("(legajo {EmployeeFileNumber.Format(saved.FileNumber)})", view);
+    }
+
+    [Fact]
     public void Salary_EmptyIsZero_FileNumberEmptyIsTheNextOne_DatesAreDayMonthYear()
     {
         Assert.Equal(0m, EmployeeFormRules.ParseSalary("  "));
@@ -345,6 +542,8 @@ public sealed class PosEmployeesTests
         Assert.Null(next);
         Assert.True(EmployeeFormRules.TryParseFileNumber("12", out var twelve));
         Assert.Equal(12, twelve);
+        Assert.True(EmployeeFormRules.TryParseFileNumber("0007", out var seven)); // what the form shows
+        Assert.Equal(7, seven);
         Assert.False(EmployeeFormRules.TryParseFileNumber("0", out _));
         Assert.False(EmployeeFormRules.TryParseFileNumber("1.5", out _));
 

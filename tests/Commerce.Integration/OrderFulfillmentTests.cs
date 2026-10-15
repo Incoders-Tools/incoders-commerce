@@ -57,8 +57,8 @@ public sealed class OrderFulfillmentTests : IDisposable
         var customer = Guid.NewGuid();
         await new PostgresCustomerStore(_dataSource!).CreateAsync(new CloudTenantScope(org),
             new NewCustomer(customer, CustomerKind.Wholesale, "Parrilla Don Julio", null, TaxIdType.Cuit, "30712345671",
-                TaxCondition.ResponsableInscripto, "2478-555555", null, "Frascheri", "626", null, null, null, null, "Portón verde",
-                null, null, null, actor),
+                TaxCondition.ResponsableInscripto, "2478-555555", null, "Frascheri", "626", null, null, null, null,
+                "Si no hay nadie, dejar con el vecino", null, null, null, actor, LocationReference: "Portón verde"),
             "org-user", actor, CancellationToken.None);
 
         using var owner = OpenOwner();
@@ -150,6 +150,8 @@ public sealed class OrderFulfillmentTests : IDisposable
         Assert.Empty(detail.AllowedTransitions);
         Assert.Equal(26_500m, detail.Summary.Total); // 2,5 kg x 10.000 + 3 x 500
         Assert.Equal(("Parrilla Don Julio", "30712345671", "Frascheri 626"), (detail.Party.DisplayName, detail.Party.TaxId, detail.Party.Address));
+        // owner-requests-quick-adjustments Q1: how to find the place and what to do with the delivery are two things.
+        Assert.Equal(("Portón verde", "Si no hay nadie, dejar con el vecino"), (detail.Party.LocationReference, detail.Party.DeliveryNotes));
         Assert.Single(await store.ListOrdersAsync(w.Scope, "Cancelled", null, null, "don julio", default));
         Assert.Empty(await store.ListOrdersAsync(w.Scope, "Active", null, null, null, default));
     }
@@ -162,14 +164,14 @@ public sealed class OrderFulfillmentTests : IDisposable
         var store = new PostgresFulfillmentStore(_dataSource!);
         var first = Order(w);
         var second = Order(w);
-        var planned = (await store.CreateRunAsync(w.Scope, Today, null, null, null, [first, second], w.Actor, default)).Id!.Value;
+        var planned = (await store.CreateRunAsync(w.Scope, Today, null, null, null, null, [first, second], w.Actor, default)).Id!.Value;
 
         Assert.Equal(FulfillmentOutcome.Done, (await store.DeleteRunAsync(w.Scope, planned, w.Actor, default)).Outcome);
         Assert.Null(await store.GetRunAsync(w.Scope, planned, default));
         Assert.Equal(FulfillmentOutcome.NotFound, (await store.DeleteRunAsync(w.Scope, planned, w.Actor, default)).Outcome);
 
         // Its orders are free: they join another run.
-        var next = await store.CreateRunAsync(w.Scope, Today, null, null, null, [first, second], w.Actor, default);
+        var next = await store.CreateRunAsync(w.Scope, Today, null, null, null, null, [first, second], w.Actor, default);
         Assert.Equal(FulfillmentOutcome.Done, next.Outcome);
         await store.DispatchRunAsync(w.Scope, next.Id!.Value, w.Actor, default);
         Assert.Equal("run-not-planned", (await store.DeleteRunAsync(w.Scope, next.Id!.Value, w.Actor, default)).Error);
@@ -186,11 +188,11 @@ public sealed class OrderFulfillmentTests : IDisposable
         var store = new PostgresFulfillmentStore(_dataSource!);
         var customerOrder = Order(w);
         var guestOrder = Order(w, guest: true);
-        var created = await store.CreateRunAsync(w.Scope, Today, "Juan", "Kangoo AB123CD", null, [customerOrder, guestOrder], w.Actor, default);
+        var created = await store.CreateRunAsync(w.Scope, Today, "Juan", "Kangoo AB123CD", null, null, [customerOrder, guestOrder], w.Actor, default);
         Assert.Equal(FulfillmentOutcome.Done, created.Outcome);
         var runId = created.Id!.Value;
         Assert.Equal("order-in-another-run",
-            (await store.CreateRunAsync(w.Scope, Today, null, null, null, [customerOrder], w.Actor, default)).Error);
+            (await store.CreateRunAsync(w.Scope, Today, null, null, null, null, [customerOrder], w.Actor, default)).Error);
 
         // Nothing moves before the return: not when planned, not when dispatched.
         Assert.Equal(FulfillmentOutcome.Done, (await store.DispatchRunAsync(w.Scope, runId, w.Actor, default)).Outcome);
@@ -281,7 +283,7 @@ public sealed class OrderFulfillmentTests : IDisposable
         var w = await SeedAsync();
         var store = new PostgresFulfillmentStore(_dataSource!);
         var order = Order(w);
-        var runId = (await store.CreateRunAsync(w.Scope, Today, null, null, null, [order], w.Actor, default)).Id!.Value;
+        var runId = (await store.CreateRunAsync(w.Scope, Today, null, null, null, null, [order], w.Actor, default)).Id!.Value;
         await store.DispatchRunAsync(w.Scope, runId, w.Actor, default);
 
         Assert.Equal(FulfillmentOutcome.Done, (await store.SettleRunAsync(w.Scope, runId,

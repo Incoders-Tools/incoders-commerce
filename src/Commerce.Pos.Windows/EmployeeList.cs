@@ -1,4 +1,5 @@
 using System.Globalization;
+using Commerce.Domain.Payroll;
 
 namespace Commerce.Pos.Windows;
 
@@ -10,29 +11,31 @@ public enum EmployeeEditorPurpose
     Edit,
     Advance,
     Account,
+    Overtime,
+    Leave,
 }
 
 /// <summary>
 /// The Personal → Empleados list on the reusable entity list, aligned with the web's <c>EmployeesScreen</c>
 /// (docs/architecture/cross-layer-parity.md): the Legajo / Apellido y nombre / Puesto / Sueldo pactado / Cuenta /
 /// Mercadería a descontar / Estado columns, the search over name, file number, DNI and CUIL, the Estado filter,
-/// and the Editar / Adelanto / Cuenta / Dar de baja-Reincorporar row actions. UI-free; the screen supplies the
-/// status change (it needs the connection and its busy controller) and fills its forms on <see cref="EditorChanged"/>.
+/// and the Editar / Adelanto / Cuenta / Horas extra / Gestionar baja row actions. UI-free: every action opens a form
+/// of the editor, which the screen fills (and saves through its connection) on <see cref="EditorChanged"/>.
 /// The terminal shows the staff of ITS branch only (the web picks the branch).
 /// </summary>
 public sealed class EmployeeList
 {
     public const string AdvanceAction = "advance";
     public const string AccountAction = "account";
-    public const string ToggleActiveAction = "toggle-active";
+    public const string OvertimeAction = "overtime";
+    public const string LeaveAction = "leave";
 
     // The form the next opening of the editor on a row shows; a plain row selection (or Editar) opens the staff file.
     private EmployeeEditorPurpose? _requested;
 
-    /// <param name="toggleActive">Dar de baja / Reincorporar, after the inline confirmation.</param>
-    public EmployeeList(Func<EmployeeRecordDto, Task> toggleActive)
+    public EmployeeList()
     {
-        Model = new EntityListModel<EmployeeRecordDto>(Definition(toggleActive));
+        Model = new EntityListModel<EmployeeRecordDto>(Definition());
         Model.EditorChanged += OnModelEditorChanged;
     }
 
@@ -46,6 +49,10 @@ public sealed class EmployeeList
     public void BeginAdvance(EmployeeRecordDto employee) => Open(employee, EmployeeEditorPurpose.Advance);
 
     public void BeginAccount(EmployeeRecordDto employee) => Open(employee, EmployeeEditorPurpose.Account);
+
+    public void BeginOvertime(EmployeeRecordDto employee) => Open(employee, EmployeeEditorPurpose.Overtime);
+
+    public void BeginLeave(EmployeeRecordDto employee) => Open(employee, EmployeeEditorPurpose.Leave);
 
     public static bool CanGiveAdvance(EmployeeRecordDto employee) => employee.IsActive;
 
@@ -83,25 +90,37 @@ public sealed class EmployeeList
     public static string GoodsText(EmployeeRecordDto employee) =>
         employee.CustomerId is null ? "No lleva" : employee.PurchasesOwed > 0m ? MoneyText(employee.PurchasesOwed) : "—";
 
+    /// <summary>owner feedback P2: the overtime not paid yet, "$ 40.500,00 (4,5 h)"; "—" when there is none.</summary>
+    public static string OvertimeText(EmployeeRecordDto employee) =>
+        employee.OvertimeToPay > 0m
+            ? $"{MoneyText(employee.OvertimeToPay)} ({employee.OvertimeHoursToPay.ToString("0.##", Money)} h)"
+            : "—";
+
+    /// <summary>owner feedback round 2, R3: the server's pay to date, or "Nos debe" when the employee owes more than it.</summary>
+    public static string PayToDateText(EmployeeRecordDto employee) =>
+        employee.PayToDate < 0m ? $"Nos debe {MoneyText(-employee.PayToDate)}" : MoneyText(employee.PayToDate);
+
     public static string StatusText(EmployeeRecordDto employee) => employee.IsActive ? "Activo" : "Baja";
 
-    private static string ToggleLabel(EmployeeRecordDto employee) => employee.IsActive ? "Dar de baja" : "Reincorporar";
 
-    private EntityListDefinition<EmployeeRecordDto> Definition(Func<EmployeeRecordDto, Task> toggleActive) => new(
+    private EntityListDefinition<EmployeeRecordDto> Definition() => new(
         employee => employee.Id,
         [
-            new("file", "Legajo", employee => employee.FileNumber.ToString(CultureInfo.InvariantCulture))
+            new("file", "Legajo", employee => EmployeeFileNumber.Format(employee.FileNumber))
             {
                 Width = 80, SortKey = employee => employee.FileNumber,
             },
             new("name", "Apellido y nombre", employee => employee.FullName),
             new("role", "Puesto", employee => employee.RoleName) { Width = 130 },
             new("pay", "Sueldo pactado", PayText) { Width = 190, SortKey = employee => employee.BaseSalary },
-            new("balance", "Cuenta", employee => BalanceText(employee.Balance)) { Width = 190, SortKey = employee => employee.Balance },
+            new("balance", "Adelantos y saldo", employee => BalanceText(employee.Balance)) { Width = 190, SortKey = employee => employee.Balance },
             new("goods", "Mercadería a descontar", GoodsText) { Width = 170, SortKey = employee => employee.PurchasesOwed },
+            new("overtime", "Horas extra a pagar", OvertimeText) { Width = 170, SortKey = employee => employee.OvertimeToPay },
+            new("payToDate", "A cobrar a hoy", PayToDateText) { Width = 170, SortKey = employee => employee.PayToDate },
             new("state", "Estado", StatusText) { Width = 90 },
         ],
-        employee => [employee.FullName, employee.FileNumber.ToString(CultureInfo.InvariantCulture), employee.DocumentNumber, employee.Cuil])
+        // "0010" contains "10" too, so both ways of typing the file number find it.
+        employee => [employee.FullName, EmployeeFileNumber.Format(employee.FileNumber), employee.DocumentNumber, employee.Cuil])
     {
         Filters =
         [
@@ -124,10 +143,14 @@ public sealed class EmployeeList
             {
                 Run = employee => { BeginAccount(employee); return Task.CompletedTask; },
             },
-            new(ToggleActiveAction, ToggleLabel, employee => employee.IsActive ? EntityIcons.Disable : EntityIcons.Enable)
+            new(OvertimeAction, _ => "Horas extra", _ => EmployeeIcons.Overtime)
             {
-                Run = toggleActive,
-                Confirmation = employee => $"¿{ToggleLabel(employee)} a {employee.FullName}?",
+                Run = employee => { BeginOvertime(employee); return Task.CompletedTask; },
+            },
+            // employee-lifecycle E3: the leave (date and reason) and the reinstatement live in their section, as in the web.
+            new(LeaveAction, _ => "Gestionar baja", employee => employee.IsActive ? EntityIcons.Disable : EntityIcons.Enable)
+            {
+                Run = employee => { BeginLeave(employee); return Task.CompletedTask; },
             },
         ],
         InitialSortKey = "name",
@@ -138,6 +161,8 @@ public sealed class EmployeeList
         {
             EmployeeEditorPurpose.Advance => $"Adelanto a {employee.FullName}",
             EmployeeEditorPurpose.Account => $"Cuenta corriente: {employee.FullName}",
+            EmployeeEditorPurpose.Overtime => $"Horas extra de {employee.FullName}",
+            EmployeeEditorPurpose.Leave => $"Baja de {employee.FullName}",
             _ => $"Editar a {employee.FullName}",
         },
         EmptyEditorHint = "Elegí un empleado de la lista o tocá «Nuevo empleado».",
@@ -181,6 +206,7 @@ public static class EmployeeIcons
 {
     public const string Advance = "\uE8C7";
     public const string Account = "\uE8A5";
+    public const string Overtime = "\uE823";
 }
 
 /// <summary>
@@ -189,6 +215,60 @@ public static class EmployeeIcons
 /// </summary>
 public static class EmployeeFormRules
 {
+    /// <summary>employee-lifecycle E3: "Dado de baja el 10/10/2026. Motivo: Renuncia." (or "Dado de baja.").</summary>
+    public static string LeaveStatusText(EmployeeRecordDto employee) =>
+        (employee.TerminationDate is { } date ? $"Dado de baja el {DateText(date)}." : "Dado de baja.")
+        + (string.IsNullOrWhiteSpace(employee.TerminationReason) ? string.Empty : $" Motivo: {employee.TerminationReason.Trim().TrimEnd('.')}.");
+
+    /// <summary>
+    /// The leave form's checks, the web's: a reason is required, and the date is dd/mm/aaaa up to <paramref name="today"/>.
+    /// Null when both read, with the date in <paramref name="date"/>; otherwise the message to show.
+    /// </summary>
+    public static string? LeaveInputError(string dateText, string reason, DateOnly today, out DateOnly date)
+    {
+        date = default;
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            return PosMessages.LeaveReasonRequired;
+        }
+
+        if (string.IsNullOrWhiteSpace(dateText) || !TryParseDate(dateText, out var parsed) || parsed is not { } day || day > today)
+        {
+            return PosMessages.LeaveDateInvalid;
+        }
+
+        date = day;
+        return null;
+    }
+
+    // ---- overtime (employee-lifecycle E2), the web's EmployeeOvertimePage ----------------------
+
+    /// <summary>The multiplier the day proposes, as the form shows it ("2" a Sunday, "1" any other day).</summary>
+    public static string ProposedMultiplierText(DateOnly workDate) => DecimalText(OvertimeRules.ProposedMultiplier(workDate));
+
+    /// <summary>Hours as the web reads them: an amount (parseAmount) of at most 24.</summary>
+    public static decimal? ParseHours(string text) => ParseAmount(text) is { } hours && OvertimeRules.IsValidHours(hours) ? hours : null;
+
+    public static decimal? ParseMultiplier(string text) =>
+        ParseAmount(text) is { } multiplier && OvertimeRules.IsValidMultiplier(multiplier) ? multiplier : null;
+
+    /// <summary>"Importe: $ 16.000,00" while hours and multiplier read; null otherwise.</summary>
+    public static string? OvertimePreview(decimal? hours, decimal? hourlyRate, decimal? multiplier) =>
+        hours is { } h && hourlyRate is { } rate && multiplier is { } m ? $"Importe: {EmployeeList.MoneyText(OvertimeRules.Amount(h, rate, m))}" : null;
+
+    public static string OvertimeStatusText(OvertimeRecordDto record) => record.Status switch
+    {
+        OvertimeStatus.InPayroll => $"En la liquidación {record.RunNumber}",
+        OvertimeStatus.Paid => $"Liquidada (liquidación {record.RunNumber})",
+        _ => "Pendiente",
+    };
+
+    public static string OvertimeDeleteQuestion(OvertimeRecordDto record) =>
+        $"¿Borrar las horas extra del {DateText(record.WorkDate)} ({DecimalText(record.Hours)} h)? Usalo solo si se cargaron por error.";
+
+    /// <summary>"2,5", "×2": a decimal without trailing zeros and with a decimal comma, as the web shows it.</summary>
+    public static string DecimalText(decimal value) => value.ToString("0.##", CultureInfo.InvariantCulture).Replace('.', ',');
+
     /// <summary>The choices of "Se le paga", in the web's order.</summary>
     public static readonly IReadOnlyList<FormChoice> Frequencies =
     [
@@ -227,7 +307,12 @@ public static class EmployeeFormRules
     /// <summary>The salary as the form shows it: "650000,5" (no thousands separators, a decimal comma), as the web.</summary>
     public static string SalaryText(decimal salary) => salary.ToString("0.##", CultureInfo.InvariantCulture).Replace('.', ',');
 
-    /// <summary>The file number: empty is "the next one" (null, valid); otherwise a whole number above zero.</summary>
+    /// <summary>Under an empty file number on "Nuevo empleado": which one it will get, when the server said (as the web).</summary>
+    public static string FileNumberHint(int? next) => next is { } number
+        ? $"Legajo vacío: automático (el siguiente: {EmployeeFileNumber.Format(number)})."
+        : "Legajo vacío: automático (el siguiente).";
+
+    /// <summary>The file number: empty is "the next one" (null, valid); otherwise a whole number above zero ("0007" too).</summary>
     public static bool TryParseFileNumber(string text, out int? fileNumber)
     {
         fileNumber = null;

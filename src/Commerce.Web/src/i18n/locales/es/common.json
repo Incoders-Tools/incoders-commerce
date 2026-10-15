@@ -33,7 +33,10 @@
     "tableView": "Vista de tabla",
     "cardView": "Vista de tarjetas",
     "view": "Vista",
-    "searchPlaceholder": "Buscar…"
+    "searchPlaceholder": "Buscar…",
+    "moreActions": "Más acciones",
+    "actionsMenu": "Acciones de {{name}}",
+    "sortBy": "Ordenar por {{column}}"
   },
   "numberFormat": {
     "example": {
@@ -53,5 +56,20 @@
     "title": "Cambios sin guardar",
     "discard": "Descartar",
     "keepEditing": "Seguir editando"
+  },
+  "accountStanding": {
+    "overdue_one": "Hay un pago vencido. El acceso web se suspende en {{count}} día (el {{date}}). Comuníquese con Incoders para regularizar.",
+    "overdue_other": "Hay un pago vencido. El acceso web se suspende en {{count}} días (el {{date}}). Comuníquese con Incoders para regularizar.",
+    "suspendedTitle": "Cuenta suspendida",
+    "suspendedAdmin": "La cuenta está suspendida por falta de pago. Comuníquese con Incoders para reactivarla.",
+    "suspendedStaff": "El acceso está suspendido. Contacte al administrador de su empresa.",
+    "checkAgain": "Volver a verificar",
+    "checking": "Verificando…"
+  },
+  "dateInput": {
+    "placeholder": "dd/mm/aaaa",
+    "pick": "Elegir fecha",
+    "min": "La fecha tiene que ser desde el {{date}}.",
+    "max": "La fecha tiene que ser hasta el {{date}}."
   }
 }

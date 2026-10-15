@@ -195,7 +195,7 @@ public sealed class PosEntityListViewMarkupTests
     [Fact]
     public void CustomersView_LaysTheAddressOutInRows_InTheAgreedOrder()
     {
-        var labels = new[] { "\"Provincia\"", "\"Ciudad\"", "\"Código postal\"", "\"Barrio\"", "\"Calle\"", "\"Número\"", "\"Notas de entrega\"" };
+        var labels = new[] { "\"Provincia\"", "\"Ciudad\"", "\"Código postal\"", "\"Barrio\"", "\"Calle\"", "\"Número\"", "\"Referencias de ubicación\"", "\"Notas de entrega\"" };
         var positions = labels.Select(l => CustomersXaml.IndexOf("Text=" + l, StringComparison.Ordinal)).ToList();
 
         Assert.All(positions, p => Assert.True(p >= 0));

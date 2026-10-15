@@ -33,6 +33,29 @@ public sealed class EmployeeAdminClient
     public Task<IReadOnlyList<TreasuryAccountDto>?> ListTreasuryAccountsAsync(CancellationToken ct = default) =>
         ReadListAsync<TreasuryAccountDto>("/treasury/accounts", "/treasury/accounts", ct);
 
+    /// <summary>The file number a new employee will get (employee-lifecycle E1, a preview); null when unreadable.</summary>
+    public async Task<int?> NextFileNumberAsync(CancellationToken ct = default)
+    {
+        const string path = "/employees/next-file-number";
+        var endpoint = PosHttp.Endpoint(HttpMethod.Get, path);
+        try
+        {
+            using var response = await _httpClient.GetAsync(path, ct);
+            if (!response.IsSuccessStatusCode)
+            {
+                await PosHttp.LogFailureWithBodyAsync(endpoint, response, ct);
+                return null;
+            }
+
+            return (await PosHttp.TryReadJsonAsync<NextFileNumberDto>(response, endpoint, ct))?.FileNumber;
+        }
+        catch (Exception ex) when (PosHttp.IsTransportFailure(ex, ct))
+        {
+            PosHttp.LogTransportFailure(endpoint, ex);
+            return null;
+        }
+    }
+
     /// <summary>The employee's account statement (every movement with its running balance); null when unreadable.</summary>
     public async Task<EmployeeStatementDto?> GetStatementAsync(Guid employeeId, CancellationToken ct = default)
     {
@@ -71,12 +94,16 @@ public sealed class EmployeeAdminClient
         return outcome with { Employee = saved };
     }
 
-    /// <summary>Dar de baja (<paramref name="isActive"/> false; the server dates it today) or Reincorporar.</summary>
-    public async Task<EmployeeAdminMutationOutcome> SetActiveAsync(Guid id, bool isActive, CancellationToken ct = default)
+    /// <summary>
+    /// The leave ("Gestionar baja", employee-lifecycle E3: <paramref name="isActive"/> false with its date and reason) or
+    /// the reinstatement, which clears both on the server.
+    /// </summary>
+    public async Task<EmployeeAdminMutationOutcome> SetActiveAsync(
+        Guid id, bool isActive, DateOnly? terminationDate = null, string? terminationReason = null, CancellationToken ct = default)
     {
         var path = $"/employees/{id}/active";
-        return (await SendAsync<object>(HttpMethod.Post, path,
-            () => _httpClient.PostAsJsonAsync(path, new SetEmployeeActiveRequestDto(isActive), ct), ct, read: null)).Outcome;
+        var request = new SetEmployeeActiveRequestDto(isActive, isActive ? null : terminationDate, isActive ? null : terminationReason);
+        return (await SendAsync<object>(HttpMethod.Post, path, () => _httpClient.PostAsJsonAsync(path, request, ct), ct, read: null)).Outcome;
     }
 
     /// <summary>An advance: money out of <see cref="EmployeeAdvanceRequestDto.AccountId"/>, a debit on the employee's account.</summary>
@@ -85,6 +112,24 @@ public sealed class EmployeeAdminClient
         var path = $"/employees/{id}/advances";
         return (await SendAsync<object>(HttpMethod.Post, path,
             () => _httpClient.PostAsJsonAsync(path, request, ct), ct, read: null)).Outcome;
+    }
+
+    /// <summary>employee-lifecycle E2: the employee's overtime, newest day first; null when unreadable.</summary>
+    public Task<IReadOnlyList<OvertimeRecordDto>?> ListOvertimeAsync(Guid employeeId, CancellationToken ct = default) =>
+        ReadListAsync<OvertimeRecordDto>("/employees/{id}/overtime", $"/employees/{employeeId}/overtime", ct);
+
+    public async Task<EmployeeAdminMutationOutcome> RecordOvertimeAsync(Guid employeeId, OvertimeRequestDto request, CancellationToken ct = default)
+    {
+        var path = $"/employees/{employeeId}/overtime";
+        return (await SendAsync<object>(HttpMethod.Post, path,
+            () => _httpClient.PostAsJsonAsync(path, request, ct), ct, read: null)).Outcome;
+    }
+
+    /// <summary>Deletes a pending record; one a payroll took is refused (<c>overtime-settled</c>).</summary>
+    public async Task<EmployeeAdminMutationOutcome> DeleteOvertimeAsync(Guid employeeId, Guid overtimeId, CancellationToken ct = default)
+    {
+        var path = $"/employees/{employeeId}/overtime/{overtimeId}";
+        return (await SendAsync<object>(HttpMethod.Delete, path, () => _httpClient.DeleteAsync(path, ct), ct, read: null)).Outcome;
     }
 
     /// <summary>
@@ -98,6 +143,9 @@ public sealed class EmployeeAdminClient
         "branch-not-found" => PosMessages.EmployeeBranchNotFound,
         "account-not-found" => PosMessages.TreasuryAccountNotFound,
         "account-inactive" => PosMessages.TreasuryAccountInactive,
+        "overtime-rate-missing" => PosMessages.OvertimeRateMissing,
+        "overtime-settled" => PosMessages.OvertimeSettled,
+        "employee-in-payroll-draft" => PosMessages.EmployeeInPayrollDraft,
         _ => PosMessages.Conflict,
     };
 
@@ -165,7 +213,9 @@ public sealed record EmployeeRecordDto(
     Guid Id, Guid BranchId, string? BranchName, int FileNumber, string FirstName, string LastName, string FullName,
     string? DocumentNumber, string? Cuil, Guid? RoleId, string? RoleName, string? Phone, string? Email, string? Address,
     DateOnly? HireDate, DateOnly? TerminationDate, string PayFrequency, decimal BaseSalary, Guid? CustomerId, string? Notes,
-    bool IsActive, DateTimeOffset CreatedAtUtc, DateTimeOffset UpdatedAtUtc, decimal Balance = 0m, decimal PurchasesOwed = 0m);
+    bool IsActive, DateTimeOffset CreatedAtUtc, DateTimeOffset UpdatedAtUtc, decimal Balance = 0m, decimal PurchasesOwed = 0m,
+    decimal? OvertimeHourlyRate = null, string? TerminationReason = null, decimal OvertimeToPay = 0m, decimal OvertimeHoursToPay = 0m,
+    decimal PayToDate = 0m);
 
 /// <summary>
 /// Mirrors `Commerce.Cloud.Api.Endpoints.EmployeeRequest`. `FileNumber` null on create: the next one of the organization.
@@ -174,16 +224,27 @@ public sealed record EmployeeRecordDto(
 public sealed record EmployeeRequestDto(
     Guid BranchId, int? FileNumber, string FirstName, string LastName, string? DocumentNumber, string? Cuil, Guid? RoleId,
     string? Phone, string? Email, string? Address, DateOnly? HireDate, string PayFrequency, decimal BaseSalary, string? Notes,
-    bool TakesGoods);
+    bool TakesGoods, decimal? OvertimeHourlyRate = null);
 
-/// <summary>Mirrors `SetEmployeeActiveRequest`; the termination date is left to the server (today).</summary>
-public sealed record SetEmployeeActiveRequestDto(bool IsActive);
+/// <summary>Mirrors `OvertimeRequest` (employee-lifecycle E2): the POS always sends the multiplier it shows.</summary>
+public sealed record OvertimeRequestDto(DateOnly WorkDate, decimal Hours, decimal Multiplier, string? Note);
+
+/// <summary>Mirrors `Commerce.Cloud.Api.Persistence.OvertimeRecord`; Status is Pending, InPayroll or Paid.</summary>
+public sealed record OvertimeRecordDto(
+    Guid Id, Guid EmployeeId, DateOnly WorkDate, decimal Hours, decimal Multiplier, decimal HourlyRate, decimal Amount, string? Note,
+    string Status, int? RunNumber, DateTimeOffset CreatedAtUtc);
+
+/// <summary>Mirrors `SetEmployeeActiveRequest` (the leave's date: today when null; its reason; both cleared on reinstating).</summary>
+public sealed record SetEmployeeActiveRequestDto(bool IsActive, DateOnly? TerminationDate = null, string? TerminationReason = null);
 
 /// <summary>Mirrors `EmployeeAdvanceRequest` (Date: today when omitted).</summary>
 public sealed record EmployeeAdvanceRequestDto(decimal Amount, DateOnly? Date, Guid AccountId, string? Concept);
 
 /// <summary>One position of `GET /employees/roles` (a master-data entry).</summary>
 public sealed record EmployeeRoleDto(Guid Id, string Name, bool IsActive = true);
+
+/// <summary>Mirrors the answer of `GET /employees/next-file-number`.</summary>
+public sealed record NextFileNumberDto(int FileNumber);
 
 /// <summary>The fields of `Commerce.Cloud.Api.Persistence.TreasuryAccountRecord` the advance form uses.</summary>
 public sealed record TreasuryAccountDto(Guid AccountId, Guid? BranchId, string? BranchName, string Kind, string Name, bool IsActive = true);

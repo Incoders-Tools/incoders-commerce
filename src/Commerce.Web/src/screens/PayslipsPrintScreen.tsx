@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { getPayrollRun, type PayrollRunDetail, type Payslip } from '@/api/employees'
 import { getOrganizationDocumentProfile, type OrganizationDocumentProfile } from '@/api/fulfillment'
 import { formatIsoDate, formatMoney } from '@/dashboard/format'
+import { formatFileNumber } from '@/lib/fileNumber'
 
 /**
  * The payslips of a run, printable: one A4 page per employee with two copies, the employee's and the business's (signed
@@ -113,7 +114,7 @@ function Receipt({
         </div>
       </header>
       <p>
-        <span className="font-semibold">{payslip.employeeName}</span> · {t('file', { number: payslip.fileNumber })}
+        <span className="font-semibold">{payslip.employeeName}</span> · {t('file', { number: formatFileNumber(payslip.fileNumber) })}
         {payslip.cuil ? ` · CUIL ${payslip.cuil}` : ''}
         {payslip.roleName ? ` · ${payslip.roleName}` : ''}
       </p>
@@ -134,7 +135,7 @@ function Receipt({
           {payslip.purchasesAmount > 0 && (
             <tr>
               <td>
-                {t('print.goods', { amount: formatMoney(payslip.purchasesAmount), percent: payslip.purchasesDiscountPercent })}
+                {t('print.goods', { amount: formatMoney(payslip.purchasesAmount), discount: formatMoney(payslip.purchasesDiscount) })}
               </td>
               <td className="text-right tabular-nums">−{formatMoney(payslip.purchasesDeducted)}</td>
             </tr>
@@ -146,7 +147,18 @@ function Receipt({
         </tbody>
       </table>
       <p className="text-xs">
-        {t('print.paid', { date: detail.run.paidOn ? formatIsoDate(detail.run.paidOn) : '', account: detail.paymentAccountName ?? '' })}
+        {(payslip.payments ?? []).length > 1
+          ? t('print.paidParts', {
+              date: detail.run.paidOn ? formatIsoDate(detail.run.paidOn) : '',
+              parts: payslip.payments.map((payment) => `${payment.accountName} ${formatMoney(payment.amount)}`).join(' + '),
+            })
+          : t('print.paid', {
+              date: detail.run.paidOn ? formatIsoDate(detail.run.paidOn) : '',
+              account: payslip.payments?.[0]?.accountName ?? detail.paymentAccountName ?? '',
+            })}
+        {(payslip.payments ?? []).length > 0 && payslip.paid < payslip.netPaid
+          ? ` ${t('print.leftOwed', { amount: formatMoney(payslip.netPaid - payslip.paid) })}`
+          : ''}
       </p>
       <footer className="mt-6 flex items-end justify-between gap-6 text-xs">
         <p className="max-w-[60%] text-black/70">{t('print.disclaimer')}</p>

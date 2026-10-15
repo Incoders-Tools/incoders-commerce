@@ -50,7 +50,7 @@ export function adminResetPassword(userId: string, request: AdminResetPasswordRe
     body: JSON.stringify(request),
   })
 }
-import type { BranchDiscountPinStatus, BranchSummary, CreateBranchRequest, CreateBranchResponse, CreateOrganizationRequest, CreateOrganizationResponse, CreateUserRequest, CreateUserResponse, OrganizationBranding, OrganizationSettings, OrganizationSummary, UpdateOrganizationBrandingRequest, UpdateOrganizationSettingsRequest, UserSummary } from './types'
+import type { BranchDiscountPinStatus, BranchSummary, CreateBranchRequest, CreateBranchResponse, CreateOrganizationRequest, CreateOrganizationResponse, CreateUserRequest, CreateUserResponse, OrganizationAccountStanding, OrganizationBranding, OrganizationSettings, OrganizationSummary, ReactivateOrganizationRequest, UpdateOrganizationAccountStandingRequest, UpdateOrganizationBrandingRequest, UpdateOrganizationSettingsRequest, UserSummary } from './types'
 export const listUsers = async () => {
   const users = await apiFetch<UserSummary[]>('/account/users')
   return users.map((user) => ({ ...user, branchIds: user.branchIds ?? [] }))
@@ -65,6 +65,11 @@ export const createOrganization = (request: CreateOrganizationRequest) => apiFet
 // T5b: sysadmin-only, targets an arbitrary organization by id (OrganizationsScreen's "Edit branding").
 export const getOrganizationBranding = (organizationId: string) => apiFetch<OrganizationBranding>(`/account/organizations/${organizationId}/branding`)
 export const updateOrganizationBranding = (organizationId: string, request: UpdateOrganizationBrandingRequest) => apiFetch<void>(`/account/organizations/${organizationId}/branding`, { method: 'PUT', body: JSON.stringify(request) })
+// organization-account-standing T6: sysadmin-only, targets an organization by id (OrganizationsScreen's "Estado de cuenta").
+export const getOrganizationStanding = (organizationId: string) => apiFetch<OrganizationAccountStanding>(`/account/organizations/${organizationId}/standing`)
+export const updateOrganizationStanding = (organizationId: string, request: UpdateOrganizationAccountStandingRequest) => apiFetch<void>(`/account/organizations/${organizationId}/standing`, { method: 'PUT', body: JSON.stringify(request) })
+export const suspendOrganization = (organizationId: string) => apiFetch<void>(`/account/organizations/${organizationId}/standing/suspend`, { method: 'POST' })
+export const reactivateOrganization = (organizationId: string, request: ReactivateOrganizationRequest) => apiFetch<void>(`/account/organizations/${organizationId}/standing/reactivate`, { method: 'POST', body: JSON.stringify(request) })
 // T6: any authenticated user's OWN organization's branding, for theming — never takes an id.
 export const getOwnOrganizationBranding = () => apiFetch<OrganizationBranding>('/account/organization/branding')
 // Number format: any signed-in user reads their own organization's settings; ManageBranchSettings writes them.

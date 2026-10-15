@@ -89,6 +89,7 @@
       "taxId": "CUIT/DNI",
       "phone": "Teléfono",
       "address": "Dirección",
+      "locationReference": "Referencias de ubicación",
       "deliveryNotes": "Indicaciones",
       "note": "Nota del pedido",
       "lines": "Productos",
@@ -155,6 +156,10 @@
       "date": "Fecha",
       "driver": "Chofer",
       "vehicle": "Vehículo",
+      "noVehicle": "Sin vehículo",
+      "typedVehicle": "{{text}} (escrito a mano)",
+      "vehicleHint": "Los vehículos se cargan en Tablas auxiliares → Vehículos.",
+      "vehiclesUnavailable": "No se pudieron cargar los vehículos: el reparto se puede guardar sin vehículo y elegirlo después.",
       "notes": "Observaciones",
       "orders": "Pedidos del reparto",
       "ordersHint": "El orden es el de las entregas. Solo se ofrecen pedidos en curso que no están en otro reparto.",
@@ -223,6 +228,7 @@
     "taxCondition": "Condición IVA",
     "address": "Domicilio",
     "phone": "Teléfono",
+    "locationReference": "Referencias de ubicación",
     "deliveryNotes": "Indicaciones",
     "issuer": {
       "taxId": "CUIT",
@@ -281,6 +287,44 @@
       "email": "E-mail",
       "warehouse": "Depósito",
       "back": "Volver a sucursales"
+    }
+  },
+  "vehicles": {
+    "title": "Vehículos",
+    "description": "Los vehículos del negocio. Cada reparto elige uno de los activos.",
+    "create": "Nuevo vehículo",
+    "edit": "Editar",
+    "empty": "Todavía no hay vehículos cargados.",
+    "active": "Activo",
+    "inactive": "Inactivo",
+    "saved": "Vehículo {{plate}} guardado.",
+    "columns": {
+      "plate": "Patente",
+      "vehicle": "Vehículo",
+      "year": "Año",
+      "notes": "Observaciones",
+      "status": "Estado"
+    },
+    "createTitle": "Nuevo vehículo",
+    "editTitle": "Editar vehículo {{plate}}",
+    "formDescription": "Patente, marca, modelo y año. Más adelante: seguro, VTV, multas y service.",
+    "back": "Volver a vehículos",
+    "plate": "Patente",
+    "plateHint": "Escribila como quieras: se guarda en mayúsculas, sin espacios ni guiones.",
+    "brand": "Marca",
+    "model": "Modelo",
+    "year": "Año",
+    "notes": "Observaciones",
+    "activeLabel": "Activo",
+    "save": "Guardar vehículo",
+    "saving": "Guardando…",
+    "cancel": "Cancelar",
+    "errors": {
+      "load": "No se pudieron cargar los vehículos.",
+      "plate": "La patente lleva de 5 a 10 letras o números (los espacios y guiones no cuentan).",
+      "year": "El año va de {{first}} a {{last}}.",
+      "plateInUse": "Ya hay un vehículo con esa patente.",
+      "save": "No se pudo guardar el vehículo. Revisá los datos y probá de nuevo."
     }
   }
 }

@@ -168,6 +168,7 @@ public sealed class DeviceOperatorManagementTests : IClassFixture<WebApplication
         Assert.Equal("Cliente editado", fresh.GetProperty("displayName").GetString());
 
         // Reference data of the customer form.
+        Assert.Equal(HttpStatusCode.OK, (await device.GetAsync("/customers/business-types?includeInactive=true")).StatusCode);
         var provinces = await device.GetFromJsonAsync<JsonElement>("/geo/provinces");
         Assert.Equal(24, provinces.GetArrayLength());
         Assert.Equal(HttpStatusCode.OK, (await device.GetAsync("/geo/cities?provinceId=82&limit=5")).StatusCode);
@@ -218,21 +219,49 @@ public sealed class DeviceOperatorManagementTests : IClassFixture<WebApplication
         var accounts = await device.GetFromJsonAsync<JsonElement>("/treasury/accounts");
         Assert.Contains(accounts.EnumerateArray(), a => a.GetProperty("accountId").GetGuid() == accountId);
 
+        // employee-lifecycle E1: the form shows which file number a new employee will get.
+        var next = await device.GetFromJsonAsync<JsonElement>("/employees/next-file-number");
         var created = await device.PostAsJsonAsync("/employees", new EmployeeRequest(
             tenant.BranchId, null, "Ana", "Pérez", "30111222", null, roleId, null, null, null, new DateOnly(2024, 3, 15),
             "Monthly", 650_000m, null, true));
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
         var employee = await created.Content.ReadFromJsonAsync<JsonElement>();
         var employeeId = employee.GetProperty("id").GetGuid();
+        Assert.Equal(next.GetProperty("fileNumber").GetInt32(), employee.GetProperty("fileNumber").GetInt32());
         Assert.Equal("Pérez, Ana", employee.GetProperty("fullName").GetString());
         Assert.NotEqual(JsonValueKind.Null, employee.GetProperty("customerId").ValueKind);
         Assert.Equal(tenant.AdminId, (Guid)OwnerScalar(
             "SELECT actor_id FROM audit_log WHERE entity_id = $1 ORDER BY id LIMIT 1", employeeId)!);
 
+        // Without an overtime rate there is nothing to multiply.
+        var noRate = await device.PostAsJsonAsync($"/employees/{employeeId}/overtime", new OvertimeRequest(new DateOnly(2026, 10, 11), 1m, null, null));
+        Assert.Equal(HttpStatusCode.Conflict, noRate.StatusCode);
+        Assert.Equal("overtime-rate-missing", (await noRate.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("error").GetString());
+
         var updated = await device.PutAsJsonAsync($"/employees/{employeeId}", new EmployeeRequest(
             tenant.BranchId, employee.GetProperty("fileNumber").GetInt32(), "Ana", "Pérez", "30111222", null, roleId, "2901 444555",
-            null, null, new DateOnly(2024, 3, 15), "Biweekly", 320_000m, null, true));
+            null, null, new DateOnly(2024, 3, 15), "Biweekly", 320_000m, null, true, OvertimeHourlyRate: 2_000m));
         Assert.Equal(HttpStatusCode.OK, updated.StatusCode);
+        Assert.Equal(2_000m, (await updated.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("overtimeHourlyRate").GetDecimal());
+
+        // employee-lifecycle E2: overtime, recorded from the POS too. A Sunday proposes x2.
+        var overtime = await device.PostAsJsonAsync($"/employees/{employeeId}/overtime",
+            new OvertimeRequest(new DateOnly(2026, 10, 11), 4m, null, "Inventario"));
+        Assert.Equal(HttpStatusCode.Created, overtime.StatusCode);
+        var recorded = await overtime.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal((2m, 16_000m, "Pending"), (recorded.GetProperty("multiplier").GetDecimal(), recorded.GetProperty("amount").GetDecimal(),
+            recorded.GetProperty("status").GetString()));
+        Assert.Equal(HttpStatusCode.BadRequest, (await device.PostAsJsonAsync($"/employees/{employeeId}/overtime",
+            new OvertimeRequest(new DateOnly(2026, 10, 12), 0m, 5m, null))).StatusCode);
+        // Overtime is recorded once worked: a day after today is refused.
+        Assert.Equal(HttpStatusCode.BadRequest, (await device.PostAsJsonAsync($"/employees/{employeeId}/overtime",
+            new OvertimeRequest(DateOnly.FromDateTime(DateTime.UtcNow).AddDays(2), 1m, null, null))).StatusCode);
+        var overtimeList = await device.GetFromJsonAsync<JsonElement>($"/employees/{employeeId}/overtime");
+        Assert.Single(overtimeList.EnumerateArray());
+        Assert.Equal(HttpStatusCode.NoContent,
+            (await device.DeleteAsync($"/employees/{employeeId}/overtime/{recorded.GetProperty("id").GetGuid()}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound,
+            (await device.DeleteAsync($"/employees/{employeeId}/overtime/{recorded.GetProperty("id").GetGuid()}")).StatusCode);
 
         var advance = await device.PostAsJsonAsync($"/employees/{employeeId}/advances", new EmployeeAdvanceRequest(50_000m, null, accountId, "A cuenta"));
         Assert.Equal(HttpStatusCode.OK, advance.StatusCode);
@@ -244,9 +273,13 @@ public sealed class DeviceOperatorManagementTests : IClassFixture<WebApplication
         var row = Assert.Single(listed.EnumerateArray());
         Assert.Equal((-50_000m, "Biweekly"), (row.GetProperty("balance").GetDecimal(), row.GetProperty("payFrequency").GetString()));
 
-        Assert.Equal(HttpStatusCode.NoContent,
-            (await device.PostAsJsonAsync($"/employees/{employeeId}/active", new SetEmployeeActiveRequest(false, null))).StatusCode);
+        // employee-lifecycle E3: "Gestionar baja" sends the date and the reason; a day after today is refused.
+        Assert.Equal(HttpStatusCode.BadRequest, (await device.PostAsJsonAsync($"/employees/{employeeId}/active",
+            new SetEmployeeActiveRequest(false, DateOnly.FromDateTime(DateTime.UtcNow).AddDays(2), "Renuncia"))).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await device.PostAsJsonAsync($"/employees/{employeeId}/active",
+            new SetEmployeeActiveRequest(false, new DateOnly(2026, 10, 1), "Renuncia"))).StatusCode);
         Assert.False((bool)OwnerScalar("SELECT is_active FROM employees WHERE id = $1", employeeId)!);
+        Assert.Equal("Renuncia", OwnerScalar("SELECT termination_reason FROM employees WHERE id = $1", employeeId));
         Assert.Equal(HttpStatusCode.NoContent,
             (await device.PostAsJsonAsync($"/employees/{employeeId}/active", new SetEmployeeActiveRequest(true, null))).StatusCode);
 
@@ -364,12 +397,17 @@ public sealed class DeviceOperatorManagementTests : IClassFixture<WebApplication
             await device.PutAsJsonAsync($"/account/users/{existingUser}/status", new UpdateUserStatusRequest(true)),
             await device.PostAsJsonAsync($"/account/users/{existingUser}/reset-password", new AdminResetPasswordRequest("x-password-123")),
             await device.GetAsync("/employees"),
+            await device.GetAsync("/employees/next-file-number"),
+            await device.GetAsync($"/employees/{Guid.NewGuid()}/overtime"),
+            await device.PostAsJsonAsync($"/employees/{Guid.NewGuid()}/overtime", new { workDate = "2026-10-11", hours = 1m }),
+            await device.DeleteAsync($"/employees/{Guid.NewGuid()}/overtime/{Guid.NewGuid()}"),
             await device.GetAsync($"/employees/{Guid.NewGuid()}"),
             await device.PostAsJsonAsync("/employees", new { branchId = tenant.BranchId, firstName = "No", lastName = "No" }),
             await device.PostAsJsonAsync($"/employees/{Guid.NewGuid()}/active", new { isActive = false }),
             await device.PostAsJsonAsync($"/employees/{Guid.NewGuid()}/advances", new { amount = 1m, accountId = Guid.NewGuid() }),
             await device.GetAsync($"/employees/{Guid.NewGuid()}/account/statement"),
             await device.GetAsync("/employees/roles"),
+            await device.GetAsync("/customers/business-types"),
             await device.GetAsync("/treasury/accounts"),
         };
 
@@ -409,7 +447,12 @@ public sealed class DeviceOperatorManagementTests : IClassFixture<WebApplication
     [InlineData("POST", "/geo/cities")]
     [InlineData("PUT", "/geo/cities/{customer}")]
     [InlineData("GET", "/payroll/runs")]
+    [InlineData("POST", "/payroll/runs/final-settlement")]
+    [InlineData("POST", "/employees/{customer}/goods")]
+    [InlineData("GET", "/employees/{customer}/goods")]
+    [InlineData("POST", "/employees/{customer}/goods/{customer}/void")]
     [InlineData("POST", "/employees/roles")]
+    [InlineData("POST", "/customers/business-types")]
     [InlineData("POST", "/treasury/accounts")]
     [InlineData("POST", "/employees/{customer}/account/movements")]
     public async Task DeviceCredential_OnAnEndpointThatDidNotOptIn_IsRefusedLikeAnAnonymousCall(string method, string pathTemplate)

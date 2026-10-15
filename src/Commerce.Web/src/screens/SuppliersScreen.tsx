@@ -121,7 +121,7 @@ export function SuppliersScreen() {
     },
     {
       key: 'city',
-      header: t('columns.city'),
+      header: t('columns.location'),
       cell: (supplier) =>
         supplier.cityName ? cityLabel({ name: supplier.cityName, provinceName: supplier.provinceName ?? '' }) : noValue,
       hideOnMobile: true,

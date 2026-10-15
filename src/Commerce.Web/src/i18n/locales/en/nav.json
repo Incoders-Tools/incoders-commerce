@@ -1,6 +1,8 @@
 {
   "primary": "Primary",
   "toggleNavigation": "Toggle navigation",
+  "collapseNavigation": "Collapse menu",
+  "expandNavigation": "Expand menu",
   "items": {
     "dashboard": "Dashboard",
     "catalog": "Catalog",
@@ -23,7 +25,8 @@
     "treasuryAccountTypes": "Account types",
     "employees": "Staff",
     "payroll": "Payroll",
-    "employeeRoles": "Positions"
+    "employeeRoles": "Positions",
+    "vehicles": "Vehicles"
   },
   "sections": {
     "operations": "Operations",

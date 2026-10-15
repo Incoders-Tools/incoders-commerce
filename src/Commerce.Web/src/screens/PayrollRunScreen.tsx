@@ -24,6 +24,9 @@ import { formatIsoDate, formatMoney } from '@/dashboard/format'
 import { todayIso } from '@/lib/isoDate'
 import { cn } from '@/lib/utils'
 import { parseAmount } from '@/treasury/treasuryInput'
+import { formatFileNumber } from '@/lib/fileNumber'
+import { goodsDiscount, itemDiscount } from '@/lib/goodsDiscount'
+import { parsePercentage } from '@/lib/percentage'
 
 interface EditableLine {
   key: number
@@ -55,6 +58,8 @@ export function PayrollRunScreen() {
   const [accountId, setAccountId] = useState('')
   const [paidOn, setPaidOn] = useState(todayIso())
   const [busy, setBusy] = useState(false)
+  // owner feedback P5: the payslips paid part by part ("pago mixto"); the others are paid whole from `accountId`.
+  const [splits, setSplits] = useState<Record<string, SplitPart[]>>({})
 
   const errorText = useCallback(
     (err: unknown) =>
@@ -76,6 +81,7 @@ export function PayrollRunScreen() {
 
   const openPay = () => {
     setPaying(true)
+    setSplits({})
     listTreasuryAccounts().then(
       (list) => {
         const active = list.filter((account) => account.isActive !== false)
@@ -90,7 +96,11 @@ export function PayrollRunScreen() {
     setBusy(true)
     setError(null)
     try {
-      await payPayrollRun(id, { accountId, paidOn })
+      const asked = Object.entries(splits).map(([payslipId, parts]) => ({
+        payslipId,
+        parts: parts.map((part) => ({ accountId: part.accountId, amount: parseAmount(part.amount)! })),
+      }))
+      await payPayrollRun(id, { accountId, paidOn, ...(asked.length > 0 ? { splits: asked } : {}) })
       setConfirmPay(false)
       setPaying(false)
       await load()
@@ -137,6 +147,13 @@ export function PayrollRunScreen() {
     }),
     { earnings: 0, deductions: 0, goods: 0, net: 0 },
   )
+  // owner feedback P5: what this payment takes out now (a split may pay less than the net), and whether it can go.
+  const splitStates = Object.fromEntries(
+    payslips.filter((slip) => splits[slip.payslipId]).map((slip) => [slip.payslipId, splitState(splits[slip.payslipId], slip.netPaid)]),
+  )
+  const payingNow = payslips.reduce((sum, slip) => sum + (splitStates[slip.payslipId]?.paid ?? slip.netPaid), 0)
+  const splitsReady = Object.values(splitStates).every((state) => state.valid && state.over === 0)
+  const paidAccounts = new Set(payslips.flatMap((slip) => (slip.payments ?? []).map((payment) => payment.accountId)))
 
   return (
     <FormPage
@@ -153,7 +170,9 @@ export function PayrollRunScreen() {
         <span className={cn('rounded px-2 py-0.5 text-xs font-medium', draft ? 'bg-muted' : 'bg-primary/10 text-primary')}>
           {draft
             ? t('status.draft')
-            : t('status.paidFrom', { date: run.paidOn ? formatIsoDate(run.paidOn) : '', account: detail.paymentAccountName ?? '' })}
+            : paidAccounts.size > 1
+              ? t('status.paidFromSeveral', { date: run.paidOn ? formatIsoDate(run.paidOn) : '' })
+              : t('status.paidFrom', { date: run.paidOn ? formatIsoDate(run.paidOn) : '', account: detail.paymentAccountName ?? '' })}
         </span>
         <span className="ml-auto inline-flex flex-wrap gap-2">
           {draft ? (
@@ -201,11 +220,19 @@ export function PayrollRunScreen() {
             </div>
             <div className="flex flex-col justify-end text-sm">
               <span className="text-muted-foreground">{t('pay.total')}</span>
-              <span className="text-xl font-semibold tabular-nums">{formatMoney(totals.net)}</span>
+              <span className="text-xl font-semibold tabular-nums">{formatMoney(payingNow)}</span>
             </div>
           </div>
+          <PaymentSplits
+            payslips={payslips}
+            accounts={accounts}
+            defaultAccountId={accountId}
+            splits={splits}
+            states={splitStates}
+            onChange={setSplits}
+          />
           <div className="flex gap-2">
-            <Button type="button" disabled={accountId === '' || busy} onClick={() => setConfirmPay(true)}>
+            <Button type="button" disabled={accountId === '' || busy || !splitsReady} onClick={() => setConfirmPay(true)}>
               {t('pay.confirm')}
             </Button>
             <Button type="button" variant="outline" onClick={() => setPaying(false)}>
@@ -236,7 +263,7 @@ export function PayrollRunScreen() {
                   <td className="px-3 py-2">
                     <span className="font-medium">{slip.employeeName}</span>
                     <span className="block text-xs text-muted-foreground">
-                      {t('file', { number: slip.fileNumber })}
+                      {t('file', { number: formatFileNumber(slip.fileNumber) })}
                       {slip.roleName ? ` · ${slip.roleName}` : ''}
                     </span>
                   </td>
@@ -246,9 +273,9 @@ export function PayrollRunScreen() {
                     {slip.purchasesAmount > 0 ? (
                       <>
                         −{formatMoney(slip.purchasesDeducted)}
-                        {slip.purchasesDiscountPercent > 0 && (
+                        {slip.purchasesDiscount > 0 && (
                           <span className="block text-xs text-muted-foreground">
-                            {t('goodsDiscount', { amount: formatMoney(slip.purchasesAmount), percent: slip.purchasesDiscountPercent })}
+                            {t('goodsDiscount', { amount: formatMoney(slip.purchasesAmount), discount: formatMoney(slip.purchasesDiscount) })}
                           </span>
                         )}
                       </>
@@ -323,8 +350,9 @@ export function PayrollRunScreen() {
         <ConfirmDialog
           title={t('pay.confirmTitle', { number: run.runNumber })}
           message={t('pay.confirmMessage', {
-            total: formatMoney(totals.net),
-            account: accounts.find((a) => a.accountId === accountId)?.name ?? '',
+            total: formatMoney(payingNow),
+            account:
+              Object.keys(splits).length > 0 ? t('pay.severalAccounts') : (accounts.find((a) => a.accountId === accountId)?.name ?? ''),
             count: payslips.length,
           })}
           confirmLabel={t('pay.confirm')}
@@ -350,6 +378,155 @@ export function PayrollRunScreen() {
   )
 }
 
+interface SplitPart {
+  key: number
+  accountId: string
+  amount: string
+}
+
+/** What a payslip's parts pay, how far they are from its net, and whether every part has an amount. */
+function splitState(parts: SplitPart[], net: number) {
+  const amounts = parts.map((part) => parseAmount(part.amount))
+  const paid = Math.round(amounts.reduce<number>((sum, amount) => sum + (amount ?? 0), 0) * 100) / 100
+  return {
+    paid,
+    valid: amounts.every((amount) => amount !== null && amount > 0),
+    over: Math.max(Math.round((paid - net) * 100) / 100, 0),
+    short: Math.max(Math.round((net - paid) * 100) / 100, 0),
+  }
+}
+
+const amountText = (amount: number) => (amount > 0 ? String(amount).replace('.', ',') : '')
+
+/**
+ * owner feedback P5: how each payslip is paid: whole from the run's account, or split among accounts ("pago mixto").
+ * The parts never exceed the net (paying is blocked); what they leave unpaid stays owed to the employee.
+ */
+function PaymentSplits({
+  payslips,
+  accounts,
+  defaultAccountId,
+  splits,
+  states,
+  onChange,
+}: {
+  payslips: Payslip[]
+  accounts: TreasuryAccount[]
+  defaultAccountId: string
+  splits: Record<string, SplitPart[]>
+  states: Record<string, ReturnType<typeof splitState>>
+  onChange: (splits: Record<string, SplitPart[]>) => void
+}) {
+  const { t } = useTranslation('payroll')
+  const defaultName = accounts.find((account) => account.accountId === defaultAccountId)?.name ?? ''
+  const set = (payslipId: string, parts: SplitPart[] | null) => {
+    const next = { ...splits }
+    if (parts) next[payslipId] = parts
+    else delete next[payslipId]
+    onChange(next)
+  }
+
+  return (
+    <section aria-label={t('pay.splitsTitle')} className="flex flex-col gap-2">
+      <h3 className="text-sm font-semibold">{t('pay.splitsTitle')}</h3>
+      <ul className="flex flex-col gap-2">
+        {payslips
+          .filter((slip) => slip.netPaid > 0)
+          .map((slip) => {
+            const name = slip.employeeName
+            const parts = splits[slip.payslipId]
+            const state = states[slip.payslipId]
+            const change = (key: number, patch: Partial<SplitPart>) =>
+              set(slip.payslipId, parts.map((part) => (part.key === key ? { ...part, ...patch } : part)))
+            const add = () => {
+              const used = new Set(parts.map((part) => part.accountId))
+              const account = accounts.find((candidate) => !used.has(candidate.accountId))?.accountId ?? defaultAccountId
+              set(slip.payslipId, [...parts, { key: nextKey++, accountId: account, amount: amountText(state?.short ?? 0) }])
+            }
+            return (
+              <li key={slip.payslipId} aria-label={t('pay.splitOf', { name })} className="flex flex-col gap-2 rounded-md border border-border p-2 text-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="min-w-40 flex-1 font-medium">{name}</span>
+                  <span className="tabular-nums">{formatMoney(slip.netPaid)}</span>
+                  {parts ? (
+                    <Button type="button" variant="outline" size="sm" onClick={() => set(slip.payslipId, null)}>
+                      {t('pay.unsplit')}
+                    </Button>
+                  ) : (
+                    <>
+                      <span className="text-xs text-muted-foreground">{t('pay.whole', { account: defaultName })}</span>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        aria-label={t('pay.splitLabel', { name })}
+                        onClick={() => set(slip.payslipId, [{ key: nextKey++, accountId: defaultAccountId, amount: amountText(slip.netPaid) }])}
+                      >
+                        {t('pay.split')}
+                      </Button>
+                    </>
+                  )}
+                </div>
+                {parts && (
+                  <>
+                    {parts.map((part, index) => (
+                      <div key={part.key} className="flex flex-wrap items-center gap-2">
+                        <Select
+                          aria-label={t('pay.partAccount', { n: index + 1, name })}
+                          className="h-8 w-56"
+                          value={part.accountId}
+                          onChange={(e) => change(part.key, { accountId: e.target.value })}
+                        >
+                          {accounts.map((account) => (
+                            <option key={account.accountId} value={account.accountId}>
+                              {account.name}
+                            </option>
+                          ))}
+                        </Select>
+                        <Input
+                          aria-label={t('pay.partAmount', { n: index + 1, name })}
+                          className="h-8 w-36"
+                          inputMode="decimal"
+                          value={part.amount}
+                          onChange={(e) => change(part.key, { amount: e.target.value })}
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={parts.length === 1}
+                          onClick={() => set(slip.payslipId, parts.filter((other) => other.key !== part.key))}
+                        >
+                          {t('pay.removePart')}
+                        </Button>
+                      </div>
+                    ))}
+                    <div>
+                      <Button type="button" variant="outline" size="sm" onClick={add}>
+                        {t('pay.addPart')}
+                      </Button>
+                    </div>
+                    {state && (
+                      <p className={cn('text-xs', state.over > 0 || !state.valid ? 'text-destructive' : 'text-muted-foreground')}>
+                        {!state.valid
+                          ? t('pay.partsInvalid')
+                          : state.over > 0
+                            ? t('pay.partsOver', { amount: formatMoney(state.over) })
+                            : state.short > 0
+                              ? t('pay.partsShort', { amount: formatMoney(state.short) })
+                              : t('pay.partsSum', { paid: formatMoney(state.paid), net: formatMoney(slip.netPaid) })}
+                      </p>
+                    )}
+                  </>
+                )}
+              </li>
+            )
+          })}
+      </ul>
+    </section>
+  )
+}
+
 /** A paid payslip's lines, read-only. */
 function PayslipLines({ payslip }: { payslip: Payslip }) {
   const { t } = useTranslation('payroll')
@@ -365,8 +542,26 @@ function PayslipLines({ payslip }: { payslip: Payslip }) {
       ))}
       {payslip.purchasesAmount > 0 && (
         <li className="flex justify-between gap-4">
-          <span>− {t('editor.goodsLine', { percent: payslip.purchasesDiscountPercent })}</span>
+          <span>
+            −{' '}
+            {payslip.purchasesDiscount > 0
+              ? t('editor.goodsLineDiscount', { discount: formatMoney(payslip.purchasesDiscount) })
+              : t('editor.goodsLine')}
+          </span>
           <span className="tabular-nums">{formatMoney(payslip.purchasesDeducted)}</span>
+        </li>
+      )}
+      {/* owner feedback P5: what paid it, and what stayed owed to the employee. */}
+      {(payslip.payments ?? []).map((payment, index) => (
+        <li key={`payment-${index}`} className="flex justify-between gap-4 text-muted-foreground">
+          <span>{t('editor.paidFrom', { account: payment.accountName })}</span>
+          <span className="tabular-nums">{formatMoney(payment.amount)}</span>
+        </li>
+      ))}
+      {(payslip.payments ?? []).length > 0 && payslip.paid < payslip.netPaid && (
+        <li className="flex justify-between gap-4 text-muted-foreground">
+          <span>{t('editor.leftOwed')}</span>
+          <span className="tabular-nums">{formatMoney(payslip.netPaid - payslip.paid)}</span>
         </li>
       )}
     </ul>
@@ -395,7 +590,13 @@ function PayslipEditor({
       amount: String(line.amount).replace('.', ','),
     })),
   )
-  const [percent, setPercent] = useState(String(payslip.purchasesDiscountPercent).replace('.', ','))
+  const percentText = (value: number) => (value === 0 ? '' : String(value).replace('.', ','))
+  const [percent, setPercent] = useState(percentText(payslip.purchasesDiscountPercent))
+  // employee-lifecycle E4: each goods item's discount; the percent above applies to what the items leave.
+  const items = payslip.goodsItems ?? []
+  const [itemPercents, setItemPercents] = useState<Record<string, string>>(() =>
+    Object.fromEntries(items.map((item) => [item.id, percentText(item.discountPercent)])),
+  )
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
@@ -404,19 +605,28 @@ function PayslipEditor({
   const change = (key: number, patch: Partial<EditableLine>) =>
     setLines((current) => current.map((line) => (line.key === key ? { ...line, ...patch } : line)))
 
-  const parsedPercent = Number(percent.replace(',', '.'))
-  const goodsDiscount = Math.round(payslip.purchasesAmount * (Number.isFinite(parsedPercent) ? parsedPercent : 0)) / 100
+  const readPercent = (text: string) => {
+    const reading = parsePercentage(text)
+    return reading.ok && (reading.value ?? 0) <= 100 ? (reading.value ?? 0) : null
+  }
+  const parsedPercent = readPercent(percent)
+  const parsedItems = items.map((item) => ({ item, percent: readPercent(itemPercents[item.id] ?? '') }))
+  const itemsDiscount = parsedItems.reduce((sum, { item, percent: value }) => sum + itemDiscount(item.lineTotal, value ?? 0), 0)
+  const preview = goodsDiscount(payslip.purchasesAmount, parsedPercent ?? 0, itemsDiscount)
+  // What the goods account owes beyond the items (a debt from before they were kept, or entered by hand).
+  const untracked = Math.max(payslip.purchasesAmount - items.reduce((sum, item) => sum + item.lineTotal, 0), 0)
 
   const save = async () => {
     const parsed = lines.map((line) => ({ ...line, value: parseAmount(line.amount) }))
     if (parsed.some((line) => line.concept.trim() === '' || line.value === null)) return setError(t('editor.errors.line'))
-    if (!Number.isFinite(parsedPercent) || parsedPercent < 0 || parsedPercent > 100) return setError(t('editor.errors.percent'))
+    if (parsedPercent === null || parsedItems.some((read) => read.percent === null)) return setError(t('editor.errors.percent'))
     setError(null)
     setSaving(true)
     try {
       await updatePayslip(runId, payslip.payslipId, {
         lines: parsed.map((line) => ({ kind: line.kind, source: line.source, concept: line.concept.trim(), amount: line.value! })),
-        purchasesDiscountPercent: Math.round(parsedPercent * 100) / 100,
+        purchasesDiscountPercent: parsedPercent,
+        ...(items.length > 0 ? { goodsItems: parsedItems.map(({ item, percent: value }) => ({ itemId: item.id, discountPercent: value! })) } : {}),
       })
       await onSaved()
     } catch (err) {
@@ -438,6 +648,8 @@ function PayslipEditor({
               aria-label={t('editor.concept')}
               className="h-8 min-w-48 flex-1"
               value={line.concept}
+              // employee-lifecycle E2: the server keeps the overtime line equal to the hours it took; it can only go.
+              readOnly={line.source === 'Overtime'}
               maxLength={200}
               placeholder={line.kind === 'Earning' ? t('editor.earningPlaceholder') : t('editor.deductionPlaceholder')}
               onChange={(e) => change(line.key, { concept: e.target.value })}
@@ -447,13 +659,24 @@ function PayslipEditor({
               className="h-8 w-36"
               inputMode="decimal"
               value={line.amount}
+              readOnly={line.source === 'Overtime'}
               onChange={(e) => change(line.key, { amount: e.target.value })}
             />
             <Button type="button" variant="outline" size="sm" onClick={() => setLines((current) => current.filter((item) => item.key !== line.key))}>
               {t('editor.removeLine')}
             </Button>
+            {line.source === 'Overtime' && <span className="basis-full pl-26 text-xs text-muted-foreground">{t('editor.overtimeHint')}</span>}
           </li>
         ))}
+        {/* owner feedback P1b: the goods deducted read among the deductions too; the block below sets their discount. */}
+        {payslip.purchasesAmount > 0 && (
+          <li aria-label={t('editor.goodsDeductionLine')} className="flex flex-wrap items-center gap-2">
+            <span className="w-24 text-xs font-medium text-destructive">{t('editor.kind.Deduction')}</span>
+            <span className="min-w-48 flex-1 text-sm">{t('editor.goodsDeductionLine')}</span>
+            <span className="w-36 text-sm tabular-nums">{formatMoney(preview.deducted)}</span>
+            <span className="basis-full pl-26 text-xs text-muted-foreground">{t('editor.goodsDeductionHint')}</span>
+          </li>
+        )}
       </ul>
       <div className="flex flex-wrap gap-2">
         <Button type="button" variant="outline" size="sm" onClick={() => add('Earning')}>
@@ -463,28 +686,61 @@ function PayslipEditor({
           {t('editor.addDeduction')}
         </Button>
       </div>
-      {payslip.takesGoods && (
-        <div className="flex flex-wrap items-end gap-3 rounded-md border border-border p-3">
+      {(payslip.takesGoods || items.length > 0) && (
+        <div className="flex flex-col gap-3 rounded-md border border-border p-3">
           <div className="text-sm">
             <span className="text-muted-foreground">{t('editor.goods')}</span>
             <span className="block font-medium tabular-nums">{formatMoney(payslip.purchasesAmount)}</span>
           </div>
-          <div className="flex flex-col gap-1">
-            <Label htmlFor={`discount-${payslip.payslipId}`}>{t('editor.discount')}</Label>
-            <Input
-              id={`discount-${payslip.payslipId}`}
-              className="h-8 w-24"
-              inputMode="decimal"
-              value={percent}
-              onChange={(e) => setPercent(e.target.value)}
-            />
+          {items.length > 0 && (
+            <ul className="flex flex-col gap-2" aria-label={t('editor.goodsItems', { name: payslip.employeeName })}>
+              {parsedItems.map(({ item, percent: value }) => {
+                const name = `${item.productName} ${item.presentationName}`
+                const discount = itemDiscount(item.lineTotal, value ?? 0)
+                return (
+                  <li key={item.id} className="flex flex-wrap items-center gap-2 text-sm">
+                    <span className="min-w-48 flex-1">
+                      {name}
+                      <span className="block text-xs text-muted-foreground">
+                        {formatIsoDate(item.occurredOn)} · {String(item.quantity).replace('.', ',')} · {t(`editor.goodsSource.${item.sourceType}`)}
+                      </span>
+                    </span>
+                    <span className="w-28 text-right tabular-nums">{formatMoney(item.lineTotal)}</span>
+                    <Input
+                      aria-label={t('editor.itemDiscount', { name })}
+                      className="h-8 w-20"
+                      inputMode="decimal"
+                      placeholder="0"
+                      value={itemPercents[item.id] ?? ''}
+                      onChange={(e) => setItemPercents((current) => ({ ...current, [item.id]: e.target.value }))}
+                    />
+                    <span className="w-28 text-right text-xs text-muted-foreground tabular-nums">
+                      {discount > 0 ? `−${formatMoney(discount)}` : ''}
+                    </span>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+          {items.length > 0 && untracked > 0 && (
+            <p className="text-xs text-muted-foreground">{t('editor.goodsUntracked', { amount: formatMoney(untracked) })}</p>
+          )}
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="flex flex-col gap-1">
+              <Label htmlFor={`discount-${payslip.payslipId}`}>{items.length > 0 ? t('editor.discountRest') : t('editor.discount')}</Label>
+              <Input
+                id={`discount-${payslip.payslipId}`}
+                className="h-8 w-24"
+                inputMode="decimal"
+                placeholder="0"
+                value={percent}
+                onChange={(e) => setPercent(e.target.value)}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {t('editor.goodsResult', { discount: formatMoney(preview.discount), deducted: formatMoney(preview.deducted) })}
+            </p>
           </div>
-          <p className="text-xs text-muted-foreground">
-            {t('editor.goodsResult', {
-              discount: formatMoney(goodsDiscount),
-              deducted: formatMoney(Math.max(payslip.purchasesAmount - goodsDiscount, 0)),
-            })}
-          </p>
         </div>
       )}
       {error && (

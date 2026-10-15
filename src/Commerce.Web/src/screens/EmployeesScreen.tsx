@@ -1,35 +1,43 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
-import { Link } from 'react-router'
 import { useTranslation } from 'react-i18next'
-import { Button, buttonVariants } from '@/components/ui/button'
+import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { DataView, type DataViewColumn } from '@/components/data/DataView'
 import { PageHeader } from '@/components/data/PageHeader'
+import { RowActions } from '@/components/data/RowActions'
 import { FormPage } from '@/components/layout/FormPage'
 import { ApiError } from '@/api/client'
 import {
   PAY_FREQUENCIES,
   createEmployee,
   employeeRolesApi,
-  giveAdvance,
   listEmployees,
-  setEmployeeActive,
+  nextFileNumber,
   updateEmployee,
   type EmployeeRecord,
   type PayFrequency,
 } from '@/api/employees'
-import { listTreasuryAccounts, type TreasuryAccount } from '@/api/treasury'
 import type { MasterDataEntry, SelectableBranch } from '@/api/types'
 import { useOptionalBranchContext } from '@/branch/BranchContext'
 import { formatMoney } from '@/dashboard/format'
-import { todayIso } from '@/lib/isoDate'
+import { formatFileNumber } from '@/lib/fileNumber'
+import { EmployeeAdvancePage } from './EmployeeAdvancePage'
+import { EmployeeGoodsPage } from './EmployeeGoodsPage'
+import { EmployeeLeavePage } from './EmployeeLeavePage'
+import { EmployeeOvertimePage } from './EmployeeOvertimePage'
 import { parseAmount } from '@/treasury/treasuryInput'
 import { cn } from '@/lib/utils'
 
-type Page = { kind: 'list' } | { kind: 'form'; employee: EmployeeRecord | null } | { kind: 'advance'; employee: EmployeeRecord }
+type Page =
+  | { kind: 'list' }
+  | { kind: 'form'; employee: EmployeeRecord | null }
+  | { kind: 'advance'; employee: EmployeeRecord }
+  | { kind: 'overtime'; employee: EmployeeRecord }
+  | { kind: 'goods'; employee: EmployeeRecord }
+  | { kind: 'leave'; employee: EmployeeRecord }
 
 /** The machine codes of a refused write, in plain words. */
 function useErrorText() {
@@ -55,7 +63,6 @@ export function EmployeesScreen() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [status, setStatus] = useState<string | null>(null)
   const [page, setPage] = useState<Page>({ kind: 'list' })
-  const errorText = useErrorText()
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -80,18 +87,8 @@ export function EmployeesScreen() {
     )
   }, [])
 
-  const toggleActive = async (employee: EmployeeRecord) => {
-    try {
-      await setEmployeeActive(employee.id, !employee.isActive)
-      setStatus(employee.isActive ? t('status.deactivated', { name: employee.fullName }) : t('status.activated', { name: employee.fullName }))
-      await load()
-    } catch (err) {
-      setStatus(errorText(err))
-    }
-  }
-
   const columns: DataViewColumn<EmployeeRecord>[] = [
-    { key: 'file', header: t('columns.file'), cell: (e) => <span className="tabular-nums">{e.fileNumber}</span> },
+    { key: 'file', header: t('columns.file'), cell: (e) => <span className="tabular-nums">{formatFileNumber(e.fileNumber)}</span> },
     {
       key: 'name',
       header: t('columns.name'),
@@ -125,6 +122,27 @@ export function EmployeesScreen() {
       cell: (e) => (e.customerId === null ? t('noGoods') : e.purchasesOwed > 0 ? formatMoney(e.purchasesOwed) : '—'),
       hideOnMobile: true,
     },
+    {
+      // owner feedback P2: what the business still owes for overtime (paid with the next payroll).
+      key: 'overtime',
+      header: t('columns.overtime'),
+      cell: (e) =>
+        e.overtimeToPay > 0
+          ? t('overtimeToPay', { amount: formatMoney(e.overtimeToPay), hours: String(e.overtimeHoursToPay).replace('.', ',') })
+          : '—',
+      hideOnMobile: true,
+    },
+    {
+      // owner feedback round 2, R3: what the employee has to collect to date (the server adds it up).
+      key: 'payToDate',
+      header: t('columns.payToDate'),
+      headerHint: t('columns.payToDateHint'),
+      cell: (e) => (
+        <span className={cn('tabular-nums', e.payToDate < 0 && 'text-destructive')}>
+          {e.payToDate < 0 ? t('owesUs', { amount: formatMoney(-e.payToDate) }) : formatMoney(e.payToDate)}
+        </span>
+      ),
+    },
   ]
 
   if (page.kind === 'form') {
@@ -137,7 +155,7 @@ export function EmployeesScreen() {
         onCancel={() => setPage({ kind: 'list' })}
         onSaved={(saved) => {
           setPage({ kind: 'list' })
-          setStatus(t('status.saved', { name: saved.fullName, file: saved.fileNumber }))
+          setStatus(t('status.saved', { name: saved.fullName, file: formatFileNumber(saved.fileNumber) }))
           void load()
         }}
       />
@@ -146,12 +164,51 @@ export function EmployeesScreen() {
 
   if (page.kind === 'advance') {
     return (
-      <AdvanceForm
+      <EmployeeAdvancePage
         employee={page.employee}
-        onCancel={() => setPage({ kind: 'list' })}
-        onSaved={(amount) => {
+        onBack={() => {
           setPage({ kind: 'list' })
-          setStatus(t('status.advanced', { name: page.employee.fullName, amount: formatMoney(amount) }))
+          void load()
+        }}
+      />
+    )
+  }
+
+  if (page.kind === 'leave') {
+    return (
+      <EmployeeLeavePage
+        employee={page.employee}
+        onBack={() => {
+          setPage({ kind: 'list' })
+          void load()
+        }}
+        onReinstated={(employee) => {
+          setPage({ kind: 'list' })
+          setStatus(t('status.activated', { name: employee.fullName }))
+          void load()
+        }}
+      />
+    )
+  }
+
+  if (page.kind === 'goods') {
+    return (
+      <EmployeeGoodsPage
+        employee={page.employee}
+        onBack={() => {
+          setPage({ kind: 'list' })
+          void load()
+        }}
+      />
+    )
+  }
+
+  if (page.kind === 'overtime') {
+    return (
+      <EmployeeOvertimePage
+        employee={page.employee}
+        onBack={() => {
+          setPage({ kind: 'list' })
           void load()
         }}
       />
@@ -205,22 +262,19 @@ export function EmployeesScreen() {
         loadErrorMessage={loadError}
         emptyMessage={t('empty')}
         renderActions={(employee) => (
-          <>
-            <Button type="button" variant="outline" size="sm" onClick={() => setPage({ kind: 'form', employee })}>
-              {t('actions.edit')}
-            </Button>
-            <Link to={`/app/employees/${employee.id}/account`} className={buttonVariants({ variant: 'outline', size: 'sm' })}>
-              {t('actions.account')}
-            </Link>
-            {employee.isActive && (
-              <Button type="button" variant="outline" size="sm" onClick={() => setPage({ kind: 'advance', employee })}>
-                {t('actions.advance')}
-              </Button>
-            )}
-            <Button type="button" variant="outline" size="sm" onClick={() => void toggleActive(employee)}>
-              {employee.isActive ? t('actions.deactivate') : t('actions.activate')}
-            </Button>
-          </>
+          <RowActions
+            label={employee.fullName}
+            actions={[
+              { key: 'edit', label: t('actions.edit'), onSelect: () => setPage({ kind: 'form', employee }) },
+              { key: 'account', label: t('actions.account'), to: `/app/employees/${employee.id}/account` },
+              { key: 'advance', label: t('actions.advance'), onSelect: () => setPage({ kind: 'advance', employee }), hidden: !employee.isActive },
+              { key: 'overtime', label: t('actions.overtime'), onSelect: () => setPage({ kind: 'overtime', employee }) },
+              // employee-lifecycle E4: the goods it takes, registered like a sale at the counter.
+              { key: 'goods', label: t('actions.goods'), onSelect: () => setPage({ kind: 'goods', employee }) },
+              // employee-lifecycle E3: the leave (date and reason), the last salary and the reinstatement live in their section.
+              { key: 'leave', label: t('actions.leave'), onSelect: () => setPage({ kind: 'leave', employee }), destructive: employee.isActive },
+            ]}
+          />
         )}
       />
     </section>
@@ -246,7 +300,20 @@ function EmployeeForm({
   const errorText = useErrorText()
   const [firstName, setFirstName] = useState(employee?.firstName ?? '')
   const [lastName, setLastName] = useState(employee?.lastName ?? '')
-  const [fileNumber, setFileNumber] = useState(employee ? String(employee.fileNumber) : '')
+  const [fileNumber, setFileNumber] = useState(employee ? formatFileNumber(employee.fileNumber) : '')
+  // employee-lifecycle E1: which number a new employee will get while the field is left empty.
+  const [nextFile, setNextFile] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (employee) return
+    let current = true
+    nextFileNumber()
+      .then((next) => current && setNextFile(next))
+      .catch(() => {}) // the plain placeholder stays
+    return () => {
+      current = false
+    }
+  }, [employee])
   const [branchId, setBranchId] = useState(employee?.branchId ?? defaultBranchId)
   const [roleId, setRoleId] = useState(employee?.roleId ?? '')
   const [documentNumber, setDocumentNumber] = useState(employee?.documentNumber ?? '')
@@ -257,6 +324,9 @@ function EmployeeForm({
   const [hireDate, setHireDate] = useState(employee?.hireDate ?? '')
   const [payFrequency, setPayFrequency] = useState<PayFrequency>(employee?.payFrequency ?? 'Monthly')
   const [baseSalary, setBaseSalary] = useState(employee ? String(employee.baseSalary).replace('.', ',') : '')
+  const [overtimeRate, setOvertimeRate] = useState(
+    employee?.overtimeHourlyRate == null ? '' : String(employee.overtimeHourlyRate).replace('.', ','),
+  )
   const [takesGoods, setTakesGoods] = useState(employee ? employee.customerId !== null : true)
   const [notes, setNotes] = useState(employee?.notes ?? '')
   const [error, setError] = useState<string | null>(null)
@@ -270,6 +340,9 @@ function EmployeeForm({
     if (branchId === '') return setError(t('form.errors.branch'))
     const salary = baseSalary.trim() === '' ? 0 : parseAmount(baseSalary)
     if (salary === null) return setError(t('form.errors.salary'))
+    // employee-lifecycle E2: empty is "no rate" (0 clears a stored one on an update).
+    const rate = overtimeRate.trim() === '' ? 0 : parseAmount(overtimeRate)
+    if (rate === null) return setError(t('form.errors.overtimeRate'))
     const file = fileNumber.trim() === '' ? undefined : Number(fileNumber)
     if (file !== undefined && (!Number.isInteger(file) || file <= 0)) return setError(t('form.errors.file'))
     setError(null)
@@ -289,6 +362,7 @@ function EmployeeForm({
         hireDate: hireDate || null,
         payFrequency,
         baseSalary: salary,
+        ...(employee || rate > 0 ? { overtimeHourlyRate: rate } : {}),
         notes: notes.trim() || null,
         takesGoods,
       }
@@ -317,7 +391,13 @@ function EmployeeForm({
             value={fileNumber}
             onChange={setFileNumber}
             inputMode="numeric"
-            placeholder={employee ? undefined : t('form.fileNumberPlaceholder')}
+            placeholder={
+              employee
+                ? undefined
+                : nextFile === null
+                  ? t('form.fileNumberPlaceholder')
+                  : t('form.fileNumberPlaceholderNext', { number: formatFileNumber(nextFile) })
+            }
           />
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="employeeBranch">{t('form.branch')}</Label>
@@ -373,6 +453,15 @@ function EmployeeForm({
             placeholder={t('form.salaryPlaceholder')}
           />
           <p className="text-xs text-muted-foreground sm:col-span-2">{t('form.payHint')}</p>
+          <Field
+            id="employeeOvertimeRate"
+            label={t('form.overtimeHourlyRate')}
+            value={overtimeRate}
+            onChange={setOvertimeRate}
+            inputMode="decimal"
+            placeholder="2500"
+          />
+          <p className="self-end text-xs text-muted-foreground">{t('form.overtimeHourlyRateHint')}</p>
           <label className="flex items-start gap-2 text-sm sm:col-span-2">
             <input type="checkbox" className="mt-0.5" checked={takesGoods} disabled={employee?.customerId != null} onChange={(e) => setTakesGoods(e.target.checked)} />
             <span>
@@ -395,81 +484,6 @@ function EmployeeForm({
         <div className="flex gap-2">
           <Button type="submit" disabled={saving}>
             {saving ? t('form.saving') : t('form.save')}
-          </Button>
-          <Button type="button" variant="outline" onClick={onCancel}>
-            {t('form.cancel')}
-          </Button>
-        </div>
-      </form>
-    </FormPage>
-  )
-}
-
-/** An advance handed out: money out of a treasury account, a debit on the employee's account; the next payroll deducts it. */
-function AdvanceForm({ employee, onCancel, onSaved }: { employee: EmployeeRecord; onCancel: () => void; onSaved: (amount: number) => void }) {
-  const { t } = useTranslation('employees')
-  const errorText = useErrorText()
-  const [accounts, setAccounts] = useState<TreasuryAccount[]>([])
-  const [accountId, setAccountId] = useState('')
-  const [amount, setAmount] = useState('')
-  const [date, setDate] = useState(todayIso())
-  const [concept, setConcept] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [saving, setSaving] = useState(false)
-
-  useEffect(() => {
-    listTreasuryAccounts().then(
-      (list) => {
-        const active = list.filter((account) => account.isActive !== false)
-        setAccounts(active)
-        // The drawer of the employee's branch first: the usual place an advance comes from.
-        setAccountId(active.find((a) => a.branchId === employee.branchId && a.kind === 'Cash')?.accountId ?? active[0]?.accountId ?? '')
-      },
-      () => setAccounts([]),
-    )
-  }, [employee.branchId])
-
-  const submit = async (event: FormEvent) => {
-    event.preventDefault()
-    const value = parseAmount(amount)
-    if (value === null) return setError(t('advance.errors.amount'))
-    if (accountId === '') return setError(t('advance.errors.account'))
-    setError(null)
-    setSaving(true)
-    try {
-      await giveAdvance(employee.id, { amount: value, accountId, date, ...(concept.trim() ? { concept: concept.trim() } : {}) })
-      onSaved(value)
-    } catch (err) {
-      setError(errorText(err))
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <FormPage title={t('advance.title', { name: employee.fullName })} description={t('advance.description')} onBack={onCancel} backLabel={t('form.back')}>
-      <form className="flex max-w-xl flex-col gap-4" onSubmit={(event) => void submit(event)} noValidate>
-        <Field id="advanceAmount" label={t('advance.amount')} value={amount} onChange={setAmount} inputMode="decimal" placeholder="50000" autoFocus />
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="advanceAccount">{t('advance.account')}</Label>
-          <Select id="advanceAccount" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-            {accounts.map((account) => (
-              <option key={account.accountId} value={account.accountId}>
-                {account.name}
-              </option>
-            ))}
-          </Select>
-        </div>
-        <Field id="advanceDate" label={t('advance.date')} value={date} onChange={setDate} type="date" />
-        <Field id="advanceConcept" label={t('advance.concept')} value={concept} onChange={setConcept} placeholder={t('advance.conceptPlaceholder')} />
-        {error && (
-          <p role="alert" className="text-sm text-destructive">
-            {error}
-          </p>
-        )}
-        <div className="flex gap-2">
-          <Button type="submit" disabled={saving}>
-            {saving ? t('form.saving') : t('advance.save')}
           </Button>
           <Button type="button" variant="outline" onClick={onCancel}>
             {t('form.cancel')}

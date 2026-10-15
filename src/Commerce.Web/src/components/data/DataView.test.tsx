@@ -1,6 +1,7 @@
-import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
-import { DataView, type DataViewColumn } from './DataView'
+import { render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { describe, expect, it, vi } from 'vitest'
+import { DataView, nextSort, type DataViewColumn, type DataViewSort } from './DataView'
 
 interface Row {
   id: string
@@ -119,5 +120,84 @@ describe('DataView', () => {
 
     renderView({ view: 'cards', getRowId: (row) => `row-${row.id}` })
     expect(document.getElementById('row-b')?.tagName).toBe('ARTICLE')
+  })
+})
+
+interface Level {
+  id: string
+  name: string
+  quantity: number | null
+  note: string
+}
+
+const levels: Level[] = [
+  { id: '1', name: 'Vacío', quantity: 0, note: 'x' },
+  { id: '2', name: 'asado', quantity: null, note: 'y' },
+  { id: '3', name: 'Chorizo', quantity: -2.5, note: 'z' },
+  { id: '4', name: 'Bife', quantity: 120, note: 'w' },
+]
+
+const sortableColumns: DataViewColumn<Level>[] = [
+  { key: 'name', header: 'Name', cell: (row) => row.name, sortValue: (row) => row.name },
+  { key: 'quantity', header: 'Quantity', cell: (row) => String(row.quantity ?? '-'), sortValue: (row) => row.quantity },
+  { key: 'note', header: 'Note', cell: (row) => row.note },
+]
+
+function renderSorted(sort: DataViewSort | null, onSortChange = vi.fn()) {
+  render(
+    <DataView
+      items={levels}
+      columns={sortableColumns}
+      getRowKey={(row) => row.id}
+      view="table"
+      emptyMessage="none"
+      sort={sort}
+      onSortChange={onSortChange}
+    />,
+  )
+  return onSortChange
+}
+
+const namesInOrder = () =>
+  screen
+    .getAllByRole('row')
+    .slice(1)
+    .map((row) => within(row).getAllByRole('cell')[0].textContent)
+
+/** owner-requests-quick-adjustments Q6: a list can opt into sorting by a column header. */
+describe('DataView sorting', () => {
+  it('turns only the headers of sortable columns into buttons and reports the clicked column', async () => {
+    const onSortChange = renderSorted(null)
+
+    expect(screen.queryByRole('button', { name: 'Note' })).not.toBeInTheDocument()
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Quantity' }))
+    expect(onSortChange).toHaveBeenCalledWith({ key: 'quantity', direction: 'asc' })
+    // Unsorted keeps the order the items came in.
+    expect(namesInOrder()).toEqual(['Vacío', 'asado', 'Chorizo', 'Bife'])
+  })
+
+  it('orders numbers ascending and descending, always with the empty values last', () => {
+    renderSorted({ key: 'quantity', direction: 'asc' })
+    expect(namesInOrder()).toEqual(['Chorizo', 'Vacío', 'Bife', 'asado'])
+    expect(screen.getByRole('columnheader', { name: 'Quantity' })).toHaveAttribute('aria-sort', 'ascending')
+    expect(screen.getByRole('columnheader', { name: 'Name' })).toHaveAttribute('aria-sort', 'none')
+  })
+
+  it('puts the empty values last when descending too', () => {
+    renderSorted({ key: 'quantity', direction: 'desc' })
+    expect(namesInOrder()).toEqual(['Bife', 'Vacío', 'Chorizo', 'asado'])
+    expect(screen.getByRole('columnheader', { name: 'Quantity' })).toHaveAttribute('aria-sort', 'descending')
+  })
+
+  it('orders text the Spanish way, ignoring case and accents', () => {
+    renderSorted({ key: 'name', direction: 'asc' })
+    expect(namesInOrder()).toEqual(['asado', 'Bife', 'Chorizo', 'Vacío'])
+  })
+
+  it('starts a new column ascending and flips the same column', () => {
+    expect(nextSort(null, 'quantity')).toEqual({ key: 'quantity', direction: 'asc' })
+    expect(nextSort({ key: 'quantity', direction: 'asc' }, 'quantity')).toEqual({ key: 'quantity', direction: 'desc' })
+    expect(nextSort({ key: 'quantity', direction: 'desc' }, 'quantity')).toEqual({ key: 'quantity', direction: 'asc' })
+    expect(nextSort({ key: 'quantity', direction: 'desc' }, 'name')).toEqual({ key: 'name', direction: 'asc' })
   })
 })

@@ -48,7 +48,7 @@ internal static class PosSaleAccountProjection
         await tx.SaveAsync(Savepoint, ct);
         try
         {
-            await ProjectCoreAsync(connection, tx, envelope, payload, ct);
+            await ProjectCoreAsync(connection, tx, envelope, payload, logger, ct);
             await tx.ReleaseAsync(Savepoint, ct);
         }
         catch (Exception ex) when (!ct.IsCancellationRequested && ex is not OutOfMemoryException)
@@ -61,7 +61,7 @@ internal static class PosSaleAccountProjection
     }
 
     private static async Task ProjectCoreAsync(
-        NpgsqlConnection connection, NpgsqlTransaction tx, SyncEnvelope envelope, SalePayloadV1 payload, CancellationToken ct)
+        NpgsqlConnection connection, NpgsqlTransaction tx, SyncEnvelope envelope, SalePayloadV1 payload, ILogger? logger, CancellationToken ct)
     {
         if (await PosSaleVoidProjection.IsVoidedAsync(connection, tx, payload.SaleId, ct))
         {
@@ -103,6 +103,13 @@ internal static class PosSaleAccountProjection
                 posted = true;
                 await PostgresCurrentAccountStore.AuditAsync(
                     connection, tx, envelope.OrganizationId, "org-user", envelope.ActorId, party, "customer.movement_registered", charge, ct);
+            }
+
+            if (onAccount)
+            {
+                // employee-lifecycle E4: goods an employee took on account leave their items for the payroll's discounts.
+                await PostgresEmployeeGoodsStore.ProjectPosSaleAsync(
+                    connection, tx, envelope.OrganizationId, envelope.BranchId, payload, date, envelope.ActorId, logger, ct);
             }
 
             if (!onAccount && method is not null)
@@ -149,6 +156,7 @@ internal static class PosSaleAccountProjection
         DateTimeOffset voidedAtUtc, Guid actorId, CancellationToken ct)
     {
         var voidedOn = BusinessDate(voidedAtUtc);
+        await PostgresEmployeeGoodsStore.RemovePosSaleAsync(connection, tx, saleId, ct);
         await PostgresTreasuryStore.ReverseSourceAsync(
             connection, tx, SourceType, saleId, VoidSourceType, $"Anulación de venta ({reason})", voidedAtUtc, voidedOn, actorId, ct);
 

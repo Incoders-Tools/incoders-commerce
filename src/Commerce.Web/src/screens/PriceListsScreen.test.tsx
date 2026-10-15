@@ -8,6 +8,7 @@ import { AuthContext } from '@/auth/AuthContext'
 import { BranchContext } from '@/branch/BranchContext'
 import { Permission } from '@/api/types'
 import type { PresentationRecord, PriceListRecord } from '@/api/types'
+import { formatInstantDate } from '@/dashboard/format'
 
 const defaultPriceList: PriceListRecord = {
   id: '11111111-1111-1111-1111-111111111111',
@@ -265,7 +266,7 @@ describe('PriceListsScreen', () => {
     expect(within(row).getByText('Seasonal')).toBeInTheDocument()
     // `isDefault` is rendered as its own column, not inferred from the name.
     expect(within(row).getByText('No')).toBeInTheDocument()
-    expect(within(row).getByText(new Date('2024-03-05T00:00:00Z').toLocaleDateString('es-AR'))).toBeInTheDocument()
+    expect(within(row).getByText(formatInstantDate('2024-03-05T00:00:00Z'))).toBeInTheDocument()
   })
 
   it('shows an empty state when the organization has no price list at all', async () => {

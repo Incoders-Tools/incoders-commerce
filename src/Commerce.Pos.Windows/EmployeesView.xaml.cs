@@ -1,4 +1,5 @@
 using System.Windows;
+using Commerce.Domain.Payroll;
 using System.Windows.Controls;
 using System.Windows.Input;
 
@@ -22,6 +23,10 @@ public partial class EmployeesView : UserControl, ISectionView
     private IReadOnlyList<EmployeeRoleDto> _roles = [];
     private IReadOnlyList<TreasuryAccountDto>? _accounts;
     private EmployeeRecordDto? _editing;
+    // employee-lifecycle E2: the overtime form proposes the day's multiplier until the operator types one.
+    private bool _multiplierTouched;
+    private bool _settingMultiplier;
+    private OvertimeRecordDto? _deletingOvertime;
 
     /// <param name="branchId">This terminal's branch: the list shows its staff, new staff is created in it.</param>
     public EmployeesView(EmployeeAdminClient client, Guid branchId)
@@ -32,7 +37,7 @@ public partial class EmployeesView : UserControl, ISectionView
         _busy = new BusyController(ApplyBusy, nameof(EmployeesView), message => ShowStatus(message, isError: true));
 
         FrequencyComboBox.ItemsSource = EmployeeFormRules.Frequencies;
-        _employees = new EmployeeList(ToggleActiveAsync);
+        _employees = new EmployeeList();
         _employees.EditorChanged += OnEditorChanged;
         EmployeesListView.Model = _employees.Model;
 
@@ -102,12 +107,23 @@ public partial class EmployeesView : UserControl, ISectionView
             case EmployeeEditorPurpose.Create:
             case EmployeeEditorPurpose.Edit:
                 FillFile(employee);
+                if (employee is null)
+                {
+                    await ShowNextFileNumberAsync();
+                }
+
                 break;
             case EmployeeEditorPurpose.Advance when employee is not null:
                 await OpenAdvanceAsync();
                 break;
             case EmployeeEditorPurpose.Account when employee is not null:
                 await OpenAccountAsync(employee);
+                break;
+            case EmployeeEditorPurpose.Overtime when employee is not null:
+                await OpenOvertimeAsync(employee);
+                break;
+            case EmployeeEditorPurpose.Leave when employee is not null:
+                OpenLeave(employee);
                 break;
         }
     }
@@ -117,6 +133,8 @@ public partial class EmployeesView : UserControl, ISectionView
         FilePanel.Visibility = purpose is EmployeeEditorPurpose.Create or EmployeeEditorPurpose.Edit ? Visibility.Visible : Visibility.Collapsed;
         AdvancePanel.Visibility = purpose == EmployeeEditorPurpose.Advance ? Visibility.Visible : Visibility.Collapsed;
         AccountPanel.Visibility = purpose == EmployeeEditorPurpose.Account ? Visibility.Visible : Visibility.Collapsed;
+        OvertimePanel.Visibility = purpose == EmployeeEditorPurpose.Overtime ? Visibility.Visible : Visibility.Collapsed;
+        LeavePanel.Visibility = purpose == EmployeeEditorPurpose.Leave ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void CancelEditorButton_Click(object sender, RoutedEventArgs e) => _employees.Model.CloseEditor();
@@ -129,7 +147,8 @@ public partial class EmployeesView : UserControl, ISectionView
         RoleComboBox.ItemsSource = EmployeeFormRules.RoleOptions(_roles, employee?.RoleId);
         LastNameTextBox.Text = employee?.LastName ?? string.Empty;
         FirstNameTextBox.Text = employee?.FirstName ?? string.Empty;
-        FileNumberTextBox.Text = employee?.FileNumber.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
+        FileNumberTextBox.Text = employee is null ? string.Empty : EmployeeFileNumber.Format(employee.FileNumber);
+        FileNumberHint.Text = EmployeeFormRules.FileNumberHint(null);
         FileNumberHint.Visibility = employee is null ? Visibility.Visible : Visibility.Collapsed;
         RoleComboBox.SelectedValue = employee?.RoleId ?? Guid.Empty;
         HireDateTextBox.Text = EmployeeFormRules.DateText(employee?.HireDate);
@@ -140,10 +159,21 @@ public partial class EmployeesView : UserControl, ISectionView
         AddressTextBox.Text = employee?.Address ?? string.Empty;
         FrequencyComboBox.SelectedValue = employee?.PayFrequency ?? "Monthly";
         SalaryTextBox.Text = employee is null ? string.Empty : EmployeeFormRules.SalaryText(employee.BaseSalary);
+        OvertimeRateTextBox.Text = employee?.OvertimeHourlyRate is { } rate ? EmployeeFormRules.SalaryText(rate) : string.Empty;
         TakesGoodsCheckBox.IsChecked = employee is null || employee.CustomerId is not null;
         // A linked customer is never unlinked (its account may carry debt), as in the web.
         TakesGoodsCheckBox.IsEnabled = employee?.CustomerId is null;
         NotesTextBox.Text = employee?.Notes ?? string.Empty;
+    }
+
+    /// <summary>employee-lifecycle E1: tells which file number a new employee will get; the plain hint stays when unreadable.</summary>
+    private async Task ShowNextFileNumberAsync()
+    {
+        var next = await _client.NextFileNumberAsync(_busy.Token);
+        if (_editing is null && FilePanel.Visibility == Visibility.Visible)
+        {
+            FileNumberHint.Text = EmployeeFormRules.FileNumberHint(next);
+        }
     }
 
     private async void SaveButton_Click(object sender, RoutedEventArgs e)
@@ -174,13 +204,23 @@ public partial class EmployeesView : UserControl, ISectionView
         }
 
         var editing = _editing;
+        // employee-lifecycle E2: always sent, so an edit that empties it clears it (0); an older terminal sends none.
+        decimal? overtimeRate = string.IsNullOrWhiteSpace(OvertimeRateTextBox.Text)
+            ? editing is null ? null : 0m
+            : EmployeeFormRules.ParseAmount(OvertimeRateTextBox.Text);
+        if (overtimeRate is null && !string.IsNullOrWhiteSpace(OvertimeRateTextBox.Text))
+        {
+            ShowStatus(PosMessages.OvertimeRateInvalid, isError: true);
+            return;
+        }
+
         var roleId = RoleComboBox.SelectedValue is Guid role && role != Guid.Empty ? role : (Guid?)null;
         var request = new EmployeeRequestDto(
             editing?.BranchId ?? _branchId, fileNumber, FirstNameTextBox.Text.Trim(), LastNameTextBox.Text.Trim(),
             NullIfBlank(DocumentTextBox.Text), NullIfBlank(CuilTextBox.Text), roleId, NullIfBlank(PhoneTextBox.Text),
             NullIfBlank(EmailTextBox.Text), NullIfBlank(AddressTextBox.Text), hireDate,
             FrequencyComboBox.SelectedValue as string ?? "Monthly", salary, NullIfBlank(NotesTextBox.Text),
-            TakesGoodsCheckBox.IsChecked == true);
+            TakesGoodsCheckBox.IsChecked == true, OvertimeHourlyRate: overtimeRate);
 
         await _busy.RunAsync(PosMessages.Saving, async () =>
         {
@@ -194,26 +234,75 @@ public partial class EmployeesView : UserControl, ISectionView
             }
 
             _employees.Model.CloseEditor();
-            ShowStatus(outcome.Employee is { } saved ? $"{saved.FullName} guardado (legajo {saved.FileNumber})." : PosMessages.Saved, isError: false);
+            ShowStatus(outcome.Employee is { } saved ? $"{saved.FullName} guardado (legajo {EmployeeFileNumber.Format(saved.FileNumber)})." : PosMessages.Saved, isError: false);
             await LoadEmployeesAsync();
         });
     }
 
-    // ---- Dar de baja / Reincorporar ------------------------------------------------------
+    // ---- the leave (employee-lifecycle E3), the web's EmployeeLeavePage -------------------------
 
-    private Task ToggleActiveAsync(EmployeeRecordDto employee) => _busy.RunAsync(PosMessages.UpdatingStatus, async () =>
+    private void OpenLeave(EmployeeRecordDto employee)
+    {
+        LeaveFormPanel.Visibility = employee.IsActive ? Visibility.Visible : Visibility.Collapsed;
+        LeftPanel.Visibility = employee.IsActive ? Visibility.Collapsed : Visibility.Visible;
+        LeaveStatusText.Text = employee.IsActive ? string.Empty : EmployeeFormRules.LeaveStatusText(employee);
+        LeaveDateTextBox.Text = EmployeeFormRules.DateText(DateOnly.FromDateTime(DateTime.Now));
+        LeaveReasonTextBox.Text = string.Empty;
+    }
+
+    private async void LeaveSaveButton_Click(object sender, RoutedEventArgs e)
     {
         ShowStatus(string.Empty, isError: false);
-        var outcome = await _client.SetActiveAsync(employee.Id, !employee.IsActive, _busy.Token);
-        if (outcome.Kind != EmployeeAdminMutationKind.Succeeded)
+        if (_editing is not { } employee)
         {
-            ShowStatus(outcome.ErrorMessage ?? PosMessages.SaveFailed, isError: true);
             return;
         }
 
-        ShowStatus(employee.IsActive ? $"{employee.FullName} dado de baja." : $"{employee.FullName} reincorporado.", isError: false);
-        await LoadEmployeesAsync();
-    });
+        if (EmployeeFormRules.LeaveInputError(LeaveDateTextBox.Text, LeaveReasonTextBox.Text, DateOnly.FromDateTime(DateTime.Now), out var date)
+            is { } problem)
+        {
+            ShowStatus(problem, isError: true);
+            return;
+        }
+
+        var reason = LeaveReasonTextBox.Text.Trim();
+        await _busy.RunAsync(PosMessages.UpdatingStatus, async () =>
+        {
+            var outcome = await _client.SetActiveAsync(employee.Id, false, date, reason, _busy.Token);
+            if (outcome.Kind != EmployeeAdminMutationKind.Succeeded)
+            {
+                ShowStatus(outcome.ErrorMessage ?? PosMessages.SaveFailed, isError: true);
+                return;
+            }
+
+            _employees.Model.CloseEditor();
+            ShowStatus($"{employee.FullName} dado de baja. El último sueldo se liquida en la web.", isError: false);
+            await LoadEmployeesAsync();
+        });
+    }
+
+    private async void ReinstateButton_Click(object sender, RoutedEventArgs e)
+    {
+        ShowStatus(string.Empty, isError: false);
+        if (_editing is not { } employee)
+        {
+            return;
+        }
+
+        await _busy.RunAsync(PosMessages.UpdatingStatus, async () =>
+        {
+            var outcome = await _client.SetActiveAsync(employee.Id, true, ct: _busy.Token);
+            if (outcome.Kind != EmployeeAdminMutationKind.Succeeded)
+            {
+                ShowStatus(outcome.ErrorMessage ?? PosMessages.SaveFailed, isError: true);
+                return;
+            }
+
+            _employees.Model.CloseEditor();
+            ShowStatus($"{employee.FullName} reincorporado.", isError: false);
+            await LoadEmployeesAsync();
+        });
+    }
 
     // ---- an advance ------------------------------------------------------------------------
 
@@ -308,7 +397,172 @@ public partial class EmployeesView : UserControl, ISectionView
         });
     }
 
+    // ---- overtime (employee-lifecycle E2) -----------------------------------------------------
+
+    private Task OpenOvertimeAsync(EmployeeRecordDto employee)
+    {
+        var hasRate = employee.OvertimeHourlyRate is not null;
+        OvertimeNoRateText.Visibility = hasRate ? Visibility.Collapsed : Visibility.Visible;
+        OvertimeFormPanel.Visibility = hasRate ? Visibility.Visible : Visibility.Collapsed;
+        OvertimeRateText.Text = employee.OvertimeHourlyRate is { } rate ? $"Valor de la hora extra: {EmployeeList.MoneyText(rate)}" : string.Empty;
+        OvertimeConfirmPanel.Visibility = Visibility.Collapsed;
+        _deletingOvertime = null;
+        // Nothing of the previous employee stays: its list (until this one's loads) and its multiplier. Set explicitly:
+        // the same day's date text does not change, so its TextChanged would not propose one.
+        OvertimeItemsControl.ItemsSource = null;
+        OvertimeEmptyText.Visibility = Visibility.Collapsed;
+        OvertimeHoursTextBox.Text = string.Empty;
+        OvertimeNoteTextBox.Text = string.Empty;
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        _settingMultiplier = true;
+        OvertimeDateTextBox.Text = EmployeeFormRules.DateText(today);
+        OvertimeMultiplierTextBox.Text = EmployeeFormRules.ProposedMultiplierText(today);
+        _settingMultiplier = false;
+        _multiplierTouched = false;
+        UpdateOvertimePreview();
+        return _busy.RunAsync(PosMessages.Loading, () => LoadOvertimeAsync(employee));
+    }
+
+    private async Task LoadOvertimeAsync(EmployeeRecordDto employee)
+    {
+        var records = await _client.ListOvertimeAsync(employee.Id, _busy.Token);
+        if (records is null)
+        {
+            ShowStatus(PosMessages.OvertimeLoadFailed, isError: true);
+            return;
+        }
+
+        var rows = EmployeeOvertimeRow.From(records);
+        OvertimeItemsControl.ItemsSource = rows;
+        OvertimeEmptyText.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void OvertimeDateTextBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (!_multiplierTouched && EmployeeFormRules.TryParseDate(OvertimeDateTextBox.Text, out var date) && date is { } day)
+        {
+            _settingMultiplier = true;
+            OvertimeMultiplierTextBox.Text = EmployeeFormRules.ProposedMultiplierText(day);
+            _settingMultiplier = false;
+        }
+
+        UpdateOvertimePreview();
+    }
+
+    private void OvertimeMultiplierTextBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        _multiplierTouched |= !_settingMultiplier;
+        UpdateOvertimePreview();
+    }
+
+    private void OvertimeInput_TextChanged(object sender, TextChangedEventArgs e) => UpdateOvertimePreview();
+
+    private void UpdateOvertimePreview() =>
+        OvertimePreviewText.Text = EmployeeFormRules.OvertimePreview(EmployeeFormRules.ParseHours(OvertimeHoursTextBox.Text),
+            _editing?.OvertimeHourlyRate, EmployeeFormRules.ParseMultiplier(OvertimeMultiplierTextBox.Text)) ?? string.Empty;
+
+    private async void OvertimeSaveButton_Click(object sender, RoutedEventArgs e)
+    {
+        ShowStatus(string.Empty, isError: false);
+        if (_editing is not { } employee)
+        {
+            return;
+        }
+
+        if (EmployeeFormRules.ParseHours(OvertimeHoursTextBox.Text) is not { } hours)
+        {
+            ShowStatus(PosMessages.OvertimeHoursInvalid, isError: true);
+            return;
+        }
+
+        if (EmployeeFormRules.ParseMultiplier(OvertimeMultiplierTextBox.Text) is not { } multiplier)
+        {
+            ShowStatus(PosMessages.OvertimeMultiplierInvalid, isError: true);
+            return;
+        }
+
+        if (!EmployeeFormRules.TryParseDate(OvertimeDateTextBox.Text, out var date) || date is not { } workDate
+            || workDate > DateOnly.FromDateTime(DateTime.Now))
+        {
+            ShowStatus(PosMessages.OvertimeDateInvalid, isError: true);
+            return;
+        }
+
+        var request = new OvertimeRequestDto(workDate, hours, multiplier, NullIfBlank(OvertimeNoteTextBox.Text));
+        await _busy.RunAsync(PosMessages.Saving, async () =>
+        {
+            var outcome = await _client.RecordOvertimeAsync(employee.Id, request, _busy.Token);
+            if (outcome.Kind != EmployeeAdminMutationKind.Succeeded)
+            {
+                ShowStatus(outcome.ErrorMessage ?? PosMessages.SaveFailed, isError: true);
+                return;
+            }
+
+            OvertimeHoursTextBox.Text = string.Empty;
+            OvertimeNoteTextBox.Text = string.Empty;
+            ShowStatus($"Horas extra de {employee.FullName} registradas: la próxima liquidación las toma.", isError: false);
+            await LoadOvertimeAsync(employee);
+        });
+    }
+
+    private void OvertimeDeleteButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: Guid id }
+            && (OvertimeItemsControl.ItemsSource as IEnumerable<EmployeeOvertimeRow>)?.FirstOrDefault(row => row.Id == id) is { } row)
+        {
+            _deletingOvertime = row.Record;
+            OvertimeConfirmText.Text = EmployeeFormRules.OvertimeDeleteQuestion(row.Record);
+            OvertimeConfirmPanel.Visibility = Visibility.Visible;
+        }
+    }
+
+    private void OvertimeCancelDeleteButton_Click(object sender, RoutedEventArgs e)
+    {
+        _deletingOvertime = null;
+        OvertimeConfirmPanel.Visibility = Visibility.Collapsed;
+    }
+
+    private async void OvertimeConfirmDeleteButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_editing is not { } employee || _deletingOvertime is not { } record)
+        {
+            return;
+        }
+
+        OvertimeConfirmPanel.Visibility = Visibility.Collapsed;
+        _deletingOvertime = null;
+        await _busy.RunAsync(PosMessages.Saving, async () =>
+        {
+            var outcome = await _client.DeleteOvertimeAsync(employee.Id, record.Id, _busy.Token);
+            if (outcome.Kind != EmployeeAdminMutationKind.Succeeded)
+            {
+                ShowStatus(outcome.ErrorMessage ?? PosMessages.SaveFailed, isError: true);
+                return;
+            }
+
+            ShowStatus("Horas extra borradas.", isError: false);
+            await LoadOvertimeAsync(employee);
+        });
+    }
+
     private static string? NullIfBlank(string value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+}
+
+/// <summary>One overtime record as the POS lists it, in the web's words; only a pending one offers "Borrar".</summary>
+public sealed record EmployeeOvertimeRow(
+    Guid Id, string Title, string Detail, string Amount, Visibility DeleteVisibility, string DeleteLabel, OvertimeRecordDto Record)
+{
+    public static IReadOnlyList<EmployeeOvertimeRow> From(IEnumerable<OvertimeRecordDto> records) =>
+        records
+            .Select(record => new EmployeeOvertimeRow(
+                record.Id,
+                $"{EmployeeFormRules.DateText(record.WorkDate)} · {EmployeeFormRules.DecimalText(record.Hours)} h × {EmployeeFormRules.DecimalText(record.Multiplier)}",
+                record.Note is null ? EmployeeFormRules.OvertimeStatusText(record) : $"{EmployeeFormRules.OvertimeStatusText(record)} · {record.Note}",
+                EmployeeList.MoneyText(record.Amount),
+                record.Status == Commerce.Domain.Payroll.OvertimeStatus.Pending ? Visibility.Visible : Visibility.Collapsed,
+                $"Borrar horas extra del {EmployeeFormRules.DateText(record.WorkDate)}",
+                record))
+            .ToList();
 }
 
 /// <summary>One movement of the employee's account as the POS lists it: newest first, with its running balance.</summary>

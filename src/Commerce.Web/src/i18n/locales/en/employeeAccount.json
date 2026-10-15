@@ -9,7 +9,9 @@
     "unexpectedReverse": "The movement could not be reversed.",
     "alreadyReversed": "This movement was already reversed.",
     "notReversible": "This movement cannot be reversed.",
-    "partyNotFound": "The employee was not found."
+    "partyNotFound": "The employee was not found.",
+    "goodsSettled": "It cannot be reversed: these are an employee’s goods a paid payroll already deducted.",
+    "advanceInPayrollDraft": "It cannot be voided: the employee is in a draft payroll that already deducts this advance. Delete the draft or take them out of it, then void it from Advances."
   },
   "summary": {
     "balance": "Balance",
@@ -55,7 +57,8 @@
     "reversedBadge": "Reversed",
     "reversalOf": "Reverses a movement",
     "viewReversal": "View reversal",
-    "reverse": "Reverse"
+    "reverse": "Reverse",
+    "viewReversed": "View reversed movement"
   },
   "kinds": {
     "OpeningBalance": "Opening balance",
@@ -114,5 +117,17 @@
     "confirm": "Confirm reversal",
     "confirming": "Reversing…",
     "cancel": "Cancel"
+  },
+  "position": {
+    "account": "Account balance",
+    "accountSide": "{{side}} (advances and balances)",
+    "goods": "Goods to deduct",
+    "goodsSide": "Owes us (goods to deduct)",
+    "noGoods": "Takes no goods",
+    "overtime": "Overtime to pay",
+    "overtimeSide": "We owe ({{hours}} h not yet in a payroll)",
+    "total": "Position to date",
+    "totalHint": "Without the month's salary, added when the payroll is prepared.",
+    "even": "Even"
   }
 }

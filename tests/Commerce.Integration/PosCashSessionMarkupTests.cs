@@ -45,7 +45,7 @@ public sealed class PosCashSessionMarkupTests
 
     [Theory]
     [InlineData("OpenCashWindow", new[] { "OpeningFloatTextBox", "OperatorText", "ConfirmButton", "Abrir caja" })]
-    [InlineData("CloseCashWindow", new[] { "ExpectedCashText", "CardTotalText", "QrTotalText", "SaleCountText", "CountedCashTextBox", "DifferenceText", "ConfirmButton" })]
+    [InlineData("CloseCashWindow", new[] { "ExpectedCashText", "SalesItems", "OtherMoneyItems", "ExpectedLinesItems", "CountedCashTextBox", "DifferenceText", "ConfirmButton" })]
     public void CashPrompts_HaveTheirNamedControls_AndAreThemedThroughDynamicResourceOnly(string window, string[] required)
     {
         var xaml = Read(window + ".xaml");

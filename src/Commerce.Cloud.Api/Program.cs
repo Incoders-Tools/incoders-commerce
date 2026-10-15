@@ -97,6 +97,8 @@ builder.Services.AddSingleton<BootstrapTokenRegistry>();
 // round-trip on every authenticated request. ---------------------------
 builder.Services.AddSingleton<SessionVersionCache>();
 builder.Services.AddSingleton<SessionVersionValidator>();
+// organization-account-standing T4: cached standing inputs behind the web suspension block and /account/me.
+builder.Services.AddSingleton<OrganizationStandingCache>();
 
 // --- Anti-abuse (commerce-password-recovery design.md "Anti-abuse
 // mechanism"): in-memory fixed-window throttle, accepted single-Railway-
@@ -179,6 +181,8 @@ builder.Services.AddSingleton<PostgresTreasuryRecurrenceStore>();
 // Records the recurring treasury movements on their dates (every few hours; needs the platform-read connection).
 builder.Services.AddHostedService<TreasuryRecurrenceJob>();
 builder.Services.AddSingleton<PostgresEmployeeStore>();
+builder.Services.AddSingleton<PostgresEmployeeGoodsStore>();
+builder.Services.AddSingleton<PostgresVehicleStore>();
 builder.Services.AddSingleton<PostgresPayrollStore>();
 // commerce-price-composition slice 2: resolution composes the effective rate
 // components onto the entry's base price, so the submission service needs the
@@ -343,6 +347,8 @@ var app = builder.Build();
 
 app.UseAuthentication();
 app.UseAuthorization();
+// organization-account-standing T4: a suspended organization gets 403 organization-suspended on the web; the POS is never touched.
+app.UseMiddleware<OrganizationSuspensionMiddleware>();
 app.UseRateLimiter();
 
 app.MapHealthChecks("/health", new HealthCheckOptions
@@ -356,6 +362,7 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions
 });
 
 app.MapAccountEndpoints();
+app.MapOrganizationAccountStandingEndpoints();
 app.MapDeviceEndpoints();
 app.MapSyncEndpoints();
 app.MapCatalogEndpoints();
@@ -374,6 +381,7 @@ app.MapStaffOrderingEndpoints();
 app.MapFulfillmentEndpoints();
 app.MapTreasuryEndpoints();
 app.MapEmployeeEndpoints();
+app.MapVehicleEndpoints();
 app.MapCustomerEndpoints();
 app.MapCustomerSessionEndpoints();
 app.MapPricingEndpoints();

@@ -11,7 +11,7 @@ import { OrganizationBrandingContext } from '@/theme/OrganizationBrandingProvide
 import { ThemeProvider } from '@/theme/ThemeProvider'
 import { Permission, type SignedInResponse } from '@/api/types'
 import type { OrganizationBranding } from '@/api/types'
-import { AppLayout } from './AppLayout'
+import { AppLayout, NAV_COLLAPSED_STORAGE_KEY } from './AppLayout'
 
 function buildUser(overrides: Partial<SignedInResponse> = {}): SignedInResponse {
   return {
@@ -28,10 +28,11 @@ function buildUser(overrides: Partial<SignedInResponse> = {}): SignedInResponse 
 function renderLayout(
   user: SignedInResponse,
   branding: OrganizationBranding = { logoUrl: null, primaryColor: null },
+  refreshStanding: () => Promise<void> = async () => {},
 ) {
   return render(
     <MemoryRouter initialEntries={['/app/catalog']}>
-      <AuthContext.Provider value={{ user, error: null, signIn: async () => {}, signOut: async () => {} }}>
+      <AuthContext.Provider value={{ user, error: null, signIn: async () => {}, signOut: async () => {}, refreshStanding }}>
         <BranchProvider>
           <OrganizationBrandingContext.Provider value={{ branding, loading: false }}>
             <ThemeProvider>
@@ -330,6 +331,7 @@ describe('AppLayout', () => {
       'Tipos de negocio',
       'Tipos de cuenta',
       'Puestos',
+      'Vehículos',
       '# Sistema',
       'Usuarios',
       'Sucursales',
@@ -364,6 +366,7 @@ describe('AppLayout', () => {
       'Tipos de negocio',
       'Tipos de cuenta',
       'Puestos',
+      'Vehículos',
       '# Sistema',
       'Usuarios',
       'Sucursales',
@@ -562,5 +565,117 @@ describe('AppLayout', () => {
       expect(await screen.findByText('Customers content')).toBeInTheDocument()
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     })
+  })
+
+  describe('collapsible sidebar', () => {
+    beforeEach(() => localStorage.removeItem(NAV_COLLAPSED_STORAGE_KEY))
+
+    it('collapses to icons keeping every link reachable by name, and remembers it', async () => {
+      const user = userEvent.setup()
+      renderLayout(buildUser({ permissions: Permission.ManageUsers | Permission.TakeOrders }))
+      const nav = screen.getByRole('navigation')
+
+      await user.click(screen.getByRole('button', { name: 'Contraer menú' }))
+
+      const customers = within(nav).getByRole('link', { name: 'Clientes' })
+      expect(customers).toHaveAttribute('title', 'Clientes')
+      expect(customers.className).toContain('size-11')
+      expect(localStorage.getItem(NAV_COLLAPSED_STORAGE_KEY)).toBe('true')
+
+      cleanup()
+      renderLayout(buildUser({ permissions: Permission.ManageUsers | Permission.TakeOrders }))
+      expect(screen.getByRole('button', { name: 'Expandir menú' })).toBeInTheDocument()
+
+      await user.click(screen.getByRole('button', { name: 'Expandir menú' }))
+      expect(within(screen.getByRole('navigation')).getByRole('link', { name: 'Clientes' })).not.toHaveAttribute('title')
+      expect(localStorage.getItem(NAV_COLLAPSED_STORAGE_KEY)).toBe('false')
+    })
+  })
+})
+
+// organization-account-standing T7: web admins see the countdown; a suspended organization's users see only the
+// suspended screen (with the account menu to sign out); the system administrator is never blocked.
+describe('AppLayout account standing', () => {
+  // The countdown is counted from today: pin it to the ODD's example day (signed in 2026-10-09, suspends 2026-11-08).
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 9, 9, 10, 0, 0))
+  })
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
+  })
+
+  const overdue = (daysLeft: number | null, suspendsOn: string | null) =>
+    ({ status: 'Overdue', daysLeft, suspendsOn }) as const
+  const suspended = { status: 'Suspended', daysLeft: null, suspendsOn: null } as const
+
+  it('shows an overdue admin the days left and the suspension date', () => {
+    renderLayout(buildUser({ permissions: Permission.ManageUsers, accountStanding: overdue(30, '2026-11-08') }))
+
+    const banner = screen.getByRole('status')
+    expect(banner).toHaveTextContent('El acceso web se suspende en 30 días (el 08/11/2026)')
+    expect(screen.getByText('Catalog content')).toBeInTheDocument()
+  })
+
+  it('says one day in singular', () => {
+    vi.setSystemTime(new Date(2026, 10, 7, 10, 0, 0))
+    renderLayout(buildUser({ permissions: Permission.ManageUsers, accountStanding: overdue(1, '2026-11-08') }))
+
+    expect(screen.getByRole('status')).toHaveTextContent('se suspende en 1 día (el 08/11/2026)')
+  })
+
+  it('shows nothing to an overdue user without the dates (not an admin)', () => {
+    renderLayout(buildUser({ permissions: Permission.ViewSales, accountStanding: overdue(null, null) }))
+
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(screen.getByText('Catalog content')).toBeInTheDocument()
+  })
+
+  it('shows a suspended admin only the suspended screen, with Incoders as the contact', () => {
+    renderLayout(buildUser({ permissions: Permission.ManageUsers, accountStanding: suspended }))
+
+    expect(screen.getByRole('heading', { name: 'Cuenta suspendida' })).toBeInTheDocument()
+    expect(screen.getByText(/suspendida por falta de pago\. Comuníquese con Incoders/)).toBeInTheDocument()
+    expect(screen.queryByText('Catalog content')).not.toBeInTheDocument()
+    expect(screen.queryByRole('navigation')).not.toBeInTheDocument()
+  })
+
+  it('tells a suspended non-admin to contact their administrator, not why', () => {
+    renderLayout(buildUser({ permissions: Permission.ViewSales, accountStanding: suspended }))
+
+    expect(screen.getByText('El acceso está suspendido. Contacte al administrador de su empresa.')).toBeInTheDocument()
+    expect(screen.queryByText(/falta de pago/)).not.toBeInTheDocument()
+  })
+
+  it('counts the days left from today, so a session left open for days does not show a stale countdown', () => {
+    // Signed in on 2026-10-09 with 30 days left; the tab is still open on 2026-11-05.
+    vi.setSystemTime(new Date(2026, 10, 5, 10, 0, 0))
+    renderLayout(buildUser({ permissions: Permission.ManageUsers, accountStanding: overdue(30, '2026-11-08') }))
+
+    expect(screen.getByRole('status')).toHaveTextContent('se suspende en 3 días (el 08/11/2026)')
+  })
+
+  it('hides the countdown once the suspension date is reached (the server takes over from there)', () => {
+    vi.setSystemTime(new Date(2026, 10, 8, 10, 0, 0))
+    renderLayout(buildUser({ permissions: Permission.ManageUsers, accountStanding: overdue(30, '2026-11-08') }))
+
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
+  it('lets a suspended user check again, so a reactivation is picked up without signing in again', async () => {
+    const refreshStanding = vi.fn(async () => {})
+    renderLayout(buildUser({ permissions: Permission.ViewSales, accountStanding: suspended }), undefined, refreshStanding)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Volver a verificar' }))
+
+    expect(refreshStanding).toHaveBeenCalledTimes(1)
+  })
+
+  it('never blocks the system administrator', () => {
+    renderLayout(buildUser({ isSystemAdmin: true, accountStanding: suspended }))
+
+    expect(screen.queryByRole('heading', { name: 'Cuenta suspendida' })).not.toBeInTheDocument()
+    expect(screen.getByText('Catalog content')).toBeInTheDocument()
   })
 })

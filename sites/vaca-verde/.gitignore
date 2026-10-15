@@ -1,0 +1,2 @@
+# Intermediate SSR bundle of the prerender step (removed by scripts/prerender.mjs, left behind only if it fails)
+dist-ssr/

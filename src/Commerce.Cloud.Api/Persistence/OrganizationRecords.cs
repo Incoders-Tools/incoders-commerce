@@ -40,6 +40,13 @@ public sealed record BranchOption(Guid Id, string Name, int Code);
 public sealed record OrganizationBranding(string? LogoUrl, string? PrimaryColor);
 
 /// <summary>
+/// The stored inputs of an organization's account standing (organization-account-standing T2,
+/// `0052_organization_account_standing.sql`). The standing itself is derived from these by
+/// <see cref="Commerce.Domain.Tenancy.AccountStandingRules.Evaluate"/> on the business day, never stored.
+/// </summary>
+public sealed record OrganizationAccountStandingInputs(DateOnly? DueOn, int GraceDays, DateTimeOffset? SuspendedAt);
+
+/// <summary>
 /// One organization's settings (purchases-receptions-and-stock T7). The first field is the decimal separator the
 /// business types quantities with: <c>Comma</c> ("1,5", the default) or <c>Dot</c> ("1.5"). The second is the price list a
 /// customer without one of its own is priced from, and that a new customer starts on (customer-price-lists; <c>null</c> = none).

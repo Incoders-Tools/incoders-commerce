@@ -3,9 +3,9 @@ namespace Commerce.Cloud.Api.Persistence;
 /// <summary>
 /// Input to the master data stores' Create: one entry of an organization-owned
 /// catalog (a business type). The organization comes from the tenant
-/// scope, never from the request.
+/// scope, never from the request. A null `SortOrder` places it after the last entry.
 /// </summary>
-public sealed record NewMasterDataEntry(Guid Id, string Name, string Key, int SortOrder, bool IsActive);
+public sealed record NewMasterDataEntry(Guid Id, string Name, string Key, int? SortOrder, bool IsActive);
 
 /// <summary>
 /// Input to the master data stores' Update. `Key`, `SortOrder` and `IsActive` are

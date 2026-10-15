@@ -435,6 +435,24 @@ public sealed class PostgresTreasuryStore
         return movements;
     }
 
+    /// <summary>
+    /// owner feedback round 2, R5: every account's movements in the range, newest first, each with its account (the
+    /// organization's; at most 1000, as one account's).
+    /// </summary>
+    public async Task<IReadOnlyList<TreasuryMovementRecord>> ListAllMovementsAsync(
+        CloudTenantScope scope, DateOnly? from, DateOnly? to, CancellationToken ct)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+        await TenantScopeSql.ApplyAsync(connection, tx, scope.OrganizationId, null, ct);
+        var movements = await ReadMovementsAsync(
+            connection, tx,
+            "m.organization_id = $1 AND ($2::date IS NULL OR m.business_date >= $2) AND ($3::date IS NULL OR m.business_date <= $3)",
+            ct, scope.OrganizationId, (NpgsqlTypes.NpgsqlDbType.Date, from), (NpgsqlTypes.NpgsqlDbType.Date, to));
+        await tx.CommitAsync(ct);
+        return movements;
+    }
+
     private static async Task<List<TreasuryMovementRecord>> ReadMovementsAsync(
         NpgsqlConnection connection, NpgsqlTransaction tx, string where, CancellationToken ct, Guid first,
         params (NpgsqlTypes.NpgsqlDbType Type, object? Value)[] more)
@@ -754,6 +772,31 @@ public sealed class PostgresTreasuryStore
             ? (await ReadMovementsAsync(connection, tx, "m.transfer_id = $1 AND m.kind = 'Transfer'", ct, transfer))
                 .Where(leg => !leg.Voided).OrderBy(leg => leg.Direction == "Out" ? 0 : 1).ToList()
             : [movement];
+
+    /// <summary>
+    /// Voids the movement a source posted (owner feedback 2026-10-14: an employee's advance), unless it is voided already:
+    /// it stays, marked voided with the reason (cut to fit), and no balance counts it any more.
+    /// </summary>
+    internal static async Task VoidSourceMovementAsync(
+        NpgsqlConnection connection, NpgsqlTransaction tx, Guid organizationId, string sourceType, Guid sourceId, Guid actorId, string reason,
+        Guid? replacement, CancellationToken ct)
+    {
+        var text = reason.Trim();
+        await using var cmd = new NpgsqlCommand(
+            """
+            INSERT INTO treasury_movement_voids (organization_id, movement_id, voided_by_user_id, reason, replacement_movement_id)
+            SELECT m.organization_id, m.id, $3, $4, $5 FROM treasury_movements m
+            WHERE m.organization_id = $6 AND m.source_type = $1 AND m.source_id = $2 AND m.kind <> 'Reversal'
+            ON CONFLICT DO NOTHING
+            """, connection, tx);
+        cmd.Parameters.AddWithValue(sourceType);
+        cmd.Parameters.AddWithValue(sourceId);
+        cmd.Parameters.AddWithValue(actorId);
+        cmd.Parameters.AddWithValue(text.Length > 200 ? text[..200] : text);
+        cmd.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Uuid, (object?)replacement ?? DBNull.Value);
+        cmd.Parameters.AddWithValue(organizationId);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
 
     private static async Task InsertVoidAsync(
         NpgsqlConnection connection, NpgsqlTransaction tx, Guid organizationId, Guid movementId, Guid actorId, string reason, Guid? replacement,

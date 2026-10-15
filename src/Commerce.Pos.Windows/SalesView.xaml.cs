@@ -58,8 +58,8 @@ public partial class SalesView : UserControl, ISectionView
 
         var today = DateOnly.FromDateTime(DateTime.Now);
         DayText.Text = _day == today
-            ? $"Hoy, {_day.ToString("d 'de' MMMM", CultureInfo.CurrentCulture)}"
-            : _day.ToString("dddd d 'de' MMMM", CultureInfo.CurrentCulture);
+            ? $"Hoy, {_day.ToString("d 'de' MMMM", PosCulture.Spanish)}"
+            : _day.ToString("dddd d 'de' MMMM", PosCulture.Spanish);
         NextDayButton.IsEnabled = _day < today;
         TodayButton.IsEnabled = _day != today;
         SummaryText.Text = SaleHistory.Summary(_rows);
@@ -111,7 +111,7 @@ public partial class SalesView : UserControl, ISectionView
     {
         var movement = row.Movement;
         DetailNumberText.Text = row.NumberText;
-        DetailWhenText.Text = movement.OccurredAtUtc.ToLocalTime().ToString("dddd d 'de' MMMM, HH:mm", CultureInfo.CurrentCulture);
+        DetailWhenText.Text = movement.OccurredAtUtc.ToLocalTime().ToString("dddd d 'de' MMMM, HH:mm", PosCulture.Spanish);
         DetailCustomerText.Text = movement.Description;
         DetailTenderText.Text = $"Motivo: {movement.Reason}";
         DetailDiscountText.Text = movement.Authorization is null ? string.Empty : "Autorizado con el PIN de la sucursal.";
@@ -126,7 +126,7 @@ public partial class SalesView : UserControl, ISectionView
     /// <summary>A customer payment: who paid, how much, how, and why it was voided when it was.</summary>
     private void ShowPaymentDetail(PaymentHistoryRow row)
     {
-        var culture = CultureInfo.CurrentCulture;
+        var culture = PosCulture.Spanish;
         var payment = row.Payment;
         DetailNumberText.Text = "Cobro de cuenta corriente";
         DetailWhenText.Text = payment.ReceivedAtUtc.ToLocalTime().ToString("dddd d 'de' MMMM, HH:mm", culture);
@@ -139,13 +139,13 @@ public partial class SalesView : UserControl, ISectionView
         DetailLinesItemsControl.ItemsSource = new[] { "Baja la deuda del cliente en su cuenta corriente." };
         if (payment.Void is { } voided)
         {
-            VoidInfoText.Text = $"Anulado el {voided.VoidedAtUtc.ToLocalTime().ToString("d/M HH:mm", culture)}. Motivo: {voided.Reason}";
+            VoidInfoText.Text = $"Anulado el {voided.VoidedAtUtc.ToLocalTime().ToString("dd'/'MM'/'yyyy HH':'mm", culture)}. Motivo: {voided.Reason}";
         }
     }
 
     private void ShowSaleDetail(SaleHistoryRow row)
     {
-        var culture = CultureInfo.CurrentCulture;
+        var culture = PosCulture.Spanish;
         var entry = row.Entry;
         DetailNumberText.Text = $"Venta {row.NumberText}";
         DetailWhenText.Text = entry.OccurredAtUtc.ToLocalTime().ToString("dddd d 'de' MMMM, HH:mm", culture);
@@ -168,7 +168,7 @@ public partial class SalesView : UserControl, ISectionView
         if (entry.Void is { } voided)
         {
             VoidInfoText.Text =
-                $"Anulada el {voided.VoidedAtUtc.ToLocalTime().ToString("d/M HH:mm", culture)}. Motivo: {voided.Reason}";
+                $"Anulada el {voided.VoidedAtUtc.ToLocalTime().ToString("dd'/'MM'/'yyyy HH':'mm", culture)}. Motivo: {voided.Reason}";
         }
     }
 

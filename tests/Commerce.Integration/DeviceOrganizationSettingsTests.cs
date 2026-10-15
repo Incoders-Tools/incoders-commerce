@@ -103,4 +103,40 @@ public sealed class DeviceOrganizationSettingsTests : IClassFixture<WebApplicati
 
         Assert.Equal("Dot", body!.QuantityDecimalSeparator);
     }
+
+    // organization-account-standing T5: the POS gets the INPUTS of the standing rule and evaluates them itself, so its
+    // countdown keeps moving offline.
+
+    [Fact]
+    public async Task AnOrganizationWithoutBilling_SendsNoDueDate_ThirtyGraceDays_AndNoSuspension()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+        var device = await NewDeviceAsync("Comma");
+
+        var standing = (await (await GetAsync(device.Token)).Content.ReadFromJsonAsync<DeviceOrganizationSettingsResponse>())!.AccountStanding;
+
+        Assert.NotNull(standing);
+        Assert.Null(standing.DueOn);
+        Assert.Equal(30, standing.GraceDays);
+        Assert.False(standing.Suspended);
+    }
+
+    [Fact]
+    public async Task TheStandingInputs_AreWhatTheOrganizationStoresNow()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+        var device = await NewDeviceAsync("Comma");
+        using (var owner = OpenOwner())
+        {
+            Exec(owner, "UPDATE organizations SET billing_due_on = DATE '2026-10-08', billing_grace_days = 45, suspended_at = now() WHERE id = $1", device.Org);
+        }
+
+        // The POS reads this with a DTO of its own, so pin the wire names and shapes, not this project's record.
+        using var body = System.Text.Json.JsonDocument.Parse(await (await GetAsync(device.Token)).Content.ReadAsStringAsync());
+        var standing = body.RootElement.GetProperty("accountStanding");
+
+        Assert.Equal("2026-10-08", standing.GetProperty("dueOn").GetString());
+        Assert.Equal(45, standing.GetProperty("graceDays").GetInt32());
+        Assert.True(standing.GetProperty("suspended").GetBoolean());
+    }
 }

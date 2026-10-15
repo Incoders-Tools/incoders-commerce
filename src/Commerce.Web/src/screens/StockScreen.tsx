@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router'
 import { useTranslation } from 'react-i18next'
-import { Button, buttonVariants } from '@/components/ui/button'
+import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { DataToolbar } from '@/components/data/DataToolbar'
-import { DataView, type DataViewColumn } from '@/components/data/DataView'
+import { DataView, type DataViewColumn, type DataViewSort } from '@/components/data/DataView'
 import { PageHeader } from '@/components/data/PageHeader'
+import { RowActions } from '@/components/data/RowActions'
 import { useViewPreference } from '@/components/data/useViewPreference'
 import { presentationLabel, type PresentationOption } from '@/components/purchasing/presentationOptions'
 import { listStock, setStockMinimum } from '@/api/stock'
@@ -28,6 +28,9 @@ export function stockStatus(row: StockLevel): StockStatus {
   if (row.onHand === 0) return 'out'
   return row.belowMinimum ? 'low' : 'ok'
 }
+
+/** Sorting by "Estado" goes from the most urgent to the least. */
+const statusRank: Record<StockStatus, number> = { negative: 0, out: 1, low: 2, ok: 3 }
 
 const badgeStyles: Record<StockStatus, string> = {
   negative: 'border-destructive/40 bg-destructive/10 text-destructive',
@@ -66,6 +69,8 @@ export function StockScreen() {
   const [search, setSearch] = useState('')
   const [onlyBelowMinimum, setOnlyBelowMinimum] = useState(false)
   const [view, setView] = useViewPreference('stock')
+  // owner-requests-quick-adjustments Q6: kept here so it survives opening the adjustment form.
+  const [sort, setSort] = useState<DataViewSort | null>(null)
   const [editing, setEditing] = useState<MinimumEdit | null>(null)
   const [adjusting, setAdjusting] = useState<PresentationOption | 'new' | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -142,7 +147,7 @@ export function StockScreen() {
 
   const noValue = <span className="text-muted-foreground">{t('columns.noValue')}</span>
   const columns: DataViewColumn<StockLevel>[] = [
-    { key: 'product', header: t('columns.product'), cell: (row) => row.productName },
+    { key: 'product', header: t('columns.product'), cell: (row) => row.productName, sortValue: (row) => row.productName },
     {
       key: 'presentation',
       header: t('columns.presentation'),
@@ -152,6 +157,7 @@ export function StockScreen() {
           {row.identificationCode && <span className="text-xs text-muted-foreground">{row.identificationCode}</span>}
         </span>
       ),
+      sortValue: (row) => row.presentationName,
     },
     {
       key: 'onHand',
@@ -161,12 +167,14 @@ export function StockScreen() {
           {numberFormat.formatStock(row.onHand, row.quantityBehavior)}
         </span>
       ),
+      sortValue: (row) => row.onHand,
     },
     {
       key: 'minimum',
       header: t('columns.minimum'),
       cell: (row) =>
         row.minimumQuantity === null ? noValue : numberFormat.formatStock(row.minimumQuantity, row.quantityBehavior),
+      sortValue: (row) => row.minimumQuantity,
       hideOnMobile: true,
     },
     {
@@ -180,11 +188,14 @@ export function StockScreen() {
           </span>
         )
       },
+      sortValue: (row) => statusRank[stockStatus(row)],
     },
     {
       key: 'lastMovement',
       header: t('columns.lastMovement'),
       cell: (row) => (row.lastMovementAtUtc ? formatIsoDate(row.lastMovementAtUtc) : noValue),
+      // ISO-8601 UTC timestamps order correctly as text.
+      sortValue: (row) => row.lastMovementAtUtc,
       hideOnMobile: true,
     },
   ]
@@ -231,6 +242,8 @@ export function StockScreen() {
         columns={columns}
         getRowKey={(row) => row.presentationId}
         view={view}
+        sort={sort}
+        onSortChange={setSort}
         loading={loading}
         emptyMessage={debouncedSearch !== '' || onlyBelowMinimum ? t('empty.noMatch') : t('empty.none')}
         loadErrorMessage={loadError === null ? null : t('empty.loadError')}
@@ -262,32 +275,29 @@ export function StockScreen() {
             )
           }
           return (
-            <>
-              <Link
-                to={`/app/stock/${row.presentationId}/movements`}
-                state={{ label: presentationLabel(row), behavior: row.quantityBehavior }}
-                className={buttonVariants({ variant: 'outline', size: 'sm' })}
-              >
-                {t('actions.movements')}
-              </Link>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  setEditing({
-                    presentationId: row.presentationId,
-                    value: row.minimumQuantity === null ? '' : String(row.minimumQuantity).replace('.', ','),
-                    error: null,
-                    saving: false,
-                  })
-                }
-              >
-                {t('actions.minimum')}
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => setAdjusting(optionOf(row))}>
-                {t('actions.adjust')}
-              </Button>
-            </>
+            <RowActions
+              label={presentationLabel(row)}
+              actions={[
+                { key: 'adjust', label: t('actions.adjust'), onSelect: () => setAdjusting(optionOf(row)) },
+                {
+                  key: 'movements',
+                  label: t('actions.movements'),
+                  to: `/app/stock/${row.presentationId}/movements`,
+                  state: { label: presentationLabel(row), behavior: row.quantityBehavior },
+                },
+                {
+                  key: 'minimum',
+                  label: t('actions.minimum'),
+                  onSelect: () =>
+                    setEditing({
+                      presentationId: row.presentationId,
+                      value: row.minimumQuantity === null ? '' : String(row.minimumQuantity).replace('.', ','),
+                      error: null,
+                      saving: false,
+                    }),
+                },
+              ]}
+            />
           )
         }}
       />

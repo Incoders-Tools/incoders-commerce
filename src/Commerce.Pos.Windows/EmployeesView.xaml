@@ -135,10 +135,16 @@
                                     </UniformGrid>
                                     <TextBlock Text="Es el importe base que se propone en cada liquidación de su frecuencia. En cada liquidación se pueden sumar horas extra, premios, aguinaldo, etc."
                                                Style="{StaticResource FieldHint}" />
+                                    <!-- employee-lifecycle E2: what an hour of overtime pays (x the multiplier). -->
+                                    <TextBlock Text="Valor de la hora extra" Style="{StaticResource FieldLabel}" />
+                                    <TextBox x:Name="OvertimeRateTextBox" Style="{StaticResource FieldBox}" AutomationProperties.Name="Valor de la hora extra"
+                                             ToolTip="Ej.: 2500" />
+                                    <TextBlock Text="Para las horas extra: horas × este valor × el multiplicador (el domingo, ×2). Vacío: no se cargan horas extra."
+                                               Style="{StaticResource FieldHint}" />
                                     <CheckBox x:Name="TakesGoodsCheckBox" Margin="0,0,0,4"
-                                              Content="Lleva mercadería (se le vende en el POS a cuenta y se descuenta del sueldo)"
+                                              Content="Lleva mercadería (se registra en la web o se le vende en el POS a cuenta, y se descuenta del sueldo)"
                                               AutomationProperties.Name="Lleva mercadería" />
-                                    <TextBlock Text="Se crea un cliente «Apellido, Nombre (personal)» para venderle en el POS a cuenta corriente. Al liquidar, lo que debe se descuenta del sueldo con el % de bonificación que decidas en ese momento."
+                                    <TextBlock Text="Se crea un cliente «Apellido, Nombre (personal)»: la mercadería se registra en la web («Mercadería») o se le vende en el POS a cuenta corriente. Al liquidar, lo que debe se descuenta del sueldo con la bonificación que decidas en ese momento, por producto y sobre el total."
                                                Style="{StaticResource FieldHint}" Margin="0,0,0,10" />
 
                                     <TextBlock Text="Observaciones" Style="{StaticResource FieldLabel}" />
@@ -169,6 +175,117 @@
                             <StackPanel Orientation="Horizontal" Margin="{StaticResource ActionGroupSpacing}">
                                 <Button x:Name="AdvanceSaveButton" Content="Registrar adelanto" Margin="{StaticResource ActionSpacing}" Click="AdvanceSaveButton_Click" />
                                 <Button Content="Cancelar" Style="{StaticResource GhostButton}" Click="CancelEditorButton_Click" />
+                            </StackPanel>
+                        </StackPanel>
+
+                        <!-- employee-lifecycle E2: the employee's overtime. Recorded when worked; the next payroll takes the pending ones. -->
+                        <Grid x:Name="OvertimePanel" Visibility="Collapsed">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="Se cargan cuando se trabajan: horas × el valor de la hora extra × el multiplicador. La próxima liquidación toma las pendientes sola."
+                                           Style="{StaticResource MutedTextBlock}" TextWrapping="Wrap" Margin="0,0,0,8" />
+                                <TextBlock x:Name="OvertimeNoRateText" Style="{StaticResource FieldHint}" TextWrapping="Wrap" Visibility="Collapsed"
+                                           Text="Cargá el valor de la hora extra en los datos del empleado («Editar») para poder registrar horas extra." />
+                                <StackPanel x:Name="OvertimeFormPanel">
+                                    <TextBlock x:Name="OvertimeRateText" Style="{StaticResource MutedTextBlock}" Margin="0,0,0,8" />
+                                    <UniformGrid Columns="3" Style="{StaticResource FormRow}">
+                                        <StackPanel Style="{StaticResource FormCell}">
+                                            <TextBlock Text="Fecha" Style="{StaticResource FieldLabel}" />
+                                            <TextBox x:Name="OvertimeDateTextBox" Style="{StaticResource FieldBox}" AutomationProperties.Name="Fecha" ToolTip="dd/mm/aaaa"
+                                                     TextChanged="OvertimeDateTextBox_TextChanged" />
+                                        </StackPanel>
+                                        <StackPanel Style="{StaticResource FormCell}">
+                                            <TextBlock Text="Horas" Style="{StaticResource FieldLabel}" />
+                                            <TextBox x:Name="OvertimeHoursTextBox" Style="{StaticResource FieldBox}" AutomationProperties.Name="Horas" ToolTip="Ej.: 2,5"
+                                                     TextChanged="OvertimeInput_TextChanged" />
+                                        </StackPanel>
+                                        <StackPanel Style="{StaticResource FormCell}">
+                                            <TextBlock Text="Multiplicador" Style="{StaticResource FieldLabel}" />
+                                            <TextBox x:Name="OvertimeMultiplierTextBox" Style="{StaticResource FieldBox}" AutomationProperties.Name="Multiplicador"
+                                                     TextChanged="OvertimeMultiplierTextBox_TextChanged" />
+                                        </StackPanel>
+                                    </UniformGrid>
+                                    <TextBlock Text="El domingo se propone ×2; cualquier otro día, ×1. Se puede cambiar (de 1 a 3)." Style="{StaticResource FieldHint}" />
+                                    <TextBlock Text="Nota (opcional)" Style="{StaticResource FieldLabel}" />
+                                    <TextBox x:Name="OvertimeNoteTextBox" Style="{StaticResource FieldBox}" MaxLength="200" AutomationProperties.Name="Nota"
+                                             ToolTip="Ej.: inventario" />
+                                    <TextBlock x:Name="OvertimePreviewText" FontWeight="SemiBold" Margin="0,4,0,0" />
+                                    <Button x:Name="OvertimeSaveButton" Content="Registrar horas extra" HorizontalAlignment="Left"
+                                            Margin="{StaticResource ActionGroupSpacing}" Click="OvertimeSaveButton_Click" />
+                                </StackPanel>
+                                <TextBlock Text="Cargadas" Style="{StaticResource FormSectionTitle}" />
+                            </StackPanel>
+                            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                <ItemsControl x:Name="OvertimeItemsControl" AutomationProperties.Name="Horas extra cargadas">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Style="{StaticResource SoftCardBorder}" Padding="12,8" Margin="0,0,12,6">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <StackPanel>
+                                                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                                        <TextBlock Text="{Binding Detail}" Style="{StaticResource MutedTextBlock}" FontSize="12" TextWrapping="Wrap" />
+                                                    </StackPanel>
+                                                    <TextBlock Grid.Column="1" Text="{Binding Amount}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="12,0" />
+                                                    <Button Grid.Column="2" Content="Borrar" Style="{StaticResource GhostButton}" Tag="{Binding Id}"
+                                                            Visibility="{Binding DeleteVisibility}" AutomationProperties.Name="{Binding DeleteLabel}"
+                                                            Click="OvertimeDeleteButton_Click" />
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                            <StackPanel Grid.Row="2">
+                                <TextBlock x:Name="OvertimeEmptyText" Text="No tiene horas extra cargadas." Style="{StaticResource MutedTextBlock}" Visibility="Collapsed" />
+                                <!-- Deleting asks first, as the web's dialog does. -->
+                                <Border x:Name="OvertimeConfirmPanel" Style="{StaticResource SoftCardBorder}" Padding="12,8" Margin="0,8,0,0" Visibility="Collapsed">
+                                    <StackPanel>
+                                        <TextBlock x:Name="OvertimeConfirmText" TextWrapping="Wrap" />
+                                        <StackPanel Orientation="Horizontal" Margin="{StaticResource ActionGroupSpacing}">
+                                            <Button Content="Borrar" Margin="{StaticResource ActionSpacing}" Click="OvertimeConfirmDeleteButton_Click" />
+                                            <Button Content="Cancelar" Style="{StaticResource GhostButton}" Click="OvertimeCancelDeleteButton_Click" />
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+                                <Button Content="Cerrar" Style="{StaticResource GhostButton}" HorizontalAlignment="Left" Margin="{StaticResource ActionGroupSpacing}"
+                                        Click="CancelEditorButton_Click" />
+                            </StackPanel>
+                        </Grid>
+
+                        <!-- employee-lifecycle E3: "Gestionar baja": the leave with its date and reason, or, once given, the reinstatement.
+                             The last salary is settled in the web (the payroll is web only). -->
+                        <StackPanel x:Name="LeavePanel" Visibility="Collapsed">
+                            <TextBlock Text="La baja se registra con su fecha y su motivo. Después se liquida el último sueldo con el mismo flujo de «Sueldos»."
+                                       Style="{StaticResource MutedTextBlock}" TextWrapping="Wrap" Margin="0,0,0,12" />
+                            <StackPanel x:Name="LeaveFormPanel">
+                                <TextBlock Text="Fecha de baja" Style="{StaticResource FieldLabel}" />
+                                <TextBox x:Name="LeaveDateTextBox" Style="{StaticResource FieldBox}" AutomationProperties.Name="Fecha de baja" ToolTip="dd/mm/aaaa" />
+                                <TextBlock Text="Motivo" Style="{StaticResource FieldLabel}" />
+                                <TextBox x:Name="LeaveReasonTextBox" Style="{StaticResource FieldBox}" MaxLength="500" AutomationProperties.Name="Motivo"
+                                         ToolTip="Ej.: renuncia" />
+                                <StackPanel Orientation="Horizontal" Margin="{StaticResource ActionGroupSpacing}">
+                                    <Button x:Name="LeaveSaveButton" Content="Dar de baja" Margin="{StaticResource ActionSpacing}" Click="LeaveSaveButton_Click" />
+                                    <Button Content="Cancelar" Style="{StaticResource GhostButton}" Click="CancelEditorButton_Click" />
+                                </StackPanel>
+                            </StackPanel>
+                            <StackPanel x:Name="LeftPanel" Visibility="Collapsed">
+                                <TextBlock x:Name="LeaveStatusText" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,0,0,8" />
+                                <TextBlock Text="El último sueldo se liquida en la web («Personal» → «Gestionar baja» → «Liquidar último sueldo»): propone el sueldo proporcional a los días trabajados, las horas extra pendientes, los adelantos y la mercadería."
+                                           Style="{StaticResource FieldHint}" TextWrapping="Wrap" Margin="0,0,0,12" />
+                                <TextBlock Text="Si vuelve a trabajar, reincorporalo: se borran la fecha y el motivo de la baja." Style="{StaticResource FieldHint}" TextWrapping="Wrap" />
+                                <StackPanel Orientation="Horizontal" Margin="{StaticResource ActionGroupSpacing}">
+                                    <Button x:Name="ReinstateButton" Content="Reincorporar" Margin="{StaticResource ActionSpacing}" Click="ReinstateButton_Click" />
+                                    <Button Content="Cerrar" Style="{StaticResource GhostButton}" Click="CancelEditorButton_Click" />
+                                </StackPanel>
                             </StackPanel>
                         </StackPanel>
 

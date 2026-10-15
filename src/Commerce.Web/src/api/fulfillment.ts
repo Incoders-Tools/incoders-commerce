@@ -62,6 +62,7 @@ export interface OrderPartyData {
   province: string | null
   postalCode: string | null
   deliveryNotes: string | null
+  locationReference?: string | null
 }
 
 export interface OrderTrackingDetail {
@@ -84,6 +85,8 @@ export interface DeliveryRunSummary {
   createdAtUtc: string
   dispatchedAtUtc: string | null
   completedAtUtc: string | null
+  /** vehicles V3: the vehicle picked (`vehicle` is then its label); null on runs typed by hand before the vehicles. */
+  vehicleId: string | null
 }
 
 export interface DeliveryRunDetail {
@@ -166,7 +169,10 @@ export function getRemitos(orderIds: string[]): Promise<RemitoDocument[]> {
 export interface DeliveryRunRequest {
   runDate: string
   driverName: string | null
+  /** The text typed (runs before the vehicles); null when a vehicle is picked. */
   vehicle: string | null
+  /** vehicles V3: the vehicle picked; the run then reads its label. */
+  vehicleId: string | null
   notes: string | null
   orderIds: string[]
 }

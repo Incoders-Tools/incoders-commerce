@@ -185,6 +185,11 @@ function RemitoPage({ remito, copy }: { remito: RemitoDocument; copy: 'original'
         <div className="col-span-2">
           <Row label={t('remito.address')} value={customerAddress || null} />
         </div>
+        {customer.locationReference && (
+          <div className="col-span-2">
+            <Row label={t('remito.locationReference')} value={customer.locationReference} />
+          </div>
+        )}
         {customer.deliveryNotes && (
           <div className="col-span-2">
             <Row label={t('remito.deliveryNotes')} value={customer.deliveryNotes} />

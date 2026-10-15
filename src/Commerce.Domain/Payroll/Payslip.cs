@@ -20,14 +20,15 @@ public enum PayslipLineKind
 }
 
 /// <summary>
-/// Where a line comes from: the agreed salary, the advances still pending on the employee's account, or added by hand
-/// (overtime, a bonus, the SAC, another deduction...).
+/// Where a line comes from: the agreed salary, the advances still pending on the employee's account, the overtime
+/// recorded and still pending (employee-lifecycle E2), or added by hand (a bonus, the SAC, another deduction...).
 /// </summary>
 public enum PayslipLineSource
 {
     BaseSalary,
     Advances,
     Manual,
+    Overtime,
 }
 
 public sealed record PayslipLine(PayslipLineKind Kind, PayslipLineSource Source, string Concept, decimal Amount);
@@ -35,12 +36,32 @@ public sealed record PayslipLine(PayslipLineKind Kind, PayslipLineSource Source,
 /// <summary>
 /// The goods an employee took on its linked customer account and the discount the owner grants on them at pay day:
 /// <see cref="Deducted"/> comes off the salary, <see cref="Discount"/> is forgiven (a credit note on the customer account).
+/// employee-lifecycle E4: <paramref name="ItemsDiscount"/>, what the discounts per item add up to, comes off first (never
+/// more than is owed); <paramref name="DiscountPercent"/> then applies to the rest.
 /// </summary>
-public sealed record PayslipPurchases(decimal Amount, decimal DiscountPercent)
+public sealed record PayslipPurchases(decimal Amount, decimal DiscountPercent, decimal ItemsDiscount = 0m)
 {
-    public decimal Discount => Money.Round2(Amount * DiscountPercent / 100m);
+    /// <summary>The item discounts actually granted: <see cref="ItemsDiscount"/> capped at what is owed.</summary>
+    public decimal AppliedItemsDiscount => Math.Min(Math.Max(ItemsDiscount, 0m), Amount);
+
+    public decimal Discount => AppliedItemsDiscount + Money.Round2((Amount - AppliedItemsDiscount) * DiscountPercent / 100m);
 
     public decimal Deducted => Amount - Discount;
+
+    /// <summary>The concept of the credit note that forgives <see cref="Discount"/>: where the discount came from.</summary>
+    public string DiscountConcept
+    {
+        get
+        {
+            var percent = DiscountPercent.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture).Replace('.', ',');
+            return (AppliedItemsDiscount > 0m, DiscountPercent > 0m) switch
+            {
+                (true, true) => $"Bonificación al personal (por ítem y {percent} % del resto)",
+                (true, false) => "Bonificación al personal (por ítem)",
+                _ => $"Bonificación al personal ({percent} %)",
+            };
+        }
+    }
 }
 
 /// <summary>

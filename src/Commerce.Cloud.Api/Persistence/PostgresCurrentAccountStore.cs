@@ -194,6 +194,16 @@ public sealed class PostgresCurrentAccountStore
         await using var tx = await connection.BeginTransactionAsync(ct);
         await TenantScopeSql.ApplyAsync(connection, tx, scope, ct);
 
+        // owner feedback 2026-10-14, follow-up: the employee first, as an advance's void and correction do. Otherwise this
+        // reversal's row is in the unique index while its foreign key waits for a void holding the employee, and the
+        // void then waits for that row: a deadlock that failed one of them.
+        if (party.Kind == AccountPartyKind.Employee)
+        {
+            await using var lockRow = new NpgsqlCommand("SELECT 1 FROM employees WHERE id = $1 FOR UPDATE", connection, tx);
+            lockRow.Parameters.AddWithValue(party.Id);
+            await lockRow.ExecuteNonQueryAsync(ct);
+        }
+
         var result = await ReverseWithinAsync(connection, tx, scope.OrganizationId, party, movementId, concept, occurredOn, today, actorId, ct);
         if (result.Outcome != ReverseMovementOutcome.Reversed)
         {
@@ -201,9 +211,44 @@ public sealed class PostgresCurrentAccountStore
             return result;
         }
 
+        // owner feedback round 2, R1: the charge of an employee's goods reversed voids them (their items, and the stock of
+        // those registered in the web); refused once a paid payroll settled them.
+        if (party.Kind == AccountPartyKind.Customer && await SourceOfAsync(connection, tx, movementId, ct) is var (sourceType, sourceId)
+            && !await PostgresEmployeeGoodsStore.ReleaseAsync(connection, tx, scope.OrganizationId, sourceType, sourceId, actorId, ct))
+        {
+            await tx.RollbackAsync(ct);
+            return new ReverseMovementResult(ReverseMovementOutcome.SettledByPayroll);
+        }
+
+        // owner feedback 2026-10-14, A2: the debit of an employee's advance reversed voids its cash too (one path with the
+        // advance's void); refused while the employee is in a Draft payroll, which already deducted it.
+        if (party.Kind == AccountPartyKind.Employee
+            && await SourceOfAsync(connection, tx, movementId, ct) is (PostgresEmployeeStore.AdvanceSourceType, var advanceId))
+        {
+            if (await PostgresEmployeeStore.InPayrollDraftAsync(connection, tx, party.Id, ct))
+            {
+                await tx.RollbackAsync(ct);
+                return new ReverseMovementResult(ReverseMovementOutcome.InPayrollDraft);
+            }
+
+            await PostgresTreasuryStore.VoidSourceMovementAsync(connection, tx, scope.OrganizationId, PostgresEmployeeStore.AdvanceSourceType,
+                advanceId, actorId, result.Reversal!.Concept, null, ct);
+        }
+
         await AuditAsync(connection, tx, scope.OrganizationId, actorKind, actorId, party, $"{party.EntityType}.movement_reversed", result.Reversal!, ct);
         await tx.CommitAsync(ct);
         return result;
+    }
+
+    private static async Task<(string SourceType, Guid SourceId)?> SourceOfAsync(
+        NpgsqlConnection connection, NpgsqlTransaction tx, Guid movementId, CancellationToken ct)
+    {
+        await using var cmd = new NpgsqlCommand(
+            "SELECT source_type, source_id FROM current_account_movements WHERE id = $1 AND source_type IS NOT NULL AND source_id IS NOT NULL",
+            connection, tx);
+        cmd.Parameters.AddWithValue(movementId);
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        return await reader.ReadAsync(ct) ? (reader.GetString(0), reader.GetGuid(1)) : null;
     }
 
     public Task<ReverseMovementResult> ReverseAsync(

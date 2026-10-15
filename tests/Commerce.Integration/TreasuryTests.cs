@@ -5,6 +5,7 @@ using Commerce.Cloud.Api.Endpoints;
 using Commerce.Cloud.Api.Persistence;
 using Commerce.Cloud.Api.Tenancy;
 using Commerce.Domain.CashSessions;
+using Commerce.Domain.CurrentAccounts;
 using Commerce.Domain.Discounts;
 using Commerce.Domain.Identity;
 using Commerce.Domain.Sales;
@@ -246,6 +247,28 @@ public sealed class TreasuryTests : IClassFixture<WebApplicationFactory<Program>
     }
 
     [Fact]
+    public async Task ATypeCreatedWithoutAnOrder_GroupsItsAccountsAfterTheExistingTypes()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+        var (org, branch, _) = await SeedAsync();
+        new PostgresCloudInboxStore(_dataSource!).TryApplyInbound(new CloudTenantScope(org), CashSale(org, branch, 8_000m));
+        var admin = await SignedInAsync(org, branch, Permission.ManageUsers);
+
+        // owner-requests-quick-adjustments F1: the web no longer sends an order, so a new type must not jump ahead of
+        // "Efectivo" (the default types are ordered 10..50).
+        var created = await admin.PostAsJsonAsync("/treasury/account-types", new { name = "Cheques" });
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var chequesType = await Json(created);
+        Assert.Equal(60, chequesType.GetProperty("sortOrder").GetInt32());
+        Assert.Equal(HttpStatusCode.Created, (await admin.PostAsJsonAsync("/treasury/accounts",
+            new { name = "Cartera de cheques", accountTypeId = chequesType.GetProperty("id").GetGuid() })).StatusCode);
+        Assert.Equal(HttpStatusCode.Created, (await admin.PostAsJsonAsync("/treasury/accounts", new { kind = "Bank", name = "Banco" })).StatusCode);
+
+        Assert.Equal(["Efectivo", "Bancos", "Cheques"],
+            (await AccountsAsync(admin)).Select(a => a.GetProperty("accountTypeName").GetString()));
+    }
+
+    [Fact]
     public async Task AVoidedMovement_IsKeptButCountsNowhere_AndAnEditReplacesIt_WhileASaleOnlyChangesAccount()
     {
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
@@ -359,6 +382,34 @@ public sealed class TreasuryTests : IClassFixture<WebApplicationFactory<Program>
         Assert.Equal(6_000m, Balance(branch, PostgresTreasuryStore.Cash));
     }
 
+    // owner feedback round 2, R5: every account's movements in one list, each saying its account.
+    [Fact]
+    public async Task EveryAccountsMovements_AreListedTogether_EachWithItsAccount()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+        var (org, branch, _) = await SeedAsync();
+        new PostgresCloudInboxStore(_dataSource!).TryApplyInbound(new CloudTenantScope(org), CashSale(org, branch, 8_000m));
+        var admin = await SignedInAsync(org, branch, Permission.ManageUsers);
+        var cashId = (await AccountsAsync(admin)).Single(a => a.GetProperty("kind").GetString() == "Cash").GetProperty("accountId").GetGuid();
+        var walletId = (await Json(await admin.PostAsJsonAsync("/treasury/accounts", new { kind = "Bank", name = "Mercado Pago" })))
+            .GetProperty("accountId").GetGuid();
+        var today = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-1);
+        Assert.Equal(HttpStatusCode.OK, (await admin.PostAsJsonAsync("/treasury/movements",
+            new { accountId = walletId, direction = "In", amount = 12_000m, concept = "Cobro QR", date = today })).StatusCode);
+
+        var all = (await Json(await admin.GetAsync($"/treasury/movements?from={today.AddDays(-5):yyyy-MM-dd}"))).EnumerateArray().ToList();
+        Assert.Contains(all, m => m.GetProperty("accountId").GetGuid() == walletId && m.GetProperty("amount").GetDecimal() == 12_000m);
+        Assert.Contains(all, m => m.GetProperty("accountId").GetGuid() == cashId);
+
+        // A range leaving the wallet's movement out, and a range backwards.
+        var later = (await Json(await admin.GetAsync($"/treasury/movements?from={today.AddDays(1):yyyy-MM-dd}"))).EnumerateArray().ToList();
+        Assert.DoesNotContain(later, m => m.GetProperty("accountId").GetGuid() == walletId);
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.GetAsync("/treasury/movements?from=2026-10-10&to=2026-10-01")).StatusCode);
+
+        var seller = await SignedInAsync(org, branch, Permission.ViewSales | Permission.TakeOrders);
+        Assert.Equal(HttpStatusCode.Forbidden, (await seller.GetAsync("/treasury/movements")).StatusCode);
+    }
+
     [Fact]
     public async Task TheTreasury_IsAdministrationOnly()
     {
@@ -376,5 +427,233 @@ public sealed class TreasuryTests : IClassFixture<WebApplicationFactory<Program>
         Assert.Equal(HttpStatusCode.Forbidden, (await seller.GetAsync("/payroll/runs")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await seller.PostAsJsonAsync("/payroll/runs",
             new { periodFrom = "2026-10-01", periodTo = "2026-10-31" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await seller.PostAsJsonAsync("/payroll/runs/final-settlement",
+            new { employeeId = Guid.NewGuid() })).StatusCode);
+    }
+
+    [Fact]
+    public async Task GoodsRegisteredByMistake_AreVoidedOverHttp()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+        var (org, branch, _) = await SeedAsync();
+        var admin = await SignedInAsync(org, branch, Permission.ManageUsers);
+        var asado = Presentation(org, branch, "Asado", "Por kg");
+        using (var owner = OpenOwner())
+        {
+            var list = Scalar<Guid?>(owner, "SELECT id FROM price_lists WHERE organization_id = $1 AND is_default", org);
+            if (list is null)
+            {
+                list = Guid.NewGuid();
+                Exec(owner, "INSERT INTO price_lists (id, organization_id, branch_id, name, is_default, created_by_user_id) VALUES ($1, $2, $3, 'Mostrador', true, $4)",
+                    list.Value, org, branch, Guid.NewGuid());
+            }
+
+            Exec(owner, "INSERT INTO price_list_entries (id, organization_id, branch_id, price_list_id, presentation_id, unit_price, effective_from, created_by_user_id) VALUES ($1, $2, $3, $4, $5, 10000, '2026-01-01', $6)",
+                Guid.NewGuid(), org, branch, list.Value, asado, Guid.NewGuid());
+        }
+
+        var created = await admin.PostAsJsonAsync("/employees", new { branchId = branch, firstName = "Juan", lastName = "Pérez", baseSalary = 1m, takesGoods = true });
+        var employeeId = (await Json(created)).GetProperty("id").GetGuid();
+        var registered = await Json(await admin.PostAsJsonAsync($"/employees/{employeeId}/goods", new { lines = new[] { new { presentationId = asado, quantity = 1m } } }));
+        var goodsId = registered.GetProperty("goodsId").GetGuid();
+
+        // To correct it, the web fills its form again: each item says its product and how it is sold (selected branch).
+        var listed = Assert.Single((await Json(await admin.GetAsync($"/employees/{employeeId}/goods"))).EnumerateArray());
+        Assert.Equal("Weighted", listed.GetProperty("quantityBehavior").GetString());
+        Assert.NotEqual(Guid.Empty, listed.GetProperty("productId").GetGuid());
+
+        Assert.Equal(HttpStatusCode.NotFound, (await admin.PostAsync($"/employees/{employeeId}/goods/{Guid.NewGuid()}/void", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await admin.PostAsync($"/employees/{employeeId}/goods/{goodsId}/void", null)).StatusCode);
+        Assert.Empty((await Json(await admin.GetAsync($"/employees/{employeeId}/goods"))).EnumerateArray());
+    }
+
+    [Fact]
+    public async Task GoodsTakenByAnEmployee_AreQuotedRegisteredAndListedOverHttp()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+        var (org, branch, _) = await SeedAsync();
+        var admin = await SignedInAsync(org, branch, Permission.ManageUsers);
+        var asado = Presentation(org, branch, "Asado", "Por kg");
+        using (var owner = OpenOwner())
+        {
+            var list = Scalar<Guid?>(owner, "SELECT id FROM price_lists WHERE organization_id = $1 AND is_default", org);
+            if (list is null)
+            {
+                list = Guid.NewGuid();
+                Exec(owner, "INSERT INTO price_lists (id, organization_id, branch_id, name, is_default, created_by_user_id) VALUES ($1, $2, $3, 'Mostrador', true, $4)",
+                    list.Value, org, branch, Guid.NewGuid());
+            }
+
+            Exec(owner, "INSERT INTO price_list_entries (id, organization_id, branch_id, price_list_id, presentation_id, unit_price, effective_from, created_by_user_id) VALUES ($1, $2, $3, $4, $5, 10000, '2026-01-01', $6)",
+                Guid.NewGuid(), org, branch, list.Value, asado, Guid.NewGuid());
+        }
+
+        var created = await admin.PostAsJsonAsync("/employees", new { branchId = branch, firstName = "Juan", lastName = "Pérez", baseSalary = 1m, takesGoods = true });
+        var employeeId = (await Json(created)).GetProperty("id").GetGuid();
+
+        var quote = await Json(await admin.PostAsJsonAsync($"/employees/{employeeId}/goods/quote", new { lines = new[] { new { presentationId = asado, quantity = 1.5m } } }));
+        Assert.Equal(15_000m, quote.GetProperty("total").GetDecimal());
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PostAsJsonAsync($"/employees/{employeeId}/goods",
+            new { lines = new[] { new { presentationId = asado, quantity = 0m } } })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PostAsJsonAsync($"/employees/{employeeId}/goods",
+            new { goodsId = Guid.Empty, lines = new[] { new { presentationId = asado, quantity = 1m } } })).StatusCode);
+
+        var registered = await admin.PostAsJsonAsync($"/employees/{employeeId}/goods", new { lines = new[] { new { presentationId = asado, quantity = 1.5m } } });
+        Assert.Equal(HttpStatusCode.Created, registered.StatusCode);
+        var item = Assert.Single((await Json(await admin.GetAsync($"/employees/{employeeId}/goods"))).EnumerateArray());
+        Assert.Equal(("Asado", 15_000m, "Pending"), (item.GetProperty("productName").GetString(), item.GetProperty("lineTotal").GetDecimal(),
+            item.GetProperty("status").GetString()));
+
+        // The payroll takes it; its discount is set per item on the payslip.
+        var prepared = await admin.PostAsJsonAsync("/payroll/runs", new { periodFrom = "2026-10-01", periodTo = "2026-10-12" });
+        var runId = (await Json(prepared)).GetProperty("runId").GetGuid();
+        var slip = (await Json(await admin.GetAsync($"/payroll/runs/{runId}"))).GetProperty("payslips")[0];
+        var payslipId = slip.GetProperty("payslipId").GetGuid();
+        var itemId = slip.GetProperty("goodsItems")[0].GetProperty("id").GetGuid();
+        var salary = new[] { new { kind = "Earning", source = "BaseSalary", concept = "Sueldo básico", amount = 1m } };
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PutAsJsonAsync($"/payroll/runs/{runId}/payslips/{payslipId}",
+            new { lines = salary, purchasesDiscountPercent = 0m, goodsItems = new[] { new { itemId, discountPercent = 100.5m } } })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PutAsJsonAsync($"/payroll/runs/{runId}/payslips/{payslipId}",
+            new { lines = salary, purchasesDiscountPercent = 0m, goodsItems = new[] { new { itemId, discountPercent = 10m }, new { itemId, discountPercent = 20m } } })).StatusCode);
+        var stranger = await admin.PutAsJsonAsync($"/payroll/runs/{runId}/payslips/{payslipId}",
+            new { lines = salary, purchasesDiscountPercent = 0m, goodsItems = new[] { new { itemId = Guid.NewGuid(), discountPercent = 10m } } });
+        Assert.Equal("goods-item-not-in-payslip", (await Json(stranger)).GetProperty("error").GetString());
+        Assert.Equal(HttpStatusCode.NoContent, (await admin.PutAsJsonAsync($"/payroll/runs/{runId}/payslips/{payslipId}",
+            new { lines = salary, purchasesDiscountPercent = 0m, goodsItems = new[] { new { itemId, discountPercent = 20m } } })).StatusCode);
+        slip = (await Json(await admin.GetAsync($"/payroll/runs/{runId}"))).GetProperty("payslips")[0];
+        Assert.Equal((3_000m, 12_000m), (slip.GetProperty("purchasesItemsDiscount").GetDecimal(), slip.GetProperty("purchasesDeducted").GetDecimal()));
+    }
+
+    [Fact]
+    public async Task APayroll_IsPreparedOverHttp_ForTheChosenEmployees()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+        var (org, branch, _) = await SeedAsync();
+        var admin = await SignedInAsync(org, branch, Permission.ManageUsers);
+        var created = await admin.PostAsJsonAsync("/employees", new { branchId = branch, firstName = "Juan", lastName = "Pérez", baseSalary = 1m });
+        var employeeId = (await Json(created)).GetProperty("id").GetGuid();
+
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PostAsJsonAsync("/payroll/runs",
+            new { periodFrom = "2026-10-01", periodTo = "2026-10-12", employeeIds = Array.Empty<Guid>() })).StatusCode);
+        var stranger = await admin.PostAsJsonAsync("/payroll/runs",
+            new { periodFrom = "2026-10-01", periodTo = "2026-10-12", employeeIds = new[] { employeeId, Guid.NewGuid() } });
+        Assert.Equal((HttpStatusCode.Conflict, "employees-not-eligible"), (stranger.StatusCode, (await Json(stranger)).GetProperty("error").GetString()));
+        Assert.Equal(HttpStatusCode.Created, (await admin.PostAsJsonAsync("/payroll/runs",
+            new { periodFrom = "2026-10-01", periodTo = "2026-10-12", employeeIds = new[] { employeeId } })).StatusCode);
+    }
+
+    [Fact]
+    public async Task APayroll_IsPaidFromSeveralAccountsOverHttp()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+        var (org, branch, _) = await SeedAsync();
+        var admin = await SignedInAsync(org, branch, Permission.ManageUsers);
+        var treasury = new PostgresTreasuryStore(_dataSource!);
+        var scope = new CloudTenantScope(org, BranchId: branch);
+        var (_, cash) = await treasury.CreateAccountAsync(scope, Guid.NewGuid(), PostgresTreasuryStore.Other, "Caja sueldos", null, branch, null,
+            new DateOnly(2026, 10, 12), CancellationToken.None);
+        var (_, bank) = await treasury.CreateAccountAsync(scope, Guid.NewGuid(), PostgresTreasuryStore.Bank, "Banco", null, branch, null,
+            new DateOnly(2026, 10, 12), CancellationToken.None);
+        await admin.PostAsJsonAsync("/employees", new { branchId = branch, firstName = "Juan", lastName = "Pérez", baseSalary = 1000m });
+        var runId = (await Json(await admin.PostAsJsonAsync("/payroll/runs", new { periodFrom = "2026-10-01", periodTo = "2026-10-12" })))
+            .GetProperty("runId").GetGuid();
+        var payslipId = (await Json(await admin.GetAsync($"/payroll/runs/{runId}"))).GetProperty("payslips")[0].GetProperty("payslipId").GetGuid();
+
+        object Split(params (Guid Account, decimal Amount)[] parts) => new
+        {
+            accountId = cash!.AccountId,
+            paidOn = "2026-10-12",
+            splits = new[] { new { payslipId, parts = parts.Select(p => new { accountId = p.Account, amount = p.Amount }).ToArray() } },
+        };
+
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PostAsJsonAsync($"/payroll/runs/{runId}/pay", Split((cash!.AccountId, 0m)))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PostAsJsonAsync($"/payroll/runs/{runId}/pay", Split((cash.AccountId, 1.001m)))).StatusCode);
+        // A split with no account would pay that employee nothing, silently: refused (take the payslip out instead).
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PostAsJsonAsync($"/payroll/runs/{runId}/pay", Split())).StatusCode);
+        var over = await admin.PostAsJsonAsync($"/payroll/runs/{runId}/pay", Split((cash.AccountId, 600m), (bank!.AccountId, 400.01m)));
+        Assert.Equal((HttpStatusCode.Conflict, "payment-exceeds-net"), (over.StatusCode, (await Json(over)).GetProperty("error").GetString()));
+        Assert.Equal(HttpStatusCode.NoContent,
+            (await admin.PostAsJsonAsync($"/payroll/runs/{runId}/pay", Split((cash.AccountId, 600m), (bank.AccountId, 400m)))).StatusCode);
+
+        var payments = (await Json(await admin.GetAsync($"/payroll/runs/{runId}"))).GetProperty("payslips")[0].GetProperty("payments");
+        Assert.Equal([("Caja sueldos", 600m), ("Banco", 400m)],
+            payments.EnumerateArray().Select(p => (p.GetProperty("accountName").GetString(), p.GetProperty("amount").GetDecimal())));
+    }
+
+    [Fact]
+    public async Task AnEmployeesAdvances_AreListed_Voided_AndCorrectedOverHttp()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+        var (org, branch, _) = await SeedAsync();
+        var admin = await SignedInAsync(org, branch, Permission.ManageUsers);
+        var scope = new CloudTenantScope(org, BranchId: branch);
+        var (_, cash) = await new PostgresTreasuryStore(_dataSource!).CreateAccountAsync(scope, Guid.NewGuid(), PostgresTreasuryStore.Other,
+            "Caja sueldos", null, branch, null, new DateOnly(2026, 10, 1), CancellationToken.None);
+        var employeeId = (await Json(await admin.PostAsJsonAsync("/employees", new { branchId = branch, firstName = "Juan", lastName = "Pérez", baseSalary = 1000m })))
+            .GetProperty("id").GetGuid();
+        async Task<Guid> Give(decimal amount) =>
+            (await Json(await admin.PostAsJsonAsync($"/employees/{employeeId}/advances", new { amount, accountId = cash!.AccountId })))
+                .GetProperty("advanceId").GetGuid();
+        var first = await Give(15_000m);
+
+        // The last month by default; a range the other way round is refused.
+        var listed = Assert.Single((await Json(await admin.GetAsync($"/employees/{employeeId}/advances"))).EnumerateArray());
+        Assert.Equal((first, 15_000m, "Caja sueldos", false), (listed.GetProperty("advanceId").GetGuid(), listed.GetProperty("amount").GetDecimal(),
+            listed.GetProperty("accountName").GetString(), listed.GetProperty("isVoided").GetBoolean()));
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.GetAsync($"/employees/{employeeId}/advances?from=2026-10-10&to=2026-10-01")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await admin.GetAsync($"/employees/{Guid.NewGuid()}/advances")).StatusCode);
+
+        // A void says why; a correction too, and of a voided advance it is refused.
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PostAsJsonAsync($"/employees/{employeeId}/advances/{first}/void", new { reason = " " })).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await admin.PostAsJsonAsync($"/employees/{employeeId}/advances/{first}/void", new { reason = "Mal cargado" })).StatusCode);
+        var voided = await admin.PutAsJsonAsync($"/employees/{employeeId}/advances/{first}", new { amount = 1m, accountId = cash!.AccountId, reason = "x" });
+        Assert.Equal((HttpStatusCode.Conflict, "advance-voided"), (voided.StatusCode, (await Json(voided)).GetProperty("error").GetString()));
+
+        var second = await Give(12_000m);
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await admin.PutAsJsonAsync($"/employees/{employeeId}/advances/{second}", new { amount = 10_000m, accountId = cash.AccountId })).StatusCode);
+        var corrected = await admin.PutAsJsonAsync($"/employees/{employeeId}/advances/{second}",
+            new { amount = 10_000m, accountId = cash.AccountId, concept = "a cuenta", reason = "Era de 10.000" });
+        var correctedId = (await Json(corrected)).GetProperty("advanceId").GetGuid();
+        var history = (await Json(await admin.GetAsync($"/employees/{employeeId}/advances"))).EnumerateArray().ToList();
+        Assert.Equal(3, history.Count);
+        Assert.Equal(second, history.Single(a => a.GetProperty("advanceId").GetGuid() == correctedId).GetProperty("correctsAdvanceId").GetGuid());
+
+        // In a draft payroll it stays as the draft read it, from the advance and from the employee's account alike.
+        await admin.PostAsJsonAsync("/payroll/runs", new { periodFrom = "2026-10-01", periodTo = "2026-10-12" });
+        var inDraft = await admin.PostAsJsonAsync($"/employees/{employeeId}/advances/{correctedId}/void", new { reason = "x" });
+        Assert.Equal((HttpStatusCode.Conflict, "advance-in-payroll-draft"), (inDraft.StatusCode, (await Json(inDraft)).GetProperty("error").GetString()));
+        var debit = (await new PostgresCurrentAccountStore(_dataSource!).ListMovementsAsync(scope, AccountParty.Employee(employeeId), CancellationToken.None))!
+            .Single(m => m.Amount == 10_000m && m.Kind == AccountMovementKind.Payment).Id;
+        var reverse = await admin.PostAsJsonAsync($"/employees/{employeeId}/account/movements/{debit}/reverse", new { concept = "x" });
+        Assert.Equal((HttpStatusCode.Conflict, "advance-in-payroll-draft"), (reverse.StatusCode, (await Json(reverse)).GetProperty("error").GetString()));
+    }
+
+    [Fact]
+    public async Task TheFinalSettlement_IsPreparedOverHttp_OnlyForAnEmployeeGivenTheLeave()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+        var (org, branch, _) = await SeedAsync();
+        var admin = await SignedInAsync(org, branch, Permission.ManageUsers);
+        var created = await admin.PostAsJsonAsync("/employees", new { branchId = branch, firstName = "Juan", lastName = "Pérez",
+            hireDate = "2025-01-01", payFrequency = "Monthly", baseSalary = 620_000m });
+        var employeeId = (await Json(created)).GetProperty("id").GetGuid();
+
+        var active = await admin.PostAsJsonAsync("/payroll/runs/final-settlement", new { employeeId });
+        Assert.Equal("employee-active", (await Json(active)).GetProperty("error").GetString());
+
+        Assert.Equal(HttpStatusCode.NoContent, (await admin.PostAsJsonAsync($"/employees/{employeeId}/active",
+            new { isActive = false, terminationDate = "2026-10-10", terminationReason = "Despido" })).StatusCode);
+        var settled = await admin.PostAsJsonAsync("/payroll/runs/final-settlement", new { employeeId });
+        Assert.Equal(HttpStatusCode.Created, settled.StatusCode);
+        var run = await Json(await admin.GetAsync($"/payroll/runs/{(await Json(settled)).GetProperty("runId").GetGuid()}"));
+        Assert.Equal("Liquidación final de Pérez, Juan (baja 10/10/2026: Despido)", run.GetProperty("run").GetProperty("notes").GetString());
+        var line = run.GetProperty("payslips")[0].GetProperty("lines")[0];
+        Assert.Equal(("Sueldo básico proporcional (10 de 31 días)", 200_000m), (line.GetProperty("concept").GetString(), line.GetProperty("amount").GetDecimal()));
+
+        var again = await admin.PostAsJsonAsync("/payroll/runs/final-settlement", new { employeeId });
+        Assert.Equal("employee-in-draft", (await Json(again)).GetProperty("error").GetString());
+        var reinstate = await admin.PostAsJsonAsync($"/employees/{employeeId}/active", new { isActive = true });
+        Assert.Equal("employee-in-payroll-draft", (await Json(reinstate)).GetProperty("error").GetString());
     }
 }

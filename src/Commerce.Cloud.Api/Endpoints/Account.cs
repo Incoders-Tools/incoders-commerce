@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Commerce.Application.Time;
 using Commerce.Cloud.Api.Auditing;
 using Commerce.Cloud.Api.Authentication;
 using Commerce.Cloud.Api.Email;
@@ -138,6 +139,8 @@ public static class AccountEndpoints
             PostgresUserAccountStore store,
             PostgresOrganizationStore organizationStore,
             PasswordHasher<UserAccount> hasher,
+            OrganizationStandingCache standings,
+            IBusinessClock clock,
             CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.Password))
@@ -211,8 +214,10 @@ public static class AccountEndpoints
                 credential.Email,
                 permissions,
                 signedInActor?.IsSystemAdmin ?? false,
-                selectableBranches.Select(b => new SelectableBranch(b.Id, b.Name, b.Code)).ToList()));
-        });
+                selectableBranches.Select(b => new SelectableBranch(b.Id, b.Name, b.Code)).ToList(),
+                // The SPA keeps this response as its session, so it carries the standing exactly like /account/me.
+                await OrganizationAccountStandingEndpoints.SummaryForAsync(credential.OrganizationId, signedInActor, standings, clock, ct)));
+        }).AllowAnonymous(); // Explicit, so OrganizationSuspensionCoverageTests can tell it from a forgotten RequireAuthorization.
 
         // --- Renew: authenticated, self-service, known-current-password
         // change (commerce-password-recovery design.md "Renew (authenticated)").
@@ -278,7 +283,7 @@ public static class AccountEndpoints
             await httpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(refreshedIdentity));
 
             return Results.NoContent();
-        }).RequireAuthorization();
+        }).RequireAuthorization().AllowWhileOrganizationSuspended();
 
         // --- Reset-request: anonymous, uniform-response forgot-password
         // start (commerce-password-recovery design.md "Reset request
@@ -396,7 +401,7 @@ public static class AccountEndpoints
         }).AllowAnonymous();
 
         var organizationGroup = app.MapGroup("/account/organizations").RequireAuthorization();
-        organizationGroup.MapGet("", async (HttpContext httpContext, PostgresUserAccountStore userStore, PostgresOrganizationStore organizationStore, CancellationToken ct) =>
+        organizationGroup.MapGet("", async (HttpContext httpContext, PostgresUserAccountStore userStore, PostgresOrganizationStore organizationStore, IBusinessClock clock, CancellationToken ct) =>
         {
             if (!TenantScopeResolver.TryResolve(httpContext.User, out var scope, out _)) return Results.StatusCode(StatusCodes.Status403Forbidden);
             var claim = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
@@ -404,7 +409,19 @@ public static class AccountEndpoints
             var actor = await userStore.LoadActorAsync(scope!, userId, ct);
             if (actor is null || !actor.IsSystemAdmin) return Results.StatusCode(StatusCodes.Status403Forbidden);
             if (!organizationStore.CanListOrganizations) return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
-            return Results.Ok(await organizationStore.ListOrganizationsAsync(ct));
+
+            // organization-account-standing T3: each organization's standing is read scoped to that organization
+            // through `app_runtime`; `platform_readonly` keeps its `(id, name, created_at)` column grant (0007).
+            var today = clock.Today;
+            var organizations = new List<OrganizationSummary>();
+            foreach (var organization in await organizationStore.ListOrganizationsAsync(ct))
+            {
+                var inputs = await organizationStore.GetAccountStandingInputsAsync(organization.Id, ct);
+                organizations.Add(inputs is null
+                    ? organization
+                    : organization with { Standing = OrganizationAccountStandingEndpoints.ToResponse(inputs, today) });
+            }
+            return Results.Ok(organizations);
         });
         organizationGroup.MapPost("", async (CreateOrganizationRequest request, HttpContext httpContext, PostgresUserAccountStore userStore, PostgresOrganizationStore organizationStore, PasswordHasher<UserAccount> hasher, CancellationToken ct) =>
         {
@@ -1050,10 +1067,11 @@ public static class AccountEndpoints
         {
             await httpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
             return Results.Ok();
-        });
+        }).AllowWhileOrganizationSuspended();
 
         group.MapGet("/me", async (
-            HttpContext httpContext, PostgresUserAccountStore userStore, PostgresOrganizationStore organizationStore, CancellationToken ct) =>
+            HttpContext httpContext, PostgresUserAccountStore userStore, PostgresOrganizationStore organizationStore,
+            OrganizationStandingCache standings, IBusinessClock clock, CancellationToken ct) =>
         {
             // Routed through TenantScopeEndpointFilter (added below) so a
             // system administrator's `X-Organization-Id` selector is in
@@ -1087,14 +1105,17 @@ public static class AccountEndpoints
                     ? await organizationStore.ListBranchesAsync(scope, ct)
                     : await organizationStore.ListBranchesAsync(scope, actor.BranchScope.ToArray(), ct);
 
+            var accountStanding = await OrganizationAccountStandingEndpoints.SummaryForAsync(scope.OrganizationId, actor, standings, clock, ct);
+
             return Results.Ok(new SignedInResponse(
                 scope.OrganizationId,
                 userId,
                 displayName ?? string.Empty,
                 permissions,
                 actor?.IsSystemAdmin ?? false,
-                selectableBranches.Select(b => new SelectableBranch(b.Id, b.Name, b.Code)).ToList()));
-        }).AddEndpointFilter<TenantScopeEndpointFilter>();
+                selectableBranches.Select(b => new SelectableBranch(b.Id, b.Name, b.Code)).ToList(),
+                accountStanding));
+        }).AddEndpointFilter<TenantScopeEndpointFilter>().AllowWhileOrganizationSuspended();
 
         // --- Bootstrap: one-time first-admin creation gated by a log-only
         // token (design.md "Bootstrap token delivery") ------------------------
@@ -1205,7 +1226,15 @@ public sealed record SignedInResponse(
     string DisplayName,
     int Permissions,
     bool IsSystemAdmin,
-    IReadOnlyList<SelectableBranch> SelectableBranches);
+    IReadOnlyList<SelectableBranch> SelectableBranches,
+    AccountStandingSummary? AccountStanding = null);
+
+/// <summary>
+/// The caller organization's account standing on <c>/account/me</c> (organization-account-standing T4).
+/// <see cref="Status"/>: Active | Overdue | Suspended, for every user. <see cref="SuspendsOn"/> and
+/// <see cref="DaysLeft"/> only for administrators (<c>ManageUsers</c>) and the system administrator.
+/// </summary>
+public sealed record AccountStandingSummary(string Status, DateOnly? SuspendsOn, int? DaysLeft);
 
 public sealed record SelectableBranch(Guid Id, string Name, int Code);
 
@@ -1231,7 +1260,8 @@ public sealed record UserSummaryDto(Guid UserId, string Email, IReadOnlyList<str
 public sealed record CreateBranchRequest(string BranchName);
 public sealed record CreateBranchResponse(Guid BranchId, int Code);
 public sealed record BranchSummaryDto(Guid BranchId, string BranchName, int Code);
-public sealed record OrganizationSummary(Guid Id, string Name, DateTimeOffset CreatedAt);
+/// <summary><see cref="Standing"/> is filled by the system-admin list endpoint only (organization-account-standing T3).</summary>
+public sealed record OrganizationSummary(Guid Id, string Name, DateTimeOffset CreatedAt, OrganizationAccountStandingResponse? Standing = null);
 public sealed record CreateOrganizationRequest(string OrganizationName, string? BranchName, string AdminEmail, string AdminPassword);
 public sealed record CreateOrganizationResponse(Guid OrganizationId, Guid BranchId, Guid UserId);
 public sealed record OrganizationBrandingResponse(string? LogoUrl, string? PrimaryColor);

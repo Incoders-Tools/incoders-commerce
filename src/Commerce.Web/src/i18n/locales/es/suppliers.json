@@ -19,7 +19,7 @@
     "name": "Nombre",
     "category": "Rubro",
     "contact": "Contacto",
-    "city": "Ciudad",
+    "location": "Ubicación",
     "taxId": "CUIT/CUIL/DNI",
     "balance": "Saldo",
     "balanceHint": "Lo que le debemos al proveedor",

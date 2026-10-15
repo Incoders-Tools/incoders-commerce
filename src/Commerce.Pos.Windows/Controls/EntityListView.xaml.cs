@@ -246,6 +246,14 @@ public sealed class EntityListView : Control
             _layout.ColumnDefinitions[2].MinWidth = shown ? _editorMinWidth : 0;
             _layout.ColumnDefinitions[2].Width = shown ? EditorWidth : new GridLength(0);
         }
+
+        // The secondary columns step aside while the editor takes part of the width.
+        var editing = shown && _model?.EditorMode != EntityEditorMode.None;
+        var states = _model?.Columns;
+        for (var i = 0; states is not null && i < _columns.Count && i < states.Count; i++)
+        {
+            _columns[i].Visibility = editing && states[i].HideWhileEditing ? Visibility.Collapsed : Visibility.Visible;
+        }
     }
 
     /// <summary>Several changes in one handler (open the editor, reload the rows) render once, after the handler.</summary>
@@ -309,6 +317,8 @@ public sealed class EntityListView : Control
                 CellTemplate = actions,
             });
         }
+
+        ApplyEditorWidth();
     }
 
     private void BuildFilters()

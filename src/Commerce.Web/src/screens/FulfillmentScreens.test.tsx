@@ -58,7 +58,7 @@ describe('fulfillment screens', () => {
       { lineNo: 1, presentationId: 'p-1', productName: 'Vacío', presentationName: 'Por kg', quantityBehavior: 'Weighted', quantity: 2.5, unitNetPrice: 10000, lineTotal: 25000, deliveredQuantity: null },
       { lineNo: 2, presentationId: 'p-2', productName: 'Chorizo', presentationName: 'Unidad', quantityBehavior: 'FixedQuantity', quantity: 3, unitNetPrice: 500, lineTotal: 1500, deliveredQuantity: null },
     ],
-    party: { displayName: 'Parrilla Don Julio', legalName: 'Don Julio SRL', taxIdType: 'Cuit', taxId: '30712345671', taxCondition: 'ResponsableInscripto', phone: '2478-555555', address: 'Frascheri 626', locality: 'Arrecifes', province: 'Buenos Aires', postalCode: '2740', deliveryNotes: 'Portón verde' },
+    party: { displayName: 'Parrilla Don Julio', legalName: 'Don Julio SRL', taxIdType: 'Cuit', taxId: '30712345671', taxCondition: 'ResponsableInscripto', phone: '2478-555555', address: 'Frascheri 626', locality: 'Arrecifes', province: 'Buenos Aires', postalCode: '2740', deliveryNotes: 'Si no hay nadie, dejar con el vecino', locationReference: 'Portón verde' },
     allowedTransitions: allowed,
   })
 
@@ -134,6 +134,10 @@ describe('fulfillment screens', () => {
 
     expect(await screen.findByRole('heading', { name: 'Pedido P01-W-12' })).toBeInTheDocument()
     expect(screen.getByText('30712345671')).toBeInTheDocument()
+    // owner-requests-quick-adjustments Q1: how to find the place and what to do with the delivery, apart.
+    expect(screen.getByText('Referencias de ubicación:')).toBeInTheDocument()
+    expect(screen.getByText('Portón verde')).toBeInTheDocument()
+    expect(screen.getByText('Si no hay nadie, dejar con el vecino')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Imprimir remito' })).toHaveAttribute('href', '/print/remitos?orders=o-1')
 
     await user.click(screen.getByRole('button', { name: 'Cancelar pedido' }))
@@ -175,6 +179,100 @@ describe('fulfillment screens', () => {
     expect(screen.getByTestId('location')).toHaveTextContent('/app/deliveries/r-1')
   })
 
+  const vehicle = (id: string, plate: string, label: string) => ({
+    id, plate, brand: null, model: null, year: null, notes: null, isActive: true, label,
+    createdAtUtc: '2026-10-13T00:00:00Z', updatedAtUtc: '2026-10-13T00:00:00Z',
+  })
+  const truck = vehicle('v-1', 'AB123CD', 'AB123CD · Ford F-4000')
+  const van = vehicle('v-2', 'AA000AA', 'AA000AA · Fiat Fiorino')
+  const plannedRun = (run: Record<string, unknown>) => ({
+    run: {
+      runId: 'r-1', runNumber: 3, runDate: '2026-10-05', driverName: 'Juan', vehicle: null, vehicleId: null, notes: null, status: 'Planned',
+      orderCount: 1, total: 26500, createdAtUtc: '2026-10-05T10:00:00Z', dispatchedAtUtc: null, completedAtUtc: null, ...run,
+    },
+    stops: [{ stopNo: 1, order: order({ runId: 'r-1', runNumber: 3 }) }],
+  })
+
+  it('preselects the only active vehicle for a new run and sends it', async () => {
+    routeFetch({
+      'GET /orders/tracking': () => json([order()]),
+      'GET /vehicles': () => json([truck]),
+      'POST /deliveries/runs': () => json({ runId: 'r-1' }, 201),
+    })
+    const user = userEvent.setup()
+    renderAt('/app/deliveries/new?orders=o-1', <DeliveryRunFormScreen />, '/app/deliveries/new')
+
+    await waitFor(() => expect(screen.getByLabelText('Vehículo')).toHaveValue('v-1'))
+    await user.click(screen.getByRole('button', { name: 'Guardar reparto' }))
+    await waitFor(() => expect(callsTo('POST /deliveries/runs')).toHaveLength(1))
+    expect(JSON.parse(callsTo('POST /deliveries/runs')[0][1].body as string)).toMatchObject({ vehicleId: 'v-1', vehicle: null })
+  })
+
+  it('lets a run pick among several vehicles, or none', async () => {
+    routeFetch({
+      'GET /orders/tracking': () => json([order()]),
+      'GET /vehicles': () => json([van, truck]),
+      'POST /deliveries/runs': () => json({ runId: 'r-1' }, 201),
+    })
+    const user = userEvent.setup()
+    renderAt('/app/deliveries/new?orders=o-1', <DeliveryRunFormScreen />, '/app/deliveries/new')
+
+    const select = await screen.findByLabelText('Vehículo')
+    await waitFor(() => expect(within(select).getByRole('option', { name: 'AA000AA · Fiat Fiorino' })).toBeInTheDocument())
+    expect(select).toHaveValue('')
+    expect(within(select).getByRole('option', { name: 'Sin vehículo' })).toBeInTheDocument()
+    await user.selectOptions(select, 'v-2')
+    await user.click(screen.getByRole('button', { name: 'Guardar reparto' }))
+    await waitFor(() => expect(callsTo('POST /deliveries/runs')).toHaveLength(1))
+    expect(JSON.parse(callsTo('POST /deliveries/runs')[0][1].body as string)).toMatchObject({ vehicleId: 'v-2', vehicle: null })
+  })
+
+  it('says so when the vehicles cannot be read, instead of leaving the run without one silently', async () => {
+    routeFetch({
+      'GET /orders/tracking': () => json([order()]),
+      'GET /vehicles': () => json({ error: 'boom' }, 500),
+    })
+    renderAt('/app/deliveries/new?orders=o-1', <DeliveryRunFormScreen />, '/app/deliveries/new')
+
+    expect(await screen.findByText('No se pudieron cargar los vehículos: el reparto se puede guardar sin vehículo y elegirlo después.'))
+      .toBeInTheDocument()
+    expect(screen.getByLabelText('Vehículo')).toHaveValue('')
+  })
+
+  it('keeps the vehicle typed on an older run when editing', async () => {
+    routeFetch({
+      'GET /orders/tracking': () => json([order({ runId: 'r-1', runNumber: 3 })]),
+      'GET /vehicles': () => json([truck]),
+      'GET /deliveries/runs/r-1': () => json(plannedRun({ vehicle: 'Kangoo de Juan' })),
+      'PUT /deliveries/runs/r-1': () => json(undefined, 204),
+    })
+    const user = userEvent.setup()
+    renderAt('/app/deliveries/r-1/edit', <DeliveryRunFormScreen />, '/app/deliveries/:id/edit')
+
+    const select = await screen.findByLabelText('Vehículo')
+    await waitFor(() => expect(within(select).getByRole('option', { name: 'Kangoo de Juan (escrito a mano)' })).toBeInTheDocument())
+    await user.click(screen.getByRole('button', { name: 'Guardar reparto' }))
+    await waitFor(() => expect(callsTo('PUT /deliveries/runs/r-1')).toHaveLength(1))
+    expect(JSON.parse(callsTo('PUT /deliveries/runs/r-1')[0][1].body as string)).toMatchObject({ vehicleId: null, vehicle: 'Kangoo de Juan' })
+  })
+
+  it('keeps a run\'s vehicle deactivated since, when editing', async () => {
+    routeFetch({
+      'GET /orders/tracking': () => json([order({ runId: 'r-1', runNumber: 3 })]),
+      'GET /vehicles': () => json([truck]),
+      'GET /deliveries/runs/r-1': () => json(plannedRun({ vehicle: 'XX999XX · Fiat 147', vehicleId: 'v-9' })),
+      'PUT /deliveries/runs/r-1': () => json(undefined, 204),
+    })
+    const user = userEvent.setup()
+    renderAt('/app/deliveries/r-1/edit', <DeliveryRunFormScreen />, '/app/deliveries/:id/edit')
+
+    await waitFor(() => expect(screen.getByLabelText('Vehículo')).toHaveValue('v-9'))
+    expect(within(screen.getByLabelText('Vehículo')).getByRole('option', { name: 'XX999XX · Fiat 147' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Guardar reparto' }))
+    await waitFor(() => expect(callsTo('PUT /deliveries/runs/r-1')).toHaveLength(1))
+    expect(JSON.parse(callsTo('PUT /deliveries/runs/r-1')[0][1].body as string)).toMatchObject({ vehicleId: 'v-9', vehicle: null })
+  })
+
   it('offers again an order taken out of the run being edited', async () => {
     const inRun = order({ runId: 'r-1', runNumber: 3 })
     routeFetch({
@@ -211,7 +309,7 @@ describe('fulfillment screens', () => {
 
   it('settles a run with the re-weighed kilos, the settlement, and an undelivered order', async () => {
     const run: DeliveryRunDetail = {
-      run: { runId: 'r-1', runNumber: 3, runDate: '2026-10-05', driverName: 'Juan', vehicle: 'Kangoo', notes: null, status: 'OutForDelivery', orderCount: 2, total: 36500, createdAtUtc: '2026-10-05T10:00:00Z', dispatchedAtUtc: '2026-10-05T11:00:00Z', completedAtUtc: null },
+      run: { runId: 'r-1', runNumber: 3, runDate: '2026-10-05', driverName: 'Juan', vehicle: 'Kangoo', notes: null, status: 'OutForDelivery', orderCount: 2, total: 36500, createdAtUtc: '2026-10-05T10:00:00Z', dispatchedAtUtc: '2026-10-05T11:00:00Z', completedAtUtc: null, vehicleId: null },
       stops: [
         { stopNo: 1, order: order({ status: 'OutForDelivery', runId: 'r-1', runNumber: 3 }) },
         { stopNo: 2, order: order({ orderId: 'o-2', orderNumber: 'P01-W-13', customerId: null, origin: 'Guest', customerName: 'Invitado', status: 'OutForDelivery', runId: 'r-1', runNumber: 3 }) },
@@ -272,6 +370,8 @@ describe('fulfillment screens', () => {
       expect(within(page).getByText(/Depósito Ruta 51/)).toBeInTheDocument()
       expect(within(page).getByText('CUIT: 30-71234567-1')).toBeInTheDocument()
       expect(within(page).getByText('$ 26.500,00')).toBeInTheDocument()
+      expect(within(page).getByText('Portón verde')).toBeInTheDocument()
+      expect(within(page).getByText('Si no hay nadie, dejar con el vecino')).toBeInTheDocument()
     }
     expect(within(duplicate).getByText('Copia para Vaca Verde: firmar al recibir')).toBeInTheDocument()
     await waitFor(() => expect(window.print).toHaveBeenCalledTimes(1))

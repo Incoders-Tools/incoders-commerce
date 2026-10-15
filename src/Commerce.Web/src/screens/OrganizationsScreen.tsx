@@ -12,10 +12,11 @@ import { useViewPreference } from '@/components/data/useViewPreference'
 import { useOrganizationContext } from '@/organization/OrganizationContext'
 import { OrganizationForm } from './OrganizationForm'
 import { OrganizationBrandingForm } from './OrganizationBrandingForm'
+import { OrganizationStandingForm } from './OrganizationStandingForm'
+import { formatInstantDate, formatIsoDate } from '@/dashboard/format'
 
 function formatCreatedAt(value: string): string {
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? '—' : parsed.toLocaleDateString('es-AR')
+  return formatInstantDate(value)
 }
 
 /**
@@ -43,6 +44,7 @@ export function OrganizationsScreen() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [editingBranding, setEditingBranding] = useState<OrganizationSummary | null>(null)
+  const [editingStanding, setEditingStanding] = useState<OrganizationSummary | null>(null)
   const [search, setSearch] = useState('')
   const [view, setView] = useViewPreference('organizations')
   // Guards against a slow refresh resolving after a newer one: `refresh` can
@@ -111,12 +113,44 @@ export function OrganizationsScreen() {
     )
   }
 
+  if (editingStanding !== null) {
+    const backToList = () => {
+      setEditingStanding(null)
+      void refresh()
+    }
+    return <OrganizationStandingForm organization={editingStanding} onSaved={backToList} onCancel={backToList} />
+  }
+
+  // organization-account-standing T6: the server derives the standing; the list only names it.
+  const describeStanding = (organization: OrganizationSummary): string => {
+    const standing = organization.standing
+    if (!standing) return '—'
+    switch (standing.status) {
+      case 'Suspended':
+        return t('standing.suspended')
+      case 'Overdue':
+        // Never fall back to "Al día" for an overdue organization when the count is missing.
+        return standing.daysLeft != null ? t('standing.overdue', { count: standing.daysLeft }) : t('standing.overdueNoCount')
+      case 'Active':
+        return t('standing.active')
+      default:
+        return '—'
+    }
+  }
+
   const columns: DataViewColumn<OrganizationSummary>[] = [
     { key: 'name', header: t('columns.name'), cell: (organization) => organization.name },
     {
       key: 'createdAt',
       header: t('columns.created'),
       cell: (organization) => formatCreatedAt(organization.createdAt),
+      hideOnMobile: true,
+    },
+    { key: 'standing', header: t('columns.standing'), cell: describeStanding },
+    {
+      key: 'dueOn',
+      header: t('columns.dueOn'),
+      cell: (organization) => (organization.standing?.dueOn ? formatIsoDate(organization.standing.dueOn) : t('standing.noDueDate')),
       hideOnMobile: true,
     },
   ]
@@ -159,6 +193,9 @@ export function OrganizationsScreen() {
             </Button>
             <Button variant="outline" size="sm" onClick={() => setEditingBranding(organization)}>
               {t('actions.editBranding')}
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setEditingStanding(organization)}>
+              {t('actions.editStanding')}
             </Button>
           </>
         )}
