@@ -3,7 +3,8 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { EmployeeAdvance, EmployeeRecord } from '@/api/employees'
 import type { TreasuryAccount } from '@/api/treasury'
-import { monthBeforeIso, todayIso } from '@/lib/isoDate'
+import { todayIso } from '@/lib/isoDate'
+import { payPeriodStartIso } from '@/lib/payPeriod'
 import { EmployeeAdvancePage } from './EmployeeAdvancePage'
 
 /**
@@ -14,7 +15,7 @@ import { EmployeeAdvancePage } from './EmployeeAdvancePage'
 describe('EmployeeAdvancePage', () => {
   const fetchMock = vi.fn()
   const json = (body: unknown, status = 200) => new Response(body === undefined ? null : JSON.stringify(body), { status })
-  const juan = { id: 'e-1', branchId: 'b-1', fullName: 'Bacca, Ariel' } as EmployeeRecord
+  const juan = { id: 'e-1', branchId: 'b-1', fullName: 'Bacca, Ariel', payFrequency: 'Monthly' } as EmployeeRecord
   const cash: TreasuryAccount = {
     accountId: 'acc-cash', branchId: 'b-1', branchName: 'Ruta 51', kind: 'Cash', name: 'Caja efectivo · Ruta 51',
     balance: 0, todayIn: 0, todayOut: 0, isActive: true,
@@ -61,16 +62,15 @@ describe('EmployeeAdvancePage', () => {
     fetchMock.mockReset()
   })
 
-  const renderPage = () => render(<EmployeeAdvancePage employee={juan} onBack={() => {}} />)
+  const renderPage = (employee = juan) => render(<EmployeeAdvancePage employee={employee} onBack={() => {}} />)
 
-  it('lists the advances of the last month, a voided one struck through with why, and reads another range', async () => {
+  it('lists the advances of the current month for monthly staff, a voided one struck through with why, and reads another range', async () => {
     const user = userEvent.setup()
     renderPage()
 
     const history = await screen.findByRole('table', { name: 'Adelantos entregados' })
-    expect(String(callsTo('GET /employees/e-1/advances')[0][0])).toBe(
-      `/employees/e-1/advances?from=${monthBeforeIso(todayIso())}&to=${todayIso()}`,
-    )
+    const monthStart = `${todayIso().slice(0, 8)}01`
+    expect(String(callsTo('GET /employees/e-1/advances')[0][0])).toBe(`/employees/e-1/advances?from=${monthStart}&to=${todayIso()}`)
     const rows = within(history).getAllByRole('row').slice(1)
     expect(within(rows[0]).getByText('14/10/2026')).toBeInTheDocument()
     expect(within(rows[0]).getByText('Vigente')).toBeInTheDocument()
@@ -145,6 +145,19 @@ describe('EmployeeAdvancePage', () => {
     expect(await screen.findByText(/Adelanto de \$\s?50\.000,00 a Bacca, Ariel registrado/)).toBeInTheDocument()
     expect(screen.getByLabelText('Importe')).toHaveValue('')
     await waitFor(() => expect(callsTo('GET /employees/e-1/advances')).toHaveLength(2))
+  })
+
+  // owner feedback 2026-10-15, B5: the history opens on the employee's pay period.
+  it('opens the history on the last 7 days for weekly staff and the last 15 for fortnightly staff', async () => {
+    const weekly = renderPage({ ...juan, payFrequency: 'Weekly' })
+    await screen.findByRole('table', { name: 'Adelantos entregados' })
+    expect(screen.getByLabelText('Desde')).toHaveValue(payPeriodStartIso('Weekly', todayIso()).split('-').reverse().join('/'))
+    expect(String(callsTo('GET /employees/e-1/advances')[0][0])).toContain(`from=${payPeriodStartIso('Weekly', todayIso())}&`)
+    weekly.unmount()
+
+    renderPage({ ...juan, payFrequency: 'Biweekly' })
+    await screen.findByRole('table', { name: 'Adelantos entregados' })
+    expect(String(callsTo('GET /employees/e-1/advances')[1][0])).toContain(`from=${payPeriodStartIso('Biweekly', todayIso())}&`)
   })
 
   // Follow-up F4 (review R3-history-load-race, R3-invalid-range-stale-list).

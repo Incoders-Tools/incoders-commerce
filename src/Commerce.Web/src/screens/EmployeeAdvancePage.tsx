@@ -17,7 +17,8 @@ import {
 } from '@/api/employees'
 import { listTreasuryAccounts, type TreasuryAccount } from '@/api/treasury'
 import { formatIsoDate, formatMoney } from '@/dashboard/format'
-import { monthBeforeIso, todayIso } from '@/lib/isoDate'
+import { todayIso } from '@/lib/isoDate'
+import { payPeriodStartIso } from '@/lib/payPeriod'
 import { cn } from '@/lib/utils'
 import { parseAmount } from '@/treasury/treasuryInput'
 
@@ -26,8 +27,9 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 /**
  * owner feedback 2026-10-14, A4: the advances of an employee in one place. The form hands one out (money out of a
  * treasury account, a debit on the employee's account; the next payroll deducts it) or corrects one; the history below
- * reads the last month by default and any range on request. An advance still standing is corrected or voided whole: the
- * server undoes its cash and the employee's account together, and the voided one stays listed, struck through with why.
+ * reads the employee's current pay period by default (owner feedback 2026-10-15) and any range on request. An advance
+ * still standing is corrected or voided whole: the server undoes its cash and the employee's account together, and the
+ * voided one stays listed, struck through with why.
  */
 export function EmployeeAdvancePage({ employee, onBack }: { employee: EmployeeRecord; onBack: () => void }) {
   const { t } = useTranslation('employees')
@@ -44,7 +46,8 @@ export function EmployeeAdvancePage({ employee, onBack }: { employee: EmployeeRe
   const [status, setStatus] = useState<string | null>(null)
 
   const [to, setTo] = useState(todayIso())
-  const [from, setFrom] = useState(() => monthBeforeIso(todayIso()))
+  // owner feedback 2026-10-15, B5: the employee's current pay period, up to today.
+  const [from, setFrom] = useState(() => payPeriodStartIso(employee.payFrequency, todayIso()))
   const [advances, setAdvances] = useState<EmployeeAdvance[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)

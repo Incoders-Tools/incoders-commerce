@@ -30,11 +30,16 @@ counter list (Mostrador), saying so.
 
 ## Tasks
 
-- [ ] B1 Branch database: sale totals written invariant; totals already stored with a comma repaired when it opens.
-- [ ] B2 Website copy: a distributor with a butcher shop on Ruta 51 (hero, title, description, footer, structured data).
-- [ ] B3 Website: the phone opens WhatsApp (wa.me).
-- [ ] B4 Website footer: "© {year} Engineered by Incoders — All rights reserved." linking to https://www.incoders.com.ar.
-- [ ] B5 Advances history: default range by pay frequency.
+- [x] B1 Branch database: sale totals written invariant; totals already stored with a comma repaired when it opens.
+  `e1b0411`. `PosSaleTotalCultureTests` (es-AR): the day's sales and the cash count read 26.361,00; a total stored
+  "26361,00" reads back right after reopening. RED: 2636100 (with the repair switched off too); GREEN: POS 931.
+- [x] B2 Website copy: a distributor with a butcher shop on Ruta 51 (hero, title, description, footer, structured data).
+- [x] B3 Website: the phone opens WhatsApp (wa.me/5491121611045: an Argentine mobile on WhatsApp carries the 9).
+- [x] B4 Website footer: "© {year} Engineered by Incoders — All rights reserved." linking to https://www.incoders.com.ar.
+  `d948f62`. RED: 4 site tests; GREEN: site 11; checked at 390 px (no horizontal overflow).
+- [x] B5 Advances history: default range by pay frequency. `lib/payPeriod.ts` (`payPeriodStartIso`): the web's
+  opening range only; the API without dates still reads the last month. RED: the page opened on the last month;
+  GREEN: advance page 7, pay period 2.
 - [ ] B6 Employee goods: the quote says its price list; the linked customer gets Mostrador (new links and, by migration,
   the existing ones).
 
