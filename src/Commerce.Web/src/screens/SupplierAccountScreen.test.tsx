@@ -303,6 +303,30 @@ describe('SupplierAccountScreen', () => {
     expect(urls('/account/movements')[0]).toBe(`/suppliers/${SUPPLIER.id}/account/movements`)
   })
 
+  it('reads 15.000 as fifteen thousand and says how it read it before registering', async () => {
+    const user = userEvent.setup()
+    renderScreen()
+    await user.click(await screen.findByRole('button', { name: 'Registrar movimiento' }))
+    const amount = screen.getByLabelText('Importe')
+    expect(amount).toHaveAttribute('placeholder', 'Ej.: 15.000 o 15.000,50')
+    fireEvent.change(amount, { target: { value: '15.000' } })
+    expect(screen.getByText(/Se toma como \$\s15\.000,00/)).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Concepto'), { target: { value: 'Factura A' } })
+    await user.click(screen.getByRole('button', { name: 'Registrar' }))
+
+    await waitFor(() => expect(postBodies()).toHaveLength(1))
+    expect(postBodies()[0]).toMatchObject({ amount: 15000 })
+  })
+
+  it('reads cents typed with a comma', async () => {
+    const user = userEvent.setup()
+    renderScreen()
+    await register(user, { kind: 'Invoice', amount: '1.234,50', concept: 'Compra de carne' })
+
+    await waitFor(() => expect(postBodies()).toHaveLength(1))
+    expect(postBodies()[0]).toMatchObject({ amount: 1234.5 })
+  })
+
   it('sends a due date and a document reference when given', async () => {
     const user = userEvent.setup()
     renderScreen()
@@ -367,7 +391,7 @@ describe('SupplierAccountScreen', () => {
 
   it.each([
     ['an amount of zero', { amount: '0', concept: 'x' }, 'El importe debe ser mayor que cero y tener hasta 2 decimales.'],
-    ['more than two decimals', { amount: '10.123', concept: 'x' }, 'El importe debe ser mayor que cero y tener hasta 2 decimales.'],
+    ['more than two decimals', { amount: '10,123', concept: 'x' }, 'El importe debe ser mayor que cero y tener hasta 2 decimales.'],
     ['no concept', { amount: '10', concept: '' }, 'El concepto es obligatorio.'],
   ])('blocks %s before calling the API', async (_name, values, message) => {
     const user = userEvent.setup()

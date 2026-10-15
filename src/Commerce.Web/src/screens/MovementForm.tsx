@@ -5,10 +5,12 @@ import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
 import { FormPage } from '@/components/layout/FormPage'
 import { Field, FormSection } from '@/components/form/FormParts'
+import { MoneyField } from '@/components/form/MoneyField'
 import { DEBT_DIRECTION, registerMovement, type AccountPartyKind } from '@/api/currentAccount'
 import { ApiError } from '@/api/client'
 import { MovementKind, type MovementDirection, type RegisterMovementRequest } from '@/api/types'
 import { todayIso } from '@/lib/isoDate'
+import { parseMoney } from '@/lib/money'
 
 /** Order the kinds are offered in. */
 const KINDS: MovementKind[] = [
@@ -33,8 +35,11 @@ interface MovementFormProps {
   onCancel: () => void
 }
 
-/** Positive, at most two decimals (the server's rule for `amount`). */
-const isValidAmount = (value: string) => /^\d+(\.\d{1,2})?$/.test(value.trim()) && Number(value) > 0
+/** Positive, at most two decimals (the server's rule for `amount`), read the shared es-AR way; null otherwise. */
+const positiveAmount = (value: string) => {
+  const amount = parseMoney(value)
+  return amount !== null && amount > 0 ? amount : null
+}
 
 /**
  * Full-page form to register one account movement. The operator picks what
@@ -71,17 +76,18 @@ export function MovementForm({ party, partyId, partyName, paymentTermsDays, onSa
     setError(null)
     const found: Record<string, string> = {}
     if (isAdjustment && direction === '') found.direction = t('form.errors.directionRequired')
-    if (!isValidAmount(amount)) found.amount = t('form.errors.amountInvalid')
+    const typedAmount = positiveAmount(amount)
+    if (typedAmount === null) found.amount = t('form.errors.amountInvalid')
     if (concept.trim() === '') found.concept = t('form.errors.conceptRequired')
     if (canHaveDueDate && dueOn !== '' && occurredOn !== '' && dueOn < occurredOn) {
       found.dueOn = t('form.errors.dueBeforeDate')
     }
     setErrors(found)
-    if (Object.keys(found).length > 0) return
+    if (Object.keys(found).length > 0 || typedAmount === null) return
 
     const request: RegisterMovementRequest = {
       kind,
-      amount: Number(amount),
+      amount: typedAmount,
       concept: concept.trim(),
       ...(occurredOn !== '' ? { occurredOn } : {}),
       ...(canHaveDueDate && dueOn !== '' ? { dueOn } : {}),
@@ -150,13 +156,11 @@ export function MovementForm({ party, partyId, partyName, paymentTermsDays, onSa
             </div>
           )}
 
-          <Field
+          <MoneyField
             id="movementAmount"
             label={t('form.fields.amount')}
             value={amount}
             onChange={setAmount}
-            type="number"
-            step="0.01"
             hint={t('form.hints.amount')}
             error={errors.amount}
           />

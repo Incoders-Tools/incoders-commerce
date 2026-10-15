@@ -29,6 +29,7 @@ import { EmployeeGoodsPage } from './EmployeeGoodsPage'
 import { EmployeeLeavePage } from './EmployeeLeavePage'
 import { EmployeeOvertimePage } from './EmployeeOvertimePage'
 import { parseAmount } from '@/treasury/treasuryInput'
+import { MoneyField } from '@/components/form/MoneyField'
 import { cn } from '@/lib/utils'
 
 type Page =
@@ -444,23 +445,9 @@ function EmployeeForm({
               ))}
             </Select>
           </div>
-          <Field
-            id="employeeSalary"
-            label={t('form.salary')}
-            value={baseSalary}
-            onChange={setBaseSalary}
-            inputMode="decimal"
-            placeholder={t('form.salaryPlaceholder')}
-          />
+          <MoneyField id="employeeSalary" label={t('form.salary')} value={baseSalary} onChange={setBaseSalary} />
           <p className="text-xs text-muted-foreground sm:col-span-2">{t('form.payHint')}</p>
-          <Field
-            id="employeeOvertimeRate"
-            label={t('form.overtimeHourlyRate')}
-            value={overtimeRate}
-            onChange={setOvertimeRate}
-            inputMode="decimal"
-            placeholder="2500"
-          />
+          <MoneyField id="employeeOvertimeRate" label={t('form.overtimeHourlyRate')} value={overtimeRate} onChange={setOvertimeRate} />
           <p className="self-end text-xs text-muted-foreground">{t('form.overtimeHourlyRateHint')}</p>
           <label className="flex items-start gap-2 text-sm sm:col-span-2">
             <input type="checkbox" className="mt-0.5" checked={takesGoods} disabled={employee?.customerId != null} onChange={(e) => setTakesGoods(e.target.checked)} />

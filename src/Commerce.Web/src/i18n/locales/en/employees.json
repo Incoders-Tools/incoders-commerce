@@ -76,7 +76,6 @@
     "payTitle": "Pay",
     "frequency": "Paid",
     "salary": "Agreed pay per period",
-    "salaryPlaceholder": "E.g.: 650000",
     "payHint": "The base amount proposed in every payroll of its frequency. Overtime, bonuses, SAC, etc. are added in each payroll.",
     "takesGoods": "Takes goods (registered in the web or sold at the POS on account, and deducted from the salary)",
     "takesGoodsHint": "A customer «Last, First (personal)» is created: goods are registered in the web (\"Goods\") or sold at the POS on account. At payroll, what they owe is deducted from the salary with the discount you decide then, per product and on the total.",

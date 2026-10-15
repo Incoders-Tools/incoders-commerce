@@ -77,7 +77,6 @@
     "fromAccount": "From account",
     "toAccount": "To account",
     "amount": "Amount",
-    "amountPlaceholder": "E.g.: 150000 or 150000.50",
     "date": "Date",
     "concept": "Concept",
     "conceptPlaceholder": {

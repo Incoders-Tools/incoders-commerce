@@ -21,6 +21,7 @@ import { todayIso } from '@/lib/isoDate'
 import { payPeriodStartIso } from '@/lib/payPeriod'
 import { cn } from '@/lib/utils'
 import { parseAmount } from '@/treasury/treasuryInput'
+import { MoneyInput } from '@/components/form/MoneyField'
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
@@ -183,7 +184,7 @@ export function EmployeeAdvancePage({ employee, onBack }: { employee: EmployeeRe
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="advanceAmount">{t('advance.amount')}</Label>
-            <Input id="advanceAmount" value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" placeholder="50000" autoFocus />
+            <MoneyInput id="advanceAmount" value={amount} onChange={setAmount} autoFocus />
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="advanceAccount">{t('advance.account')}</Label>

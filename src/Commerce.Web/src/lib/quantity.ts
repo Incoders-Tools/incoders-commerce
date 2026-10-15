@@ -43,20 +43,6 @@ export function parseQuantity(text: string, separator: DecimalSeparator): number
   return reading.ok ? reading.value : null
 }
 
-/**
- * Reads a money amount, always in es-AR: a decimal comma (`2,5`), a decimal point (`2.5`) or a thousands point
- * (`4.000`, `1.234,56`). The organization's number format applies to quantities only.
- */
-export function parseAmount(text: string): number | null {
-  const value = text.trim()
-  if (value === '') return null
-  let normalized = value
-  if (value.includes(',')) normalized = value.replace(/\./g, '').replace(',', '.')
-  else if (/^\d{1,3}(\.\d{3})+$/.test(value)) normalized = value.replace(/\./g, '')
-  if (!/^-?\d*\.?\d+$/.test(normalized)) return null
-  return Number(normalized)
-}
-
 /** kg for weighted and bulk presentations, units for fixed quantity ones. */
 export function unitLabel(behavior: StockQuantityBehavior): 'kg' | 'u' {
   return behavior === 'FixedQuantity' ? 'u' : 'kg'
