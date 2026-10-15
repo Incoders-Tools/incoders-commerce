@@ -40,7 +40,7 @@
                 </StackPanel>
             </Border>
 
-            <Border Style="{StaticResource SoftCardBorder}" Margin="0,0,0,14">
+            <Border x:Name="TechnicalIdentitySection" Style="{StaticResource SoftCardBorder}" Margin="0,0,0,14">
                 <StackPanel>
                     <TextBlock Text="Identidad técnica" Style="{StaticResource SectionTitleTextBlock}" />
                     <TextBlock x:Name="IdentityText" TextWrapping="Wrap" Style="{StaticResource MutedTextBlock}" Margin="0,0,0,14" />
@@ -48,7 +48,7 @@
                 </StackPanel>
             </Border>
 
-            <Border Style="{StaticResource SoftCardBorder}">
+            <Border x:Name="UpdatesSection" Style="{StaticResource SoftCardBorder}">
                 <StackPanel>
                     <TextBlock Text="Versión y actualizaciones" Style="{StaticResource SectionTitleTextBlock}" />
                     <TextBlock x:Name="VersionStatusText" Style="{StaticResource MutedTextBlock}" TextWrapping="Wrap" Margin="0,0,0,14" />

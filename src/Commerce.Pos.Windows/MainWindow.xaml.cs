@@ -1323,7 +1323,8 @@ public partial class MainWindow : Window
             {
                 await RunUpdateCheckAsync();
                 return BuildVersionStatus();
-            })
+            },
+            TerminalSettingsAccess.ShowsTechnicalSections(_currentOperator.Value))
         {
             Owner = this
         };

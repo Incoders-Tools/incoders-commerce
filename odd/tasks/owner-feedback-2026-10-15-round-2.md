@@ -30,7 +30,11 @@ decision). Shared by both layers for S3: `skills/cross-layer-parity`, `docs/arch
   `LockScreenView.QueuePinSubmit`: busy "Verificando…", then `SubmitPin` at `DispatcherPriority.Background` (after
   Render), once (Enter or the sixth digit). RED: `PosLockScreenMarkupTests.LockScreenView_DrawsTheSixthPinDot_BeforeTheCheckRuns`
   (`SubmitPin()` inside `PasswordChanged`). GREEN: lock screen, settings, theme, operator menu, shell, busy 129/129.
-- [ ] T2 S2 POS settings window hides the technical sections from a non-administrator (route: inline).
+- [x] T2 S2 POS settings window hides the technical sections from a non-administrator (route: inline).
+  `TerminalSettingsAccess.ShowsTechnicalSections` (administrator = `ManageUsers`, the operator menu's "Administrador");
+  `SettingsWindow(..., showTechnicalSections)` collapses `TechnicalIdentitySection` and `UpdatesSection`; `MainWindow`
+  passes the signed-in operator. RED: `PosTerminalSettingsAccessTests` (no `TerminalSettingsAccess`). GREEN: 129/129 with T1's set.
+  Commit T1: `54337c8`. Commit T4: `5923b0b`.
 - [ ] T3 S3 POS shared money reader (`MoneyInput`) used by open cash, close cash, tender, customer payment, cash
   movements and every other POS money field; preview and placeholder on open cash (route: inline).
 - [x] T4 S3 Web shared money reader (`lib/money.ts`) replacing both `parseAmount` and the movement form's own check;
