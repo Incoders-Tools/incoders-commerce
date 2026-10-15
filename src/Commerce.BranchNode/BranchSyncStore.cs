@@ -264,6 +264,19 @@ public sealed partial class BranchSyncStore : IDisposable
         EnsureCustomerPaymentStorageExists();
         EnsureCashMovementStorageExists();
         EnsureCategoryStorageExists();
+        RepairSaleTotalsWrittenWithACulture();
+    }
+
+    /// <summary>
+    /// owner feedback 2026-10-15, B1: sale totals were once written with the Windows culture ("26361,00" under es-AR)
+    /// and are read as invariant text, where that comma is a group separator ($ 2.636.100,00). An invariant decimal never
+    /// holds a comma, so every total with one is that case: its comma becomes the decimal point. Idempotent.
+    /// </summary>
+    private void RepairSaleTotalsWrittenWithACulture()
+    {
+        using var repair = _connection.CreateCommand();
+        repair.CommandText = "UPDATE sale_effects SET total_amount = replace(total_amount, ',', '.') WHERE instr(total_amount, ',') > 0;";
+        repair.ExecuteNonQuery();
     }
 
     /// <summary>
@@ -545,7 +558,7 @@ public sealed partial class BranchSyncStore : IDisposable
             """;
         insertSale.Parameters.AddWithValue("$saleId", effect.SaleId.ToString());
         insertSale.Parameters.AddWithValue("$branchId", effect.BranchId.ToString());
-        insertSale.Parameters.AddWithValue("$totalAmount", effect.TotalAmount.ToString());
+        insertSale.Parameters.AddWithValue("$totalAmount", effect.TotalAmount.ToString(System.Globalization.CultureInfo.InvariantCulture));
         insertSale.Parameters.AddWithValue("$occurredAt", effect.OccurredAtUtc.ToString("O"));
         insertSale.Parameters.AddWithValue("$saleKind", effect.SaleKind);
         insertSale.Parameters.AddWithValue("$customerId", effect.CustomerId is { } customerId ? customerId.ToString() : DBNull.Value);
