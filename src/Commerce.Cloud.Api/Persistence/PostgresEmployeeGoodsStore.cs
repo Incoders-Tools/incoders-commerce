@@ -18,7 +18,8 @@ public sealed record GoodsLineInput(Guid PresentationId, decimal Quantity);
 public sealed record GoodsQuoteLine(
     Guid PresentationId, string ProductName, string PresentationName, decimal Quantity, decimal UnitPrice, decimal LineTotal);
 
-public sealed record GoodsQuote(IReadOnlyList<GoodsQuoteLine> Lines, decimal Total);
+/// <summary>The lines priced, their total, and the list they were priced on (owner feedback 2026-10-15: Mostrador, said on the page).</summary>
+public sealed record GoodsQuote(IReadOnlyList<GoodsQuoteLine> Lines, decimal Total, string PriceListName);
 
 public sealed record GoodsRegistration(Guid GoodsId, decimal Total, IReadOnlyList<GoodsQuoteLine> Lines);
 
@@ -610,7 +611,7 @@ public sealed class PostgresEmployeeGoodsStore
             priced.Add(new GoodsQuoteLine(line.PresentationId, names.Product, names.Presentation, line.Quantity, resolved.UnitNetPrice, resolved.LineTotal));
         }
 
-        return new GoodsQuote(priced, priced.Sum(line => line.LineTotal));
+        return new GoodsQuote(priced, priced.Sum(line => line.LineTotal), list.Name);
     }
 
     private async Task<(string Product, string Presentation)?> NamesAsync(CloudTenantScope scope, Guid presentationId, CancellationToken ct)

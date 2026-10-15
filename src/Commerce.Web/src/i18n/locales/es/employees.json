@@ -224,6 +224,7 @@
     "removeLabel": "Quitar {{name}}",
     "pricing": "Calculando precios…",
     "total": "Total: {{amount}}",
+    "priceList": "Precios de la lista {{name}}.",
     "save": "Registrar mercadería",
     "saving": "Registrando…",
     "saved": "Mercadería registrada por {{amount}}.",

@@ -224,6 +224,7 @@
     "removeLabel": "Remove {{name}}",
     "pricing": "Pricing…",
     "total": "Total: {{amount}}",
+    "priceList": "Prices of the {{name}} list.",
     "save": "Register goods",
     "saving": "Registering…",
     "saved": "Goods registered for {{amount}}.",

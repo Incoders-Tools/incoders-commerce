@@ -51,7 +51,7 @@ describe('EmployeeGoodsPage', () => {
       if (key.startsWith('GET /orders/staff/presentations')) return json([asado])
       if (key === 'POST /employees/e-1/goods/quote') {
         const quantity = JSON.parse(init!.body as string).lines[0].quantity as number
-        return json({ lines: [quoteLine(quantity)], total: 10000 * quantity })
+        return json({ lines: [quoteLine(quantity)], total: 10000 * quantity, priceListName: 'Mostrador' })
       }
       if (key === 'POST /employees/e-1/goods') return register()
       throw new TypeError(`unrouted ${key}`)
@@ -80,6 +80,8 @@ describe('EmployeeGoodsPage', () => {
 
     await addAsado(user, '1,5')
     expect(await screen.findByText(/Total: \$\s15\.000,00/)).toBeInTheDocument()
+    // owner feedback 2026-10-15, B6: the list the server priced on, said beside the total.
+    expect(screen.getByText('Precios de la lista Mostrador.')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Registrar mercadería' }))
 
     await waitFor(() => expect(calls('POST /employees/e-1/goods')).toHaveLength(1))

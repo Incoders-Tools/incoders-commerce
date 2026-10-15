@@ -437,17 +437,28 @@ public sealed partial class PostgresEmployeeStore
             return;
         }
 
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+        // The employee's branch: price lists are branch-owned, and row level security shows its own.
+        await TenantScopeSql.ApplyAsync(connection, tx, scope.OrganizationId, employee.BranchId, ct);
+
+        // owner feedback 2026-10-15, B6: the staff buy at the counter, on the default list of its branch (Mostrador), never
+        // on the organization's default list for customers (e.g. Reparto); with no default list, that one applies as for
+        // anyone.
+        Guid? counterList;
+        await using (var list = new NpgsqlCommand("SELECT id FROM price_lists WHERE is_default LIMIT 1", connection, tx))
+        {
+            counterList = await list.ExecuteScalarAsync(ct) as Guid?;
+        }
+
         var customerId = Guid.NewGuid();
         await _customers.CreateAsync(scope, new NewCustomer(
             customerId, CustomerKind.Retail, $"{employee.FullName} (personal)", null,
             employee.DocumentNumber is null ? TaxIdType.None : TaxIdType.Dni, employee.DocumentNumber, TaxCondition.ConsumidorFinal,
             employee.Phone, employee.Email, null, null, null, null, null, null, null, null, null,
-            $"Cuenta de compras del empleado legajo {EmployeeFileNumber.Format(employee.FileNumber)}: se descuenta del sueldo.", actorId),
+            $"Cuenta de compras del empleado legajo {EmployeeFileNumber.Format(employee.FileNumber)}: se descuenta del sueldo.", actorId,
+            PriceListId: counterList),
             "org-user", actorId, ct);
-
-        await using var connection = await _dataSource.OpenConnectionAsync(ct);
-        await using var tx = await connection.BeginTransactionAsync(ct);
-        await TenantScopeSql.ApplyAsync(connection, tx, scope.OrganizationId, null, ct);
         await using (var link = new NpgsqlCommand("UPDATE employees SET customer_id = $2, updated_at_utc = now() WHERE id = $1", connection, tx))
         {
             link.Parameters.AddWithValue(employeeId);

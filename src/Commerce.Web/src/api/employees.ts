@@ -180,6 +180,8 @@ export interface GoodsQuoteLine {
 export interface GoodsQuote {
   lines: GoodsQuoteLine[]
   total: number
+  /** The list the server priced on (the default one, Mostrador): said beside the total (owner feedback 2026-10-15). */
+  priceListName: string
 }
 
 export interface GoodsRegistration {

@@ -40,8 +40,12 @@ counter list (Mostrador), saying so.
 - [x] B5 Advances history: default range by pay frequency. `lib/payPeriod.ts` (`payPeriodStartIso`): the web's
   opening range only; the API without dates still reads the last month. RED: the page opened on the last month;
   GREEN: advance page 7, pay period 2.
-- [ ] B6 Employee goods: the quote says its price list; the linked customer gets Mostrador (new links and, by migration,
-  the existing ones).
+- [x] B6 Employee goods: the quote says its price list; the linked customer gets Mostrador (new links and, by migration,
+  the existing ones). `GoodsQuote.PriceListName`; `LinkCustomerAsync` reads the default list of the employee's branch
+  (price lists are branch-owned: without the branch scope row level security hid them and the link fell back to
+  Reparto); migration 0060 moves the linked customers to their employee's branch default list (applied to
+  `commerce_dev`: "Bacca, Ariel (personal)" Reparto -> Mostrador). RED: no quote name, Reparto, no migration;
+  GREEN: payroll + POS employees + customers + migrations 226, web 877.
 
 ## Constraints
 

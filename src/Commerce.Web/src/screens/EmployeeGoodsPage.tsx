@@ -318,7 +318,10 @@ export function EmployeeGoodsPage({ employee, onBack }: { employee: EmployeeReco
                   )}
                 </p>
               ) : (
-                <p className="text-sm font-medium">{t('goods.total', { amount: formatMoney(currentQuote.quote!.total) })}</p>
+                <p className="text-sm">
+                  <span className="font-medium">{t('goods.total', { amount: formatMoney(currentQuote.quote!.total) })}</span>{' '}
+                  <span className="text-muted-foreground">{t('goods.priceList', { name: currentQuote.quote!.priceListName })}</span>
+                </p>
               ))}
             <div>
               <Button type="button" disabled={!canSave} onClick={() => void save()}>
