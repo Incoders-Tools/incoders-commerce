@@ -40,7 +40,7 @@ movements from the same place as any other movement.
 
 - [x] A1 Treasury labels: "Adelanto a empleado" (`EmployeeAdvance`) and "Pago de sueldo" (`SalaryPayment`).
   RED: the movement read "EmployeeAdvance"; GREEN: treasury screen 13.
-- [ ] A2 Server: an employee's advances (`GET /employees/{id}/advances?from&to`), void
+- [x] A2 Server: an employee's advances (`GET /employees/{id}/advances?from&to`), void
   (`POST /employees/{id}/advances/{advanceId}/void`) and correction (`PUT /employees/{id}/advances/{advanceId}`), one path
   for both sides; reversing an advance's debit on the employee's account voids its cash movement too. 409
   `advance-in-payroll-draft`, `advance-voided`.
@@ -52,7 +52,7 @@ movements from the same place as any other movement.
   voids an advance's cash after reversing its debit, `ReverseMovementOutcome.InPayrollDraft`. Reason required, up to
   150 characters. RED: did not compile; then `permission denied for table current_account_movements` (FOR UPDATE on the
   ledger), fixed by locking the employee. GREEN: payroll 46, HTTP 1; payroll + treasury + accounts + employees + device
-  operator + migrations 256.
+  operator + migrations 256. Commits: `c1c6403`, `3a58152`.
 - [x] A3 Migration 0059: void the cash movement of every advance whose debit was already reversed.
   `0059_advance_cash_voids.sql`: voided by whoever reversed the debit, when they did, reason "Anulado en la cuenta del
   empleado: <concept>"; idempotent; mirrored in `init-rls.sql`. RED: no file; GREEN: 7. Applied to `commerce_dev`:

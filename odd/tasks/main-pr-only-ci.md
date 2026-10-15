@@ -9,7 +9,7 @@ Relax GitHub Actions so development is not blocked by push/dev gates. Keep only 
 - [x] Diagnose local Vite Bad Gateway sign-in failure.
 - [x] Select CI scope: PRs to `main` only; no `dev` or push workflows.
 - [x] Apply workflow change.
-- [ ] Validate and open PR.
+- [x] Validate and open PR. Merged as PR #66 (`ci/main-pr-only`).
 
 ## Evidence
 
