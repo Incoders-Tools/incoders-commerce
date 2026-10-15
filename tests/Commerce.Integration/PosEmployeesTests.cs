@@ -510,7 +510,7 @@ public sealed class PosEmployeesTests
 
     [Theory]
     [InlineData("0")]
-    [InlineData("650.000,00")]
+    [InlineData("650,000")]
     [InlineData("1,234")]
     [InlineData("-5")]
     [InlineData("abc")]

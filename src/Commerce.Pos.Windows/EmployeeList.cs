@@ -278,28 +278,11 @@ public static class EmployeeFormRules
     ];
 
     /// <summary>
-    /// An amount as the web's <c>parseAmount</c>: digits with an optional "$" and up to two decimals after "," or ".",
-    /// no thousands separators, greater than zero. Null when it is not one.
+    /// An amount as the web's <c>parseAmount</c>: the shared money rule (<see cref="MoneyInput"/>: "650.000",
+    /// "650000,5"), greater than zero. Null when it is not one.
     /// </summary>
-    public static decimal? ParseAmount(string text)
-    {
-        var normalized = text.Trim();
-        if (normalized.StartsWith('$'))
-        {
-            normalized = normalized[1..].Trim();
-        }
-
-        normalized = normalized.Replace(',', '.');
-        var parts = normalized.Split('.');
-        if (parts.Length > 2 || parts[0].Length == 0 || !parts[0].All(char.IsAsciiDigit)
-            || parts.Length == 2 && (parts[1].Length is 0 or > 2 || !parts[1].All(char.IsAsciiDigit)))
-        {
-            return null;
-        }
-
-        var value = decimal.Parse(normalized, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture);
-        return value > 0m ? value : null;
-    }
+    public static decimal? ParseAmount(string text) =>
+        MoneyInput.TryRead(text, out var value) && value > 0m ? value : null;
 
     /// <summary>The salary field: empty is zero, otherwise an amount (<see cref="ParseAmount"/>); null when invalid.</summary>
     public static decimal? ParseSalary(string text) => string.IsNullOrWhiteSpace(text) ? 0m : ParseAmount(text);

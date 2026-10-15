@@ -35,8 +35,16 @@ decision). Shared by both layers for S3: `skills/cross-layer-parity`, `docs/arch
   `SettingsWindow(..., showTechnicalSections)` collapses `TechnicalIdentitySection` and `UpdatesSection`; `MainWindow`
   passes the signed-in operator. RED: `PosTerminalSettingsAccessTests` (no `TerminalSettingsAccess`). GREEN: 129/129 with T1's set.
   Commit T1: `54337c8`. Commit T4: `5923b0b`.
-- [ ] T3 S3 POS shared money reader (`MoneyInput`) used by open cash, close cash, tender, customer payment, cash
+- [x] T3 S3 POS shared money reader (`MoneyInput`) used by open cash, close cash, tender, customer payment, cash
   movements and every other POS money field; preview and placeholder on open cash (route: inline).
+  `MoneyInput` (`Read`/`TryRead`/`Format`, `Placeholder` "Ej.: 15.000 o 15.000,50") behind `CashSessionInput` (open and
+  close cash), `TenderInput` (cash received), `CustomerPaymentInput.TryReadAmount` (customer payment, cash movements) and
+  `EmployeeFormRules.ParseAmount` (salary, overtime rate, advance). Open cash: no default "0", the example while empty
+  (`OpeningFloatPlaceholder`), "Se abrirá con $ 15.000,00" under it (`CashSessionInput.OpeningReadBack`). Messages
+  and the employee tooltips use the same example. Sale-line quantities, discount and percent fields are not money and
+  keep their readers. RED: `PosMoneyInputTests` (no `MoneyInput`). GREEN: money, cash session, tender, employees, cash
+  movement, customer payment, close cash, theme, components 177/177; POS, parity, tender, cash, payments, employees
+  1093/1093. Commit T2: `f8a1006`.
 - [x] T4 S3 Web shared money reader (`lib/money.ts`) replacing both `parseAmount` and the movement form's own check;
   every web money field uses it, with the placeholder and the preview (route: inline).
   `readMoney`/`parseMoney`/`formatMoney` (max decimals per field: 4 for a reception unit cost, the server's
@@ -49,7 +57,9 @@ decision). Shared by both layers for S3: `skills/cross-layer-parity`, `docs/arch
   supplier account `15.000` and `1.234,50` posted nothing, treasury `parseAmount('15.000')` null. GREEN: money 8,
   MoneyField 4, focused screens 275 passed. `10.123` in the supplier "more than two decimals" case is now 10123 by the
   rule, so the case types `10,123`. `tsc -b` and oxlint clean.
-- [ ] T5 S3 Parity map and docs record the money rule (route: inline).
+- [x] T5 S3 Parity map and docs record the money rule (route: inline).
+  `docs/architecture/cross-layer-parity.md`: "Money input" convention; the staff row no longer says the POS mirrors
+  `parseAmount`.
 
 ## Log
 
