@@ -2,7 +2,28 @@
 
 ## Status
 
-Accepted (applies on domain acquisition — not a current configuration)
+Accepted (applies on domain acquisition — not a current configuration). Amended 2026-10-16: the purchased domain is
+`vaca-verde.com.ar`; see the amendment below, which overrides the hostnames in the original decision.
+
+## Amendment (2026-10-16)
+
+`vacaverde.com.ar` was already taken. The owner registered **`vaca-verde.com.ar`** at NIC Argentina. The repository
+also now contains Vaca Verde's own public website (`sites/vaca-verde`), a static site separate from the multi-tenant
+product, and [ADR-015](./ADR-015-shared-multi-client-platform.md) makes the product one shared deployment for every
+client. The hostnames are therefore:
+
+| Hostname | Serves | Railway environment |
+|---|---|---|
+| `vaca-verde.com.ar`, `www.vaca-verde.com.ar` | Vaca Verde's public website (`sites/vaca-verde`) | `production` |
+| `app.vaca-verde.com.ar` | The Commerce platform: Cloud.Api and the web SPA (`PUBLIC_BASE_URL`, POS `Commerce:CloudApiBaseUrl`) | `production` |
+| `staging.vaca-verde.com.ar` | The Commerce platform in staging | `staging` |
+
+- The client's domain hosts the platform **for now** (owner decision). The platform is not Vaca Verde's product;
+  when a second client is onboarded, the platform moves to a neutral domain owned by Incoders, and
+  `app.vaca-verde.com.ar` stays as a custom domain of the same service (ADR-015).
+- `admin.`, `pedidos.` and `api.` stay reserved and unused: one origin serves the SPA and the API.
+- DNS is delegated from NIC Argentina to a provider that supports CNAME flattening at the apex (Cloudflare), because
+  NIC Argentina only delegates nameservers and the apex needs a CNAME to Railway.
 
 ## Context
 

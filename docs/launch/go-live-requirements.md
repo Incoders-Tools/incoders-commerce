@@ -44,8 +44,9 @@ link) rather than deleting them.
 - [ ] **Domain registered and mapped.**
   Why: password-reset links and POS terminals need the final origin
   ([ADR-006](../architecture/decisions/ADR-006-domain-and-subdomain-topology.md)).
-  Register `vacaverde.com.ar`, verify it in Resend, add it to Cloud.Api, and set
-  `PUBLIC_BASE_URL` (runbook section 6).
+  `vaca-verde.com.ar` is registered (2026-10-16). Delegate its DNS to Cloudflare,
+  map `app.` and `staging.` to Cloud.Api and the apex to the public site, verify
+  it in Resend, and set `PUBLIC_BASE_URL` (runbook section 6).
 - [ ] **Backups enabled and a restore drill passed.**
   Why: the client's data needs a tested restore point. Scheduled backups, PITR,
   and the first off-Railway `pg_dump` must be in place in production, and a

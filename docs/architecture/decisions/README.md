@@ -11,7 +11,7 @@ Architecture decisions are versioned in the repository. This index intentionally
 | [ADR-003](./ADR-003-pending-offline-orders.md) | Pending offline orders and idempotent synchronization. |
 | [ADR-004](./ADR-004-release-signing-and-upgrades.md) | Release signing, provenance, and safe upgrade/recovery sequencing. |
 | [ADR-005](./ADR-005-signing-and-windows-fleet.md) | Windows administrative floor and conditional MSIX/MSI packaging. |
-| [ADR-006](./ADR-006-domain-and-subdomain-topology.md) | Single apex domain (`vacaverde.com.ar`) with reserved `admin.` / `pedidos.` / `api.` subdomains; applies on acquisition, not a current configuration. |
+| [ADR-006](./ADR-006-domain-and-subdomain-topology.md) | Domain topology; amended 2026-10-16 to `vaca-verde.com.ar` (public site at the apex, platform at `app.`, staging at `staging.`). |
 | [ADR-007](./ADR-007-monorepo-and-independent-deployability.md) | Monorepo retained under `src/Commerce.*`; independent per-unit deployability as a goal, not a present property. |
 | [ADR-008](./ADR-008-customer-separate-from-identity.md) | Customer modelled as a commercial party independent of Identity; identity optionally links via `CustomerId`. |
 | [ADR-009](./ADR-009-guest-and-registered-ordering.md) | Guest and registered ordering coexist on one screen; accounts are admin-provisioned only; guest orders are classified non-priority. |
@@ -19,6 +19,7 @@ Architecture decisions are versioned in the repository. This index intentionally
 | [ADR-011](./ADR-011-payment-lifecycle-separate-from-order.md) | Payment modelled as a lifecycle separate from order fulfilment; no provider selected. |
 | [ADR-013](./ADR-013-interim-self-signed-code-signing.md) | Interim self-signed code signing for POS MSIX releases; commercial certificate is a go-live requirement. |
 | [ADR-014](./ADR-014-railway-hosted-postgres.md) | PostgreSQL as a Railway service on the private network (Railway Pro, staging and production), replacing Supabase; three backup layers; usage alert without a hard limit. |
+| [ADR-015](./ADR-015-shared-multi-client-platform.md) | One shared deployment for every client (organizations with RLS); client rules as configuration; each client's public website as its own static site. |
 
 ## Planned ADR topics
 

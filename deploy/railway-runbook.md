@@ -9,23 +9,22 @@ evidence instead.
 
 One Railway project holds two environments with the same shape:
 
-| Environment | Deploys from | ADR-004 channel | Origin (suggested) |
+| Environment | Deploys from | ADR-004 channel | Platform origin |
 |---|---|---|---|
-| `staging` | `staging` branch | `pilot` | `https://staging.vacaverde.com.ar` |
-| `production` | `main` branch | `stable` | `https://vacaverde.com.ar` |
+| `staging` | `staging` branch | `pilot` | `https://staging.vaca-verde.com.ar` |
+| `production` | `main` branch | `stable` | `https://app.vaca-verde.com.ar` |
 
 Each environment contains two services: **Cloud.Api** (the API, which also serves
 the web SPA from its `wwwroot`) and **Postgres**. They talk over the
-environment's private network, and staging cannot reach production.
+environment's private network, and staging cannot reach production. Production
+also runs **vaca-verde-site**, Vaca Verde's public website, on
+`vaca-verde.com.ar` and `www.vaca-verde.com.ar` (section 6b). The hostnames come
+from the [ADR-006 amendment](../docs/architecture/decisions/ADR-006-domain-and-subdomain-topology.md).
 
 ## 0. Prerequisites
 
-- **Domain.** Register `vacaverde.com.ar` at NIC Argentina (an annual fee, paid in
-  pesos) under the owner's account
-  ([ADR-006](../docs/architecture/decisions/ADR-006-domain-and-subdomain-topology.md)).
-  Use a DNS provider that supports CNAME flattening (ALIAS/ANAME) at the apex,
-  for example Cloudflare's free plan, and delegate the domain's nameservers to it.
-  Railway needs a CNAME at the apex.
+- **Domain.** `vaca-verde.com.ar`, registered at NIC Argentina under the owner's
+  account (done 2026-10-16). Section 6 delegates its DNS to Cloudflare.
 - **Email.** A Resend account with the domain verified, so that password-reset
   emails can be sent from it. Without `RESEND_API_KEY`, Cloud.Api only logs the
   emails.
@@ -152,11 +151,11 @@ RLS**. Use it only to apply migrations. Cloud.Api must never connect as
 | Variable | Value |
 |---|---|
 | `ConnectionStrings__Commerce` | `Host=postgres.railway.internal;Port=5432;Database=railway;Username=app_runtime;Password=<app_runtime password>` |
-| `ConnectionStrings__CommercePlatformRead` | `Host=postgres.railway.internal;Port=5432;Database=railway;Username=platform_readonly;Password=<platform_readonly password>`. When it is absent, `GET /platform/organizations` answers 503. It never falls back to `app_runtime`. |
+| `ConnectionStrings__CommercePlatformRead` | `Host=postgres.railway.internal;Port=5432;Database=railway;Username=platform_readonly;Password=<platform_readonly password>`. When it is absent, `GET /account/organizations` answers 503. It never falls back to `app_runtime`. |
 | `ASPNETCORE_ENVIRONMENT` | `Staging` or `Production`. Never `Development`: that enables the test-seed endpoints. |
 | `PUBLIC_BASE_URL` | The environment's public origin, with no trailing slash. Password-reset links are built from it. Use the Railway domain until the custom domain is verified (section 6). |
 | `RESEND_API_KEY` | The Resend API key. |
-| `EMAIL_FROM_ADDRESS` | A sender on the Resend-verified domain, for example `no-reply@vacaverde.com.ar`. |
+| `EMAIL_FROM_ADDRESS` | A sender on the Resend-verified domain, for example `no-reply@vaca-verde.com.ar`. |
 | `GuestOrdering__OrganizationId`, `GuestOrdering__BranchId` | Set both, or neither. Leave them unset until the public ordering surface is announced; while they are unset, every `/public/*` route answers 404. |
 | `Payments__ManuallyRecordedApprovalEnabled` | Leave unset (`POST /payments` answers 503) until staff-recorded payments go live, then set it to `true`. |
 | `Business__TimeZone` | Optional. The default is `America/Argentina/Buenos_Aires`. |
@@ -165,21 +164,74 @@ RLS**. Use it only to apply migrations. Cloud.Api must never connect as
 The Postgres host is the same name in both environments, but it resolves only
 inside the environment the service runs in.
 
-## 6. Custom domain
+## 6. Domain
 
-1. In Cloud.Api's **Settings → Networking**, add the environment's custom domain
-   (see the table at the top). Pro allows 20 custom domains per service.
-2. Create **both** records Railway shows, the `CNAME` and the `TXT`, at the DNS
-   provider. The domain answers 404 until the `TXT` record is verified. If
-   Cloudflare proxies the record (orange cloud), set its SSL/TLS mode to **Full**,
-   not Full (Strict).
-3. When the domain shows a green check, update `PUBLIC_BASE_URL` to it and
-   point every POS terminal's `Commerce:CloudApiBaseUrl` at the same origin.
+Do 6a once; do 6b in each environment; do 6c and 6d in production only.
 
-A client who later needs their own website gets another custom domain on this
-same service, not another deployment. Cloud.Api does not yet resolve an
-organization from the request host, so that client needs that feature first
-(ADR-014).
+### 6a. Delegate DNS from NIC Argentina to Cloudflare (once)
+
+NIC Argentina only points a domain at nameservers; the records live at a DNS
+provider. Cloudflare's free plan is used because it flattens a CNAME at the apex,
+which `vaca-verde.com.ar` needs to point at Railway.
+
+1. Create a Cloudflare account, choose **Add a domain**, enter
+   `vaca-verde.com.ar`, and pick the **Free** plan. Cloudflare shows two
+   nameservers (`<name>.ns.cloudflare.com`).
+2. Sign in to nic.ar with the account that registered the domain, open the
+   domain, and use its **delegation** option ("Delegar") to replace the
+   nameservers with Cloudflare's two.
+3. Wait until Cloudflare marks the domain **Active** (it emails; usually within a
+   few hours, up to 48).
+
+### 6b. Platform domain on Cloud.Api (each environment)
+
+1. In Cloud.Api's **Settings → Networking**, add the environment's platform
+   hostname: `app.vaca-verde.com.ar` in production,
+   `staging.vaca-verde.com.ar` in staging. Railway shows a `CNAME` and a `TXT`
+   record.
+2. Create **both** records in Cloudflare's DNS panel, with the CNAME's proxy
+   status set to **DNS only** (grey cloud), so Railway issues and renews the
+   certificate itself. The hostname answers 404 until the `TXT` record is
+   verified.
+3. When Railway shows a green check, set `PUBLIC_BASE_URL` to
+   `https://app.vaca-verde.com.ar` (or the staging hostname) and point every POS
+   terminal of that environment at the same origin
+   (`Commerce:CloudApiBaseUrl`).
+
+### 6c. Vaca Verde's public website (production)
+
+`sites/vaca-verde` is a static site that sends clients to `/order` and staff to
+`/login` on the platform. It ships with its own `Dockerfile`, `Caddyfile`, and
+`railway.json`.
+
+1. In the production environment, add a service from the GitHub repository and
+   name it `vaca-verde-site`.
+2. In **Settings → Source**, set the root directory to `sites/vaca-verde`, the
+   trigger branch to `main`, and the config file path to
+   `/sites/vaca-verde/railway.json` (Railway does not look for it under the root
+   directory by itself).
+3. Set the variable `VITE_APP_URL` to `https://app.vaca-verde.com.ar`. The build
+   fails on purpose without it.
+4. Add the custom domains `vaca-verde.com.ar` and `www.vaca-verde.com.ar`, and
+   create their records in Cloudflare as in 6b. Cloudflare flattens the apex
+   CNAME automatically.
+
+The site costs about $0.3-0.5/month of usage (a small Caddy server).
+
+### 6d. Email sender (production)
+
+1. In Resend, add the domain `vaca-verde.com.ar`. Resend lists DNS records
+   (DKIM, SPF, and return-path records).
+2. Create them in Cloudflare (DNS only) and wait for Resend to show the domain
+   as verified.
+3. Set `EMAIL_FROM_ADDRESS` (for example `no-reply@vaca-verde.com.ar`) and
+   `RESEND_API_KEY` on Cloud.Api, then request a password reset to confirm the
+   email arrives and its link points at `https://app.vaca-verde.com.ar`.
+
+Another client's domain later becomes one more custom domain on this same
+Cloud.Api service, not another deployment ([ADR-015](../docs/architecture/decisions/ADR-015-shared-multi-client-platform.md)).
+Cloud.Api does not resolve an organization from the request host yet, so that
+feature has to exist first.
 
 ## 7. Backups
 
