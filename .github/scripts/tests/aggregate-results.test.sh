@@ -42,27 +42,45 @@ assert_gate() {
 }
 
 assert_gate "changes=skipped fails the gate" \
-  '{"changes":{"result":"skipped"},"web-tests":{"result":"success"},"web-e2e":{"result":"success"},"build":{"result":"success"}}' \
+  '{"changes":{"result":"skipped"},"web-tests":{"result":"success"},"web-e2e":{"result":"success"},"build":{"result":"success"},"migrations":{"result":"skipped"}}' \
   false
 
 assert_gate "changes=failure fails the gate" \
-  '{"changes":{"result":"failure"},"web-tests":{"result":"success"},"web-e2e":{"result":"success"},"build":{"result":"success"}}' \
+  '{"changes":{"result":"failure"},"web-tests":{"result":"success"},"web-e2e":{"result":"success"},"build":{"result":"success"},"migrations":{"result":"skipped"}}' \
   false
 
 assert_gate "web-tests skipped, build success -> pass" \
-  '{"changes":{"result":"success"},"web-tests":{"result":"skipped"},"web-e2e":{"result":"skipped"},"build":{"result":"success"}}' \
+  '{"changes":{"result":"success"},"web-tests":{"result":"skipped"},"web-e2e":{"result":"skipped"},"build":{"result":"success"},"migrations":{"result":"skipped"}}' \
   true
 
 assert_gate "all three skipped (docs-only) -> pass" \
-  '{"changes":{"result":"success"},"web-tests":{"result":"skipped"},"web-e2e":{"result":"skipped"},"build":{"result":"skipped"}}' \
+  '{"changes":{"result":"success"},"web-tests":{"result":"skipped"},"web-e2e":{"result":"skipped"},"build":{"result":"skipped"},"migrations":{"result":"skipped"}}' \
   true
 
 assert_gate "any failure -> fail" \
-  '{"changes":{"result":"success"},"web-tests":{"result":"failure"},"web-e2e":{"result":"skipped"},"build":{"result":"success"}}' \
+  '{"changes":{"result":"success"},"web-tests":{"result":"failure"},"web-e2e":{"result":"skipped"},"build":{"result":"success"},"migrations":{"result":"skipped"}}' \
   false
 
 assert_gate "any cancelled -> fail" \
-  '{"changes":{"result":"success"},"web-tests":{"result":"cancelled"},"web-e2e":{"result":"skipped"},"build":{"result":"success"}}' \
+  '{"changes":{"result":"success"},"web-tests":{"result":"cancelled"},"web-e2e":{"result":"skipped"},"build":{"result":"success"},"migrations":{"result":"skipped"}}' \
+  false
+
+# `migrations` (expand-only guard + runner twice, ADR-016) follows the same
+# rule as the other path-selected jobs.
+assert_gate "migrations success with everything else passing -> pass" \
+  '{"changes":{"result":"success"},"web-tests":{"result":"skipped"},"web-e2e":{"result":"skipped"},"build":{"result":"success"},"migrations":{"result":"success"}}' \
+  true
+
+assert_gate "migrations failure -> fail" \
+  '{"changes":{"result":"success"},"web-tests":{"result":"skipped"},"web-e2e":{"result":"skipped"},"build":{"result":"success"},"migrations":{"result":"failure"}}' \
+  false
+
+assert_gate "migrations cancelled -> fail" \
+  '{"changes":{"result":"success"},"web-tests":{"result":"success"},"web-e2e":{"result":"success"},"build":{"result":"success"},"migrations":{"result":"cancelled"}}' \
+  false
+
+assert_gate "migrations missing from needs -> fail" \
+  '{"changes":{"result":"success"},"web-tests":{"result":"success"},"web-e2e":{"result":"success"},"build":{"result":"success"}}' \
   false
 
 echo ""
