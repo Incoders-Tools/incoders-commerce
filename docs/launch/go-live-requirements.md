@@ -35,7 +35,30 @@ link) rather than deleting them.
   `Commerce:UpdateTrustedPublisher` when the commercial certificate arrives
   ([ADR-013](../architecture/decisions/ADR-013-interim-self-signed-code-signing.md)).
 
+- [ ] **Railway production provisioned.**
+  Why: Cloud.Api and its database run on Railway Pro
+  ([ADR-014](../architecture/decisions/ADR-014-railway-hosted-postgres.md)).
+  Follow [the Railway runbook](../../deploy/railway-runbook.md) sections 1-9,
+  staging first: usage alert at $20, Postgres without public access, migrations
+  applied, Cloud.Api as `app_runtime`, and `/health/ready` answering 200.
+- [ ] **Domain registered and mapped.**
+  Why: password-reset links and POS terminals need the final origin
+  ([ADR-006](../architecture/decisions/ADR-006-domain-and-subdomain-topology.md)).
+  Register `vacaverde.com.ar`, verify it in Resend, add it to Cloud.Api, and set
+  `PUBLIC_BASE_URL` (runbook section 6).
+- [ ] **Backups enabled and a restore drill passed.**
+  Why: the client's data needs a tested restore point. Scheduled backups, PITR,
+  and the first off-Railway `pg_dump` must be in place in production, and a
+  point-in-time restore must have been rehearsed in staging (runbook sections 7
+  and 10). Record the drill's date and result here.
+
 ## Decide before go-live
+
+- [ ] **Production platform system administrator.**
+  Why: `/account/bootstrap` creates the organization and its `business-admin`
+  in any environment, but `users.is_system_admin` is only set by the
+  Development test seed (runbook section 8). Decide whether production needs a
+  system administrator; if it does, build a supported way to create one.
 
 - [ ] **MSI fallback (ADR-005).**
   Why: MSIX needs Windows 10 2004 (build 19041) or later. Confirm every terminal

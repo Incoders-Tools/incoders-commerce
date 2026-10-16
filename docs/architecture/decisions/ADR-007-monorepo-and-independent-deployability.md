@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-An external architecture document proposes an `apps/` + `packages/` monorepo layout. This repository does not use it: first-party projects live under `src/Commerce.*` with a single `Commerce.sln` and one `dotnet test Commerce.sln` harness (ADR-001). Separately, the deployment shape is not what "monorepo of independent apps" implies: `Commerce.Web` is built into `Commerce.Cloud.Api`'s `wwwroot` and shipped in the same container image (`deploy/staging-runbook.md`, `deploy/README.md`), and `openspec/specs/safe-release-upgrades/spec.md` treats them as one cloud deploy. Only `Commerce.Pos.Windows` is an independent artifact (signed MSIX/MSI, ADR-004/ADR-005).
+An external architecture document proposes an `apps/` + `packages/` monorepo layout. This repository does not use it: first-party projects live under `src/Commerce.*` with a single `Commerce.sln` and one `dotnet test Commerce.sln` harness (ADR-001). Separately, the deployment shape is not what "monorepo of independent apps" implies: `Commerce.Web` is built into `Commerce.Cloud.Api`'s `wwwroot` and shipped in the same container image (`deploy/railway-runbook.md`, `deploy/README.md`), and `openspec/specs/safe-release-upgrades/spec.md` treats them as one cloud deploy. Only `Commerce.Pos.Windows` is an independent artifact (signed MSIX/MSI, ADR-004/ADR-005).
 
 ## Decision
 

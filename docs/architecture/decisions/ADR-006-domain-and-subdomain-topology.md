@@ -6,7 +6,7 @@ Accepted (applies on domain acquisition — not a current configuration)
 
 ## Context
 
-The platform has zero domain configuration. `PUBLIC_BASE_URL` is the literal placeholder `https://<railway-domain>` (`deploy/staging-runbook.md`), and it is already load-bearing — password-reset links are built as `{PUBLIC_BASE_URL}/reset-password?token=...`. Upcoming public ordering, an admin console, and POS clients will each need a stable origin. `vacaverde.com.ar` is confirmed not yet purchased; deciding the topology now prevents ad-hoc origins from being minted one at a time under deadline.
+The platform has zero domain configuration. `PUBLIC_BASE_URL` is the literal placeholder `https://<railway-domain>` (`deploy/railway-runbook.md`), and it is already load-bearing — password-reset links are built as `{PUBLIC_BASE_URL}/reset-password?token=...`. Upcoming public ordering, an admin console, and POS clients will each need a stable origin. `vacaverde.com.ar` is confirmed not yet purchased; deciding the topology now prevents ad-hoc origins from being minted one at a time under deadline.
 
 ## Decision
 
@@ -18,6 +18,6 @@ The platform has zero domain configuration. `PUBLIC_BASE_URL` is the literal pla
 
 ## Consequences
 
-- `deploy/staging-runbook.md`'s `PUBLIC_BASE_URL` row and its `https://<railway-domain>` checks become domain-mapping steps once acquired; until then the placeholder is correct and must not be "fixed" to an aspirational value.
+- `deploy/railway-runbook.md`'s `PUBLIC_BASE_URL` row and its custom-domain step become domain-mapping steps once acquired; until then the placeholder is correct and must not be "fixed" to an aspirational value.
 - Anything that hardcodes an origin (CORS, POS `Commerce:CloudApiBaseUrl`, email link construction) must read it from configuration, so the cutover is a variable change and not a code change.
 - Until the domain is purchased this ADR is inert; it constrains naming, not runtime. Purchasing a different domain requires amending this ADR, not silently diverging.
