@@ -16,14 +16,30 @@ client. The hostnames are therefore:
 |---|---|---|
 | `vaca-verde.com.ar`, `www.vaca-verde.com.ar` | Vaca Verde's public website (`sites/vaca-verde`) | `production` |
 | `app.vaca-verde.com.ar` | The Commerce platform: Cloud.Api and the web SPA (`PUBLIC_BASE_URL`, POS `Commerce:CloudApiBaseUrl`) | `production` |
-| `staging.vaca-verde.com.ar` | The Commerce platform in staging | `staging` |
+| `app.staging.vaca-verde.com.ar` | The Commerce platform in staging | `staging` |
 
 - The client's domain hosts the platform **for now** (owner decision). The platform is not Vaca Verde's product;
   when a second client is onboarded, the platform moves to a neutral domain owned by Incoders, and
   `app.vaca-verde.com.ar` stays as a custom domain of the same service (ADR-015).
 - `admin.`, `pedidos.` and `api.` stay reserved and unused: one origin serves the SPA and the API.
 - DNS is delegated from NIC Argentina to a provider that supports CNAME flattening at the apex (Cloudflare), because
-  NIC Argentina only delegates nameservers and the apex needs a CNAME to Railway.
+  NIC Argentina only delegates nameservers and the apex needs a CNAME to Railway. Railway hosts DNS only for domains
+  bought through Railway and does not sell `.com.ar`. Cloudflare is DNS only: every record stays **DNS only** (grey
+  cloud), so no traffic goes through Cloudflare and Railway issues the certificates. That is also what lets the
+  second-level `app.staging.` name work, because Cloudflare's free proxy certificate does not cover it.
+
+## Planned domain consolidation (owner decision, 2026-10-16)
+
+To keep the whole infrastructure in one place, `vaca-verde.com.ar` is **not renewed** when its NIC Argentina
+registration expires (registered 2026-10-16, yearly). Before it lapses:
+
+1. Buy `vacaverde.com` through Railway Domains, if it is still available; Railway then manages its DNS.
+2. Repeat this table's hostnames on it (`vacaverde.com`, `app.vacaverde.com`, `app.staging.vacaverde.com`), update
+   `PUBLIC_BASE_URL`, the Resend sender domain, `VITE_APP_URL` of `sites/vaca-verde`, and every POS terminal's
+   `Commerce:CloudApiBaseUrl`.
+3. Let `vaca-verde.com.ar` expire and delete its zone from Cloudflare, which then leaves the infrastructure.
+
+Until then nothing about `vacaverde.com` is configured.
 
 ## Context
 

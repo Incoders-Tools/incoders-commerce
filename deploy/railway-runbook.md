@@ -11,7 +11,7 @@ One Railway project holds two environments with the same shape:
 
 | Environment | Deploys from | ADR-004 channel | Platform origin |
 |---|---|---|---|
-| `staging` | `staging` branch | `pilot` | `https://staging.vaca-verde.com.ar` |
+| `staging` | `staging` branch | `pilot` | `https://app.staging.vaca-verde.com.ar` |
 | `production` | `main` branch | `stable` | `https://app.vaca-verde.com.ar` |
 
 Each environment contains two services: **Cloud.Api** (the API, which also serves
@@ -199,7 +199,7 @@ which `vaca-verde.com.ar` needs to point at Railway.
 
 1. In Cloud.Api's **Settings → Networking**, add the environment's platform
    hostname: `app.vaca-verde.com.ar` in production,
-   `staging.vaca-verde.com.ar` in staging. Railway shows a `CNAME` and a `TXT`
+   `app.staging.vaca-verde.com.ar` in staging. Railway shows a `CNAME` and a `TXT`
    record.
 2. Create **both** records in Cloudflare's DNS panel, with the CNAME's proxy
    status set to **DNS only** (grey cloud), so Railway issues and renews the

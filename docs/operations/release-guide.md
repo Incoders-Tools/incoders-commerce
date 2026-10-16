@@ -107,7 +107,7 @@ terminal on a candidate is offered the final release when it ships
 2. Merge it. Railway builds the staging image, runs the migrator in a separate
    container, starts the new version, waits for `/health`, and only then
    switches traffic to it.
-3. Verify at `https://staging.vaca-verde.com.ar` (runbook section 9):
+3. Verify at `https://app.staging.vaca-verde.com.ar` (runbook section 9):
    `/health` and `/health/ready` answer 200, a staff user can sign in, and the
    changed screens work. The deploy log lists `applied <file>` for each new
    migration.
