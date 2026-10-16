@@ -341,9 +341,14 @@ runbook's backup steps. Record the date and result in the go-live checklist.
 
 For a real incident in production, restore the same way. Then switch Cloud.Api
 to the restored service: replace `postgres.railway.internal` with the restored
-service's private domain in both connection strings, and redeploy. The runtime
-roles and their passwords come back with the data. Keep the original service
-until the restored data is confirmed, then delete it.
+service's private domain in **all three** connection strings
+(`ConnectionStrings__Commerce`, `ConnectionStrings__CommercePlatformRead`, and
+`ConnectionStrings__Migrations`, whose password reference becomes the
+restored service's `PGPASSWORD`), and redeploy. If `ConnectionStrings__Migrations`
+kept pointing at the old service, the next deploy would migrate the wrong
+database. The runtime roles and their passwords come back with the data, and so
+does the `schema_migrations` ledger. Keep the original service until the
+restored data is confirmed, then delete it.
 
 To recover from a scheduled volume backup instead, use the **Backups** tab:
 an in-place restore overwrites the current data.
