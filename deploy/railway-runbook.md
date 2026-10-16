@@ -182,6 +182,10 @@ Do 6a once; do 6b in each environment; do 6c and 6d in production only.
 
 ### 6a. Delegate DNS from NIC Argentina to Cloudflare (once)
 
+**Done 2026-10-16:** `vaca-verde.com.ar` is delegated to `adi.ns.cloudflare.com`
+and `sullivan.ns.cloudflare.com` (checked through 8.8.8.8 and 1.1.1.1). The
+Cloudflare zone was created with Bot Preference Sync off and no records.
+
 NIC Argentina only points a domain at nameservers; the records live at a DNS
 provider. Cloudflare's free plan is used because it flattens a CNAME at the apex,
 which `vaca-verde.com.ar` needs to point at Railway.
