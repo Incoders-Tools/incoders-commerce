@@ -18,6 +18,7 @@ Architecture decisions are versioned in the repository. This index intentionally
 | [ADR-010](./ADR-010-centralized-server-side-pricing.md) | Centralized server-side price resolution; guest sees list price, registered sees entity commercial conditions. |
 | [ADR-011](./ADR-011-payment-lifecycle-separate-from-order.md) | Payment modelled as a lifecycle separate from order fulfilment; no provider selected. |
 | [ADR-013](./ADR-013-interim-self-signed-code-signing.md) | Interim self-signed code signing for POS MSIX releases; commercial certificate is a go-live requirement. |
+| [ADR-014](./ADR-014-railway-hosted-postgres.md) | PostgreSQL as a Railway service on the private network (Railway Pro, staging and production), replacing Supabase; three backup layers; usage alert without a hard limit. |
 
 ## Planned ADR topics
 
