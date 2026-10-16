@@ -46,11 +46,25 @@ public sealed class ReleaseManifestGeneratorTests : IDisposable
         var manifestPath = Generate("1.4.0-internal.3", "internal", "1.4.0.3", "CN=Incoders Commerce (Interim)");
         if (manifestPath is null) return;
 
-        var result = CheckLocal(new Version(1, 4, 0), manifestPath, new UpdateEnvironment(19045, "x64"));
+        // 1.4.0-internal.3 precedes the final 1.4.0 (semver), so it is offered to 1.3.0.
+        var result = CheckLocal(new Version(1, 3, 0), manifestPath, new UpdateEnvironment(19045, "x64"));
 
         Assert.Equal(UpdateCheckStatus.Available, result.Status);
         Assert.Equal(new Version(1, 4, 0, 3), result.AvailableVersion);
         Assert.Contains("\"channel\": \"internal\"", File.ReadAllText(manifestPath));
+    }
+
+    [Fact]
+    public void GeneratedPilotManifest_DeclaresThePilotChannel_AndIsOfferedToTheCurrentStable()
+    {
+        var manifestPath = Generate("1.5.0-rc.2", "pilot", "1.5.0.2", "CN=Incoders Commerce (Interim)");
+        if (manifestPath is null) return;
+
+        var result = CheckLocal(new Version(1, 4, 0), manifestPath, new UpdateEnvironment(19045, "x64"));
+
+        Assert.Equal(UpdateCheckStatus.Available, result.Status);
+        Assert.Equal(new Version(1, 5, 0, 2), result.AvailableVersion);
+        Assert.Contains("\"channel\": \"pilot\"", File.ReadAllText(manifestPath));
     }
 
     [Fact]

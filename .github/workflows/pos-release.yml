@@ -5,9 +5,13 @@ name: POS Release
 # by manual dispatch. This workflow is release-only: the CI gates in
 # release.yml stay PR-to-main only and are not triggered here.
 #
-# Channel mapping (ADR-004 / ADR-013):
+# Channel mapping (ADR-004 / ADR-013 / ADR-016):
 #   tag without a `-` suffix on a commit reachable from `main` -> stable
-#   any prerelease tag (v1.4.0-internal.1) or a commit not on main -> internal
+#   release candidate tag (v1.5.0-rc.1) on a commit reachable from `staging` -> pilot
+#     (GitHub prerelease; pilot terminals take pilot and stable releases)
+#   any other prerelease tag (v1.4.0-internal.1) or a plain tag not on main -> internal
+# An `-rc.N` version is always pilot: the updater recognises pilot releases by
+# that tag, so publishing one as internal (or from outside staging) is refused.
 #
 # Required repository secrets (owner-managed, see docs/launch/go-live-requirements.md):
 #   POS_SIGNING_PFX_BASE64    base64 of the code-signing PFX
@@ -20,14 +24,14 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Semver without the leading v (e.g. 1.4.0 or 1.4.0-internal.1)"
+        description: "Semver without the leading v (e.g. 1.4.0, 1.4.0-rc.1 or 1.4.0-internal.1)"
         required: true
       channel:
         description: "Release channel (auto = derive from version and branch)"
         required: false
         default: auto
         type: choice
-        options: [auto, internal, stable]
+        options: [auto, internal, pilot, stable]
 
 permissions:
   contents: write
@@ -74,22 +78,41 @@ jobs:
             $requested = 'auto'
           }
           if ($version -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') {
-            throw "Version '$version' is not semver (1.2.3 or 1.2.3-internal.4)."
+            throw "Version '$version' is not semver (1.2.3, 1.2.3-rc.4 or 1.2.3-internal.4)."
           }
-          git fetch origin main --quiet
-          git merge-base --is-ancestor $env:GITHUB_SHA origin/main
-          $onMain = ($LASTEXITCODE -eq 0)
-          $global:LASTEXITCODE = 0
 
-          if ($requested -eq 'auto') {
-            $channel = if ($version.Contains('-') -or -not $onMain) { 'internal' } else { 'stable' }
-          } else {
-            $channel = $requested
+          function Test-OnBranch([string]$Branch) {
+            git fetch origin $Branch --quiet 2>$null
+            if ($LASTEXITCODE -ne 0) { $global:LASTEXITCODE = 0; return $false }
+            git merge-base --is-ancestor $env:GITHUB_SHA "origin/$Branch"
+            $on = ($LASTEXITCODE -eq 0)
+            $global:LASTEXITCODE = 0
+            return $on
           }
-          if ($channel -eq 'stable' -and ($version.Contains('-') -or -not $onMain)) {
-            throw "A stable release must be a plain semver on a commit reachable from main (version=$version, onMain=$onMain)."
+
+          # Pure decision (no git): kept separate so it can be exercised with sample inputs.
+          function Resolve-Channel([string]$Version, [string]$Requested, [bool]$OnMain, [bool]$OnStaging) {
+            $isCandidate = $Version -match '^\d+\.\d+\.\d+-rc\.\d+$'
+            $channel = if ($Requested -ne 'auto') { $Requested }
+              elseif ($isCandidate) { 'pilot' }
+              elseif ($Version.Contains('-') -or -not $OnMain) { 'internal' }
+              else { 'stable' }
+            if ($channel -eq 'stable' -and ($Version.Contains('-') -or -not $OnMain)) {
+              throw "A stable release must be a plain semver on a commit reachable from main (version=$Version, onMain=$OnMain)."
+            }
+            if ($channel -eq 'pilot' -and (-not $isCandidate -or -not $OnStaging)) {
+              throw "A pilot release must be a release candidate (1.2.3-rc.4) on a commit reachable from staging (version=$Version, onStaging=$OnStaging)."
+            }
+            if ($isCandidate -and $channel -ne 'pilot') {
+              throw "A release candidate version ($Version) publishes only to pilot; pilot terminals recognise it by its -rc.N tag."
+            }
+            return $channel
           }
-          Write-Host "version=$version channel=$channel onMain=$onMain"
+
+          $onMain = Test-OnBranch 'main'
+          $onStaging = Test-OnBranch 'staging'
+          $channel = Resolve-Channel $version $requested $onMain $onStaging
+          Write-Host "version=$version channel=$channel onMain=$onMain onStaging=$onStaging"
           "version=$version" >> $env:GITHUB_OUTPUT
           "channel=$channel" >> $env:GITHUB_OUTPUT
           "tag=v$version" >> $env:GITHUB_OUTPUT
@@ -183,6 +206,6 @@ jobs:
             '--target', $env:GITHUB_SHA,
             '--generate-notes'
           )
-          if ($env:CHANNEL -eq 'internal') { $ghArgs += '--prerelease' }
+          if ($env:CHANNEL -ne 'stable') { $ghArgs += '--prerelease' }
           gh @ghArgs
           if ($LASTEXITCODE -ne 0) { throw "gh release create failed" }

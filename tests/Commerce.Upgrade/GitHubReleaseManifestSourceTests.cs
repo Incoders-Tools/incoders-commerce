@@ -63,6 +63,149 @@ public sealed class GitHubReleaseManifestSourceTests
     }
 
     [Fact]
+    public async Task Stable_IgnoresPilotReleaseCandidates()
+    {
+        var handler = new FakeHandler()
+            .On(ReleasesUrl, Releases(
+                Release("v1.4.0", false, "https://example.test/m-140.json"),
+                Release("v1.5.0-rc.1", true, "https://example.test/m-rc.json")))
+            .On("https://example.test/m-140.json", ManifestFor("1.4.0"));
+
+        var result = await Build("stable", handler).FetchAsync(CancellationToken.None);
+
+        Assert.Equal(ManifestFetchKind.Found, result.Kind);
+        Assert.Contains("\"1.4.0\"", result.Json);
+        Assert.DoesNotContain(handler.Requested, url => url.Contains("m-rc"));
+    }
+
+    [Fact]
+    public async Task Pilot_PicksTheNewestOfPilotAndStable_ReleaseCandidateNewer()
+    {
+        var handler = new FakeHandler()
+            .On(ReleasesUrl, Releases(
+                Release("v1.4.0", false, "https://example.test/m-140.json"),
+                Release("v1.5.0-rc.2", true, "https://example.test/m-rc2.json"),
+                Release("v1.5.0-rc.10", true, "https://example.test/m-rc10.json")))
+            .On("https://example.test/m-rc10.json", ManifestFor("1.5.0.10"));
+
+        var result = await Build("pilot", handler).FetchAsync(CancellationToken.None);
+
+        Assert.Equal(ManifestFetchKind.Found, result.Kind);
+        Assert.Contains("1.5.0.10", result.Json);
+    }
+
+    [Fact]
+    public async Task Pilot_PicksTheFinalRelease_OverItsReleaseCandidates()
+    {
+        var handler = new FakeHandler()
+            .On(ReleasesUrl, Releases(
+                Release("v1.5.0-rc.2", true, "https://example.test/m-rc2.json"),
+                Release("v1.5.0", false, "https://example.test/m-150.json"),
+                Release("v1.4.0", false, "https://example.test/m-140.json")))
+            .On("https://example.test/m-150.json", ManifestFor("1.5.0"));
+
+        var result = await Build("pilot", handler).FetchAsync(CancellationToken.None);
+
+        Assert.Equal(ManifestFetchKind.Found, result.Kind);
+        Assert.Contains("\"1.5.0\"", result.Json);
+        Assert.DoesNotContain(handler.Requested, url => url.Contains("m-rc2") || url.Contains("m-140"));
+    }
+
+    [Fact]
+    public async Task Pilot_NeverPicksAnInternalPrerelease_EvenWhenNewest()
+    {
+        var handler = new FakeHandler()
+            .On(ReleasesUrl, Releases(
+                Release("v1.6.0-internal.4", true, "https://example.test/m-internal.json"),
+                Release("v1.5.0-rc.1", true, "https://example.test/m-rc1.json"),
+                Release("v1.4.0", false, "https://example.test/m-140.json")))
+            .On("https://example.test/m-rc1.json", ManifestFor("1.5.0.1"));
+
+        var result = await Build("pilot", handler).FetchAsync(CancellationToken.None);
+
+        Assert.Equal(ManifestFetchKind.Found, result.Kind);
+        Assert.Contains("1.5.0.1", result.Json);
+        Assert.DoesNotContain(handler.Requested, url => url.Contains("m-internal"));
+    }
+
+    [Fact]
+    public async Task Internal_StillIncludesEveryPrerelease_IncludingReleaseCandidates()
+    {
+        var handler = new FakeHandler()
+            .On(ReleasesUrl, Releases(
+                Release("v1.5.0-internal.3", true, "https://example.test/m-internal.json"),
+                Release("v1.5.0-rc.4", true, "https://example.test/m-rc4.json"),
+                Release("v1.4.0", false, "https://example.test/m-140.json")))
+            .On("https://example.test/m-rc4.json", ManifestFor("1.5.0.4"));
+
+        var result = await Build("internal", handler).FetchAsync(CancellationToken.None);
+
+        Assert.Equal(ManifestFetchKind.Found, result.Kind);
+        Assert.Contains("1.5.0.4", result.Json);
+    }
+
+    [Theory]
+    [InlineData("Pilot")]
+    [InlineData(" pilot ")]
+    public async Task Pilot_ChannelName_IsCaseAndWhitespaceInsensitive_LikeInternal(string channel)
+    {
+        var handler = new FakeHandler()
+            .On(ReleasesUrl, Releases(Release("v1.5.0-rc.1", true, "https://example.test/m-rc1.json")))
+            .On("https://example.test/m-rc1.json", ManifestFor("1.5.0.1"));
+
+        var result = await Build(channel, handler).FetchAsync(CancellationToken.None);
+
+        Assert.Equal(ManifestFetchKind.Found, result.Kind);
+    }
+
+    [Theory]
+    [InlineData("beta")]
+    [InlineData("stabel")]
+    public async Task UnknownChannel_IsRejectedWithItsName_WithoutCallingGitHub(string channel)
+    {
+        var handler = new FakeHandler()
+            .On(ReleasesUrl, Releases(Release("v1.4.0", false, "https://example.test/m-140.json")))
+            .On("https://example.test/m-140.json", ManifestFor("1.4.0"));
+
+        var result = await Build(channel, handler).FetchAsync(CancellationToken.None);
+
+        Assert.Equal(ManifestFetchKind.InvalidChannel, result.Kind);
+        Assert.Equal($"Unknown update channel '{channel}' (expected stable, pilot or internal).", result.Detail);
+        Assert.Empty(handler.Requested);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("  ")]
+    public async Task BlankChannel_MeansTheStableDefault(string channel)
+    {
+        var handler = new FakeHandler()
+            .On(ReleasesUrl, Releases(
+                Release("v1.4.0", false, "https://example.test/m-140.json"),
+                Release("v1.5.0-rc.1", true, "https://example.test/m-rc.json")))
+            .On("https://example.test/m-140.json", ManifestFor("1.4.0"));
+
+        var result = await Build(channel, handler).FetchAsync(CancellationToken.None);
+
+        Assert.Equal(ManifestFetchKind.Found, result.Kind);
+        Assert.Contains("\"1.4.0\"", result.Json);
+    }
+
+    [Fact]
+    public async Task UpdateChecker_MapsAnInvalidChannel_ToAVisibleStatus()
+    {
+        var source = new StubSource(new ManifestFetchResult(
+            ManifestFetchKind.InvalidChannel, Detail: "Unknown update channel 'beta' (expected stable, pilot or internal)."));
+
+        var result = await new UpdateChecker(source, new ReleaseDiscovery()).CheckAsync(new Version(1, 0, 0), new UpdateEnvironment(19045, "x64"));
+
+        Assert.Equal(UpdateCheckStatus.InvalidUpdateChannel, result.Status);
+        Assert.False(result.IsUpdateAvailable);
+        Assert.Equal("Unknown update channel 'beta' (expected stable, pilot or internal).", result.Detail);
+        Assert.Equal("Canal de updates no válido (Commerce:UpdateChannel)", ReleaseDiscovery.FormatCompactStatus(result));
+    }
+
+    [Fact]
     public async Task DraftsAndPrereleasesOnStable_AreIgnored_WhenNothingRemains_NotAvailable()
     {
         var handler = new FakeHandler()
