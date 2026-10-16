@@ -1,0 +1,739 @@
+# Deploy notes
+
+## Local stack launcher
+
+Double-click `deploy/dev/run-all.bat` (or point a desktop shortcut at it). It:
+
+1. checks the tooling: PowerShell 7, the .NET 10 SDK, Node.js 20.19+/22.12+,
+   npm and Docker, and prints the `winget install` command for anything
+   missing;
+2. starts Docker Desktop when the engine is not running and waits up to 180s;
+3. runs `npm ci` when the `node_modules` of `src/Commerce.Web` or
+   `sites/vaca-verde` is missing or older than its `package-lock.json`, and
+   `dotnet restore` for Cloud.Api and the POS;
+4. hands off to `deploy/dev/run-all.ps1`, which starts Postgres, Cloud.Api,
+   the HTTPS proxy, the Vaca Verde public website and the POS, and prints the
+   URLs to use.
+
+The browser opens on the public website (`http://localhost:4173/`). Its
+buttons lead to this run's app: "Hacer un pedido" to `/order` and "Ingresar al
+sistema" to `/login`, both on the HTTPS proxy. `-NoSite` skips the website and
+opens `/login` directly. If the website fails to build, the launcher warns, opens `/login` and
+starts the rest anyway.
+
+`/order` needs the API's `GuestOrdering__OrganizationId` and
+`GuestOrdering__BranchId`. The launcher looks them up in `commerce_dev`: the
+organization named "Vaca Verde" (change it with `-GuestOrganization`) and its
+first branch by code. On a fresh database that organization is only created by
+the provisioning step, after the API has started, so `/order` stays disabled
+(every `/public/*` route answers 404) until the launcher runs again.
+
+Ports are preferences, not requirements:
+
+| Service | Preferred | When it is taken |
+|---|---|---|
+| Postgres | 5432 | next free port; an already running `incoders-commerce-postgres-1` keeps its port |
+| Cloud.Api | 8080 | next free port; the POS gets it through `Commerce__CloudApiBaseUrl` |
+| HTTPS proxy | 5443 | next free port; the printed browser URL follows it |
+| Public website | 4173 | next free port; it is rebuilt to link to the proxy port in use |
+
+The launcher warns about every port it moves and names the process holding
+the preferred one. Pin ports with `run-all.bat -ApiPort 9080 -ProxyPort 9443
+-SitePort 5180 -PostgresPort 15432`; any other `run-all.ps1` switch (`-NoPos`, `-NoBrowser`,
+...) is forwarded too.
+
+`tests/Commerce.Integration` always connects to Postgres on **5432**. If the
+launcher had to move Postgres, free 5432 and run
+`docker compose -f deploy/dev/compose.yaml up -d postgres` before running the
+tests; the data lives in the `postgres-data` volume and survives the move.
+
+## Test database isolation (`commerce_test`)
+
+The integration suite and the app you are signed in to do **not** share a
+database.
+
+`deploy/dev/compose.yaml` creates two: `commerce_dev`, which
+`deploy/dev/run-all.ps1` and the `full` profile point Cloud.Api at, and
+`commerce_test`, which is the only database `tests/Commerce.Integration`
+touches (`PostgresTestFixture.Database`). They were one database until roughly
+three dozen fixtures resetting themselves with
+`TRUNCATE TABLE ... users, branches, organizations CASCADE` had destroyed the
+local sign-in accounts once too often: `dotnet test` now leaves `commerce_dev`
+completely alone.
+
+Three things make that hold:
+
+- `deploy/dev/db/init-test-db.sql` creates `commerce_test` and applies the same
+  `deploy/dev/db/init-rls.sql` to it. Postgres **roles** (`app_runtime`,
+  `platform_readonly`) are cluster-wide and already exist, but **GRANTs** and
+  RLS **policies** are per-database, so that file genuinely has to run twice.
+  The migrations themselves are applied by the tests
+  (`PostgresTestFixture.ApplyMigration`); `init-rls.sql` is not, which is why
+  this step is not optional.
+- PgBouncer no longer pins `DATABASES_DBNAME`. Its wildcard `[databases]` entry
+  now forwards whichever database the client asks for, so port 6543 serves
+  `commerce_dev` for the app and `commerce_test` for `PoolerScopingTests` at
+  the same time. Pinning it to one name silently rewrote every pooled
+  connection's target, which would have kept the suite truncating
+  `commerce_dev` through the pooler.
+- `TestDatabaseIsolationTests` fails the build if any file under
+  `tests/Commerce.Integration` hardcodes a `commerce_dev` connection string
+  again.
+
+On a **fresh** container this is automatic — the file is mounted into
+`/docker-entrypoint-initdb.d`. On a container that already exists (there is no
+named volume, so `docker compose down` would destroy your data — don't), create
+it once by hand:
+
+```bash
+docker cp deploy/dev/db/init-rls.sql     incoders-commerce-postgres-1:/tmp/init-rls.sql
+docker cp deploy/dev/db/init-test-db.sql incoders-commerce-postgres-1:/tmp/init-test-db.sql
+docker compose -f deploy/dev/compose.yaml exec -T postgres \
+  psql -v ON_ERROR_STOP=1 -U commerce_owner -d commerce_dev -f /tmp/init-test-db.sql
+docker compose -f deploy/dev/compose.yaml up -d --force-recreate --no-deps pgbouncer
+```
+
+The script is idempotent, so re-running it only re-applies the RLS policies.
+
+In CI the databases are ephemeral, so the separation protects nothing there;
+`.github/workflows/release.yml` simply adds `commerce_test` in its `build` job
+— the only job that runs `dotnet test` — and leaves every other `commerce_dev`
+reference untouched.
+
+## Local development identities
+
+`deploy/dev/provision-admin.ps1` restores both local identities in one command:
+the platform **system administrator**, and the first **organization** with its
+`business-admin`.
+
+1. Copy `deploy/dev/.env.example` to the ignored `deploy/dev/.env` and set unique values:
+
+   | Variable | Required | Meaning |
+   | --- | --- | --- |
+   | `COMMERCE_DEV_SYSADMIN_EMAIL` | yes | Platform system administrator (`is_system_admin`, never an organization role). Signs in to Web, pairs Desktop, and is the identity the script authenticates as to create the organization. |
+   | `COMMERCE_DEV_SYSADMIN_PASSWORD` | yes | Its password. |
+   | `COMMERCE_DEV_ORGANIZATION_NAME` | yes | Name of the organization to create. |
+   | `COMMERCE_DEV_ORGANIZATION_ADMIN_EMAIL` | yes | The organization's first `business-admin`. Must differ from `COMMERCE_DEV_SYSADMIN_EMAIL`. |
+   | `COMMERCE_DEV_ORGANIZATION_ADMIN_PASSWORD` | yes | Its password. |
+   | `COMMERCE_DEV_ORGANIZATION_BRANCH_NAME` | no | First branch name. Defaults to `Ruta 51` (B7: the first supported organization/branch pairing is Vaca Verde / Ruta 51) if absent. For a pre-existing organization with exactly one branch under a different name, the script renames it idempotently to this value instead of creating a second branch. |
+
+2. Start the complete local stack: `docker compose -f deploy/dev/compose.yaml --profile full up -d`.
+3. Run `pwsh -File deploy/dev/provision-admin.ps1`.
+4. Sign in to Web and Desktop with the system administrator credentials, or to the organization with the business-admin ones.
+
+The system administrator is seeded through the Development-only
+`/internal/test-seed/user` seam and promoted with `is_system_admin = true`. The
+organization then goes through the real `POST /account/organizations`, which
+writes organization, branch, user and audit entry in one transaction.
+
+The script is **idempotent**: each identity is ensured, not created. When an
+account already exists it proves — by signing in as it — that the account is
+the one `.env` describes, and re-applies the system administrator promotion.
+It never rewrites an existing password; a stored password that differs from
+`.env` fails loudly and names the account and the variable, because recovery is
+rarely all-or-nothing and refusing to run unless the database is empty forces
+back exactly the manual work the script removes.
+
+Desktop pairing happens before its admin window opens; the script verifies the
+system administrator can pair a Desktop terminal. It refuses any non-loopback
+API. Keep credentials only in the ignored `.env` file, never in compose, init
+SQL, or `.env.example`.
+
+## Unit 2 — Transaction-pooler proof-of-concept outcome
+
+**Result: PASS (for the tested local approximation) — transaction-mode pooling accepted, with a documented gap.**
+
+`design.md`'s "Pooling + tenant scope" decision requires a runnable PoC before
+trusting `set_config('app.current_org_id', v, true)` (`SET LOCAL` semantics)
+under a transaction-mode connection pooler, rather than assuming it from
+reasoning alone. A real Supabase project is manual, out-of-repo provisioning
+and was not available in this environment, so this PoC ran against the
+**strongest available local approximation**: PgBouncer (`pool_mode =
+transaction`) in front of the same Postgres used by `deploy/dev/compose.yaml`
+(see the `pgbouncer` service and `pgbouncer-userlist.txt` added in Unit 2).
+
+### What was proven
+
+- `tests/Commerce.Integration/PoolerScopingTests.cs`
+  (`ConcurrentPooledTransactions_NeverObserveAnotherOrganizationsRows`): 12
+  organizations concurrently applying and repeatedly reading through the same
+  pooled endpoint (port 6543), each opening its own explicit
+  `PostgresCloudInboxStore` transaction, observed **zero cross-organization
+  rows** across all runs (verified stable over multiple consecutive full
+  suite runs).
+- `tests/Commerce.Integration/PostgresCloudInboxStoreTests.cs`: deny/allow
+  parity between `PostgresCloudInboxStore` (real Npgsql adapter) and the
+  in-memory `CloudInboxStore` test double, against the SAME live schema, both
+  directly (port 5432) and through the pooler.
+- A genuine RLS hardening bug was found and fixed during this PoC: PostgreSQL
+  does not revert a custom placeholder GUC back to "unset"/`NULL` after a
+  transaction-local `set_config(..., true)` commits — it reverts to `''`
+  (empty string) for the rest of that session/pooled-connection lifetime. The
+  original policy (`organization_id = current_setting(...)::uuid`) would
+  raise a Postgres cast error instead of a clean zero-row deny if any query
+  ever ran on a reused connection without re-applying scope first. The policy
+  in `deploy/dev/db/init-rls.sql` now uses
+  `NULLIF(current_setting(...), '')::uuid` so an unscoped query fails closed
+  (zero rows) instead of erroring. `PostgresCloudInboxStore` always sets
+  scope as the first statement of every transaction, so this path is not hit
+  in production, but the policy is hardened regardless of caller discipline.
+- A first PgBouncer configuration attempt hardcoded a single backend role
+  (`commerce_owner`, a Postgres **superuser** in the stock `postgres` Docker
+  image) for every client connection. That silently bypassed RLS for
+  everyone and looked exactly like a real cross-tenant leak in the test
+  output until diagnosed. The fix (`deploy/dev/pgbouncer-userlist.txt` +
+  omitting a fixed `DATABASES_USER`) makes PgBouncer pass each client's own
+  authenticated role through to Postgres, matching Supabase's real per-role
+  Supavisor connection shape. This is recorded here because it is exactly
+  the class of pooler-configuration mistake this PoC exists to catch.
+
+### What remains unproven
+
+Supavisor (Supabase's actual transaction-mode pooler) is a different
+implementation from PgBouncer. TLS termination behavior, connection draining
+under real production load, and Supavisor-specific release-back-to-pool
+timing were **not** exercised here and remain unproven pending a real
+Supabase staging project. Per design.md's explicit fallback: if a future run
+against the real Supavisor pooler reveals leakage or unreliable `SET LOCAL`
+behavior, fall back to session-mode or the direct (non-pooled) connection
+port, with the same explicit-transaction-scoping code unchanged.
+
+### Chosen connection mode
+
+**Transaction-mode pooling accepted** for staging, pending re-validation of
+this exact test against the real Supabase Supavisor endpoint before
+production sign-off. `ConnectionStrings__Commerce` points at the pooler
+endpoint (Supabase port `6543`) in each environment's Railway variables.
+
+### Running the PoC locally
+
+```bash
+docker compose -f deploy/dev/compose.yaml up -d
+dotnet test tests/Commerce.Integration/Commerce.Integration.csproj --filter "PoolerScopingTests|PostgresCloudInboxStoreTests"
+```
+
+These run against `commerce_test` through the same PgBouncer port 6543 the app
+uses for `commerce_dev` — see "Test database isolation" at the top of this file
+for why the pooler can serve both.
+
+If `deploy/dev/compose.yaml` is not running, these tests print a `SKIPPED`
+line naming the unreachable target and return without asserting pass/fail —
+they never silently report false confidence, and they never hard-fail a
+runner that was never given the infrastructure to begin with.
+
+## Unit 5 — One-time-per-environment schema/RLS migration
+
+`deploy/db/migrations/0001_init_rls.sql` is the repo-owned, idempotent
+migration that must be applied ONCE per real environment (staging now,
+production later) directly against that environment's own Supabase project —
+never auto-applied by Cloud.Api. `Program.cs`'s `/health/ready` only
+*verifies* the table/RLS/policy already exist and fails readiness otherwise
+(design.md "Schema/RLS application").
+
+### Applying the migration
+
+1. In the Supabase dashboard for the target project, copy the **direct**
+   (non-pooled, port `5432`) Postgres connection string — not the transaction
+   pooler (`6543`) one used at runtime by Cloud.Api. Applying DDL through the
+   pooler is unnecessary and the direct connection is the standard tool for
+   one-off admin operations.
+2. Generate a fresh, strong password for the `app_runtime` role (a password
+   manager or `openssl rand -base64 32`); this becomes a Railway environment
+   secret in the next step, never a repo commit.
+3. Substitute the migration's `__APP_RUNTIME_PASSWORD__` placeholder with
+   that password and pipe the result into `psql`, without ever writing the
+   substituted file to disk:
+
+   ```bash
+   # macOS/Linux/WSL:
+   sed "s/__APP_RUNTIME_PASSWORD__/$APP_RUNTIME_PASSWORD/" \
+     deploy/db/migrations/0001_init_rls.sql \
+     | psql "postgresql://postgres:<db-password>@<project-ref>.supabase.co:5432/postgres"
+   ```
+
+   ```powershell
+   # Windows PowerShell:
+   (Get-Content deploy/db/migrations/0001_init_rls.sql) `
+     -replace '__APP_RUNTIME_PASSWORD__', $env:APP_RUNTIME_PASSWORD |
+     psql "postgresql://postgres:<db-password>@<project-ref>.supabase.co:5432/postgres"
+   ```
+
+4. Confirm success: `psql ... -c "SELECT rolname FROM pg_roles WHERE rolname = 'app_runtime';"`
+   returns one row, and `SELECT polname FROM pg_policies WHERE tablename = 'sync_inbox';`
+   returns `sync_inbox_tenant_isolation`.
+5. Re-running the same command later (e.g. to rotate the password, or as a
+   drift check) is safe — every statement in the migration is idempotent.
+
+The `app_runtime` connection string (`Host=<pooler-host>;Port=6543;Database=postgres;Username=app_runtime;Password=<the-password-from-step-2>`)
+becomes that environment's `ConnectionStrings__Commerce` Railway variable —
+see `deploy/staging-runbook.md` for the full per-environment provisioning
+checklist and the complete list of required Railway variables.
+
+### commerce-user-credentials — `0002_users.sql`
+
+`deploy/db/migrations/0002_users.sql` adds the `users` and `user_directory`
+tables (real credential persistence, replacing the walking-skeleton sign-in).
+It has NO password placeholder to substitute — `app_runtime` already exists
+from `0001` — so it is applied directly:
+
+```bash
+psql "postgresql://postgres:<db-password>@<project-ref>.supabase.co:5432/postgres" \
+  -f deploy/db/migrations/0002_users.sql
+```
+
+**Migrate-before-deploy ordering, same as `0001`**: apply `0002_users.sql`
+to the target environment's database BEFORE deploying the Cloud.Api image
+that expects it. `/health/ready` verifies `users`/`user_directory`
+(FORCE RLS + policies) in addition to `sync_inbox`, so a deploy that runs
+ahead of the migration fails closed at readiness rather than serving
+requests against a missing schema. After migrating, deploy, then read the
+one-time bootstrap token from `railway logs` (`POST /account/bootstrap/request-token`
+followed by `POST /account/bootstrap` — see
+`openspec/changes/commerce-user-credentials/design.md` "Data Flow") to
+create the first admin user and confirm sign-in.
+
+Idempotency was confirmed locally by applying `0002_users.sql` twice against
+`deploy/dev/compose.yaml`'s Postgres container — the second apply is a clean
+no-op (`CREATE TABLE IF NOT EXISTS`, `DROP POLICY IF EXISTS` before
+`CREATE POLICY`), exactly like `0001`.
+
+### commerce-organization-persistence — `0003_organizations_branches.sql`
+
+`deploy/db/migrations/0003_organizations_branches.sql` adds the
+`organizations` and `branches` tables — the persisted tenancy roots that
+`/account/bootstrap` now creates transactionally alongside the first admin.
+It has NO password placeholder to substitute — `app_runtime` already exists
+from `0001` — so it is applied directly:
+
+```bash
+psql "postgresql://postgres:<db-password>@<project-ref>.supabase.co:5432/postgres" \
+  -f deploy/db/migrations/0003_organizations_branches.sql
+```
+
+**Migrate-before-deploy ordering, same as `0001`/`0002`**: apply
+`0003_organizations_branches.sql` to the target environment's database
+BEFORE deploying the Cloud.Api image that expects it. `/health/ready`
+verifies `organizations`/`branches` (FORCE RLS + policies) in addition to
+`sync_inbox`/`users`/`user_directory`, so a deploy that runs ahead of the
+migration fails closed at readiness rather than serving requests against a
+missing schema.
+
+Idempotency was confirmed locally by applying `0003_organizations_branches.sql`
+twice against `deploy/dev/compose.yaml`'s Postgres container — the second
+apply is a clean no-op, exactly like `0001`/`0002`.
+
+### commerce-password-recovery — `0005_password_recovery.sql`
+
+`deploy/db/migrations/0005_password_recovery.sql` adds the
+`password_reset_tokens` table (single-use, hash-at-rest, 1-hour-expiry reset
+tokens) and a `users.session_version` column used to invalidate existing
+cookie sessions on any password change. It has NO password placeholder to
+substitute — `app_runtime` already exists from `0001` — so it is applied
+directly:
+
+```bash
+psql "postgresql://postgres:<db-password>@<project-ref>.supabase.co:5432/postgres" \
+  -f deploy/db/migrations/0005_password_recovery.sql
+```
+
+**Migrate-before-deploy ordering, same as `0001`–`0004`**: apply
+`0005_password_recovery.sql` to the target environment's database BEFORE
+deploying the Cloud.Api image that expects it. `/health/ready` verifies
+`password_reset_tokens` (FORCE RLS + policies) in addition to every prior
+table, so a deploy that runs ahead of the migration fails closed at readiness
+rather than serving requests against a missing schema.
+
+**Deploying this change signs out every existing session once**: every
+cookie issued before this change lacks the `session_ver` claim added by this
+slice and is rejected at the next request — a one-time, self-healing,
+fail-closed side effect. Call this out to users/support before deploying.
+
+Idempotency was confirmed locally by applying `0005_password_recovery.sql`
+twice against `deploy/dev/compose.yaml`'s Postgres container — the second
+apply is a clean no-op, exactly like `0001`–`0004`.
+
+Before smoke-testing one real reset, confirm the required Railway variables
+below are set: `RESEND_API_KEY`, `EMAIL_FROM_ADDRESS` (a Resend-verified
+sender domain), and `PUBLIC_BASE_URL` (the public origin the reset email
+links back to). If `RESEND_API_KEY` is absent, Cloud.Api falls back to
+`LogOnlyEmailSender`, which writes the reset link to stdout instead of
+sending real email — safe for local/dev, not for production.
+
+### commerce-role-taxonomy — `0006_role_taxonomy.sql` and `0007_platform_administration.sql`
+
+Two separate, sequential files land together for this change (design.md
+"Migration file split"):
+
+- `deploy/db/migrations/0006_role_taxonomy.sql` — a ONE-SHOT, transactional
+  data rewrite: every persisted `"admin"` role entry is renamed to
+  `"business-admin"`, with the exact same permission set. It temporarily
+  toggles `users` to `NO FORCE ROW LEVEL SECURITY` for the migration owner
+  ONLY, inside one transaction, and self-asserts (`RAISE EXCEPTION`) that no
+  `"admin"` entry survives before committing. It has NO password placeholder.
+- `deploy/db/migrations/0007_platform_administration.sql` — additive DDL:
+  `platform_admins`, `audit_log`, and the `platform_readonly` login. It DOES
+  carry a password placeholder, `__PLATFORM_READONLY_PASSWORD__`, following
+  `0001`'s `__APP_RUNTIME_PASSWORD__` convention exactly.
+
+Apply both, in order, against the direct (non-pooled, port `5432`)
+connection — never the pooler:
+
+```bash
+# 0006: no placeholder to substitute.
+psql "postgresql://postgres:<db-password>@<project-ref>.supabase.co:5432/postgres" \
+  -f deploy/db/migrations/0006_role_taxonomy.sql
+
+# 0007: generate a FRESH password for platform_readonly (never reuse
+# app_runtime's), same handling as step 2 of the 0001 walkthrough above.
+sed "s/__PLATFORM_READONLY_PASSWORD__/$PLATFORM_READONLY_PASSWORD/" \
+  deploy/db/migrations/0007_platform_administration.sql \
+  | psql "postgresql://postgres:<db-password>@<project-ref>.supabase.co:5432/postgres"
+```
+
+```powershell
+# Windows PowerShell, 0007:
+(Get-Content deploy/db/migrations/0007_platform_administration.sql) `
+  -replace '__PLATFORM_READONLY_PASSWORD__', $env:PLATFORM_READONLY_PASSWORD |
+  psql "postgresql://postgres:<db-password>@<project-ref>.supabase.co:5432/postgres"
+```
+
+**Migrate-before-deploy ordering, same as `0001`–`0005`**: apply BOTH files
+to the target environment's database BEFORE deploying the Cloud.Api image
+that expects them. `/health/ready` verifies `platform_admins`/`audit_log`
+(FORCE RLS + policies) in addition to every prior table, so a deploy that
+runs ahead of the migration fails closed at readiness rather than serving
+requests against a missing schema.
+
+Idempotency: `0007` was confirmed locally by applying it twice against
+`deploy/dev/compose.yaml`'s Postgres container — a clean no-op, exactly like
+`0001`–`0005`. `0006` is NOT idempotent in the usual `CREATE ... IF NOT
+EXISTS` sense — it is a one-shot data rewrite — but re-running it is still
+safe: the second run's `UPDATE` matches zero rows (no `"admin"` entries
+remain), and the post-condition assertion still passes.
+
+**New Railway variable**: `ConnectionStrings__CommercePlatformRead` — the
+`platform_readonly` login's connection string
+(`Host=<pooler-host>;Port=6543;Database=postgres;Username=platform_readonly;Password=<the-password-from-0007>`).
+Absent, `GET /platform/organizations` fails closed with `503` and NEVER
+falls back to the shared `app_runtime` pool — see
+`deploy/staging-runbook.md` for the full per-environment checklist.
+
+**Platform-genesis runbook** (run ONCE, immediately after the first deploy
+that includes this change — the window does not close itself until the
+first platform admin exists):
+
+1. `POST /platform/bootstrap/request-token` (anonymous, empty body).
+2. Read the plaintext token from `railway logs` — it is NEVER returned over
+   HTTP, identical to `/account/bootstrap`'s existing token delivery.
+3. `POST /platform/bootstrap` with that token plus the new platform admin's
+   email/password. The response is an empty-body `202` either way; a second
+   genesis attempt is rejected twice over — once by the token registry
+   (already consumed) and, even if called directly against the store, again
+   by the database's `NOT EXISTS` INSERT policy.
+4. Confirm `POST /platform/sign-in` with those credentials returns `200` and
+   sets the `commerce.platform` cookie.
+
+**`/account/bootstrap` deprecation note**: the anonymous
+`/account/bootstrap/request-token` + `/account/bootstrap` pair remains
+byte-identical (apart from the `"admin"` → `"business-admin"` literal) and
+still works — it is not removed by this change. It is, however, now the
+**deprecated operator path**: `POST /platform/organizations` (an
+authenticated platform-admin action, reusing the exact same
+`TryCreateBootstrapAsync` transaction) is the intended path for creating new
+organizations going forward. Prefer it for every new organization; the
+anonymous pair remains only for environments that have not yet run platform
+genesis.
+
+### commerce-customer-identity — `0008_customer_registry.sql`
+
+`deploy/db/migrations/0008_customer_registry.sql` adds `customers` and
+`customer_ordering_access` (the `Customer` commercial-party aggregate),
+`users.customer_id` (nullable FK), and the `users_customer_has_no_roles`
+CHECK — the database half of the "a customer login cannot exercise staff
+permissions" guard (the in-memory half is
+`UserAccount.EffectivePermissions`). It has NO password placeholder to
+substitute — `app_runtime` already exists from `0001` — so it is applied
+directly:
+
+```bash
+psql "postgresql://postgres:<db-password>@<project-ref>.supabase.co:5432/postgres" \
+  -f deploy/db/migrations/0008_customer_registry.sql
+```
+
+**Verified deviation from the original proposal**: there is no `orders`
+table in this repo (orders live in `CloudOrderStore`'s in-memory dictionary),
+so `0008` contains NO `ALTER TABLE orders` statement and deletes no rows —
+see the migration file's own header comment and design.md's "Verified
+deviation 1" for the full rationale. The invariant is enforced in
+`CloudOrderSubmissionService.SubmitAsync` instead.
+
+**Migrate-before-deploy ordering, same as `0001`–`0007`**: apply
+`0008_customer_registry.sql` to the target environment's database BEFORE
+deploying the Cloud.Api image that expects it. `/health/ready` verifies
+`customers`/`customer_ordering_access` (FORCE RLS + policies) in addition to
+every prior table, so a deploy that runs ahead of the migration fails closed
+at readiness rather than serving requests against a missing schema.
+
+`ALTER TABLE users ADD CONSTRAINT users_customer_has_no_roles` validates
+existing rows; every current row has `customer_id IS NULL`, so it passes
+trivially — no `NOT VALID`/`VALIDATE` split is needed.
+
+Idempotency was confirmed locally by applying `0008_customer_registry.sql`
+twice against `deploy/dev/compose.yaml`'s Postgres container — the second
+apply is a clean no-op, exactly like `0001`–`0007`.
+
+**Inverse (rollback)**, shipped as comments in the migration file itself —
+NOT executed automatically:
+
+```sql
+ALTER TABLE users DROP CONSTRAINT users_customer_has_no_roles;
+ALTER TABLE users DROP COLUMN customer_id;
+DROP TABLE customer_ordering_access;
+DROP TABLE customers;
+```
+
+Rolling back re-opens the authorization defect this change fixes (the
+mandatory security fix landing in Unit 3); prefer forward-fix. If only the
+`users` constraint/column is a problem, drop it alone and keep the aggregate.
+
+### commerce-pricing-engine — `0009_catalog_and_pricing.sql` (Parts A + B + C)
+
+`deploy/db/migrations/0009_catalog_and_pricing.sql` adds **Part A**
+(`products`, `presentations` with `identification_code` + its partial
+per-organization unique index), **Part B** (`price_lists`,
+`price_list_entries`, append-only, no `effective_to`), and **Part C**
+(`supplier_price_mappings`, `price_import_batches`, `price_import_rows` —
+the Excel supplier-price-import pipeline: `Staged -> Committed | Rejected`
+plus `Failed`, no `Uploaded` state, `price_import_rows` append-only). It has
+no password placeholder to substitute, applied the same way as `0008`:
+
+```bash
+psql "postgresql://postgres:<db-password>@<project-ref>.supabase.co:5432/postgres" \
+  -f deploy/db/migrations/0009_catalog_and_pricing.sql
+```
+
+**Verified deviation from the proposal** (design.md "Verified deviation —
+there is no persisted catalog"): `Product`/`Presentation` were, before this
+migration, transient objects constructed from the request body on every
+`Catalog.cs` call — there was no `products`/`presentations` table at all.
+Catalog persistence was added to this change's scope for exactly this
+reason: nothing downstream (identification code, price entries, import row
+matching) can exist without it.
+
+**Order-of-deploy hazard** (design.md "Migration / Rollout"): once this
+image is live, `POST /orders` will deny every line whose presentation has no
+effective price (Work Unit 4, later in this change) — no `price_list_entries`
+row can exist before an admin publishes one. Create the organization's
+default price list and publish a price for every ordered presentation
+immediately after deploy, before announcing ordering, once Work Units 3-5
+land.
+
+**Migrate-before-deploy ordering, same as `0001`–`0008`**: apply `0009`
+before deploying the Cloud.Api image that expects it. `/health/ready`
+verifies `products`/`presentations`/`price_lists`/`price_list_entries`/
+`supplier_price_mappings`/`price_import_batches`/`price_import_rows`
+(FORCE RLS + policies) in addition to every prior table.
+
+**Untrusted-input guards** (design.md "Import state machine and
+untrusted-file handling"): the import endpoint validates OpenXML magic
+bytes, file size (≤5 MB), and used-range row count (≤5 000, checked before
+cell materialization) before any cell is read, and reads cached cell values
+only — never triggering formula recalculation. A file that fails validation
+creates no `price_import_batches` row.
+
+Idempotency was confirmed locally by applying `0009_catalog_and_pricing.sql`
+twice against `deploy/dev/compose.yaml`'s Postgres container.
+
+**Inverse (rollback)**, shipped as comments in the migration file itself —
+NOT executed automatically:
+
+```sql
+DROP TABLE price_import_rows;
+DROP TABLE price_import_batches;
+DROP TABLE supplier_price_mappings;
+DROP TABLE price_list_entries;
+DROP TABLE price_lists;
+DROP TABLE presentations;
+DROP TABLE products;
+```
+
+Lossy once real price-carrying orders exist (design.md "Rollback Plan");
+prefer forward-fix after first real use.
+
+### commerce-guest-ordering — `0010_guest_ordering.sql`
+
+`deploy/db/migrations/0010_guest_ordering.sql` adds `guest_order_verifications`
+(design.md "Verification state shape"): a 6-digit code stored only as a
+SHA-256 hex hash, `expires_at` (10 minutes), `attempt_count` bounded at 5 by a
+CHECK constraint, and `confirmed_at`/`consumed_at`/`consumed_order_id` so a
+single confirmed row admits exactly one order. It has no password placeholder
+to substitute, applied the same way as `0008`/`0009`:
+
+```bash
+psql "postgresql://postgres:<db-password>@<project-ref>.supabase.co:5432/postgres" \
+  -f deploy/db/migrations/0010_guest_ordering.sql
+```
+
+**Migrate-before-deploy ordering, same as `0001`–`0009`**: apply `0010`
+before deploying the Cloud.Api image that expects it. `/health/ready`
+verifies `guest_order_verifications` (FORCE RLS + policies) in addition to
+every prior table, so a deploy that runs ahead of the migration fails closed
+at readiness rather than serving requests against a missing schema.
+
+Idempotency was confirmed locally by applying `0010_guest_ordering.sql` twice
+against `deploy/dev/compose.yaml`'s Postgres container — the second apply is
+a clean no-op, exactly like `0001`–`0009`.
+
+**Two new Railway variables gate the public guest-ordering surface**
+(design.md "Migration / Rollout"): `GuestOrdering__OrganizationId` and
+`GuestOrdering__BranchId` (Vaca Verde and its principal branch). Deploy the
+image with them **unset** first — the app runs normally, `/public/*` returns
+404, and nothing about staff or registered-customer behaviour changes. Set
+them only when the guest surface is ready to announce; unsetting them again
+is the **narrowest rollback** — the entire public surface disappears within
+one restart, leaving the domain origin field and the customer session intact.
+
+Guest verification email reuses the existing `IEmailSender` seam from
+commerce-password-recovery — no new Railway variable is needed for delivery
+itself; the same `RESEND_API_KEY`/`EMAIL_FROM_ADDRESS` pair already documented
+above under `0005_password_recovery.sql` covers it. If `RESEND_API_KEY` is
+absent, verification codes are logged via `LogOnlyEmailSender` instead of
+sent — safe for local/dev, not for production.
+
+**Inverse (rollback)**, shipped as comments in the migration file itself —
+NOT executed automatically:
+
+```sql
+DROP TABLE guest_order_verifications;
+```
+
+Lossy only for in-flight verifications (minutes of state, re-requestable);
+no order data is persisted anywhere today (design.md "Migration / Rollout").
+
+### commerce-payments — `0011_payments.sql`
+
+`deploy/db/migrations/0011_payments.sql` adds `payment_entries` (the
+append-only payment ledger; design.md "Interfaces / Contracts") and
+`customers.billing_instrument_reference` (a new, separately-named nullable
+column — `customers.payment_terms` is untouched). Applied the same way as
+`0008`–`0010`:
+
+```bash
+psql "postgresql://postgres:<db-password>@<project-ref>.supabase.co:5432/postgres" \
+  -f deploy/db/migrations/0011_payments.sql
+```
+
+**Migrate-before-deploy ordering, same as `0001`–`0010`**: apply `0011`
+before deploying the Cloud.Api image that expects it. `/health/ready`
+verifies `payment_entries` (FORCE RLS + policy) in addition to every prior
+table, so a deploy that runs ahead of the migration fails closed at
+readiness rather than serving requests against a missing schema.
+
+Idempotency was confirmed locally by applying `0011_payments.sql` twice
+against `deploy/dev/compose.yaml`'s Postgres container — the second apply is
+a clean no-op, exactly like `0001`–`0010`.
+
+**No payment-provider secret exists, and this is deliberate** (proposal.md
+"Out of Scope" — provider selection is a future ADR): `Payments__ManuallyRecordedApprovalEnabled`
+is the ONLY payments-related setting, and its absence is fail-CLOSED, not
+fail-open — `IPaymentApprovalGateway` binds `UnavailablePaymentApproval`
+(every `POST /payments` returns 503, never a silent approval) unless it is
+explicitly set to `true`. This is the deliberate inverse of the
+`RESEND_API_KEY` precedent (commerce-password-recovery), where absence falls
+back safely to a no-op logger — money is not a notification, so absence here
+never substitutes a safe default; it substitutes an explicit refusal.
+
+**Inverse (rollback)**, shipped as comments in the migration file itself —
+NOT executed automatically:
+
+```sql
+ALTER TABLE customers DROP CONSTRAINT customers_instrument_not_pan_shaped;
+ALTER TABLE customers DROP COLUMN billing_instrument_reference;
+DROP TABLE payment_entries;
+```
+
+Lossy only after first real use (settlement history has no prior model to
+fall back to; design.md "Migration / Rollout") — prefer forward-fix then.
+**Narrowest rollback**: stop mapping `MapPaymentEndpoints()` in `Program.cs`
+— the domain stays dormant and the table stays empty/inert, with no
+migration to revert.
+
+## Local full stack via Docker Compose
+
+`deploy/dev/compose.yaml` gained a `full` profile (Unit 5) that also
+containerizes Cloud.Api, building the same repo-root `Dockerfile` Unit 2
+already created, alongside the existing `postgres` + `pgbouncer` services:
+
+```bash
+docker compose -f deploy/dev/compose.yaml --profile full up
+```
+
+This serves Cloud.Api (with the SPA it embeds in `wwwroot`) at
+`http://localhost:8080`, backed by the same containerized Postgres, with zero
+`dotnet run` / `npm run dev` needed. The default (no `--profile full`)
+behavior — Postgres + PgBouncer only, for the fast `dotnet run` inner loop —
+is unchanged; `full` is strictly additive.
+
+Commerce.Pos.Windows never requires Docker: it only needs an already-running
+Cloud.Api (local, containerized, or staging) to sync against.
+
+### commerce-admin-console — `0012_admin_console.sql`
+
+Apply `0012_admin_console.sql` after the existing migration lineage. It migrates legacy platform administrator identities into the reserved Incoders Platform organization, preserves the password hashes, and removes the legacy `platform_admins` table. After rollout, reset each migrated system administrator password through the unified `/account` identity flow; do not run the retired platform-genesis workflow.
+
+### human-document-numbers — `0021_branch_codes.sql`
+
+Apply `0021_branch_codes.sql` after `0020`. Every branch gets a short numeric `code` (1..999), unique per organization, assigned by the server and never changed; it is the `{branch}` part of human document numbers such as `V01-C2-125`.
+
+- Existing branches are numbered per organization in `created_at, id` order (1, 2, 3 ...). The backfill switches `FORCE ROW LEVEL SECURITY` off for the owner inside the migration transaction only (otherwise the owner sees zero rows) and aborts if any branch is left without a code before restoring it.
+- New branches are numbered by the `branches_code_allocate` BEFORE INSERT trigger (function `branches_allocate_code()`): when an insert omits `code`, it takes a transaction-scoped advisory lock keyed on the organization and assigns `MAX(code)+1`. Concurrent creations for one organization are serialized; different organizations do not block each other. Raw-SQL inserts that omit `code` keep working.
+- The `branches_code_immutable` trigger rejects any UPDATE that changes `code`. A `CHECK (code BETWEEN 1 AND 999)` and `UNIQUE (organization_id, code)` back it up.
+- Idempotent (a re-run changes nothing). The inverse is documented as a comment at the top of the file. `deploy/dev/db/init-rls.sql` carries a verbatim copy. The dev database has no migration tracking: apply the file by hand, as owner, to every existing environment before deploying the API that reads `branches.code`.
+
+### human-document-numbers — `0022_terminal_registers.sql`
+
+Apply `0022_terminal_registers.sql` after `0021` (it also needs `0004`). Every paired POS terminal (installation) gets a register number, unique within its branch, assigned by the server at pairing; it is the `C{register}` part of human sale numbers such as `V01-C2-125`.
+
+- Table `terminal_registers(organization_id, branch_id, installation_id, register_number 1..999, assigned_at, released_at)` with `UNIQUE (organization_id, branch_id, register_number)`, one row per (branch, installation) kept forever, and a partial unique index allowing ONE live (`released_at IS NULL`) register per installation. Composite FK to `branches (organization_id, id)`; `FORCE ROW LEVEL SECURITY` with the asymmetric `device_credentials` shape (unscoped SELECT and release, INSERT and re-activation pinned to the organization); identity columns are immutable.
+- Numbers are NEVER reused: sale numbers are generated offline, so a freed number handed to another installation could duplicate a sale number. A release only stamps `released_at`; the next number is `MAX(ever assigned)+1` per branch. A terminal that comes back to a branch it already held gets its own old number. The range is 1..999 because every reinstall of the POS is a new installation; running past 999 fails the `terminal_registers_number_ck` check and the API answers with a typed conflict.
+- Allocation lives in the SQL function `terminal_registers_assign(organization, branch, installation, release_others)` (advisory locks per installation and per branch, transaction-scoped, pgbouncer-safe). `POST /device/pair` calls it with `release_others = true` and is the ONLY place that releases a register. `GET /device/identity` calls it with `false` inside its own transaction: it re-verifies that a live credential still binds the installation to the branch (a re-pairing that revoked it wins and the call answers 401) and only fills in a missing number. Each newly allocated number is audited in `audit_log` (`terminal.register.assigned`).
+- Deploy order: apply `0021`, `0022` and `0024` BEFORE deploying an API version that pairs terminals. `/health/ready` verifies `branches.code`, `terminal_registers` (forced RLS) and the 4-argument `terminal_registers_assign` with the result shape of `0024`; an API deployed ahead of the migrations reports not ready (and logs `migration 0021/0022/0024 missing`) instead of answering every pairing with a 500.
+- Abuse: `POST /device/pair` is rate limited per client IP (`RateLimits:DevicePairPermitLimit`, default 30 per 15 minutes) because every new installation id burns a number for good. Residual risk: an attacker with valid operator credentials rotating IPs can still exhaust a branch's 999 numbers; the audit rows make that visible and the exhaustion is a typed `409 register-numbers-exhausted`, not an outage of the branch.
+- Backfill: every live (non-revoked) device credential without a register is numbered per branch in `issued_at, installation_id` order. The migration switches `FORCE ROW LEVEL SECURITY` off for the owner inside its transaction only and aborts if a live terminal is left without a register.
+- Idempotent (a re-run changes nothing). The inverse is documented as a comment at the top of the file. `deploy/dev/db/init-rls.sql` carries a verbatim copy. The dev database has no migration tracking: apply the file by hand, as owner, before deploying the API that reads `terminal_registers`.
+
+### human-document-numbers — `0023_pos_sales.sql`
+
+Apply `0023_pos_sales.sql` after `0022`. It adds `pos_sales`, the server-side projection of POS sales, and makes the human sale number `V{branch}-C{register}-{sequence}` (for example `V01-C2-125`) unique per organization.
+
+- Table `pos_sales(organization_id, branch_id, sale_id, register_number NULL, sale_sequence NULL, operation_id, occurred_at_utc, total_amount, recorded_at)`; primary key `(organization_id, sale_id)`; partial `UNIQUE (organization_id, branch_id, register_number, sale_sequence) WHERE sale_sequence IS NOT NULL` so unnumbered sales never collide; a CHECK keeps register and sequence both present or both absent. `FORCE ROW LEVEL SECURITY` with the tenant-isolation policy; `app_runtime` has SELECT and INSERT only (append-only).
+- The sync inbox transaction projects each `sale` envelope here and verifies the number the terminal claimed: the calling installation (from the device credential's claims) must have held that register in that branch (`terminal_registers`, released rows included), the branch code must match `branches.code`, and the number must be unused. A rejected claim stores the sale with NULL number parts and writes an `audit_log` row `sale.number_conflict` with the reason; the sale itself is always ingested.
+- Deploy order: apply `0023` before the API version that projects sales. An API deployed ahead of it still ingests every sale (the projection runs in a savepoint and is skipped with a warning log), but sales received meanwhile have no `pos_sales` row; they remain in `sync_inbox`. For that reason `/health/ready` does not require `pos_sales`.
+- Idempotent (a re-run changes nothing). The inverse is documented as a comment at the top of the file. `deploy/dev/db/init-rls.sql` carries a verbatim copy. The dev database has no migration tracking: apply the file by hand, as owner.
+
+### human-document-numbers — `0024_terminal_registers_assign_result.sql`
+
+Apply `0024_terminal_registers_assign_result.sql` after `0022` (order against `0023` does not matter). It changes the result of `terminal_registers_assign(organization, branch, installation, release_others)` from a bare `smallint` to two OUT columns, `assigned_number` and `newly_allocated`, so the API audits `terminal.register.assigned` only when the call really inserted a new row instead of inferring it with a second query.
+
+- A function cannot change its result type with `CREATE OR REPLACE`, so the migration drops the 4-argument signature and re-creates it with the same body, locks and grants (`EXECUTE` for `app_runtime` only). `0022` now also drops that signature before defining it, so replaying the whole chain (test fixtures do) always ends with the `0024` shape.
+- Deploy order: apply `0024` BEFORE the API version that reads `newly_allocated`; the API that reads `newly_allocated` checks the result shape in `/health/ready` and reports not ready against an older function. An API built before `0024` has no such check: it stays ready in front of `0024` and then fails pairing (see the deploy window below).
+- Deploy window, not backward compatible: an API built before `0024` calls the function expecting a bare `smallint`, so once `0024` is applied that older API fails every `POST /device/pair` (and the identity refresh that allocates a number) until the matching API is deployed. Apply `0024` and deploy the matching API together, as one step, never `0024` alone in front of live traffic. Nothing is in production yet, so no mixed window exists today; the order matters for the first real rollout.
+- Idempotent (a re-run changes nothing). The inverse is documented as a comment at the top of the file. `deploy/dev/db/init-rls.sql` carries a verbatim copy. The dev database has no migration tracking: apply the file by hand, as owner.
+
+### persist-web-orders — `0025_orders.sql`
+
+Apply `0025_orders.sql` after `0021`. It adds `orders` and `order_lines`, so web orders (registered customer and guest) survive an API restart, and gives every order the human number `P{branch}-W-{sequence}` (for example `P01-W-37`) as the pair `(branch_code, sequence)`.
+
+- `orders(organization_id, order_id, destination_branch_id, origin, customer_id, guest_*, status, pending_reason, branch_code, sequence, submitted_at_utc, created_at)`; primary key `(organization_id, order_id)` (the order id is idempotent per organization); `UNIQUE (organization_id, destination_branch_id, sequence)`; composite foreign key to `branches`. CHECK constraints repeat the domain invariants (registered order: customer and no guest data; guest order: guest contact and no customer; a confirmed order has no pending reason). `order_lines` holds the full line snapshot, primary key `(organization_id, order_id, line_no)`.
+- Sequence: the API takes the next number inside the INSERT transaction under `pg_advisory_xact_lock(hashtextextended(branch_id::text, 3))` (seed 1 is the per-branch register lock, 2 the per-installation lock of `0022`) as `MAX(sequence)+1`; the UNIQUE constraint is the backstop. Orders are never deleted, so a number is never reissued, and an idempotent resubmit returns the stored order without advancing the counter.
+- `FORCE ROW LEVEL SECURITY` with the tenant-isolation policy on both tables. `app_runtime` has SELECT and INSERT, plus UPDATE on `orders.status` and `orders.pending_reason` only; no DELETE.
+- Deploy order: apply `0025` BEFORE the API version that stores orders. `/health/ready` requires both tables, forced RLS and the policies and logs `migration 0025 missing`, so an API deployed ahead of it never takes traffic. There is no backfill: orders held only in the memory of a previous API process are lost at the restart that deploys this version (nothing is in production yet).
+- Idempotent (a re-run changes nothing). The inverse is documented as a comment at the top of the file. `deploy/dev/db/init-rls.sql` carries a verbatim copy. The dev database has no migration tracking: apply the file by hand, as owner.
+
+### persist-web-orders — `0026_orders_guest_check.sql`
+
+Apply `0026_orders_guest_check.sql` after `0025`. The guest branch of `orders_origin_identity_ck` (0025) compared `btrim(x) <> ''` without `IS NOT NULL`, so a guest order with a NULL document id, contact address or display name passed the CHECK (a NULL result passes). `0026` drops and re-adds the constraint with every mandatory guest part written as `IS NOT NULL AND btrim(x) <> ''`; the registered-customer branch is unchanged.
+
+- A shipped migration is never edited, so `0025` stays as applied and `0026` corrects it. Re-adding the constraint validates the existing rows; every stored order came through the domain constructor, so none can fail.
+- Deploy order: apply it after `0025` and before or together with the API version that reads orders; the API behaves the same either way (the domain already rejected those rows), so `/health/ready` does not check it.
+- Idempotent (a re-run drops and re-adds the same constraint). The inverse is documented as a comment at the top of the file. `deploy/dev/db/init-rls.sql` carries a verbatim copy. Apply by hand, as owner.

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Capability specifications
+    url: https://github.com/Incoders-Tools/incoders-commerce/tree/main/openspec/specs
+    about: Read the spec for the capability you are about to report on; it may already define the behavior.
+  - name: In-flight changes
+    url: https://github.com/Incoders-Tools/incoders-commerce/tree/main/openspec/changes
+    about: Check whether a proposal already covers this before opening a new issue.

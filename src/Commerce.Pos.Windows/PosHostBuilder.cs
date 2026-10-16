@@ -1,0 +1,173 @@
+using System.IO;
+using System.Net.Http;
+using Commerce.Application.Access;
+using Commerce.Application.Audit;
+using Commerce.Application.Pricing;
+using Commerce.BranchNode;
+using Commerce.Updater;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+
+namespace Commerce.Pos.Windows;
+
+/// <summary>
+/// Composition root for the WPF process (design.md "BranchNode hosting").
+/// Wires <see cref="BranchSyncStore"/>, <see cref="BranchNodeService"/>,
+/// <see cref="TenantAuthorizationService"/>, <see cref="IAuditSink"/>, and
+/// <see cref="CloudSyncClient"/> via <see cref="HostApplicationBuilder"/>.
+/// Extracted from App.xaml.cs so it is unit-testable without launching WPF
+/// (Component Reuse Policy: reuses Application/BranchNode services as-is).
+/// </summary>
+public static class PosHostBuilder
+{
+    /// <summary>Interim self-signed publisher (ADR-013); swap via <c>Commerce:UpdateTrustedPublisher</c>.</summary>
+    public const string DefaultTrustedPublisher = "CN=Incoders Commerce (Interim)";
+
+    public static IHost Build(string? branchDataDirectory = null)
+    {
+        var builder = Host.CreateApplicationBuilder();
+
+        var dataDirectory = branchDataDirectory ?? DefaultDataDirectory();
+        Directory.CreateDirectory(dataDirectory);
+        var databasePath = Path.Combine(dataDirectory, "branch.db");
+
+        var cloudApiBaseUrl = builder.Configuration["Commerce:CloudApiBaseUrl"] ?? "http://localhost:8080";
+        // Update source: GitHub Releases per channel by default; an explicit
+        // Commerce:UpdateManifestPath (VM testing) wins when set.
+        var updateManifestPath = builder.Configuration["Commerce:UpdateManifestPath"];
+        var updateChannel = builder.Configuration["Commerce:UpdateChannel"] ?? "stable";
+        var updateRepository = builder.Configuration["Commerce:UpdateRepository"] ?? "Incoders-Tools/incoders-commerce";
+
+        builder.Services.AddSingleton(_ => new BranchSyncStore($"Data Source={databasePath}"));
+        builder.Services.AddSingleton<IAuditSink, InMemoryAuditSink>();
+        builder.Services.AddSingleton<TenantAuthorizationService>();
+        builder.Services.AddSingleton<BranchNodeService>();
+        builder.Services.AddSingleton(_ => new LocalInstallationStore(Path.Combine(dataDirectory, "installation.json")));
+        builder.Services.AddSingleton(_ => new LocalOperatorStore(Path.Combine(dataDirectory, "operators.json")));
+        builder.Services.AddSingleton<CurrentOperator>();
+        builder.Services.AddSingleton(_ => ApplicationBranding.Load(dataDirectory));
+        builder.Services.AddHttpClient("update-releases");
+        builder.Services.AddSingleton<IUpdateManifestSource>(sp => string.IsNullOrWhiteSpace(updateManifestPath)
+            ? new GitHubReleaseManifestSource(
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient("update-releases"), updateRepository, updateChannel)
+            : new LocalFileManifestSource(updateManifestPath));
+        builder.Services.AddSingleton<ReleaseDiscovery>();
+        builder.Services.AddSingleton<UpdateChecker>();
+
+        // Install wizard services (R5). Every seam is an injectable service so
+        // the wizard window only orchestrates.
+        var trustedPublisher = builder.Configuration["Commerce:UpdateTrustedPublisher"];
+        if (string.IsNullOrWhiteSpace(trustedPublisher))
+        {
+            trustedPublisher = DefaultTrustedPublisher;
+        }
+
+        var updateStagingDirectory = builder.Configuration["Commerce:UpdateStagingDirectory"];
+        if (string.IsNullOrWhiteSpace(updateStagingDirectory))
+        {
+            updateStagingDirectory = Path.Combine(dataDirectory, "updates");
+        }
+
+        // Optional pin (SHA-256 of the signing certificate, printed by
+        // deploy/release/new-dev-signing-cert.ps1). With it the wizard accepts
+        // only that exact signer, which is what lets the interim self-signed
+        // certificate work (ADR-013); without it only a fully trusted signature
+        // from the trusted publisher is accepted.
+        var trustedThumbprint = builder.Configuration["Commerce:UpdateTrustedThumbprint"];
+
+        // The downloader enforces its own inactivity timeout, so the client's
+        // fixed 100 s total budget must not cut a large package on a slow link.
+        builder.Services.AddHttpClient<PackageDownloader>(client => client.Timeout = Timeout.InfiniteTimeSpan);
+        builder.Services.AddSingleton<IPackageSignatureVerifier, WindowsPackageSignatureVerifier>();
+        builder.Services.AddSingleton<IUpgradeBackup, SqliteUpgradeBackup>();
+        builder.Services.AddSingleton<IBranchNodeQuiescence, InProcessBranchNodeQuiescence>();
+        builder.Services.AddSingleton<IPackagedAppInfo, PackagedAppInfo>();
+        builder.Services.AddSingleton<IApplicationRestartRegistrar, ApplicationRestartRegistrar>();
+        builder.Services.AddSingleton<IUpdateInstaller, PackageManagerUpdateInstaller>();
+        builder.Services.AddSingleton(new PendingUpgradeStore(Path.Combine(dataDirectory, "pending-upgrade.json")));
+        builder.Services.AddSingleton(new UpdateInstallOptions(
+            StagingDirectory: updateStagingDirectory,
+            DatabasePath: databasePath,
+            BackupDirectory: Path.Combine(dataDirectory, "upgrade-backups"),
+            TrustedPublisher: trustedPublisher,
+            QuiesceTimeout: TimeSpan.FromSeconds(5),
+            TrustedThumbprint: string.IsNullOrWhiteSpace(trustedThumbprint) ? null : trustedThumbprint));
+        builder.Services.AddSingleton<UpdateInstallWorkflowFactory>();
+
+        // Task 7.2: the POS half of the shared IEffectivePriceSource port
+        // (design.md "PricingResolutionService contract and location") — the
+        // SAME PricingResolutionService type the cloud registers, wired over
+        // the local BranchSyncStore instead of Postgres.
+        builder.Services.AddSingleton<IEffectivePriceSource, LocalEffectivePriceSource>();
+        builder.Services.AddSingleton<PricingResolutionService>();
+
+        builder.Services.AddHttpClient<CloudSyncClient>(client =>
+        {
+            client.BaseAddress = new Uri(cloudApiBaseUrl);
+        });
+        builder.Services.AddHttpClient<DevicePairingClient>(client =>
+        {
+            client.BaseAddress = new Uri(cloudApiBaseUrl);
+        });
+        builder.Services.AddHttpClient<OperatorProvisioningClient>(client =>
+        {
+            client.BaseAddress = new Uri(cloudApiBaseUrl);
+        });
+        builder.Services.AddHttpClient<CustomerReplicaClient>(client =>
+        {
+            client.BaseAddress = new Uri(cloudApiBaseUrl);
+        });
+        builder.Services.AddHttpClient<CatalogPriceReplicaClient>(client =>
+        {
+            client.BaseAddress = new Uri(cloudApiBaseUrl);
+        });
+        builder.Services.AddHttpClient<PriceListsReplicaClient>(client =>
+        {
+            client.BaseAddress = new Uri(cloudApiBaseUrl);
+        });
+        builder.Services.AddHttpClient<StockReplicaClient>(client =>
+        {
+            client.BaseAddress = new Uri(cloudApiBaseUrl);
+        });
+        builder.Services.AddHttpClient<DiscountPinReplicaClient>(client =>
+        {
+            client.BaseAddress = new Uri(cloudApiBaseUrl);
+        });
+        builder.Services.AddHttpClient<DeviceIdentityClient>(client =>
+        {
+            client.BaseAddress = new Uri(cloudApiBaseUrl);
+        });
+        builder.Services.AddHttpClient<OrganizationSettingsReplicaClient>(client =>
+        {
+            client.BaseAddress = new Uri(cloudApiBaseUrl);
+        });
+        builder.Services.AddSingleton<TerminalIdentityRefresher>();
+
+        // ONE management connection shared by Clientes and Personal (admin-console-field-fixes T5): the paired
+        // device credential and the signed-in operator are read on every request (the persisted pairing follows a
+        // re-pair, the current operator follows a switch or a lock), so no password and no cookie are involved.
+        builder.Services.AddSingleton(sp =>
+        {
+            var installationStore = sp.GetRequiredService<LocalInstallationStore>();
+            var currentOperator = sp.GetRequiredService<CurrentOperator>();
+            return ManagementConnection.Create(
+                cloudApiBaseUrl,
+                () => installationStore.LoadOrCreate().Pairing?.DeviceToken,
+                () => currentOperator.Value?.UserId);
+        });
+
+        // MainWindow is NOT registered here: it requires an already-paired
+        // LocalInstallationRecord, which App.xaml.cs resolves via
+        // PairingWindow before MainWindow can be constructed (design.md
+        // "Data Flow" — "MainWindow is not created; there is no branch to
+        // sell into" when unpaired).
+
+        return builder.Build();
+    }
+
+    internal static string DefaultDataDirectory() => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "Incoders",
+        "Commerce");
+}

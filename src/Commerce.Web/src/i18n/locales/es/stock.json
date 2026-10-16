@@ -1,0 +1,117 @@
+{
+  "branchRequired": "Elegí una sucursal en la barra superior para ver el stock.",
+  "title": "Stock",
+  "description": "Cuánta mercadería hay en la sucursal, calculada con todos sus movimientos.",
+  "adjust": "Ajustar stock",
+  "search": {
+    "label": "Buscar en el stock",
+    "placeholder": "Buscar por producto, presentación o código…"
+  },
+  "filters": {
+    "onlyBelowMinimum": "Solo bajo mínimo"
+  },
+  "columns": {
+    "product": "Producto",
+    "presentation": "Presentación",
+    "onHand": "En stock",
+    "minimum": "Mínimo",
+    "status": "Estado",
+    "lastMovement": "Último movimiento",
+    "noValue": "—"
+  },
+  "status": {
+    "low": "Bajo mínimo",
+    "out": "Sin stock",
+    "negative": "Negativo",
+    "ok": "Normal"
+  },
+  "actions": {
+    "movements": "Movimientos",
+    "minimum": "Mínimo",
+    "adjust": "Ajustar"
+  },
+  "minimum": {
+    "label": "Mínimo de {{name}}",
+    "hint": "Vacío para no tener mínimo.",
+    "save": "Guardar mínimo",
+    "cancel": "Cancelar",
+    "invalid": "Ingresá un número mayor o igual a cero."
+  },
+  "empty": {
+    "none": "Todavía no hay stock para mostrar.",
+    "noMatch": "Ninguna presentación coincide con estos filtros.",
+    "loadError": "No se pudo cargar el stock."
+  },
+  "errors": {
+    "unexpectedLoad": "Error inesperado al cargar el stock.",
+    "unexpectedSave": "Error inesperado al guardar."
+  },
+  "adjustForm": {
+    "title": "Ajustar stock",
+    "backLabel": "Volver a stock",
+    "presentation": "Presentación",
+    "kind": "Tipo de ajuste",
+    "kindPlaceholder": "Elegí un tipo",
+    "kinds": {
+      "Opening": "Stock inicial",
+      "Shrinkage": "Merma",
+      "CountCorrection": "Corrección por conteo",
+      "Adjustment": "Ajuste"
+    },
+    "kindHelp": {
+      "Opening": "Carga el stock con el que arranca la presentación. Siempre suma.",
+      "Shrinkage": "Mercadería perdida, vencida o rota. Siempre resta del stock.",
+      "CountCorrection": "La diferencia que encontraste al contar. Elegí si el conteo suma o resta.",
+      "Adjustment": "Cualquier otra corrección. Elegí si suma o resta."
+    },
+    "direction": "¿Suma o resta?",
+    "directionAdd": "Suma",
+    "directionSubtract": "Resta",
+    "quantity": "Cantidad",
+    "quantityHint": "Ingresá la cantidad sin signo, en {{unit}}.",
+    "reason": "Motivo",
+    "submit": "Registrar ajuste",
+    "submitting": "Registrando…",
+    "done": "Ajuste registrado. Stock actual: {{onHand}}.",
+    "errors": {
+      "presentation": "Elegí una presentación.",
+      "kind": "Elegí un tipo de ajuste.",
+      "direction": "Elegí si el ajuste suma o resta.",
+      "quantity": "Ingresá una cantidad mayor a cero.",
+      "quantityInteger": "Esta presentación se cuenta en unidades enteras.",
+      "quantityDecimals": "Usá hasta 3 decimales.",
+      "reason": "Escribí el motivo del ajuste."
+    }
+  },
+  "movements": {
+    "title": "Movimientos de stock",
+    "backLabel": "Volver a stock",
+    "onHand": "En stock: {{value}}",
+    "columns": {
+      "date": "Fecha",
+      "kind": "Tipo",
+      "quantity": "Cantidad",
+      "balance": "Saldo",
+      "source": "Origen",
+      "reason": "Motivo",
+      "lot": "Lote",
+      "noValue": "—"
+    },
+    "kinds": {
+      "Opening": "Stock inicial",
+      "PurchaseReceipt": "Recepción de compra",
+      "Sale": "Venta",
+      "Adjustment": "Ajuste",
+      "Shrinkage": "Merma",
+      "CountCorrection": "Corrección por conteo",
+      "Reversal": "Anulación"
+    },
+    "empty": "Esta presentación todavía no tiene movimientos.",
+    "loadError": "No se pudieron cargar los movimientos.",
+    "pager": {
+      "previous": "Anterior",
+      "next": "Siguiente",
+      "page": "Página {{page}} de {{pages}}"
+    }
+  }
+}

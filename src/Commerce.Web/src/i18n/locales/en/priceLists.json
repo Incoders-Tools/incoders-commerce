@@ -1,0 +1,271 @@
+{
+  "title": "Price lists",
+  "description": "Published prices per presentation, and the supplier import that feeds them.",
+  "createDefault": "Create default price list",
+  "branchRequired": "Pick a branch in the top bar to view and edit price lists.",
+  "errors": {
+    "unexpectedLoad": "Unexpected error loading price lists.",
+    "unexpectedCreateDefault": "Unexpected error creating the default price list.",
+    "unexpectedLoadSupplierMappings": "Unexpected error loading supplier mappings.",
+    "unexpectedUpload": "Unexpected error uploading the file.",
+    "unexpectedCommit": "Unexpected error committing the batch.",
+    "unexpectedReject": "Unexpected error rejecting the batch.",
+    "unexpectedSaveMapping": "Unexpected error saving the supplier mapping."
+  },
+  "sectionsNav": {
+    "label": "Price list sections",
+    "prices": "Prices",
+    "edit": "Edit prices",
+    "suppliers": "Suppliers",
+    "import": "Import"
+  },
+  "search": {
+    "label": "Search price lists",
+    "placeholder": "Search by name…"
+  },
+  "empty": {
+    "none": "No price lists yet.",
+    "noMatch": "No price lists match this search.",
+    "loadError": "The price lists could not be loaded."
+  },
+  "columns": {
+    "name": "Name",
+    "isDefault": "Is default",
+    "yes": "Yes",
+    "no": "No",
+    "created": "Created"
+  },
+  "actions": {
+    "managePrices": "Manage prices",
+    "composition": "Composition",
+    "copy": "Duplicate list"
+  },
+  "editor": {
+    "listLabel": "Price list",
+    "noList": "Choose a list",
+    "loading": "Loading prices…",
+    "loadingBaseline": "Loading the prices in effect on the chosen date…",
+    "empty": "There are no products in the catalog yet.",
+    "noMatch": "No product matches this search.",
+    "search": {
+      "label": "Search products",
+      "placeholder": "Product or code…"
+    },
+    "categoryLabel": "Category",
+    "allCategories": "All categories",
+    "effectiveFromLabel": "Effective from",
+    "effectiveFromToday": "Today (business day)",
+    "effectiveFromHint": "Effective from: empty = today (business day). Published prices apply from that date.",
+    "remark": {
+      "label": "Remark %",
+      "placeholder": "E.g. 10 or -5",
+      "apply": "Apply",
+      "hint": "Applies to the base price. Products without a price are not remarked. Check the preview before publishing.",
+      "invalid": "Enter a percentage greater than -100.",
+      "scope": {
+        "selected_one": "Applies to {{count}} selected product.",
+        "selected_other": "Applies to the {{count}} selected products.",
+        "filtered_one": "Applies to {{count}} product: the one the filter shows.",
+        "filtered_other": "Applies to the {{count}} products the filter shows (hidden ones do not change).",
+        "all_one": "Applies to {{count}} product of the list.",
+        "all_other": "Applies to the {{count}} products of the list."
+      }
+    },
+    "columns": {
+      "product": "Product",
+      "presentation": "Presentation",
+      "code": "Code",
+      "category": "Category",
+      "base": "Current base",
+      "final": "Current final",
+      "newBase": "New base",
+      "history": "History"
+    },
+    "selectAll": "Select every visible row",
+    "selectRow": "Select {{name}}",
+    "newBaseOf": "New base of {{name}}",
+    "historyOf": "History of {{name}}",
+    "firstPrice": "First price: {{price}}",
+    "changedCount_one": "{{count}} price changed",
+    "changedCount_other": "{{count}} prices changed",
+    "invalidCount_one": "{{count}} row with invalid values",
+    "invalidCount_other": "{{count}} rows with invalid values",
+    "showInvalid": "Show",
+    "undo": "Undo changes",
+    "publish": "Publish changes",
+    "publishing": "Publishing…",
+    "published_one": "{{count}} price published.",
+    "published_other": "{{count}} prices published.",
+    "violation": "{{price}} is below the floor {{floor}} ({{floorPrice}}).",
+    "dependentViolation": "Leaves {{list}} at {{price}}, below its floor {{floor}} ({{floorPrice}}).",
+    "errors": {
+      "invalidPrice": "Enter a price greater than zero, with up to two decimals.",
+      "belowFloor": "No price was published: some prices are below their floor list. Fix the marked rows.",
+      "unexpectedLoad": "Unexpected error while loading the prices.",
+      "unexpectedPublish": "Unexpected error while publishing the prices."
+    },
+    "discard": {
+      "title": "Unpublished changes",
+      "message_one": "You have {{count}} unpublished change. Discard it?",
+      "message_other": "You have {{count}} unpublished changes. Discard them?",
+      "confirm": "Discard",
+      "keepEditing": "Keep editing"
+    },
+    "composition": {
+      "label": "Composition:",
+      "loading": "Loading the composition…",
+      "edit": "Edit composition",
+      "publishFirst": "Publish or undo the changes before editing the composition."
+    },
+    "priceFilter": {
+      "label": "Price in the list",
+      "all": "All",
+      "missing_one": "Without price ({{count}})",
+      "missing_other": "Without price ({{count}})",
+      "priced": "With price"
+    },
+    "newFinal": "Final: {{price}}",
+    "finalChange": "Final: {{from}} → {{to}}"
+  },
+  "suppliersPlaceholder": "Supplier mappings (column mapping for Excel imports) land here in a future release — the `supplier_price_mappings` table does not exist yet.",
+  "history": {
+    "show": "History",
+    "loading": "Loading history…",
+    "unexpectedLoad": "Unexpected error loading price history.",
+    "empty": "No published prices yet."
+  },
+  "import": {
+    "loading": "Loading…",
+    "supplierLabel": "Supplier",
+    "fileLabel": "File",
+    "uploading": "Uploading…",
+    "upload": "Upload",
+    "batchStatus": "Batch {{status}}.",
+    "createMapping": {
+      "explanation": "No supplier mapping exists yet — configure one before importing.",
+      "supplierNameLabel": "Supplier name",
+      "sheetNameLabel": "Sheet name",
+      "headerRowLabel": "Header row",
+      "codeColumnLabel": "Code column",
+      "priceColumnLabel": "Price column",
+      "saving": "Saving…",
+      "save": "Save mapping"
+    },
+    "reviewTable": {
+      "empty": "No rows to review yet.",
+      "columns": {
+        "row": "#",
+        "code": "Code",
+        "item": "Item",
+        "current": "Current",
+        "proposed": "Proposed",
+        "status": "Status"
+      },
+      "statusOptions": {
+        "matched": "Matched",
+        "noChange": "No change",
+        "unknownCode": "Unknown code",
+        "invalidPrice": "Invalid price",
+        "duplicateInFile": "Duplicate in file"
+      },
+      "committing": "Committing…",
+      "commit": "Commit",
+      "reject": "Reject"
+    }
+  },
+  "breakdown": {
+    "title": "Composition of {{name}}",
+    "description": "How each price is built: the base price plus each component.",
+    "backLabel": "Back to price lists",
+    "dateLabel": "Prices on",
+    "loading": "Loading composition…",
+    "empty": "No products have a price on this date.",
+    "editComposition": "Edit composition",
+    "noComposition": "No composition: the final price is the base price.",
+    "onBase": "on base",
+    "componentOnSubtotal": "{{label}} {{percentage}} % on subtotal",
+    "component": "{{label}} {{percentage}} %",
+    "floor": "Floor: {{name}}",
+    "noFloor": "No floor",
+    "floorSelect": "Floor list",
+    "floorHint": "This list can never go below its floor, product by product.",
+    "historyTitle": "Composition history",
+    "historyEmpty": "There are no earlier versions yet.",
+    "historyLine": "From {{date}}: {{summary}}",
+    "copied": "List duplicated. Prices included: {{count}}.",
+    "columns": {
+      "code": "Code",
+      "product": "Product",
+      "base": "Base",
+      "final": "Final price"
+    },
+    "errors": {
+      "unexpectedLoad": "Unexpected error loading the composition.",
+      "floorCycle": "That list already depends on this one: the floor would form a cycle.",
+      "unexpectedFloor": "Unexpected error changing the floor list."
+    }
+  },
+  "compositionForm": {
+    "title": "Edit composition of {{name}}",
+    "description": "Publishes a new version from the chosen date; earlier versions stay in the history.",
+    "loading": "Loading composition…",
+    "effectiveFrom": "Effective from",
+    "effectiveFromHint": "Tomorrow by default. The current version is not edited: a new one is published and the history is kept.",
+    "mode": "How to edit",
+    "modeComponents": "Components",
+    "modeMarkup": "Markup only",
+    "markup": "Markup %",
+    "markupHint": "Changes only the markup; the other components stay as they are.",
+    "componentsTitle": "Components",
+    "label": "Label {{index}}",
+    "code": "Code {{index}}",
+    "percentage": "Percentage {{index}}",
+    "base": "Calculation base {{index}}",
+    "order": "Order {{index}}",
+    "baseOptions": {
+      "Base": "On base",
+      "Subtotal": "On subtotal"
+    },
+    "add": "Add component",
+    "remove": "Remove component {{index}}",
+    "publish": "Publish composition",
+    "publishing": "Publishing…",
+    "cancel": "Cancel",
+    "errors": {
+      "dateTaken": "A composition with that effective date already exists. Pick another date.",
+      "incomplete": "Fill in the label, code and percentage of every component.",
+      "markupRequired": "Enter the markup.",
+      "unexpected": "Unexpected error publishing the composition.",
+      "unexpectedLoad": "Unexpected error loading the composition."
+    }
+  },
+  "copyForm": {
+    "title": "Duplicate {{name}}",
+    "description": "Creates a new list with this list's base prices and its composition with a different markup. The source list does not change.",
+    "name": "New list name",
+    "markup": "Markup %",
+    "markupHint": "Replaces the markup of the duplicated composition.",
+    "effectiveFrom": "Effective from",
+    "floor": "Floor of the new list",
+    "floorKeep": "Keep the source list's floor",
+    "floorNone": "No floor",
+    "submit": "Duplicate list",
+    "submitting": "Duplicating…",
+    "cancel": "Cancel",
+    "errors": {
+      "nameTaken": "A list with that name already exists.",
+      "invalid": "Check the name and the markup.",
+      "unexpected": "Unexpected error copying the list."
+    }
+  },
+  "violations": {
+    "title": "These products would fall below {{floor}}",
+    "hint": "Nothing was saved. Raise those prices or the markup and try again.",
+    "columns": {
+      "list": "List",
+      "product": "Product",
+      "price": "Price",
+      "floor": "Floor"
+    }
+  }
+}

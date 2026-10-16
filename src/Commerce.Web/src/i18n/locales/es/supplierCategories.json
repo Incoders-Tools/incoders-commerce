@@ -1,0 +1,56 @@
+{
+  "title": "Rubros de proveedor",
+  "description": "Rubros de los proveedores (carne, tecnología, limpieza…). Se eligen al cargar un proveedor.",
+  "columns": {
+    "name": "Nombre",
+    "key": "Clave",
+    "sortOrder": "Orden",
+    "status": "Estado",
+    "createdAt": "Creación",
+    "updatedAt": "Última modificación"
+  },
+  "status": {
+    "active": "Activo",
+    "inactive": "Inactivo",
+    "all": "Todos",
+    "filterLabel": "Estado"
+  },
+  "actions": {
+    "create": "Nuevo rubro",
+    "edit": "Editar",
+    "deactivate": "Desactivar",
+    "activate": "Activar"
+  },
+  "search": {
+    "label": "Buscar rubros",
+    "placeholder": "Buscar por nombre o clave…"
+  },
+  "empty": {
+    "none": "Todavía no hay rubros de proveedor.",
+    "noMatch": "Ningún rubro coincide con esta búsqueda.",
+    "loadError": "No se pudieron cargar los rubros."
+  },
+  "form": {
+    "createTitle": "Nuevo rubro",
+    "editTitle": "Editar rubro",
+    "description": "Nombre, clave y orden con el que aparece en las listas.",
+    "backLabel": "Volver a los rubros",
+    "name": "Nombre",
+    "key": "Clave",
+    "keyHint": "Identificador corto; si se deja vacío se genera a partir del nombre.",
+    "sortOrder": "Orden",
+    "isActive": "Activo",
+    "createdAt": "Creado: {{date}}",
+    "updatedAt": "Actualizado: {{date}}",
+    "save": "Guardar",
+    "saving": "Guardando…",
+    "cancel": "Cancelar"
+  },
+  "errors": {
+    "unableToLoad": "No se pudieron cargar los rubros.",
+    "unableToSave": "No se pudo guardar el rubro.",
+    "unableToUpdate": "No se pudo actualizar el estado.",
+    "nameInUse": "Ya existe un rubro con ese nombre.",
+    "keyInUse": "Ya existe un rubro con esa clave."
+  }
+}

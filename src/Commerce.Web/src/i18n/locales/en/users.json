@@ -1,0 +1,85 @@
+{
+  "title": "Users",
+  "description": "Staff accounts, their roles, and password resets.",
+  "errors": {
+    "unableToLoad": "Unable to load users.",
+    "unableToCreate": "Unable to create user.",
+    "unableToSaveRolesWithDetail": "Unable to save roles for {{email}}: {{detail}}",
+    "unableToSaveRoles": "Unable to save roles for {{email}}.",
+    "enterReplacementPassword": "Enter a replacement password.",
+    "unableToResetPassword": "Unable to reset password.",
+    "branchRequired": "Choose at least one branch for the user.",
+    "branchNotInOrganization": "One of the chosen branches does not belong to the organization.",
+    "forbidden": "You are not allowed to assign that branch or role.",
+    "unableToSaveBranches": "Unable to save the branches of {{email}}.",
+    "cannotRevokeSelf": "You cannot deactivate yourself.",
+    "forbiddenStatus": "You are not allowed to deactivate or reactivate this user.",
+    "unableToChangeStatus": "Unable to change the status of {{email}}."
+  },
+  "createForm": {
+    "emailAriaLabel": "User email",
+    "emailPlaceholder": "Email",
+    "passwordAriaLabel": "User password",
+    "passwordPlaceholder": "Password",
+    "roleForNewUser": "{{role}} for new user",
+    "submit": "Create user",
+    "branchForNewUser": "Branch {{branch}} for new user",
+    "branchesLegend": "Branches",
+    "noBranchesAvailable": "No branches available."
+  },
+  "search": {
+    "label": "Search users",
+    "placeholder": "Search by email or role…"
+  },
+  "empty": {
+    "none": "No users yet.",
+    "noMatch": "No users match this search.",
+    "loadError": "Users could not be loaded."
+  },
+  "columns": {
+    "email": "Email",
+    "roles": "Roles",
+    "noRoles": "No roles",
+    "status": "Status",
+    "branches": "Branches",
+    "noBranches": "No branches",
+    "unknownBranch": "Other branch"
+  },
+  "statusOptions": {
+    "active": "Active",
+    "revoked": "Revoked"
+  },
+  "row": {
+    "roleForUser": "{{role}} for {{email}}",
+    "saveRoles": "Save roles",
+    "replacementPasswordAriaLabel": "Replacement password for {{email}}",
+    "newPasswordPlaceholder": "New password",
+    "forceReset": "Force reset",
+    "branchForUser": "Branch {{branch}} for {{email}}",
+    "saveBranches": "Save branches",
+    "deactivate": "Deactivate",
+    "reactivate": "Reactivate",
+    "confirmDeactivate": "Deactivate {{email}}?",
+    "confirmReactivate": "Reactivate {{email}}?",
+    "confirm": "Confirm",
+    "cancel": "Cancel"
+  },
+  "roles": {
+    "business-admin": {
+      "label": "Administrator",
+      "description": "Manages the organization"
+    },
+    "seller": {
+      "label": "Seller",
+      "description": "Takes orders from the web"
+    },
+    "cashier": {
+      "label": "Cashier",
+      "description": "Operates the point of sale"
+    },
+    "provider": {
+      "label": "Provider",
+      "description": "Supplier account"
+    }
+  }
+}

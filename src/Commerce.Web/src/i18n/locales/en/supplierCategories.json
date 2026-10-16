@@ -1,0 +1,56 @@
+{
+  "title": "Supplier categories",
+  "description": "Supplier categories (meat, technology, cleaning…). They are chosen when registering a supplier.",
+  "columns": {
+    "name": "Name",
+    "key": "Key",
+    "sortOrder": "Order",
+    "status": "Status",
+    "createdAt": "Created",
+    "updatedAt": "Last modified"
+  },
+  "status": {
+    "active": "Active",
+    "inactive": "Inactive",
+    "all": "All",
+    "filterLabel": "Status"
+  },
+  "actions": {
+    "create": "New category",
+    "edit": "Edit",
+    "deactivate": "Deactivate",
+    "activate": "Activate"
+  },
+  "search": {
+    "label": "Search categories",
+    "placeholder": "Search by name or key…"
+  },
+  "empty": {
+    "none": "There are no supplier categories yet.",
+    "noMatch": "No category matches this search.",
+    "loadError": "The categories could not be loaded."
+  },
+  "form": {
+    "createTitle": "New category",
+    "editTitle": "Edit category",
+    "description": "Name, key and order in which it appears in lists.",
+    "backLabel": "Back to categories",
+    "name": "Name",
+    "key": "Key",
+    "keyHint": "Short identifier; generated from the name when left empty.",
+    "sortOrder": "Order",
+    "isActive": "Active",
+    "createdAt": "Created: {{date}}",
+    "updatedAt": "Updated: {{date}}",
+    "save": "Save",
+    "saving": "Saving…",
+    "cancel": "Cancel"
+  },
+  "errors": {
+    "unableToLoad": "The categories could not be loaded.",
+    "unableToSave": "The category could not be saved.",
+    "unableToUpdate": "The status could not be updated.",
+    "nameInUse": "A category with that name already exists.",
+    "keyInUse": "A category with that key already exists."
+  }
+}

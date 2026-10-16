@@ -17,6 +17,9 @@ Estas decisiones establecen una experiencia consistente para la gestión comerci
 | Autoridad offline | Durante una caída de Internet, la operación local es la autoridad resiliente y offline-first. |
 | Datos remotos | La web muestra la frescura de datos: una sucursal desconectada se refleja hasta su última sincronización cloud exitosa, no como tiempo real. |
 | Captura documental | La captura local desde cámara, escáner o archivo puede asistir la recepción de comprobantes de proveedores; toda sugerencia OCR/IA requiere revisión humana antes de un movimiento definitivo de inventario. |
+| Gestión de archivos | Un componente transversal permite cargar, consultar y vincular archivos, documentos e imágenes con los procesos que los requieran. |
+| Historial de cambios | Los usuarios autorizados pueden editar cuando el estado lo permita; de lo contrario, el sistema ofrece corrección, anulación o reverso controlado, sin eliminación silenciosa. |
+| Trazabilidad operativa | La auditoría identifica las acciones de negocio y los logs registran la ejecución y resultado de operaciones relevantes para diagnóstico autorizado. |
 
 ## Alcance y consistencia
 

@@ -1,0 +1,56 @@
+{
+  "title": "Account types",
+  "description": "The company's kinds of money (cash, banks, credit cards, digital wallets…). Every treasury account has a type, and Treasury shows the business total split by type. A type no longer used is deactivated: accounts that have it keep it.",
+  "columns": {
+    "name": "Name",
+    "key": "Key",
+    "sortOrder": "Order",
+    "status": "Status",
+    "createdAt": "Created",
+    "updatedAt": "Last modified"
+  },
+  "status": {
+    "active": "Active",
+    "inactive": "Inactive",
+    "all": "All",
+    "filterLabel": "Status"
+  },
+  "actions": {
+    "create": "New type",
+    "edit": "Edit",
+    "deactivate": "Deactivate",
+    "activate": "Activate"
+  },
+  "search": {
+    "label": "Search account types",
+    "placeholder": "Search by name or key…"
+  },
+  "empty": {
+    "none": "No account types yet. They are created when Treasury is opened, or add your own with \"New type\".",
+    "noMatch": "No type matches this search.",
+    "loadError": "The account types could not be loaded."
+  },
+  "form": {
+    "createTitle": "New account type",
+    "editTitle": "Edit account type",
+    "description": "Name (e.g. \"Credit cards\"), key and the order it appears in Treasury.",
+    "backLabel": "Back to account types",
+    "name": "Name",
+    "key": "Key",
+    "keyHint": "Short identifier; generated from the name when left empty.",
+    "sortOrder": "Order",
+    "isActive": "Active",
+    "createdAt": "Created: {{date}}",
+    "updatedAt": "Updated: {{date}}",
+    "save": "Save",
+    "saving": "Saving…",
+    "cancel": "Cancel"
+  },
+  "errors": {
+    "unableToLoad": "The account types could not be loaded.",
+    "unableToSave": "The account type could not be saved.",
+    "unableToUpdate": "The status could not be updated.",
+    "nameInUse": "An account type with that name already exists.",
+    "keyInUse": "An account type with that key already exists."
+  }
+}

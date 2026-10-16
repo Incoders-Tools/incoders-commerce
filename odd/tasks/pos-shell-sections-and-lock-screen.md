@@ -1,0 +1,392 @@
+# POS Shell Sections and Lock Screen
+
+## Objective
+Replace the POS's stacked modal windows with sections inside the main shell
+(Venta, Clientes, Personal), turn operator sign-in into a full-window lock
+screen with two ways in (operator tile + PIN, or email + password), and let an
+administrator deactivate staff from both the web and the POS.
+
+## Problem
+- Operator provisioning, staff and customer management open modal windows.
+  The provisioning window has no scroll: on 2026-09-30 the owner could not
+  see a "wrong email or password" error (log: `POST /device/operators/verify
+  -> 401`) because the content overflowed.
+- Sign-out leaves the sale screen loaded behind the login modal.
+- The login window is noisy; "Personal" mixes admin staff management with
+  operator sign-in (`TerminalOperatorsWindow` provisioning).
+- No endpoint changes `users.is_revoked`: an admin cannot deactivate staff
+  anywhere (the web only displays the status).
+
+## Why
+Owner decisions (2026-09-30):
+- Tools open inside the POS; the nav bar returns to Venta. Now: Clientes and
+  Personal; other windows negotiated later.
+- Personal is admin-only staff management, never a sign-in place. New staff
+  enter through the login after the current operator signs out.
+- Admin creates staff with email + password and hands them over; the staff
+  member creates their PIN on first sign-in at a terminal and can then enter
+  either way (tile + PIN, or email + password).
+- PIN collisions are harmless because the operator is chosen first and the
+  PIN only confirms that person; no PIN-only login.
+- Admin can deactivate ("dar de baja") staff.
+
+## Scope (authorized)
+- API: deactivate/reactivate a staff user, same rules for web and POS.
+- Web: deactivate/reactivate action on the Users screen.
+- POS: shell sections for Clientes and Personal (no modal windows for them);
+  Personal = admin staff management (create with email + password + role,
+  branch = terminal branch; list; deactivate; remove an operator from this
+  terminal).
+- POS: lock screen replacing the operator login/provisioning windows.
+
+Out of scope: pairing window, cash prompts, other windows (later), reset-PIN
+by admin (the staff member re-enters with email + password to set a new PIN).
+
+## Constraints
+- Commit directly on `dev`; Conventional Commits; no AI attribution.
+- Strict TDD (observed RED before GREEN).
+- Backend equally strict for web and POS (same API, same typed errors).
+- POS admin actions keep today's server authorization (`UserAdminClient`
+  cookie sign-in as the signed-in admin); the password prompt moves inline
+  into the Personal section instead of a modal.
+- Spanish operator copy via `PosMessages`; English code/docs/commits; UTF-8.
+- Keep `DynamicResource` palette keys (Dark, Light, Vaca Verde); every section
+  scrolls when content exceeds the window.
+- Integration tests need `incoders-commerce-postgres-1` and
+  `incoders-commerce-pgbouncer-1` up; run the full suite from a throwaway
+  worktree; never `--artifacts-path`; never `docker compose down`.
+  `run-all.ps1` populated Cloud.Api `wwwroot`, so `PublicRateLimitTests`
+  fails spuriously in the main checkout.
+
+## TDD
+- Mode: strict, source: global instructions.
+- Runners: `dotnet test tests/Commerce.Integration --filter <Class>`,
+  `npm test` in `src/Commerce.Web`.
+
+## Delivery
+- Forecast about 1800 authored lines over 4 tasks; trunk on `dev`, one or more
+  work-unit commits per task, reviewed per commit under RDD.
+- First review boundary: `f75bdbd` (the previous feature's pending slice
+  `f75bdbd..3ec7bc3` joins the first review here).
+
+## Tasks
+- [x] T1 API: `PUT /account/users/{id}/status` (`{ "revoked": bool }`),
+  `ManageUsers`, same tenant/branch cap as roles/branches, cannot deactivate
+  yourself, cannot deactivate someone holding permissions you lack, bumps
+  `session_version` so web sessions end, audited; revoked users already fail
+  sign-in and device verify (confirm). Route: delegated direct.
+- [x] T2 Web: "Dar de baja" / "Reactivar" on the Users screen with confirm,
+  friendly errors. Route: delegated direct (may share the T1 writer).
+- [x] T3 POS shell sections: MainWindow hosts Venta, Clientes, Personal as
+  views in the content area (nav switches, returns to Venta); convert
+  `CustomersWindow` and `UsersWindow` into views; Personal admin-only with
+  create/list/deactivate and terminal-operator removal, no provisioning;
+  Spanish copy; scrolling. Route: delegated direct.
+- [x] T4 POS lock screen: full-window sign-in view when no operator (sale not
+  visible or interactive); operator tiles + PIN; "Ingresar con usuario y
+  contraseña" -> online verify -> create PIN when new to this terminal (or
+  replace it); sign-out returns to the lock screen; remove
+  `OperatorLoginWindow` / `ProvisionOperatorWindow` modals; first run after
+  pairing lands on the lock screen. Route: delegated direct.
+
+## Acceptance criteria
+- No modal window opens for Clientes, Personal or operator sign-in.
+- With no operator, the sale screen is neither visible nor usable.
+- A new staff member signs in with email + password, creates a PIN, and next
+  time enters with tile + PIN.
+- A deactivated user cannot sign into the web or the POS (both paths), and
+  cached POS operators for them are dropped at the next status check.
+- Every error is visible (scrolling) and logged.
+
+## Progress
+- 2026-09-30: document created (route: parent, direct; mapping reused from
+  `staff-roles-and-pos-operator-ux`).
+- 2026-09-30 T1+T2 done (route: delegated direct, one writer).
+  - T1 `0af1336` feat(account): `PUT /account/users/{userId:guid}/status`
+    `{ "revoked": bool }` in the `/account/users` admin group (ManageUsers,
+    tenant scope, sysadmin acting allowed). 204, idempotent (no second audit
+    row or session bump). Errors: 400 `revoked-required`, 400
+    `cannot-revoke-self`, 400 `not-a-staff-user` (customer-linked), 404
+    unknown/foreign, 403 `permissions-exceed-caller` (target permissions not
+    a subset of the caller's, or sysadmin target for non-sysadmin), 403
+    `branch-not-in-scope` (target branch outside caller scope; sysadmin
+    acting exempt). Revoke sets `is_revoked`, bumps `session_version`
+    (+ `SessionVersionCache.Set`, so the session ends immediately), audits
+    `user.revoked` / `user.reactivated`. Spec: user-credentials "Deactivate
+    And Reactivate Staff".
+  - T2 `cec16fa` feat(web): Users row action "Dar de baja" / "Reactivar" with
+    an inline confirm step (no dialog component exists in the codebase),
+    hidden on the caller's own row (`useOptionalAuth().user.userId`),
+    friendly es/en errors; `updateUserStatus` in `api/account.ts`.
+  - RED: 14 new `RoleTaxonomyTests.Status_*` failed 14/14 (405 MethodNotAllowed;
+    session test 200 instead of 401) in a worktree seeded with the test +
+    request record only; 8 new UsersScreen vitest cases failed 8/8.
+    GREEN: RoleTaxonomyTests 38/38; UsersScreen 39/39.
+  - Checks: `dotnet build Commerce.sln` (worktree) 0 errors; full
+    `dotnet test tests/Commerce.Integration` (worktree) 1206 passed, 1 failed
+    (`PosCompositionRootTests.Build_Resolves_BranchNodeService`, SQLitePCL
+    disposed object: the known launcher trap, unrelated); `npm test` 320/320;
+    `npm run build` ok (dist); `npm run lint` 0 errors, warning count
+    unchanged (27); e2e standalone `tsc --noEmit --ignoreConfig` exit 0
+    (no e2e selector touches the new row actions).
+  - Decisions: revoked users already failed sign-in, `/device/pair`,
+    `/device/operators/verify` (401) and status reports inactive; now proven
+    end to end through the new endpoint. Reactivation does not bump the
+    session version. Commits reviewed per RDD: not yet assessed (pending
+    parent).
+
+- 2026-09-30 review of T1+T2 (plus the previous feature's pending slice): RDD
+  lineage `review-9eb96e481c8c1028` approved and acknowledged (next boundary
+  `9a060cf`). Advisories, route: direct (the T3 writer), commits `078a7e4` and
+  `81b0f0e`:
+  - WARNING no test that an org admin gets 403 `permissions-exceed-caller` when
+    targeting a system administrator: added
+    `Status_OrganizationAdminTargetingASystemAdministrator_Returns403_AndNothingChanges`.
+    It PASSED immediately (missing coverage, not a bug; `RoleTaxonomyTests`
+    39/39).
+  - SUGGESTION `confirmStatusChange` reports failure if `refresh()` throws:
+    `refresh()` already catches its own errors (it sets the load error and never
+    throws), so a failed reload after a successful PUT already shows the load
+    alert and not "no se pudo cambiar el estado". Added the vitest case
+    `does not claim the change failed when it succeeded but the reload failed`;
+    it PASSED immediately (no RED, no code change). UsersScreen 40/40.
+- 2026-09-30 T3 done (route: delegated direct, one writer), commits `1433da1`
+  (shell + Clientes) and `ec8ce44` (Personal).
+  - Shell: `ShellNavigation` (UI-free) holds the current section
+    (`Sale`/`Customers`/`Staff`) and the allowed sections by permissions
+    (`ManageUsers` gates Clientes and Personal); `Reconcile` falls back to the
+    sale when the operator changes (called from `RefreshIdentityText`).
+    `MainWindow` content area: `SaleScreen` (Grid, unchanged) and a
+    `SectionHost` `ContentControl`. Decision, sale state: the sale was NOT
+    extracted into a `SaleView` UserControl (985 lines of code-behind and the
+    tests rely on its names and handlers); the shell toggles
+    `SaleScreen.Visibility` instead, so the cart, scan box and cash session are
+    never rebuilt or cleared. The cash-closed overlay is hidden while a section
+    shows. `PosNavBar`: "Nueva Venta" is now "Venta" (raises `SaleRequested`),
+    `SetActiveSection` marks the active entry (`Tag="Active"`). A section with a
+    request in flight (`ISectionView.IsBusy`) keeps focus until it ends. Each
+    visit builds a fresh view and a fresh admin client and disposes them on
+    leaving, so the admin cookie lives only while the section is open.
+  - Admin password prompt: shared `AdminSignInPanel` ("Confirmá tu contraseña";
+    the email of the signed-in operator is shown read-only), cleared right after
+    the sign-in call, never stored; the section owns the call.
+  - Clientes: `CustomersView` (same behavior as the window) with Spanish
+    labels via `CustomerFormChoices` (wire values unchanged), busy state,
+    status above the scroll area, no MessageBox. `CustomersWindow` deleted.
+  - Personal: `StaffView` = create staff (email, initial password, role Cajero
+    default / Vendedor / Administrador from `StaffRoleOptions`, branch = this
+    terminal's), staff list (`StaffRowPresenter`: Spanish role labels, branch
+    membership, Activo/De baja), "Dar de baja"/"Reactivar" with inline confirm,
+    hidden on the admin's own row, password reset (inline panel), and "Operadores
+    de esta terminal" with "Quitar de esta terminal" (inline confirm; raises
+    `OperatorsChanged`, the host runs `Reconcile`). No provisioning entry.
+    `UserAdminClient.SetStatusAsync` + Spanish mapping of `cannot-revoke-self`,
+    `not-a-staff-user`, `permissions-exceed-caller`, `branch-not-in-scope` (also
+    for create); `UserAdminRecordDto` reads `branchIds`. `UsersWindow` and
+    `TerminalOperatorsWindow` deleted. `ProvisionOperatorWindow` and
+    `OperatorLoginWindow` stay for T4.
+  - Not carried over: role reassignment of an existing user from the POS (the
+    window had it; the web Users screen keeps it; spec "POS Staff Management
+    Section" says so). Branding keeps the now unused `UsersWindowTitle` /
+    `CustomersWindowTitle` (a test locks them).
+  - Specs: `pos-operator-session` ("Provisioning Lives in Personal" becomes
+    "Personal Is Admin Staff Management, Not Operator Sign-In" plus "Clientes And
+    Personal Are Sections Of The Main Window"), `admin-console` ("POS Staff
+    Management Section").
+  - RED: `PosShellNavigationTests`/`PosShellMarkupTests` failed to compile
+    (no `ShellNavigation`/`ShellSection`); `PosStaffViewTests` failed to compile
+    (no `PosMessages.CannotDeactivateSelf` etc., then no `SetStatusAsync`,
+    `StaffRowPresenter`, `StaffView`). GREEN: `Pos|ApplicationBranding|
+    OperatorProvisioning` 324/324.
+  - Checks (throwaway worktree): `dotnet build Commerce.sln` 0 errors; full
+    `dotnet test tests/Commerce.Integration` 1255 passed, 0 failed, 0 skipped
+    (the flaky `PosCompositionRootTests.Build_Resolves_BranchNodeService`
+    passed); `npm test` 321/321; `file` checks UTF-8. Render check (throwaway
+    harness in the scratchpad, not committed) at 1120x700 in Dark, Light and
+    Vaca Verde: Venta, Clientes (prompt and list), Personal (prompt, list, and
+    scrolled to the end): nav highlight correct, scrollbars present, nothing
+    clipped, status area fixed above the scroll area.
+  - Not exercised in a real session: click-through of the WPF handlers (no UI
+    harness): owner check of create/deactivate/remove against the running stack.
+  - Review of T3 commits: not yet assessed (pending parent).
+
+- 2026-09-30 review of T3 commits: RDD lineage `review-a4384814f07f90a8`
+  approved and acknowledged (next boundary `b936b7d`). Advisories resolved by
+  the T4 writer (route: direct), commits `f3f4070` and `5b58e14`:
+  - WARNING `PosOperatorMenuMarkupTests` brush regex had lost its backslashes, so
+    `Assert.Empty` was vacuous: pattern restored as one constant plus a test that
+    it matches `{StaticResource SomeBrush}` and not `{DynamicResource ...}`.
+  - WARNING `ReconcileShell` disposed a busy section's admin client: `ShellNavigation.
+    Reconcile(permissions, sectionBusy)` now returns `Unchanged | Switched | Deferred`;
+    a busy section is hidden at once and disposed when `BusyController.Idle`
+    (surfaced through `ISectionView.Idle`) fires, and the deferral is dropped if the
+    operator regains access. Unit tests for the decision and for `Idle`.
+  - SUGGESTION reset password no longer hides on the admin's own row or while
+    confirming a status change (API has no self restriction):
+    `StaffRow.CanResetPassword`, own grid column in the template.
+  - SUGGESTION admin `PasswordBox` cleared in `finally` (Staff and Customers); a
+    markup test locks the `finally` (no UI harness for a throwing handler).
+  - SUGGESTION `PosShellMarkupTests` now asserts every method regex matched and
+    covers `ApplySection` and `ReconcileShell`.
+  - RED: test files copied into a worktree of `b936b7d` failed to compile
+    (`ReconcileOutcome`, `Idle`, `CanResetPassword`). GREEN: 79/79 focused.
+- 2026-09-30 T4 done (route: delegated direct, one writer), commits `c93cb24`
+  (lock screen model and view) and `e8a579c` (gate the sale, drop the modals).
+  - Lock layer: `MainWindow` wraps nav + sale + sections + cash overlay in
+    `ShellContent` and adds `LockHost` (full window above it, footer stays).
+    `ApplyLockState` (run from `RefreshIdentityText`) collapses `ShellContent` and
+    shows the lock whenever `CurrentOperator` is null, so the sale is neither
+    visible nor reachable by keyboard or scanner. Nothing is cleared.
+  - `LockScreenModel` (UI-free) modes Tiles / PinEntry / Credentials / CreatePin:
+    non-stale cached operators as tiles; tile + 6-digit PIN verified offline
+    (wrong PIN: inline "PIN incorrecto."); "Ingresar con usuario y contraseña" ->
+    `VerifyAsync` -> an operator already cached and fresh enters directly (record
+    refreshed, PIN kept); new to the terminal, stale, or "Olvidé mi PIN" -> create
+    PIN (new + confirm, `IsValidPin`) -> `LocalOperatorStore.Upsert` replaces any
+    previous one. First run (no tiles) opens on email + password. Online errors via
+    `PosMessages` (invalid credentials, operator-not-permitted, branch-not-in-scope,
+    no branches, terminal-not-recognized "volvé a configurarla", unreachable);
+    offline the tile path still works. `IOperatorVerifier` lets tests fake the client.
+  - `LockScreenView`: branch name, large tiles with initials, PIN box + keypad
+    (auto-submits at 6 digits), one secondary link, inline status, `BusyController`
+    progress; scrolls; palette keys only. PIN and password boxes are cleared in
+    `finally`.
+  - Removed `OperatorLoginWindow`, `ProvisionOperatorWindow`, `OperatorSignInFlow`,
+    `OperatorSignInPlanner`, `OperatorLoginMode`; `App.xaml.cs` no longer shows a
+    sign-in at startup; `SignInOperatorFromPrompt` is gone (the open-cash prompt
+    runs only once an operator is in: `LockScreen_SignedIn`, first sign-in and
+    closed cash). `OperatorSessionActions(current)`: Cambiar operador and Cerrar
+    sesión both clear the operator (lock screen); `Reconcile` no longer treats a
+    reloaded record as a change (byte[] compares by reference).
+  - Status reconciliation: every sync (any trigger) now runs
+    `ReconcileOperatorsAfterSync` on the UI thread: an operator dropped by
+    `/device/operators/{id}/status` (or removed in Personal) signs the active one
+    out, which brings the lock back, and the lock tiles follow the store.
+  - Decision, sign-out with an open cash session and an in-progress cart: both
+    are kept (not closed, not cleared) and hidden behind the lock; the next
+    operator resumes them. Decision, stale cached operator signing in with email +
+    password: asks for a new PIN (the old one expired).
+  - Spec change (owner-approved): `pos-operator-session` retires "Operator
+    Identification Never Blocks a Sale" for the UI; new "Lock Screen Gates The Sale
+    UI" (sales require a signed-in operator in the UI; the domain/sync fallback to
+    the installation id stays), "Operator Sign-Out Keeps The Cash Session And The
+    Cart" replaces the old sign-out requirement, "Operator Menu" updated, Personal
+    scenarios updated.
+  - RED: `PosLockScreenModelTests` / `PosLockScreenMarkupTests` failed to compile
+    in a worktree of the prior commit (no `LockScreenModel`, `IOperatorVerifier`).
+    GREEN: focused `PosLockScreen|PosOperatorMenu|PosBusy|PosShell|PosStaffView`
+    130/130.
+  - Checks (throwaway worktree): `dotnet build Commerce.sln` 0 errors; full
+    `dotnet test tests/Commerce.Integration` 1299 passed, 0 failed, 0 skipped
+    (the flaky `PosCompositionRootTests.Build_Resolves_BranchNodeService` passed);
+    `file` UTF-8/ASCII. Render check (throwaway harness in the scratchpad, not
+    committed) of the real `MainWindow` at 1120x700 in Dark, Light and Vaca Verde:
+    tiles, PIN entry with error, credentials (with error), create PIN, first run.
+  - Not exercised in a real session: click-through of the WPF handlers (no UI
+    harness) and the real online verify.
+  - Follow-ups: PIN lockout/backoff after repeated wrong PINs (no POS-side pattern
+    exists; the server has `discount_pin_lockout` only for the discount PIN);
+    `OpenCashWindow` keeps its now-unreachable "Iniciar sesión" button; the primary
+    button text renders dark in Light/Vaca Verde (pre-existing implicit TextBlock
+    style); tile email truncates beyond ~22 characters.
+
+- 2026-09-30 T4 review: RDD lineage `review-66b550ac6bdf8d5f` (approved,
+  acknowledged; next boundary `b39c9f8`) left three advisories, fixed by one writer
+  (route: direct), commits `f83f815`, `7996022`, `2c3b8d6`:
+  - WARNING deferred section vs. screen (`f83f815`): `ShellNavigation.Reconcile`
+    now moves the model to Sale at once when the lost section is busy
+    (`Deferred`) and sets `TeardownPending`; `CompleteTeardown()` (called from
+    `OnSectionIdle`) releases it, and `Navigate` is refused while pending. The
+    window detaches the busy view into `_tearingDownView`, shows the sale, and only
+    disposes on idle, so a new admin signing in before idle no longer leaves the
+    shell on Staff while the sale is shown. `ReconcilePending` is gone.
+  - SUGGESTION stale lock-screen error (`7996022`): the unexpected-error state moved
+    into `LockScreenModel.ReportUnexpected` (single `Status`); it is cleared on
+    Refresh/tile/Back/credentials and at the start of `SubmitCredentialsAsync`.
+    `LockScreenView._unexpected` removed.
+  - SUGGESTION dead button (`2c3b8d6`): `OpenCashWindow` lost its "Iniciar sesión"
+    button, the `signInOperator` parameter and the not-signed-in branches.
+  - RED: the new/updated tests copied into a worktree of `b39c9f8` failed to
+    compile (`TeardownPending`, `CompleteTeardown`, `ReportUnexpected`). GREEN:
+    focused `PosShell|PosLockScreen|PosCashSessionMarkup|PosOperatorMenu|PosBusy|PosStaffView`
+    141/141.
+  - Checks (throwaway worktree): `dotnet build Commerce.sln` 0 errors; full
+    `dotnet test tests/Commerce.Integration` 1305 passed, 0 failed, 0 skipped;
+    `file` UTF-8/ASCII.
+  - Not exercised in a real session: the WPF click-through of the deferred case.
+- Follow-up (theme contrast, `f45dc28`): unreadable text in the themes (primary
+  button text dark on the green fill in Light/Vaca Verde; lock-screen tile hover
+  dark-on-green). Root cause: the implicit `TextBlock` style forced `TextBrush`,
+  which also hit the `TextBlock` a `ContentPresenter` creates inside buttons, so the
+  control's own Foreground never applied; the secondary/ghost/tile buttons also
+  reused the primary template, whose hover painted the primary fill under
+  dark text. Fix: the implicit style no longer sets Foreground (text inherits from
+  window/view/control); secondary buttons have their own hover/pressed surfaces;
+  new palette keys `OnPrimary`, `PrimaryPressed`, `AccentText`, `HoverSurface`,
+  `PressedSurface`, `ScrollThumb` in all three themes; `ListBoxItem` has a themed
+  template; Dark primary is now `#2563EB` (white was 3.68:1) and Light accent
+  `#0284C7`. `PosThemeContrastTests` asserts WCAG AA (4.5:1 text, 3:1 indicators)
+  for every declared pair in the three themes, plus markup guards (no implicit
+  Foreground, no hard-coded white). Disabled states are opacity-dimmed and exempt.
+  RED: test alone in a worktree of HEAD, 45 failures (missing keys and real
+  ratios). GREEN: `Pos` filter 460/460; full `dotnet test tests/Commerce.Integration`
+  1420 passed, 0 failed, 0 skipped. Render check (throwaway harness, 1120x700,
+  three themes, forced hover) inspected by hand.
+- 2026-09-30 contrast slice review: RDD lineage `review-f18a19b9f85408a5` (approved,
+  acknowledged; next boundary `4399e64`) left four advisories, fixed by one writer
+  (route: direct), commits `7b7c9e3`, `5314c59`, `0da097b`:
+  - WARNING navigation blocked by a pending teardown (`7b7c9e3`): `ShellNavigation`
+    takes a `TimeProvider` and a timeout (default 10 s); `TeardownPending` stops
+    blocking once it elapsed (`TeardownExpired`), and the window then force-releases
+    the detached view. `BusyController` exposes `Token`/`Cancel()`, swallows the
+    cancellation quietly and raises `Idle` even if rendering throws; both views pass
+    the token to every admin client call, and `ISectionView.CancelPending()` is
+    called when the view is detached. A refused click now shows
+    `PosMessages.PreviousOperationRunning` instead of being ignored.
+  - SUGGESTION seam over `ISectionView` (`7b7c9e3`): the UI-free `SectionLifecycle`
+    owns the active and detached views; tests prove exactly-once disposal and that a
+    release does not ask to clear the host when a new section is shown.
+  - WARNING open-cash without operator (`5314c59`): `CashSessionInput.CanPromptOpenCash`;
+    `PromptOpenCash` returns early to the lock state without a usable operator label;
+    `OpenCashWindow` keeps Confirm disabled and inert without one.
+  - WARNING separate visual trees (`0da097b`): implicit `ToolTip`, `ContextMenu` and a
+    templated `MenuItem` from the palette; popup content roots set
+    `TextElement.Foreground`; every `UserControl` root sets `Foreground`.
+    `PosThemeContrastTests` now covers every Window/UserControl root, every popup
+    child and asserts AA contrast of the style pairs in the three themes.
+  - RED: new tests copied into a worktree of `4399e64` failed to compile (first
+    slice and open-cash) and 11 theme-guard tests failed (styles and roots missing).
+    GREEN: `Pos` filter 485/485; full `dotnet test tests/Commerce.Integration` 1445 passed, 0 failed, 0 skipped; `dotnet build Commerce.sln` 0 errors (throwaway worktree).
+  - Not exercised in a real session: hover/appearance of the new ToolTip and
+    ContextMenu in the running app (no render harness this time); the real hung
+    request case.
+
+## Next step
+Owner manual verification against the running stack (`run-all.ps1`), then review
+of the T3 follow-up and T4 commits (boundary `b936b7d`):
+1. Start the POS: it opens on the lock screen, nothing else visible. With cached
+   operators you see tiles; on a clean terminal (delete `operators.json` in
+   `%LOCALAPPDATA%\Incoders\Commerce`) it shows email + password.
+2. Sign in with email + password as an admin: create a PIN, you enter; the
+   open-cash prompt appears if the cash is closed.
+3. Add a sale to the cart, then Cerrar sesión: the lock covers everything; sign in
+   again (tile + PIN): cart and cash session are still there.
+4. Wrong PIN shows "PIN incorrecto."; "Ingresar con usuario y contraseña" with a
+   wrong password shows the inline error; stop Cloud.Api and confirm email +
+   password says the server is unreachable while tile + PIN still works.
+5. In Personal create a cashier, Cerrar sesión, sign in as the cashier with email +
+   password, create their PIN; next time use their tile. Tick "Olvidé mi PIN" to
+   replace it.
+6. Deactivate the signed-in cashier from another session/web; after the next sync
+   the POS returns to the lock screen and the tile is gone. In Personal, Restablecer
+   contraseña is now also available on your own row.
+
+- 2026-09-30 review of the contrast follow-ups (`4399e64..29441ca`): lineage
+  `review-41c241c0f5eef02e` approved and acknowledged; next boundary
+  `29441ca`. Advisories left as follow-ups (parent verified, no current
+  impact): the implicit `MenuItem` template drops submenu/check/icon support
+  (no `MenuItem` is used anywhere in the POS today; restore a full template
+  before adding one); `PromptOpenCash` returns to `ApplyLockState` for a signed-in
+  operator with a blank email, which keeps the shell unlocked without a prompt
+  (unreachable: the email always comes from a server-verified operator);
+  window-side teardown expiry is asserted only by source-text checks.

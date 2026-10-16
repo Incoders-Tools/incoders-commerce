@@ -1,0 +1,59 @@
+{
+  "title": "Dashboard",
+  "description": "The state of the business at a glance.",
+  "sampleNotice": "Sample data: the figures on this dashboard are examples and do not reflect real operations.",
+  "period": {
+    "label": "Period",
+    "today": "Today",
+    "7d": "7 days",
+    "30d": "30 days"
+  },
+  "kpis": {
+    "posOrders": "POS orders",
+    "webOrders": "Web orders",
+    "grandTotal": "Grand total",
+    "moneyOnHand": "Money on hand",
+    "receivables": "Receivables",
+    "orderCount_one": "{{count}} order",
+    "orderCount_other": "{{count}} orders",
+    "accountCount_one": "{{count}} account",
+    "accountCount_other": "{{count}} accounts"
+  },
+  "channels": {
+    "counter": "Counter",
+    "delivery": "Delivery",
+    "web": "Web",
+    "split": "Delivery vs. counter"
+  },
+  "trend": {
+    "title": "Sales by channel",
+    "period": "Date",
+    "viewTable": "View as table",
+    "viewChart": "View chart",
+    "empty": "No sales in this period."
+  },
+  "topProducts": {
+    "title": "Top products",
+    "empty": "No sales in this period."
+  },
+  "stockRisk": {
+    "title": "Stock at risk",
+    "minimum": "Minimum {{value}}",
+    "empty": "No product is below its minimum."
+  },
+  "accounts": {
+    "title": "Current accounts",
+    "customer": "Customer",
+    "balance": "Balance",
+    "overdue": "Overdue",
+    "daysOverdue_one": "{{count}} day",
+    "daysOverdue_other": "{{count}} days",
+    "onTime": "Up to date",
+    "empty": "No outstanding accounts."
+  },
+  "states": {
+    "loading": "Loading dashboard…",
+    "error": "The dashboard could not be loaded.",
+    "retry": "Retry"
+  }
+}

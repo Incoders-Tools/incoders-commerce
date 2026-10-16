@@ -1,0 +1,117 @@
+{
+  "branchRequired": "Pick a branch in the top bar to view stock.",
+  "title": "Stock",
+  "description": "How much merchandise the branch has, computed from all its movements.",
+  "adjust": "Adjust stock",
+  "search": {
+    "label": "Search stock",
+    "placeholder": "Search by product, presentation or code…"
+  },
+  "filters": {
+    "onlyBelowMinimum": "Only below minimum"
+  },
+  "columns": {
+    "product": "Product",
+    "presentation": "Presentation",
+    "onHand": "On hand",
+    "minimum": "Minimum",
+    "status": "Status",
+    "lastMovement": "Last movement",
+    "noValue": "—"
+  },
+  "status": {
+    "low": "Below minimum",
+    "out": "Out of stock",
+    "negative": "Negative",
+    "ok": "Normal"
+  },
+  "actions": {
+    "movements": "Movements",
+    "minimum": "Minimum",
+    "adjust": "Adjust"
+  },
+  "minimum": {
+    "label": "Minimum of {{name}}",
+    "hint": "Empty for no minimum.",
+    "save": "Save minimum",
+    "cancel": "Cancel",
+    "invalid": "Enter a number greater than or equal to zero."
+  },
+  "empty": {
+    "none": "There is no stock to show yet.",
+    "noMatch": "No presentation matches these filters.",
+    "loadError": "The stock could not be loaded."
+  },
+  "errors": {
+    "unexpectedLoad": "Unexpected error loading the stock.",
+    "unexpectedSave": "Unexpected error saving."
+  },
+  "adjustForm": {
+    "title": "Adjust stock",
+    "backLabel": "Back to stock",
+    "presentation": "Presentation",
+    "kind": "Adjustment type",
+    "kindPlaceholder": "Pick a type",
+    "kinds": {
+      "Opening": "Opening stock",
+      "Shrinkage": "Shrinkage",
+      "CountCorrection": "Count correction",
+      "Adjustment": "Adjustment"
+    },
+    "kindHelp": {
+      "Opening": "Loads the stock the presentation starts with. Always adds.",
+      "Shrinkage": "Lost, expired or broken goods. Always subtracts from the stock.",
+      "CountCorrection": "The difference found when counting. Choose whether the count adds or subtracts.",
+      "Adjustment": "Any other correction. Choose whether it adds or subtracts."
+    },
+    "direction": "Add or subtract?",
+    "directionAdd": "Adds",
+    "directionSubtract": "Subtracts",
+    "quantity": "Quantity",
+    "quantityHint": "Enter the quantity without a sign, in {{unit}}.",
+    "reason": "Reason",
+    "submit": "Record adjustment",
+    "submitting": "Recording…",
+    "done": "Adjustment recorded. Current stock: {{onHand}}.",
+    "errors": {
+      "presentation": "Pick a presentation.",
+      "kind": "Pick an adjustment type.",
+      "direction": "Choose whether the adjustment adds or subtracts.",
+      "quantity": "Enter a quantity greater than zero.",
+      "quantityInteger": "This presentation is counted in whole units.",
+      "quantityDecimals": "Use up to 3 decimals.",
+      "reason": "Write the reason for the adjustment."
+    }
+  },
+  "movements": {
+    "title": "Stock movements",
+    "backLabel": "Back to stock",
+    "onHand": "On hand: {{value}}",
+    "columns": {
+      "date": "Date",
+      "kind": "Type",
+      "quantity": "Quantity",
+      "balance": "Balance",
+      "source": "Source",
+      "reason": "Reason",
+      "lot": "Lot",
+      "noValue": "—"
+    },
+    "kinds": {
+      "Opening": "Opening stock",
+      "PurchaseReceipt": "Purchase reception",
+      "Sale": "Sale",
+      "Adjustment": "Adjustment",
+      "Shrinkage": "Shrinkage",
+      "CountCorrection": "Count correction",
+      "Reversal": "Reversal"
+    },
+    "empty": "This presentation has no movements yet.",
+    "loadError": "The movements could not be loaded.",
+    "pager": {
+      "previous": "Previous",
+      "next": "Next",
+      "page": "Page {{page}} of {{pages}}"
+    }
+  }
+}

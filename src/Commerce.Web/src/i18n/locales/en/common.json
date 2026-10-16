@@ -1,0 +1,75 @@
+{
+  "actions": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "close": "Close",
+    "edit": "Edit",
+    "delete": "Delete",
+    "create": "Create",
+    "add": "Add",
+    "retry": "Retry",
+    "back": "Back",
+    "confirm": "Confirm",
+    "search": "Search"
+  },
+  "states": {
+    "loading": "Loading…",
+    "saving": "Saving…",
+    "empty": "No results.",
+    "unexpectedError": "An unexpected error occurred."
+  },
+  "app": {
+    "name": "Commerce",
+    "logoAlt": "Organization logo"
+  },
+  "home": {
+    "tagline": "Run your storefront from one place.",
+    "goToApp": "Go to app",
+    "signIn": "Sign in"
+  },
+  "dataView": {
+    "loading": "Loading…",
+    "actions": "Actions",
+    "tableView": "Table view",
+    "cardView": "Card view",
+    "view": "View",
+    "searchPlaceholder": "Search…",
+    "moreActions": "More actions",
+    "actionsMenu": "Actions for {{name}}",
+    "sortBy": "Sort by {{column}}"
+  },
+  "numberFormat": {
+    "example": {
+      "Comma": "E.g. 1,5",
+      "Dot": "E.g. 1.5"
+    },
+    "errors": {
+      "Comma": "This business writes decimals with a comma (e.g. 1,5).",
+      "Dot": "This business writes decimals with a dot (e.g. 1.5)."
+    }
+  },
+  "email": {
+    "invalid": "Enter a valid email address, for example name@domain.com.",
+    "valid": "Valid email address"
+  },
+  "unsavedChanges": {
+    "title": "Unsaved changes",
+    "discard": "Discard",
+    "keepEditing": "Keep editing"
+  },
+  "accountStanding": {
+    "overdue_one": "A payment is overdue. Web access will be suspended in {{count}} day (on {{date}}). Please contact Incoders to settle it.",
+    "overdue_other": "A payment is overdue. Web access will be suspended in {{count}} days (on {{date}}). Please contact Incoders to settle it.",
+    "suspendedTitle": "Account suspended",
+    "suspendedAdmin": "This account is suspended for non-payment. Please contact Incoders to reactivate it.",
+    "suspendedStaff": "Access is suspended. Please contact your company administrator.",
+    "checkAgain": "Check again",
+    "checking": "Checking…"
+  },
+  "dateInput": {
+    "placeholder": "dd/mm/yyyy",
+    "pick": "Pick a date",
+    "min": "The date must be on or after {{date}}.",
+    "max": "The date must be on or before {{date}}."
+  }
+}

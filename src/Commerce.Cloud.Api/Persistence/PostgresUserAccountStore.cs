@@ -1,0 +1,525 @@
+using System.Text.Json;
+using Commerce.Cloud.Api.Auditing;
+using Commerce.Cloud.Api.Endpoints;
+using Commerce.Cloud.Api.Tenancy;
+using Commerce.Domain.Identity;
+using Npgsql;
+
+namespace Commerce.Cloud.Api.Persistence;
+
+/// <summary>
+/// Outcome of <see cref="PostgresUserAccountStore.CreateStaffUserAsync"/>
+/// (commerce-role-taxonomy design.md "Data Flow" — create staff user).
+/// </summary>
+public enum CreateStaffUserOutcome
+{
+    Created,
+    DuplicateEmail,
+}
+
+/// <summary>
+/// Real Npgsql-backed credential store (design.md "Interfaces / Contracts"),
+/// following <see cref="PostgresCloudInboxStore"/>'s exact shape: raw
+/// <see cref="NpgsqlDataSource"/>, every scoped method opens its own
+/// <see cref="NpgsqlTransaction"/>, and `SELECT set_config('app.current_org_id', $1, true)`
+/// is always the FIRST statement in that transaction before the tenant-scoped
+/// query — except <see cref="FindDirectoryEntryAsync"/>, which is
+/// deliberately UNSCOPED (the only method that does not call set_config)
+/// because it resolves the organization the sign-in flow does not know yet.
+/// </summary>
+public sealed class PostgresUserAccountStore
+{
+    private static readonly JsonSerializerOptions RoleSerializerOptions = new(JsonSerializerDefaults.Web);
+
+    private readonly NpgsqlDataSource _dataSource;
+
+    public PostgresUserAccountStore(NpgsqlDataSource dataSource) => _dataSource = dataSource;
+
+    /// <summary>
+    /// Unscoped by design: resolves an email to the organization it belongs
+    /// to via `user_directory`'s `USING (true)` read policy. Returns no
+    /// credential material.
+    /// </summary>
+    public async Task<UserDirectoryEntry?> FindDirectoryEntryAsync(string email, CancellationToken ct)
+    {
+        var normalized = Normalize(email);
+
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+
+        await using var cmd = new NpgsqlCommand(
+            "SELECT email_normalized, organization_id, user_id FROM user_directory WHERE email_normalized = $1",
+            connection, tx);
+        cmd.Parameters.AddWithValue(normalized);
+
+        UserDirectoryEntry? entry = null;
+        await using (var reader = await cmd.ExecuteReaderAsync(ct))
+        {
+            if (await reader.ReadAsync(ct))
+            {
+                entry = new UserDirectoryEntry(reader.GetString(0), reader.GetGuid(1), reader.GetGuid(2));
+            }
+        }
+
+        await tx.CommitAsync(ct);
+        return entry;
+    }
+
+    public async Task<UserCredentialRecord?> FindByEmailAsync(CloudTenantScope scope, string email, CancellationToken ct)
+    {
+        var normalized = Normalize(email);
+
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+
+        await SetTenantScopeAsync(connection, tx, scope, ct);
+
+        await using var cmd = new NpgsqlCommand(
+            "SELECT id, organization_id, email, password_hash, is_revoked, session_version FROM users WHERE email = $1",
+            connection, tx);
+        cmd.Parameters.AddWithValue(normalized);
+
+        UserCredentialRecord? record = null;
+        await using (var reader = await cmd.ExecuteReaderAsync(ct))
+        {
+            if (await reader.ReadAsync(ct))
+            {
+                record = new UserCredentialRecord(
+                    reader.GetGuid(0), reader.GetGuid(1), reader.GetString(2), reader.GetString(3), reader.GetBoolean(4),
+                    reader.GetInt32(5));
+            }
+        }
+
+        await tx.CommitAsync(ct);
+        return record;
+    }
+
+    public async Task<UserAccount?> LoadActorAsync(CloudTenantScope scope, Guid userId, CancellationToken ct)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+
+        await SetTenantScopeAsync(connection, tx, scope, ct);
+
+        await using var cmd = new NpgsqlCommand(
+            "SELECT organization_id, branch_scope, roles, is_revoked, customer_id, is_system_admin FROM users WHERE id = $1",
+            connection, tx);
+        cmd.Parameters.AddWithValue(userId);
+
+        UserAccount? actor = null;
+        await using (var reader = await cmd.ExecuteReaderAsync(ct))
+        {
+            if (await reader.ReadAsync(ct))
+            {
+                var organizationId = reader.GetGuid(0);
+                var branchScope = reader.GetFieldValue<Guid[]>(1);
+                var rolesJson = reader.GetString(2);
+                var isRevoked = reader.GetBoolean(3);
+                var customerId = reader.IsDBNull(4) ? (Guid?)null : reader.GetGuid(4);
+                var isSystemAdmin = reader.GetBoolean(5);
+
+                var roleDtos = JsonSerializer.Deserialize<List<RoleDto>>(rolesJson, RoleSerializerOptions) ?? [];
+                var roles = roleDtos.Select(r => new Role(r.Name, r.Permissions));
+
+                // commerce-customer-identity: CustomerId must be loaded here so
+                // every authorization site reading LoadActorAsync's result
+                // (sign-in, /account/me, ManageUsers-gated endpoints) sees the
+                // same denied-by-construction EffectivePermissions the domain
+                // guard already enforces.
+                actor = new UserAccount(userId, organizationId, branchScope, roles, customerId, isSystemAdmin);
+                if (isRevoked)
+                {
+                    actor.Revoke();
+                }
+            }
+        }
+
+        await tx.CommitAsync(ct);
+        return actor;
+    }
+
+    public async Task<bool> HasAnyUserAsync(CloudTenantScope scope, CancellationToken ct)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+
+        await SetTenantScopeAsync(connection, tx, scope, ct);
+
+        await using var cmd = new NpgsqlCommand("SELECT EXISTS (SELECT 1 FROM users)", connection, tx);
+        var exists = (bool)(await cmd.ExecuteScalarAsync(ct))!;
+
+        await tx.CommitAsync(ct);
+        return exists;
+    }
+
+    /// <summary>
+    /// Thin wrapper (design.md "Transaction composition"): open -> begin ->
+    /// set tenant scope -> zero-users guard -> <see cref="InsertAsync"/> ->
+    /// commit. Behavior-preserving refactor extraction target — every
+    /// existing caller and test keeps its current behavior and signature.
+    /// </summary>
+    public async Task<bool> TryCreateAsync(CloudTenantScope scope, NewUserAccount user, CancellationToken ct)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+
+        await SetTenantScopeAsync(connection, tx, scope, ct);
+
+        // Bootstrap invariant (design.md "Bootstrap"): re-check "zero users in
+        // this org" inside the SAME transaction as the insert, immediately
+        // before writing, to close the race window between the caller's
+        // earlier HasAnyUserAsync check and this write.
+        await using (var existsCmd = new NpgsqlCommand("SELECT EXISTS (SELECT 1 FROM users)", connection, tx))
+        {
+            var alreadyHasUsers = (bool)(await existsCmd.ExecuteScalarAsync(ct))!;
+            if (alreadyHasUsers)
+            {
+                await tx.RollbackAsync(ct);
+                return false;
+            }
+        }
+
+        try
+        {
+            await InsertAsync(connection, tx, scope, user, ct);
+        }
+        catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UniqueViolation)
+        {
+            await tx.RollbackAsync(ct);
+            return false;
+        }
+
+        await tx.CommitAsync(ct);
+        return true;
+    }
+
+    /// <summary>
+    /// Transaction-participating insert (design.md "Transaction composition"
+    /// — the core decision): carries the exact `users` + `user_directory`
+    /// insert bodies <see cref="TryCreateAsync"/> used to own inline, minus
+    /// ALL tx lifecycle and `set_config`. The caller owns the connection,
+    /// the transaction, and tenant scoping; this method never commits or
+    /// rolls back and never calls `set_config`. Throws
+    /// <see cref="PostgresException"/> (unique violation) on a duplicate
+    /// email so the OWNING transaction decides what to do — this lets
+    /// <see cref="PostgresOrganizationStore"/> participate in the same
+    /// transaction as its own organization/branch inserts (single owner of
+    /// the transaction, zero duplicated INSERT SQL).
+    /// </summary>
+    internal async Task InsertAsync(
+        NpgsqlConnection connection, NpgsqlTransaction tx, CloudTenantScope scope, NewUserAccount user, CancellationToken ct)
+    {
+        var normalizedEmail = Normalize(user.Email);
+        var rolesJson = JsonSerializer.Serialize(user.Roles, RoleSerializerOptions);
+
+        await using (var insertUserCmd = new NpgsqlCommand(
+            """
+            INSERT INTO users (id, organization_id, email, password_hash, branch_scope, roles, customer_id)
+            VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)
+            """, connection, tx))
+        {
+            insertUserCmd.Parameters.AddWithValue(user.Id);
+            insertUserCmd.Parameters.AddWithValue(scope.OrganizationId);
+            insertUserCmd.Parameters.AddWithValue(normalizedEmail);
+            insertUserCmd.Parameters.AddWithValue(user.PasswordHash);
+            insertUserCmd.Parameters.AddWithValue(user.BranchScope.ToArray());
+            insertUserCmd.Parameters.AddWithValue(rolesJson);
+            insertUserCmd.Parameters.AddWithValue((object?)user.CustomerId ?? DBNull.Value);
+            await insertUserCmd.ExecuteNonQueryAsync(ct);
+        }
+
+        await using (var insertDirectoryCmd = new NpgsqlCommand(
+            "INSERT INTO user_directory (email_normalized, organization_id, user_id) VALUES ($1, $2, $3)",
+            connection, tx))
+        {
+            insertDirectoryCmd.Parameters.AddWithValue(normalizedEmail);
+            insertDirectoryCmd.Parameters.AddWithValue(scope.OrganizationId);
+            insertDirectoryCmd.Parameters.AddWithValue(user.Id);
+            await insertDirectoryCmd.ExecuteNonQueryAsync(ct);
+        }
+    }
+
+    /// <summary>
+    /// B1 (frontend-modernization: "Users screen shows the platform
+    /// sysadmin with the business-admin role checked"). The ONLY place
+    /// application code sets `users.is_system_admin` — a promotion, never
+    /// part of the ordinary insert path, so every existing INSERT (this
+    /// class's own <see cref="InsertAsync"/>, every caller of
+    /// <see cref="TryCreateAsync"/>, every live-Postgres test fixture that
+    /// never applies migration 0012) keeps writing the column's own
+    /// `DEFAULT false` unchanged. Sets ONLY the flag: it never touches
+    /// `roles` or `branch_scope`, because cross-org sysadmin capability is
+    /// this flag alone (openspec/specs/platform-administration/spec.md
+    /// "Sysadmin Identity Lives in the Unified Model") — the caller is
+    /// responsible for having granted zero organization roles to begin
+    /// with (<see cref="Endpoints.TestSeedEndpoints"/>'s `systemAdmin`
+    /// branch does exactly that).
+    /// </summary>
+    public async Task PromoteToSystemAdminAsync(CloudTenantScope scope, Guid userId, CancellationToken ct)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+
+        await SetTenantScopeAsync(connection, tx, scope, ct);
+
+        await using var cmd = new NpgsqlCommand("UPDATE users SET is_system_admin = true WHERE id = $1", connection, tx);
+        cmd.Parameters.AddWithValue(userId);
+        await cmd.ExecuteNonQueryAsync(ct);
+
+        await tx.CommitAsync(ct);
+    }
+
+    /// <summary>
+    /// Confirms every id in <paramref name="branchIds"/> resolves to a
+    /// branch visible under <paramref name="scope"/> (commerce-role-taxonomy
+    /// design.md "Data Flow" — "branchIds not a subset of caller-org
+    /// branches -> 400"). RLS already filters out any branch belonging to
+    /// another organization, so a cross-org or nonexistent id simply fails
+    /// to be counted — no explicit organization_id comparison needed.
+    /// </summary>
+    public async Task<bool> BranchesBelongToOrganizationAsync(
+        CloudTenantScope scope, IReadOnlyList<Guid> branchIds, CancellationToken ct)
+    {
+        if (branchIds.Count == 0)
+        {
+            return true;
+        }
+
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+
+        await SetTenantScopeAsync(connection, tx, scope, ct);
+
+        await using var cmd = new NpgsqlCommand("SELECT count(*) FROM branches WHERE id = ANY($1)", connection, tx);
+        cmd.Parameters.AddWithValue(branchIds.ToArray());
+        var count = (long)(await cmd.ExecuteScalarAsync(ct))!;
+
+        await tx.CommitAsync(ct);
+        return count == branchIds.Count;
+    }
+
+    /// <summary>
+    /// Owns ONE transaction (commerce-role-taxonomy design.md "Audit write
+    /// mechanism"): set_config -> <see cref="InsertAsync"/> -> the audit row
+    /// -> COMMIT. A duplicate-email unique violation rolls the whole
+    /// transaction back BEFORE the audit insert is ever attempted, so no
+    /// audit row is ever written for a failed create.
+    /// </summary>
+    public async Task<CreateStaffUserOutcome> CreateStaffUserAsync(
+        CloudTenantScope scope, NewUserAccount user, UserManagementAuditEntry auditEntry, CancellationToken ct)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+
+        await SetTenantScopeAsync(connection, tx, scope, ct);
+
+        try
+        {
+            await InsertAsync(connection, tx, scope, user, ct);
+        }
+        catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UniqueViolation)
+        {
+            await tx.RollbackAsync(ct);
+            return CreateStaffUserOutcome.DuplicateEmail;
+        }
+
+        await AuditLogWriter.InsertAsync(connection, tx, auditEntry, ct);
+        await tx.CommitAsync(ct);
+        return CreateStaffUserOutcome.Created;
+    }
+
+    /// <summary>
+    /// Reads the CURRENT persisted role names for <paramref name="userId"/>
+    /// inside the caller's own transaction — used by
+    /// <see cref="ReplaceRolesAsync"/> to record the audit row's old value
+    /// atomically with the update, avoiding a TOCTOU gap against a separate
+    /// earlier read.
+    /// </summary>
+    internal async Task<IReadOnlyList<string>> ListRoleNamesAsync(
+        NpgsqlConnection connection, NpgsqlTransaction tx, Guid userId, CancellationToken ct)
+    {
+        await using var cmd = new NpgsqlCommand("SELECT roles FROM users WHERE id = $1", connection, tx);
+        cmd.Parameters.AddWithValue(userId);
+
+        var rolesJson = (string?)await cmd.ExecuteScalarAsync(ct);
+        if (rolesJson is null)
+        {
+            return [];
+        }
+
+        var dtos = JsonSerializer.Deserialize<List<RoleDto>>(rolesJson, RoleSerializerOptions) ?? [];
+        return dtos.Select(d => d.Name).ToList();
+    }
+
+    /// <summary>
+    /// Owns ONE transaction: set_config -> read prior role names -> UPDATE
+    /// -> audit row (old = prior names, new = requested names) -> COMMIT
+    /// (commerce-role-taxonomy design.md "Data Flow" — assign roles).
+    /// </summary>
+    public async Task ReplaceRolesAsync(
+        CloudTenantScope scope, Guid userId, IReadOnlyList<RoleDto> roles, string actorKind, Guid actorId, CancellationToken ct)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+
+        await SetTenantScopeAsync(connection, tx, scope, ct);
+
+        var priorRoleNames = await ListRoleNamesAsync(connection, tx, userId, ct);
+
+        var rolesJson = JsonSerializer.Serialize(roles, RoleSerializerOptions);
+        await using (var cmd = new NpgsqlCommand("UPDATE users SET roles = $1::jsonb WHERE id = $2", connection, tx))
+        {
+            cmd.Parameters.AddWithValue(rolesJson);
+            cmd.Parameters.AddWithValue(userId);
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+
+        var oldValueJson = JsonSerializer.Serialize(priorRoleNames, RoleSerializerOptions);
+        var newValueJson = JsonSerializer.Serialize(roles.Select(r => r.Name), RoleSerializerOptions);
+
+        await AuditLogWriter.InsertAsync(
+            connection, tx,
+            new UserManagementAuditEntry(
+                actorKind, actorId, scope.OrganizationId, "user", userId, "user.roles.assigned", oldValueJson, newValueJson),
+            ct);
+
+        await tx.CommitAsync(ct);
+    }
+
+    /// <summary>
+    /// Owns ONE transaction: set_config -> read prior scope -> UPDATE
+    /// branch_scope -> audit row (old/new branch ids) -> COMMIT. Like the
+    /// roles endpoint, this does not bump `session_version`: branch scope is
+    /// read fresh from the store on every request, not baked into the cookie.
+    /// Returns the number of rows updated; when it is zero nothing is audited
+    /// and the transaction rolls back.
+    /// </summary>
+    public async Task<int> ReplaceBranchScopeAsync(
+        CloudTenantScope scope, Guid userId, IReadOnlyList<Guid> branchIds, string actorKind, Guid actorId, CancellationToken ct)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+
+        await SetTenantScopeAsync(connection, tx, scope, ct);
+
+        Guid[] prior;
+        await using (var readCmd = new NpgsqlCommand("SELECT branch_scope FROM users WHERE id = $1", connection, tx))
+        {
+            readCmd.Parameters.AddWithValue(userId);
+            prior = (Guid[]?)await readCmd.ExecuteScalarAsync(ct) ?? [];
+        }
+
+        int updated;
+        await using (var cmd = new NpgsqlCommand("UPDATE users SET branch_scope = $1 WHERE id = $2", connection, tx))
+        {
+            cmd.Parameters.AddWithValue(branchIds.ToArray());
+            cmd.Parameters.AddWithValue(userId);
+            updated = await cmd.ExecuteNonQueryAsync(ct);
+        }
+
+        if (updated == 0)
+        {
+            return 0;
+        }
+
+        await AuditLogWriter.InsertAsync(
+            connection, tx,
+            new UserManagementAuditEntry(
+                actorKind, actorId, scope.OrganizationId, "user", userId, "user.branches.assigned",
+                JsonSerializer.Serialize(prior), JsonSerializer.Serialize(branchIds)),
+            ct);
+
+        await tx.CommitAsync(ct);
+        return updated;
+    }
+
+    /// <summary>
+    /// Sets a user's revoked flag. Revoking also bumps `session_version` so the
+    /// user's existing web sessions stop validating. Idempotent: when the flag
+    /// already has the requested value nothing changes and nothing is audited.
+    /// Returns null when the user does not exist in the scope; otherwise the
+    /// session version after the call.
+    /// </summary>
+    public async Task<int?> SetRevokedAsync(
+        CloudTenantScope scope, Guid userId, bool revoked, string actorKind, Guid actorId, CancellationToken ct)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+
+        await SetTenantScopeAsync(connection, tx, scope, ct);
+
+        bool current;
+        int version;
+        await using (var readCmd = new NpgsqlCommand(
+            "SELECT is_revoked, session_version FROM users WHERE id = $1 FOR UPDATE", connection, tx))
+        {
+            readCmd.Parameters.AddWithValue(userId);
+            await using var reader = await readCmd.ExecuteReaderAsync(ct);
+            if (!await reader.ReadAsync(ct))
+            {
+                return null;
+            }
+            current = reader.GetBoolean(0);
+            version = reader.GetInt32(1);
+        }
+
+        if (current == revoked)
+        {
+            await tx.CommitAsync(ct);
+            return version;
+        }
+
+        await using (var updateCmd = new NpgsqlCommand(
+            "UPDATE users SET is_revoked = $1, session_version = session_version + $2 WHERE id = $3 RETURNING session_version",
+            connection, tx))
+        {
+            updateCmd.Parameters.AddWithValue(revoked);
+            updateCmd.Parameters.AddWithValue(revoked ? 1 : 0);
+            updateCmd.Parameters.AddWithValue(userId);
+            version = (int)(await updateCmd.ExecuteScalarAsync(ct))!;
+        }
+
+        await AuditLogWriter.InsertAsync(
+            connection, tx,
+            new UserManagementAuditEntry(
+                actorKind, actorId, scope.OrganizationId, "user", userId,
+                revoked ? "user.revoked" : "user.reactivated",
+                JsonSerializer.Serialize(current), JsonSerializer.Serialize(revoked)),
+            ct);
+
+        await tx.CommitAsync(ct);
+        return version;
+    }
+
+    public async Task<IReadOnlyList<UserSummaryDto>> ListStaffAsync(CloudTenantScope scope, CancellationToken ct)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+        await SetTenantScopeAsync(connection, tx, scope, ct);
+
+        var users = new List<UserSummaryDto>();
+        await using var cmd = new NpgsqlCommand(
+            "SELECT id, email, roles, is_revoked, branch_scope FROM users WHERE customer_id IS NULL ORDER BY email", connection, tx);
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            var roles = JsonSerializer.Deserialize<List<RoleDto>>(reader.GetString(2), RoleSerializerOptions) ?? [];
+            users.Add(new UserSummaryDto(reader.GetGuid(0), reader.GetString(1), roles.Select(role => role.Name).ToList(), reader.GetBoolean(3), reader.GetFieldValue<Guid[]>(4)));
+        }
+        await reader.CloseAsync();
+
+        await tx.CommitAsync(ct);
+        return users;
+    }
+    private static string Normalize(string email) => email.Trim().ToLowerInvariant();
+
+    /// <summary>
+    /// Tenant scoping is ALWAYS the first statement inside the transaction,
+    /// mirroring <see cref="PostgresCloudInboxStore"/> exactly — see that
+    /// class's remarks for the pooler-safety rationale.
+    /// </summary>
+    private static async Task SetTenantScopeAsync(NpgsqlConnection connection, NpgsqlTransaction tx, CloudTenantScope scope, CancellationToken ct)
+    {
+        await TenantScopeSql.ApplyAsync(connection, tx, scope, ct);
+    }
+}

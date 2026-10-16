@@ -1,0 +1,9 @@
+{
+  "label": "Tema",
+  "options": {
+    "light": "Claro",
+    "dark": "Oscuro",
+    "custom": "Personalizado"
+  },
+  "noCustomColorExplanation": "Solicitar a un administrador de la organización que configure un color de marca para habilitar este tema."
+}

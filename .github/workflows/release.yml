@@ -1,0 +1,511 @@
+name: Release
+
+# ADR-004: provenance mapping is dev -> internal, staging -> pilot,
+# main -> stable. Only these three protected branches are authorized to
+# produce a release candidate; any other ref is not releasable.
+on:
+  # Keep CI off push events and off development branches. The only automatic
+  # gate left is a pre-merge signal for pull requests targeting `main`.
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  # NEW: required by the `changes` job's `gh api .../pulls/<n>/files` call.
+  pull-requests: read
+
+jobs:
+  # NEW: always-run change classifier. See .github/scripts/classify-changes.sh
+  # for the STEP 1-6 path-glob classification. No `paths:`/`paths-ignore:`
+  # trigger filter is ever added anywhere in this workflow — a path-filtered
+  # trigger never starts, so its check run is never created and a required
+  # check hangs Pending forever. This job always runs and reports web/dotnet
+  # booleans that downstream jobs gate on via `if:`.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      web: ${{ steps.detect.outputs.web }}
+      dotnet: ${{ steps.detect.outputs.dotnet }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: detect
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_CHANGED_FILES_COUNT: ${{ github.event.pull_request.changed_files }}
+        run: |
+          set -uo pipefail
+          # Conservative default: a non-`pull_request` event never consults
+          # the API and always runs both groups (push stays byte-equivalent
+          # to today — Decision 4).
+          if [ "${GITHUB_EVENT_NAME}" != "pull_request" ]; then
+            echo "web=true"    >> "$GITHUB_OUTPUT"
+            echo "dotnet=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          "${GITHUB_WORKSPACE}/.github/scripts/classify-changes.sh"
+
+  determine-channel:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    outputs:
+      channel: ${{ steps.map.outputs.channel }}
+    steps:
+      - name: Map branch to release channel (ADR-004)
+        id: map
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${GITHUB_REF_NAME}" in
+            dev) echo "channel=internal" >> "$GITHUB_OUTPUT" ;;
+            staging) echo "channel=pilot" >> "$GITHUB_OUTPUT" ;;
+            main) echo "channel=stable" >> "$GITHUB_OUTPUT" ;;
+            *)
+              echo "::error::No release channel is mapped for ref '${GITHUB_REF_NAME}'. Only dev/staging/main are authorized release sources (ADR-004)." >&2
+              exit 1
+              ;;
+          esac
+
+  verify-protected-source:
+    if: github.event_name == 'push'
+    needs: determine-channel
+    runs-on: ubuntu-latest
+    steps:
+      # A 404 from a branch-protection-style endpoint is INCONCLUSIVE, not
+      # proof that protection is absent — never treat it as "unprotected,
+      # safe to release" (consistent with this project's prior discovery
+      # about immutable-releases-style endpoints).
+      - name: Check branch protection state (404 is inconclusive, not proof of absence)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          http_status=$(gh api -i "repos/${GITHUB_REPOSITORY}/branches/${GITHUB_REF_NAME}/protection" 2>/tmp/gh-err.log \
+            | head -n1 | tr -d '\r' | awk '{print $2}')
+          rc=$?
+          set -e
+
+          if [ -z "${http_status}" ] || [ "${rc}" -ne 0 ]; then
+            echo "::warning::Could not query branch protection state for '${GITHUB_REF_NAME}' (see /tmp/gh-err.log). Treating as inconclusive, not as evidence of no protection."
+          elif [ "${http_status}" = "404" ]; then
+            echo "::notice::Branch protection endpoint returned 404 for '${GITHUB_REF_NAME}'. This is INCONCLUSIVE per ADR-004 — it does not prove protection is absent. Continuing without asserting protection state."
+          else
+            echo "Branch protection endpoint responded with HTTP ${http_status} for '${GITHUB_REF_NAME}'."
+          fi
+
+  web-tests:
+    # Commerce.Web (Vite/React SPA) has its own build/unit-test toolchain,
+    # independent of the .NET solution built in the `build` job below — this
+    # job never blocks or is blocked by it, it only adds coverage that was
+    # previously missing entirely from CI (no npm/vitest step existed here
+    # before). Vitest specs mock `fetch`; see `web-e2e` below for the real,
+    # browser-driven suite against a live backend.
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/Commerce.Web
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: src/Commerce.Web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Vitest component tests
+        run: npm test
+
+      - name: Build SPA
+        run: npm run build
+
+  web-e2e:
+    # Real-browser Playwright E2E against a REAL Commerce.Cloud.Api (this
+    # Postgres service container + `dotnet run`), never a mocked fetch — see
+    # src/Commerce.Web/README.md "E2E tests" for the identical steps run
+    # locally. Independent of `build`/`web-tests`: a failure here does not
+    # block the .NET release build, matching this pass's scope (adding E2E
+    # coverage, not re-gating the existing release pipeline). Runs on every
+    # Web-touching PR (answered question (b)) — same condition as
+    # `web-tests`, no label or release-branch restriction.
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: commerce_dev
+          POSTGRES_USER: commerce_owner
+          POSTGRES_PASSWORD: dev-only-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U commerce_owner -d commerce_dev"
+          --health-interval 2s
+          --health-timeout 2s
+          --health-retries 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: src/Commerce.Web/package-lock.json
+
+      - name: Apply RLS schema (same file deploy/dev/compose.yaml applies locally)
+        env:
+          PGPASSWORD: dev-only-password
+        run: psql -h localhost -U commerce_owner -d commerce_dev -f deploy/dev/db/init-rls.sql
+
+      - name: Install Commerce.Web dependencies
+        working-directory: src/Commerce.Web
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: src/Commerce.Web
+        run: npx playwright install --with-deps chromium
+
+      - name: Build SPA and copy into Cloud.Api wwwroot
+        working-directory: src/Commerce.Web
+        run: npm run test:e2e:build-backend-spa
+
+      - name: Start Commerce.Cloud.Api (Development, plain HTTP, ephemeral — pre guest-ordering seed)
+        # GuestOrdering__* is read once at startup (Program.cs
+        # `GuestOrderTarget.TryFromConfiguration`), but the org/branch it
+        # names doesn't need to exist in Postgres until the first guest
+        # verification row is inserted (guest_order_verifications.
+        # organization_id REFERENCES organizations(id)). This first,
+        # ephemeral start has GuestOrdering__* deliberately UNSET (so
+        # /public/* simply 404s for now) purely so the dev-only
+        # /internal/test-seed/user seam is reachable to seed a REAL
+        # organization/branch. It gets killed and restarted below once
+        # that org/branch id is known.
+        env:
+          ASPNETCORE_ENVIRONMENT: Development
+          ConnectionStrings__Commerce: "Host=localhost;Port=5432;Database=commerce_dev;Username=app_runtime;Password=dev-only-password"
+          ConnectionStrings__CommercePlatformRead: "Host=localhost;Port=5432;Database=commerce_dev;Username=platform_readonly;Password=dev-only-platform-readonly-password"
+          PORT: "8080"
+        run: |
+          nohup dotnet run --project src/Commerce.Cloud.Api > cloud-api.log 2>&1 &
+          echo $! > cloud-api.pid
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8080/health > /dev/null; then
+              echo "Cloud.Api is up."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::Cloud.Api did not become healthy in time."
+          cat cloud-api.log
+          exit 1
+
+      - name: Seed guest-ordering organization/branch
+        # Same dev-only /internal/test-seed/user seam catalog.spec.ts and
+        # ordering.spec.ts already use (Endpoints/TestSeedEndpoints.cs) —
+        # returns the REAL persisted organizationId/branchId from
+        # PostgresOrganizationStore.TryCreateBootstrapAsync, which is what
+        # GuestOrdering__OrganizationId/BranchId must reference (see
+        # deploy/README.md "commerce-guest-ordering" for the equivalent
+        # Railway variables).
+        run: |
+          set -euo pipefail
+          ORG_ID=$(python3 -c "import uuid; print(uuid.uuid4())")
+          RESPONSE=$(curl -sf -X POST http://localhost:8080/internal/test-seed/user \
+            -H "Content-Type: application/json" \
+            -d "{\"organizationId\":\"$ORG_ID\",\"email\":\"guest-ordering-seed@example.com\",\"password\":\"correct-horse-battery-staple\"}")
+          BRANCH_ID=$(echo "$RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin)['branchId'])")
+          echo "Seeded guest-ordering target: organizationId=$ORG_ID branchId=$BRANCH_ID"
+          echo "GUEST_ORDERING_ORGANIZATION_ID=$ORG_ID" >> "$GITHUB_ENV"
+          echo "GUEST_ORDERING_BRANCH_ID=$BRANCH_ID" >> "$GITHUB_ENV"
+
+      - name: Seed migrated system administrator
+        env:
+          PGPASSWORD: dev-only-password
+        run: |
+          set -euo pipefail
+          SYSADMIN_ORG_ID=$(python3 -c "import uuid; print(uuid.uuid4())")
+          SYSADMIN_EMAIL="system-admin-e2e@example.com"
+          SYSADMIN_PASSWORD="correct-horse-battery-staple"
+          RESPONSE=$(curl -sf -X POST http://localhost:8080/internal/test-seed/user \
+            -H "Content-Type: application/json" \
+            -d "{\"organizationId\":\"$SYSADMIN_ORG_ID\",\"email\":\"$SYSADMIN_EMAIL\",\"password\":\"$SYSADMIN_PASSWORD\",\"systemAdmin\":true}")
+          SYSADMIN_USER_ID=$(echo "$RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin)['userId'])")
+          psql -h localhost -U commerce_owner -d commerce_dev \
+            -v ON_ERROR_STOP=1 \
+            -c "UPDATE users SET is_system_admin = true WHERE id = '$SYSADMIN_USER_ID'::uuid RETURNING id;"
+          echo "Seeded migrated system administrator: email=$SYSADMIN_EMAIL userId=$SYSADMIN_USER_ID"
+          echo "SYSADMIN_EMAIL=$SYSADMIN_EMAIL" >> "$GITHUB_ENV"
+          echo "SYSADMIN_PASSWORD=$SYSADMIN_PASSWORD" >> "$GITHUB_ENV"
+
+      - name: Stop ephemeral Commerce.Cloud.Api
+        run: |
+          kill "$(cat cloud-api.pid)" 2>/dev/null || true
+          for i in $(seq 1 15); do
+            curl -sf http://localhost:8080/health > /dev/null || break
+            sleep 1
+          done
+
+      - name: Start Commerce.Cloud.Api (Development, plain HTTP)
+        env:
+          ASPNETCORE_ENVIRONMENT: Development
+          ConnectionStrings__Commerce: "Host=localhost;Port=5432;Database=commerce_dev;Username=app_runtime;Password=dev-only-password"
+          ConnectionStrings__CommercePlatformRead: "Host=localhost;Port=5432;Database=commerce_dev;Username=platform_readonly;Password=dev-only-platform-readonly-password"
+          PORT: "8080"
+          GuestOrdering__OrganizationId: ${{ env.GUEST_ORDERING_ORGANIZATION_ID }}
+          GuestOrdering__BranchId: ${{ env.GUEST_ORDERING_BRANCH_ID }}
+        run: |
+          nohup dotnet run --project src/Commerce.Cloud.Api > cloud-api.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8080/health > /dev/null; then
+              echo "Cloud.Api is up."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::Cloud.Api did not become healthy in time."
+          cat cloud-api.log
+          exit 1
+
+      - name: Start local HTTPS proxy (Program.cs's sign-in cookie is Secure-only)
+        working-directory: src/Commerce.Web
+        run: |
+          nohup npx local-ssl-proxy --source 5443 --target 8080 > ../../proxy.log 2>&1 &
+          sleep 3
+
+      - name: Run Playwright E2E suite
+        working-directory: src/Commerce.Web
+        env:
+          E2E_BASE_URL: "https://localhost:5443"
+        run: npm run test:e2e
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: src/Commerce.Web/playwright-report/
+          retention-days: 7
+
+  build:
+    needs: [changes, determine-channel, verify-protected-source]
+    # `always()` lets `build` run on a PR where `determine-channel` and
+    # `verify-protected-source` are `skipped` (push-only, Verified 1: the
+    # channel mapping `exit 1`s on a `pull_request` ref). `!= 'failure'`
+    # (not `== 'success'`) is what tolerates that skip while still blocking
+    # a genuine push-side failure in either dependency.
+    if: >-
+      always() &&
+      needs.changes.outputs.dotnet == 'true' &&
+      needs.determine-channel.result != 'failure' &&
+      needs.verify-protected-source.result != 'failure'
+    runs-on: windows-latest
+    env:
+      RELEASE_CHANNEL: ${{ needs.determine-channel.outputs.channel }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      # `dotnet test Commerce.sln` runs ~600 Commerce.Integration tests that
+      # connect to a live PostgreSQL (deploy/dev/db/init-rls.sql). Without
+      # one, most of those tests degrade gracefully (PostgresTestFixture
+      # skip-if-unreachable) rather than hard-failing — but every one of
+      # them still pays a real connection-timeout cost first, which is what
+      # made this step take ~16 minutes instead of the ~3 minutes it takes
+      # locally / on web-e2e's Linux runner with real Postgres. GitHub
+      # Actions service containers (`services:`) are Linux-only and this job
+      # must stay on `windows-latest` (Commerce.Pos.Windows is a WPF
+      # project, which only builds on Windows) — so this uses the
+      # PostgreSQL that ships pre-installed and already running on the
+      # windows-latest runner image instead (default superuser `postgres` /
+      # `root`, per actions/runner-images), provisioned with the same
+      # commerce_owner/commerce_dev shape deploy/dev/compose.yaml creates
+      # via its POSTGRES_USER/POSTGRES_DB image variables, then the same
+      # init-rls.sql applied everywhere else in this repo.
+      - name: Provision local PostgreSQL (pre-installed on windows-latest)
+        shell: pwsh
+        env:
+          PGPASSWORD: root
+        run: |
+          $pgBin = $env:PGBIN
+          if (-not $pgBin) { $pgBin = "C:\Program Files\PostgreSQL\17\bin" }
+
+          # The runner image installs PostgreSQL with its Windows service
+          # set to Disabled, not merely Stopped - confirmed by two prior
+          # runs of this step: `Start-Service` failed generically, and
+          # `net start` failed with "System error 1058" (the exact code for
+          # a disabled service). Must be re-enabled before it can start.
+          $svc = Get-Service -Name "postgresql*" | Select-Object -First 1
+          if (-not $svc) { throw "No postgresql* Windows service found on this runner." }
+          Write-Host "Enabling and starting Windows service '$($svc.Name)'..."
+          Set-Service -Name $svc.Name -StartupType Manual
+          Start-Service -Name $svc.Name
+
+          $ready = $false
+          for ($i = 0; $i -lt 30; $i++) {
+            & "$pgBin\pg_isready.exe" -h localhost -p 5432 -U postgres | Out-Null
+            if ($LASTEXITCODE -eq 0) { $ready = $true; break }
+            Start-Sleep -Seconds 2
+          }
+          if (-not $ready) { throw "PostgreSQL did not become ready within 60s of starting the service." }
+
+          # deploy/dev/compose.yaml's Postgres runs with
+          # `-c max_connections=300` (see its own comment: the integration
+          # suite's hundreds of short-lived WebApplicationFactory instances
+          # can overshoot the default max_connections=100 before pool
+          # teardown drains, producing SqlState 53300). The Windows service
+          # can't take that as a command-line flag, so raise it via
+          # ALTER SYSTEM and restart for it to take effect.
+          & "$pgBin\psql.exe" -h localhost -U postgres -c "ALTER SYSTEM SET max_connections = 300;"
+          net stop $svc.Name
+          net start $svc.Name
+          $ready = $false
+          for ($i = 0; $i -lt 30; $i++) {
+            & "$pgBin\pg_isready.exe" -h localhost -p 5432 -U postgres | Out-Null
+            if ($LASTEXITCODE -eq 0) { $ready = $true; break }
+            Start-Sleep -Seconds 2
+          }
+          if (-not $ready) { throw "PostgreSQL did not come back up within 60s of the max_connections restart." }
+
+          & "$pgBin\psql.exe" -h localhost -U postgres -c "CREATE ROLE commerce_owner WITH LOGIN SUPERUSER PASSWORD 'dev-only-password';"
+          & "$pgBin\psql.exe" -h localhost -U postgres -c "CREATE DATABASE commerce_dev OWNER commerce_owner;"
+          $env:PGPASSWORD = "dev-only-password"
+          & "$pgBin\psql.exe" -h localhost -U commerce_owner -d commerce_dev -f deploy/dev/db/init-rls.sql
+          if ($LASTEXITCODE -ne 0) { throw "init-rls.sql failed with exit code $LASTEXITCODE" }
+
+          # `dotnet test` below is the ONLY place in this workflow that runs
+          # Commerce.Integration, and PostgresTestFixture now targets
+          # `commerce_test` rather than `commerce_dev` — the suite truncates
+          # users/branches/organizations in dozens of fixtures, which locally
+          # was wiping the developer's own accounts. CI databases are ephemeral
+          # so the separation protects nothing here; this step exists purely so
+          # the database the fixture asks for exists. Deliberately ADDITIVE:
+          # every existing `commerce_dev` reference in this workflow (this
+          # provisioning block, the web-e2e service container and its
+          # health-cmd, the web-e2e init-rls step, and both jobs' connection
+          # strings) is left byte-for-byte alone, because web-e2e drives the
+          # real app over HTTP and never loads PostgresTestFixture. Renaming
+          # those too would have touched four more places for no CI benefit and
+          # every chance of breaking a green pipeline.
+          & "$pgBin\psql.exe" -h localhost -U commerce_owner -d commerce_dev -v ON_ERROR_STOP=1 -f deploy/dev/db/init-test-db.sql
+          if ($LASTEXITCODE -ne 0) { throw "init-test-db.sql failed with exit code $LASTEXITCODE" }
+
+      - name: Restore and build
+        shell: pwsh
+        run: |
+          Write-Host "Building for channel '$env:RELEASE_CHANNEL' from ref '${{ github.ref_name }}'."
+          dotnet restore Commerce.sln
+          dotnet build Commerce.sln -c Release --no-restore
+
+      - name: Run full test suite
+        shell: pwsh
+        run: dotnet test Commerce.sln -c Release --no-build
+
+      # ADR-005: packaging is conditional behind one manifest — MSIX where
+      # the target fleet meets the Windows 10 2004+/admin-install
+      # requirements, signed MSI otherwise. Both artifact types are built
+      # from the same versioned source so Commerce.Updater's
+      # PackageFormatSelector can pick the correct one per machine; neither
+      # format is published here (see below).
+      - name: Stage packaging inputs (MSIX + MSI, both signed per ADR-004/ADR-005)
+        if: github.event_name == 'push'
+        shell: pwsh
+        run: |
+          Write-Host "Packaging pipeline placeholder: this walking skeleton stages build outputs only."
+          Write-Host "Both an MSIX and a signed MSI artifact must be produced from this same source for channel '$env:RELEASE_CHANNEL', per ADR-005."
+
+      - name: Publication gate (publication_authorized)
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          set -euo pipefail
+          POLICY_FILE=".github/release-authorization.yml"
+          CHANNEL="$RELEASE_CHANNEL"
+
+          if [ ! -f "$POLICY_FILE" ]; then
+            echo "::error::Publication policy file '$POLICY_FILE' is missing."
+            exit 1
+          fi
+
+          # Extract the boolean value nested under channels.<CHANNEL>.publication_authorized.
+          # release-authorization.yml is a hand-authored, fixed-shape file (see its own
+          # header comment) — this is a two-level indented lookup, not a general YAML parser.
+          FLAG=$(awk -v channel="$CHANNEL" '
+            $0 ~ "^  "channel":" { in_channel=1; next }
+            in_channel && /^  [a-zA-Z]/ { in_channel=0 }
+            in_channel && /publication_authorized:/ {
+              gsub(/^[ \t]+publication_authorized:[ \t]*/, "");
+              print;
+              exit
+            }
+          ' "$POLICY_FILE")
+
+          if [ -z "$FLAG" ]; then
+            echo "::error::No publication_authorized entry found for channel '$CHANNEL' in $POLICY_FILE."
+            exit 1
+          fi
+
+          echo "Release publication for channel '$CHANNEL' is gated by $POLICY_FILE -> channels.$CHANNEL.publication_authorized (ADR-004)."
+          echo "This workflow builds, tests, and stages artifacts for channel '$CHANNEL'; it does not publish an immutable release on its own."
+
+          if [ "$FLAG" != "true" ]; then
+            echo "::error::Publication for channel '$CHANNEL' is not authorized (publication_authorized: $FLAG). Flip the flag in $POLICY_FILE via a dedicated PR to authorize."
+            exit 1
+          fi
+
+          echo "Publication authorized for channel '$CHANNEL'."
+
+  ci-gate:
+    # NO path condition may ever be added to this job's own `if:` beyond
+    # the event-scoping below: it is the single required status check for
+    # PULL REQUESTS, so it must be queued on every PR run or a PR hangs
+    # Pending forever (proposal Decision 3). `always()` is still
+    # load-bearing within that scope — without it, a `skipped` or failed
+    # `needs` entry would skip `ci-gate` itself and re-create the exact
+    # footgun this job exists to close.
+    #
+    # `github.event_name == 'pull_request'` was added after a real, observed
+    # failure: pushing to a branch with an open PR fires BOTH a `push` and a
+    # `pull_request` (synchronize) event for the same commit SHA, producing
+    # TWO independent `ci-gate` check runs. The `push`-triggered `build` job
+    # always fails its Publication gate step by design (ADR-004, unrelated
+    # to code correctness) on push to dev/staging/main, which made the
+    # push-triggered `ci-gate` fail too and GitHub's required-check UI
+    # showed the PR as blocked even though the `pull_request`-triggered
+    # `ci-gate` had passed. Since branch protection's required check only
+    # matters for PR merges, `ci-gate` no longer needs to exist on `push`
+    # runs at all — removing it there removes the confusing, irrelevant
+    # second check run entirely rather than trying to make it pass.
+    needs: [changes, web-tests, web-e2e, build]
+    if: always() && github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - shell: bash
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          "${GITHUB_WORKSPACE}/.github/scripts/aggregate-results.sh" <<< "${NEEDS}"

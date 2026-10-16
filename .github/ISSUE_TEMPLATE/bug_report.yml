@@ -1,0 +1,88 @@
+name: Bug report
+description: Report a defect in existing behavior
+title: "fix: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Never paste real customer records, pricing data from a live
+        organization, credentials, or production connection strings.
+        Redact them before submitting.
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Where the defect shows up.
+      multiple: false
+      options:
+        - Commerce.Web (browser SPA)
+        - Commerce.Cloud.Api (server)
+        - Commerce.Pos.Windows (desktop POS)
+        - Commerce.BranchNode
+        - Commerce.Updater
+        - Local dev tooling (deploy/dev)
+        - CI / release
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One or two sentences describing the defect.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: If a spec under `openspec/specs/` defines this, quote the requirement.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Commit SHA, branch, or release tag where you saw it.
+      placeholder: "dev @ 6e5e533"
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Logs, stack traces, screenshots. Redact first.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: This issue contains no real customer data, credentials, or production connection strings.
+          required: true

@@ -226,8 +226,10 @@ La estrategia física de multitenencia o bases dedicadas se definirá posteriorm
 
 ### 9.2 Catálogo
 
-- Productos, variantes, categorías, marcas y atributos.
-- Productos por unidad, peso u otras unidades.
+- Productos y sus presentaciones comerciales.
+- Categorías comerciales jerárquicas, marcas y atributos.
+- Comportamientos de venta e inventario por presentación: por unidad, por peso o por peso variable.
+- Unidades de compra, almacenamiento y venta, con relaciones comerciales explícitas cuando difieran.
 - Códigos internos y múltiples códigos de barras.
 - Productos activos, inactivos o temporalmente no disponibles.
 - Impuestos, costos, precios, márgenes y reglas de redondeo.
@@ -236,7 +238,9 @@ La estrategia física de multitenencia o bases dedicadas se definirá posteriorm
 - La definición inicial cubre esas dos imágenes con roles diferenciados; no define una galería ni gestión multimedia avanzada.
 - Archivos asociados al producto cuando corresponda.
 - Búsqueda rápida por descripción o código.
-- Capacidades específicas habilitables para carnicería.
+- Clasificaciones estructuradas opcionales habilitables por vertical, sin convertirlas en tipos rígidos de producto.
+
+La definición funcional reutilizable del catálogo está documentada en [Dominio de productos](./docs/domain/product-domain.md). El núcleo no se acoplará a carnicerías: las clasificaciones de especie, corte y estado de procesamiento serán información estructurada opcional del vertical cárnico, no tipos de producto para vaca, cerdo, pollo u otros rubros.
 
 ### 9.3 Listas de precios
 
@@ -314,7 +318,7 @@ Los precios usados en operaciones históricas no cambiarán al actualizar una li
 - Transferencia entre sucursales o ubicaciones.
 - Devoluciones, mermas, consumo y ajustes.
 - Conteo físico e inventario inicial.
-- Productos por peso y unidad.
+- Inventario coherente con el comportamiento de cada presentación: por unidad, por peso o por peso variable.
 - Lotes y trazabilidad cuando corresponda.
 - Stock físico, reservado y disponible.
 - Política configurable de stock negativo.
@@ -593,7 +597,7 @@ El romaneo forma parte de la plataforma, pero se implementará luego de los mód
 - Movimientos de inventario.
 - Correcciones auditadas.
 - Adjuntos y evidencias.
-- Diferencias entre vaca, cerdo, pollo y otros procesos.
+- Información estructurada opcional de especie, corte y estado de procesamiento cuando el vertical cárnico esté habilitado, sin tipos rígidos por especie.
 - Recepción directa de productos que no requieren romaneo.
 - Importación futura desde el producto de romaneo automático.
 
@@ -645,7 +649,8 @@ Entidades principales:
 - Organización, sucursal y terminal.
 - Usuario, rol y permiso.
 - Contacto, cliente, proveedor y empleado.
-- Producto, categoría, unidad y código.
+- Producto, presentación, categoría comercial jerárquica, unidad y código.
+- Comportamiento de venta e inventario y clasificaciones verticales opcionales.
 - Lista y versión de precios.
 - Pedido, venta, ítems y pagos.
 - Cuenta corriente y movimiento.
@@ -811,6 +816,14 @@ La definición operativa completa se mantiene en [SINGLE_DEVICE_BRANCH_PROFILE.m
 - La paridad funcional entre administración local y web se refiere a las operaciones de negocio autorizadas, no al POS ni a las operaciones directas de periféricos, que son locales.
 - Las experiencias de administración local y web pueden evolucionar como interfaces independientes; no se exige reutilizar el código de interfaz entre ambas.
 
+### 13.1 Gestión transversal de archivos, cambios y trazabilidad
+
+- Existirá un componente común para cargar, consultar y vincular archivos, documentos e imágenes con los procesos de negocio que los requieran.
+- Los archivos conservarán su relación con la organización, sucursal y operación o entidad que los originó, cuando corresponda.
+- Los usuarios autorizados podrán editar información mientras el estado de la operación lo permita, sin alterar el significado de los registros históricos.
+- Cuando una modificación directa no sea válida, se usarán correcciones, anulaciones o reversos controlados, con motivo y sin eliminación silenciosa.
+- La auditoría distinguirá quién realizó una acción, cuándo, desde qué contexto y por qué; para cambios, conservará el valor anterior y el resultante cuando aplique.
+- Los logs de operaciones del sistema registrarán la ejecución y el resultado de operaciones manuales o automáticas relevantes, incluidas sincronizaciones, integraciones y errores, para diagnóstico autorizado. Estos logs complementan la auditoría de negocio y seguridad; no la reemplazan.
 ## 14. Requisitos no funcionales
 
 ### 14.1 Disponibilidad
@@ -961,6 +974,7 @@ Sincronización, aislamiento, auditoría e inventario deberán contemplarse desd
 - El producto supera un POS tradicional.
 - El primer vertical es carnicerías y distribución cárnica.
 - El núcleo será reutilizable por otros comercios.
+- El dominio de productos separará producto, presentación, categoría comercial, unidades y comportamiento de venta e inventario; las clasificaciones por vertical serán opcionales y estructuradas.
 - Todo el alcance del PRD pertenece al producto.
 - El romaneo operativo pertenece al producto y se implementará al final.
 - La app de romaneo automático con imágenes/video y ML será independiente.

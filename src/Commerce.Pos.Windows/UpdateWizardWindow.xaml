@@ -1,0 +1,72 @@
+<Window x:Class="Commerce.Pos.Windows.UpdateWizardWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Actualizar terminal" Width="520" SizeToContent="Height" WindowStartupLocation="CenterOwner" Icon="app.ico"
+        Background="{DynamicResource ShellBrush}" Foreground="{DynamicResource TextBrush}" ResizeMode="NoResize">
+    <Grid Margin="20">
+        <Border Style="{StaticResource CardBorder}">
+            <StackPanel>
+                <TextBlock Text="ACTUALIZACIÓN" Style="{StaticResource EyebrowTextBlock}" />
+                <TextBlock x:Name="HeadingText" Text="Actualizar Incoders Commerce" Style="{StaticResource HeroTextBlock}" FontSize="22" />
+                <TextBlock x:Name="IntroText" Style="{StaticResource MutedTextBlock}" TextWrapping="Wrap" Margin="0,6,0,14"
+                           Text="La actualización se descarga, se verifica y se instala solo cuando usted la inicia. Antes de instalar se guarda una copia de la base local." />
+
+                <!-- Current vs target version, package and compatibility. -->
+                <Grid Margin="0,0,0,12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="150" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Text="Versión actual" Style="{StaticResource MutedTextBlock}" Margin="0,0,0,4" />
+                    <TextBlock Grid.Row="0" Grid.Column="1" x:Name="CurrentVersionText" FontWeight="SemiBold" Margin="0,0,0,4" />
+                    <TextBlock Grid.Row="1" Text="Versión nueva" Style="{StaticResource MutedTextBlock}" Margin="0,0,0,4" />
+                    <TextBlock Grid.Row="1" Grid.Column="1" x:Name="TargetVersionText" FontWeight="SemiBold" Foreground="{DynamicResource AccentTextBrush}" Margin="0,0,0,4" />
+                    <TextBlock Grid.Row="2" Text="Paquete" Style="{StaticResource MutedTextBlock}" Margin="0,0,0,4" />
+                    <TextBlock Grid.Row="2" Grid.Column="1" x:Name="FormatText" Margin="0,0,0,4" />
+                    <TextBlock Grid.Row="3" Text="Tamaño" Style="{StaticResource MutedTextBlock}" Margin="0,0,0,4" />
+                    <TextBlock Grid.Row="3" Grid.Column="1" x:Name="SizeText" Margin="0,0,0,4" />
+                    <TextBlock Grid.Row="4" Text="Compatibilidad" Style="{StaticResource MutedTextBlock}" Margin="0,0,0,4" />
+                    <TextBlock Grid.Row="4" Grid.Column="1" x:Name="CompatibilityText" TextWrapping="Wrap" Margin="0,0,0,4" />
+                    <TextBlock Grid.Row="5" Text="Editor de confianza" Style="{StaticResource MutedTextBlock}" />
+                    <TextBlock Grid.Row="5" Grid.Column="1" x:Name="PublisherText" TextWrapping="Wrap" />
+                </Grid>
+
+                <!-- Dev/unpackaged runs can download and verify but never install. -->
+                <Border x:Name="UnpackagedBorder" Background="{DynamicResource WarningSurfaceBrush}" BorderBrush="{DynamicResource WarningBorderBrush}"
+                        BorderThickness="1" CornerRadius="10" Padding="10" Margin="0,0,0,12" Visibility="Collapsed">
+                    <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource WarningTextBrush}"
+                               Text="Esta terminal no está instalada como aplicación empaquetada (modo desarrollo): puede descargar y verificar la actualización, pero no instalarla." />
+                </Border>
+
+                <Border Style="{StaticResource SoftCardBorder}" Margin="0,0,0,12">
+                    <StackPanel>
+                        <StackPanel x:Name="StagesPanel" />
+                        <ProgressBar x:Name="ProgressBar" Height="6" Margin="0,10,0,6" BorderThickness="0" Minimum="0" Maximum="1"
+                                     Foreground="{DynamicResource PrimaryBrush}" Background="{DynamicResource BorderBrushMuted}" />
+                        <TextBlock x:Name="StatusText" Style="{StaticResource MutedTextBlock}" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+
+                <Border x:Name="ResultBorder" BorderThickness="1" CornerRadius="10" Padding="10" Margin="0,0,0,12" Visibility="Collapsed">
+                    <StackPanel>
+                        <TextBlock x:Name="ResultTitleText" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,0,0,4" />
+                        <TextBlock x:Name="ResultMessageText" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+
+                <Button x:Name="InstallButton" Content="Instalar actualización" HorizontalAlignment="Stretch" Click="InstallButton_Click"
+                        AutomationProperties.Name="Instalar actualización" />
+                <Button x:Name="CloseButton" Content="Ahora no" HorizontalAlignment="Stretch" Margin="0,8,0,0"
+                        Style="{StaticResource GhostButton}" IsCancel="True" Click="CloseButton_Click" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

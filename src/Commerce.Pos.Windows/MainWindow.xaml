@@ -1,0 +1,261 @@
+<Window x:Class="Commerce.Pos.Windows.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:Commerce.Pos.Windows.Controls"
+        Title="Commerce Pos.Windows" Height="760" Width="1180" MinHeight="700" MinWidth="1120" Icon="app.ico"
+        Background="{DynamicResource ShellBrush}" Foreground="{DynamicResource TextBrush}" WindowStartupLocation="CenterScreen">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Everything behind the lock: the nav, the sale, the sections and the cash prompt. Collapsed (not just covered) while nobody is signed in. -->
+        <Grid x:Name="ShellContent" Grid.Row="0" Grid.RowSpan="2">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <controls:PosNavBar x:Name="NavBar" Grid.Row="0"
+                            SaleRequested="SaleNavButton_Click"
+                            SalesRequested="SalesNavButton_Click"
+                            CustomersRequested="ManageCustomersButton_Click"
+                            StaffRequested="ManageStaffButton_Click"
+                            SyncRequested="SyncButton_Click"
+                            SettingsRequested="RepairButton_Click"
+                            OperatorMenuRequested="OperatorMenuButton_Click"
+                            SwitchOperatorRequested="SwitchOperatorButton_Click"
+                            SignOutRequested="OperatorSignOutMenu_Click"
+                            CloseCashRequested="CloseCashButton_Click"
+                            CashMovementRequested="CashMovementButton_Click" />
+
+        <Grid x:Name="SaleScreen" Grid.Row="1" Margin="16,12,16,8">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <Border x:Name="StaleCatalogBanner" Grid.Row="0" Background="{DynamicResource WarningSurfaceBrush}" BorderBrush="{DynamicResource WarningBorderBrush}" BorderThickness="1"
+                    Padding="12,8" Margin="0,0,0,10" CornerRadius="10" Visibility="Collapsed">
+                <TextBlock x:Name="StaleCatalogBannerText" TextWrapping="Wrap" Foreground="{DynamicResource WarningTextBrush}" />
+            </Border>
+
+            <!-- Scan / search box, full width, with the manual-amount sale as a secondary action. -->
+            <Grid Grid.Row="1">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Grid>
+                    <TextBox x:Name="ScanCodeTextBox" FontSize="20" MinHeight="52" Padding="38,8,12,8" VerticalContentAlignment="Center"
+                             KeyDown="ScanCodeTextBox_KeyDown" TextChanged="ScanCodeTextBox_TextChanged" AutomationProperties.Name="Escanear o buscar producto" />
+                    <TextBlock Text="{StaticResource IconSearch}" Style="{StaticResource IconTextBlock}" FontSize="18" Foreground="{DynamicResource AccentTextBrush}"
+                               HorizontalAlignment="Left" Margin="13,0,0,0" IsHitTestVisible="False" />
+                    <!-- The placeholder is a TextBox laid over the search box with the same template, padding and font, so its text
+                         starts exactly where the search text and the caret start. Transparent and inert: the caret shows through. -->
+                    <TextBox x:Name="ScanPlaceholderTextBox" Text="Escanear o buscar producto…" FontSize="20" MinHeight="52" Padding="38,8,12,8" VerticalContentAlignment="Center"
+                             IsHitTestVisible="False" Focusable="False" IsTabStop="False" IsReadOnly="True"
+                             Background="Transparent" BorderBrush="Transparent" Foreground="{DynamicResource MutedTextBrush}">
+                        <TextBox.Style>
+                            <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Text, ElementName=ScanCodeTextBox}" Value="">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBox.Style>
+                    </TextBox>
+                </Grid>
+                <Button x:Name="ManualSaleButton" Grid.Column="1" Style="{StaticResource SecondaryButton}" Margin="{StaticResource FieldActionSpacing}" MinHeight="52" Padding="16,0"
+                        Click="ManualSaleButton_Click" ToolTip="Registrar una venta por un importe sin código de producto" AutomationProperties.Name="Venta manual">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{StaticResource IconEdit}" Style="{StaticResource IconTextBlock}" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Margin="0,0,8,0" />
+                        <TextBlock Text="Venta manual" FontWeight="SemiBold" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+                <Popup x:Name="ManualSalePopup" PlacementTarget="{Binding ElementName=ManualSaleButton}" Placement="Bottom" HorizontalOffset="-160"
+                       StaysOpen="False" AllowsTransparency="True">
+                    <Border Style="{StaticResource CardBorder}" Padding="16" CornerRadius="12" Margin="8" TextElement.Foreground="{DynamicResource TextBrush}">
+                        <StackPanel Width="300">
+                            <TextBlock Text="Venta manual" FontSize="16" FontWeight="SemiBold" />
+                            <TextBlock Text="Para artículos sin código en el catálogo local. No se puede combinar con productos de la venta actual."
+                                       Style="{StaticResource MutedTextBlock}" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,12" />
+                            <TextBlock Text="Importe" Style="{StaticResource MutedTextBlock}" Margin="0,0,0,6" />
+                            <TextBox x:Name="AmountTextBox" Text="19.99" />
+                            <TextBlock Text="Cobrar con" Style="{StaticResource MutedTextBlock}" Margin="0,12,0,6" />
+                            <UniformGrid Rows="1">
+                                <Button x:Name="CommitSaleButton" Content="Efectivo" Tag="cash" Margin="0,0,6,0" Click="CommitSaleButton_Click" AutomationProperties.Name="Cobrar venta manual en efectivo" />
+                                <Button x:Name="ManualCardButton" Content="Tarjeta" Tag="card" Margin="0,0,6,0" Click="CommitSaleButton_Click" AutomationProperties.Name="Cobrar venta manual con tarjeta" />
+                                <Button x:Name="ManualQrButton" Content="QR" Tag="qr" Click="CommitSaleButton_Click" AutomationProperties.Name="Cobrar venta manual con QR" />
+                            </UniformGrid>
+                        </StackPanel>
+                    </Border>
+                </Popup>
+            </Grid>
+
+            <StackPanel Grid.Row="2" Margin="0,6,0,8">
+                <TextBlock x:Name="ScanMessageText" TextWrapping="Wrap" Foreground="{DynamicResource DangerBrush}" />
+                <TextBlock x:Name="SaleResultText" TextWrapping="Wrap" Style="{StaticResource MutedTextBlock}" />
+            </StackPanel>
+
+            <Grid Grid.Row="3">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="2*" MinWidth="260" />
+                    <ColumnDefinition Width="3*" MinWidth="460" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <!-- Products from the local catalog -->
+                <Grid Grid.Column="0" Margin="0,0,14,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="Productos" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8" />
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <ItemsControl x:Name="CatalogCardsItemsControl">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <controls:UniformWrapPanel MinItemWidth="190" Spacing="10" Margin="0,0,4,0" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <controls:ProductCard IncrementRequested="ProductCard_IncrementRequested" DecrementRequested="ProductCard_DecrementRequested" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                    <TextBlock x:Name="CatalogEmptyText" Grid.Row="1" Text="No hay productos en el catálogo de esta terminal. Sincronice para descargarlos."
+                               Style="{StaticResource MutedTextBlock}" TextWrapping="Wrap" TextAlignment="Center" VerticalAlignment="Center" Margin="12" Visibility="Collapsed" />
+                    <TextBlock x:Name="CatalogTruncatedText" Grid.Row="2" Style="{StaticResource MutedTextBlock}" FontSize="12" TextWrapping="Wrap" Margin="0,6,0,0"
+                               Text="Se muestran los primeros resultados. Refine la búsqueda o elija una categoría." Visibility="Collapsed" />
+                </Grid>
+
+                <!-- Current sale: table and totals -->
+                <Grid Grid.Column="1">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Grid Margin="0,0,0,10">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Venta actual" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        <StackPanel Grid.Column="1" Orientation="Horizontal">
+                            <TextBlock Text="Cliente" Style="{StaticResource MutedTextBlock}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                            <controls:CustomerSearchPicker x:Name="CustomerPicker" Width="260" CustomerChosen="CustomerPicker_CustomerChosen" />
+                            <!-- Collect a current account payment of the chosen customer (a "cobro"), with or without a sale in progress. -->
+                            <Button x:Name="CollectPaymentButton" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" Padding="12,0" MinHeight="38"
+                                    IsEnabled="False" Click="CollectPaymentButton_Click" ToolTipService.ShowOnDisabled="True"
+                                    ToolTip="Elegí un cliente para cobrarle su cuenta corriente" AutomationProperties.Name="Cobrar cuenta corriente">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="{StaticResource IconReceipt}" Style="{StaticResource IconTextBlock}" Margin="0,0,6,0"
+                                               Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+                                    <TextBlock Text="Cobrar cuenta" FontWeight="SemiBold" VerticalAlignment="Center"
+                                               Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+
+                        <!-- How the sale is priced: the buyer's list and, when the customer has one, its own discount (already in every price). -->
+                        <StackPanel Grid.Row="1" Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,6,0,0">
+                            <TextBlock x:Name="PriceListText" Style="{StaticResource MutedTextBlock}" VerticalAlignment="Center" MaxWidth="420" TextTrimming="CharacterEllipsis" />
+                            <Border x:Name="CustomerDiscountBadge" Visibility="Collapsed" Margin="10,0,0,0" Padding="8,3" CornerRadius="8"
+                                    Background="{DynamicResource SurfaceSoftBrush}" BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1"
+                                    ToolTipService.InitialShowDelay="150" ToolTipService.ShowDuration="20000">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="{StaticResource IconInfo}" Style="{StaticResource IconTextBlock}" FontSize="13"
+                                               Foreground="{DynamicResource AccentTextBrush}" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                    <TextBlock x:Name="CustomerDiscountBadgeText" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center"
+                                               Foreground="{DynamicResource AccentTextBrush}" />
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </Grid>
+                    <controls:SaleLinesTable x:Name="SaleTable" Grid.Row="1" QuantityEdited="SaleTable_QuantityEdited" MeasuredQuantityEditRequested="SaleTable_MeasuredQuantityEditRequested"
+                                             LineRemoved="SaleTable_LineRemoved" LineDiscountRequested="SaleTable_LineDiscountRequested" />
+                    <controls:TotalsPanel x:Name="TotalsPanelControl" Grid.Row="2" Margin="{StaticResource ActionGroupSpacing}" TenderRequested="CommitScannedSaleButton_Click" SaleDiscountRequested="TotalsPanel_SaleDiscountRequested" />
+                </Grid>
+
+                <controls:CategoryRail x:Name="CategoryRailControl" CategorySelected="CategoryRail_CategorySelected" Grid.Column="2" Width="104" Margin="14,26,0,0" />
+            </Grid>
+        </Grid>
+
+        <!-- Management sections (Clientes, Personal) replace the sale screen here; the sale screen is hidden, never rebuilt, so the cart survives. -->
+        <ContentControl x:Name="SectionHost" Grid.Row="1" Visibility="Collapsed" IsTabStop="False" />
+
+        <!-- No open cash session: the sale screen is disabled and covered by this prompt (pos-cash-session). -->
+        <Border x:Name="CashClosedOverlay" Grid.Row="1" Background="{DynamicResource ShellBrush}" Visibility="Collapsed">
+            <Border Style="{StaticResource CardBorder}" Padding="28,24" MaxWidth="440" VerticalAlignment="Center" HorizontalAlignment="Center">
+                <StackPanel>
+                    <TextBlock Text="CAJA" Style="{StaticResource EyebrowTextBlock}" />
+                    <TextBlock Text="La caja está cerrada" Style="{StaticResource HeroTextBlock}" FontSize="24" />
+                    <TextBlock x:Name="CashClosedMessageText" Style="{StaticResource MutedTextBlock}" TextWrapping="Wrap" Margin="0,8,0,18"
+                               Text="Abra la caja con el efectivo inicial para empezar a vender. Todas las ventas quedan registradas en la caja abierta." />
+                    <Button x:Name="OpenCashButton" Content="Abrir caja" HorizontalAlignment="Stretch" Click="OpenCashButton_Click" AutomationProperties.Name="Abrir caja" />
+                </StackPanel>
+            </Border>
+        </Border>
+
+        </Grid>
+
+        <!-- Lock screen: the only thing shown while no operator is signed in (pos-operator-session "Lock Screen Gates The Sale UI"). -->
+        <ContentControl x:Name="LockHost" Grid.Row="0" Grid.RowSpan="2" IsTabStop="False" Visibility="Collapsed" />
+
+        <Border Grid.Row="2" Background="{DynamicResource ShellElevatedBrush}" BorderBrush="{DynamicResource BorderBrushMuted}" BorderThickness="0,1,0,0" Padding="12,1">
+            <Grid Height="18">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <!-- organization-account-standing T8: red notice for every signed-in operator while the organization is behind
+                     on its payment; the POS keeps selling (ADR-002). Text and tooltip come from AccountStandingNotice. -->
+                <Border x:Name="AccountStandingPill" Grid.Column="0" Background="{DynamicResource DangerSurfaceBrush}" BorderBrush="{DynamicResource DangerBrush}" BorderThickness="1"
+                        CornerRadius="4" Padding="6,0" Margin="0,0,12,0" VerticalAlignment="Center" Visibility="Collapsed">
+                    <TextBlock x:Name="AccountStandingPillText" Foreground="{DynamicResource DangerBrush}" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" />
+                </Border>
+                <TextBlock x:Name="BottomSyncStatusText" Grid.Column="1" Style="{StaticResource MutedTextBlock}" FontSize="11" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock x:Name="BottomUpgradeReportText" Style="{StaticResource MutedTextBlock}" FontSize="11" VerticalAlignment="Center" Margin="12,0,0,0" Visibility="Collapsed" />
+                    <!-- Link-styled button: keeps the footer thin while opening the install wizard. -->
+                    <Button x:Name="BottomUpdateAvailableButton" Click="UpdateAvailableButton_Click" Visibility="Collapsed" Cursor="Hand"
+                            Foreground="{DynamicResource AccentTextBrush}" FontSize="11" FontWeight="SemiBold" Padding="0" MinHeight="0" Margin="12,0,0,0" VerticalAlignment="Center"
+                            ToolTip="Abrir el asistente de actualización" AutomationProperties.Name="Abrir el asistente de actualización">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <TextBlock x:Name="Label" Text="{TemplateBinding Content}" Foreground="{TemplateBinding Foreground}"
+                                           FontSize="{TemplateBinding FontSize}" FontWeight="{TemplateBinding FontWeight}" TextDecorations="Underline" />
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="Label" Property="Foreground" Value="{DynamicResource TextBrush}" />
+                                    </Trigger>
+                                    <Trigger Property="IsKeyboardFocused" Value="True">
+                                        <Setter TargetName="Label" Property="Foreground" Value="{DynamicResource TextBrush}" />
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+                </StackPanel>
+                <TextBlock x:Name="BottomVersionStatusText" Grid.Column="3" Style="{StaticResource MutedTextBlock}" FontSize="11" VerticalAlignment="Center" Margin="12,0,0,0" />
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

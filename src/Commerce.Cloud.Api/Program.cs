@@ -1,0 +1,421 @@
+using Commerce.Application.Access;
+using Commerce.Application.Audit;
+using Commerce.Application.Management;
+using Commerce.Application.Ordering;
+using Commerce.Application.Payments;
+using Commerce.Cloud.Api;
+using Commerce.Cloud.Api.Auditing;
+using Commerce.Cloud.Api.Authentication;
+using Commerce.Cloud.Api.Email;
+using Commerce.Cloud.Api.Endpoints;
+using Commerce.Cloud.Api.HealthChecks;
+using Commerce.Cloud.Api.Management;
+using Commerce.Cloud.Api.Ordering;
+using Commerce.Cloud.Api.Persistence;
+using Commerce.Cloud.Api.Tenancy;
+using Commerce.Domain.Identity;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.Identity;
+using Commerce.Application.Time;
+using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Npgsql;
+using System.Threading.RateLimiting;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// Kestrel MUST bind 0.0.0.0 and the environment-injected PORT (Railway), not
+// a hardcoded port (design.md "Deploy mechanism").
+var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
+builder.WebHost.ConfigureKestrel(options => options.ListenAnyIP(int.Parse(port)));
+
+// --- Persistence -----------------------------------------------------------
+// Raw NpgsqlDataSource, no EF Core (design.md "Persistence access").
+var connectionString = builder.Configuration.GetConnectionString("Commerce");
+if (string.IsNullOrWhiteSpace(connectionString))
+{
+    throw new InvalidOperationException("Missing ConnectionStrings:Commerce (env: ConnectionStrings__Commerce).");
+}
+builder.Services.AddSingleton(NpgsqlDataSource.Create(connectionString));
+builder.Services.AddSingleton<ICloudInboxStore, PostgresCloudInboxStore>();
+builder.Services.AddSingleton<PostgresUserAccountStore>();
+builder.Services.AddSingleton<PostgresOrganizationStore>();
+builder.Services.AddSingleton<PostgresDeviceCredentialStore>();
+builder.Services.AddSingleton<PostgresTerminalRegisterStore>();
+builder.Services.AddSingleton<PostgresPasswordRecoveryStore>();
+builder.Services.AddSingleton<PostgresCustomerStore>();
+builder.Services.AddSingleton<PostgresCatalogStore>();
+builder.Services.AddSingleton<PostgresStaffOrderLookupStore>();
+builder.Services.AddSingleton<PostgresCategoryStore>();
+builder.Services.AddSingleton<PostgresBusinessTypeStore>();
+builder.Services.AddSingleton<PostgresSupplierCategoryStore>();
+builder.Services.AddSingleton<PostgresTreasuryAccountTypeStore>();
+builder.Services.AddSingleton<PostgresEmployeeRoleStore>();
+builder.Services.AddSingleton<PostgresSupplierStore>();
+builder.Services.AddSingleton<PostgresCurrentAccountStore>();
+builder.Services.AddSingleton<PostgresPurchaseReceptionStore>();
+builder.Services.AddSingleton<PostgresStockStore>();
+builder.Services.AddSingleton<PostgresGeoStore>();
+builder.Services.AddSingleton<PostgresBranchDiscountPinStore>();
+builder.Services.AddSingleton<CatalogCopyStore>();
+builder.Services.AddSingleton<PostgresPriceListStore>();
+builder.Services.AddSingleton<PostgresPaymentStore>();
+builder.Services.AddSingleton<IPaymentLedgerStore>(sp => sp.GetRequiredService<PostgresPaymentStore>());
+builder.Services.AddSingleton<Commerce.Cloud.Api.Payments.PaymentEffectApplier>();
+// commerce-customer-identity security fix: the resolver is the ONLY source of
+// a CustomerOrderingAccess instance CustomerCatalogAccessService can act on.
+builder.Services.AddSingleton<PostgresCustomerOrderingAccessStore>();
+builder.Services.AddSingleton<ICustomerOrderingAccessResolver>(sp => sp.GetRequiredService<PostgresCustomerOrderingAccessStore>());
+
+// --- Platform-read datasource (commerce-role-taxonomy design.md
+// "Platform-admin cross-org read"): the ONLY cross-organization read
+// capability in the system, a distinct least-privilege Postgres LOGIN.
+// Registered ONLY when its connection string is configured — absent means
+// PostgresOrganizationStore.CanListOrganizations is false and
+// GET /account/organizations fails closed with 503, NEVER falling back to
+// the shared app_runtime pool.
+var platformReadConnectionString = builder.Configuration.GetConnectionString("CommercePlatformRead");
+if (!string.IsNullOrWhiteSpace(platformReadConnectionString))
+{
+    builder.Services.AddKeyedSingleton(
+        PostgresOrganizationStore.PlatformReadDataSourceKey, NpgsqlDataSource.Create(platformReadConnectionString));
+}
+
+// --- Credentials: PasswordHasher<UserAccount> is a framework type
+// (Microsoft.AspNetCore.Identity, part of the ASP.NET Core shared framework)
+// — build spike confirmed zero new PackageReference entries (design.md
+// "Build spike result"). BootstrapTokenRegistry is a singleton so its
+// in-memory per-org token state survives across requests within one process
+// (design.md "Bootstrap token storage").
+builder.Services.AddSingleton<PasswordHasher<UserAccount>>();
+builder.Services.AddSingleton<BootstrapTokenRegistry>();
+
+// --- Session invalidation (commerce-password-recovery design.md "Session
+// invalidation"): a 60s-TTL cache backs OnValidatePrincipal so a stale
+// `session_ver` claim (set by any password change) is rejected without a DB
+// round-trip on every authenticated request. ---------------------------
+builder.Services.AddSingleton<SessionVersionCache>();
+builder.Services.AddSingleton<SessionVersionValidator>();
+// organization-account-standing T4: cached standing inputs behind the web suspension block and /account/me.
+builder.Services.AddSingleton<OrganizationStandingCache>();
+
+// --- Anti-abuse (commerce-password-recovery design.md "Anti-abuse
+// mechanism"): in-memory fixed-window throttle, accepted single-Railway-
+// replica assumption, the same one BootstrapTokenRegistry already
+// documents. -----------------------------------------------------------
+builder.Services.AddSingleton<ResetRequestThrottle>();
+
+// --- Email (commerce-password-recovery design.md "Email seam" / "Missing
+// RESEND_API_KEY"): a typed Resend client backs the real sender; when the
+// key is absent, LogOnlyEmailSender is registered instead so local dev and
+// CI stay usable without a Resend account. -------------------------------
+var emailOptions = EmailOptions.FromEnvironment();
+builder.Services.AddSingleton(emailOptions);
+builder.Services.AddHttpClient<ResendEmailSender>(client =>
+{
+    client.BaseAddress = new Uri("https://api.resend.com");
+});
+if (string.IsNullOrWhiteSpace(emailOptions.ResendApiKey))
+{
+    builder.Services.AddSingleton<IEmailSender, LogOnlyEmailSender>();
+}
+else
+{
+    builder.Services.AddSingleton<IEmailSender>(sp => sp.GetRequiredService<ResendEmailSender>());
+}
+
+// --- Guest ordering public surface (commerce-guest-ordering design.md "Org/
+// branch resolution point" / "Verification state shape"): GuestOrderTarget
+// is the ONE org/branch resolution point for anonymous requests. Missing or
+// unparseable GuestOrdering__* config means guestOrderTargetConfigured is
+// false and MapPublicOrderingEndpoints() below is NEVER called — the public
+// surface does not exist rather than existing with a wrong target (the
+// narrowest rollback: unset the two env vars). ---------------------------
+var guestOrderTargetConfigured = GuestOrderTarget.TryFromConfiguration(builder.Configuration, out var guestOrderTarget);
+if (guestOrderTargetConfigured)
+{
+    builder.Services.AddSingleton(guestOrderTarget!);
+}
+builder.Services.AddSingleton<PostgresGuestVerificationStore>();
+builder.Services.AddSingleton<GuestVerificationService>();
+builder.Services.AddSingleton<GuestVerificationThrottle>();
+
+// --- Payments (commerce-payments design.md "Fail-closed approval",
+// Decision 2): the gateway binding is fail-closed BY DEFAULT.
+// `Payments__ManuallyRecordedApprovalEnabled=true` is the ONLY way to bind
+// the real (staff-attestation) implementation — absent/false always binds
+// UnavailablePaymentApproval, deliberately the inverse of
+// LogOnlyEmailSender's fail-open substitution. -------------------------
+var manuallyRecordedApprovalEnabled = builder.Configuration.GetValue<bool>("Payments:ManuallyRecordedApprovalEnabled");
+if (manuallyRecordedApprovalEnabled)
+{
+    builder.Services.AddSingleton<IPaymentApprovalGateway, ManuallyRecordedApproval>();
+}
+else
+{
+    builder.Services.AddSingleton<IPaymentApprovalGateway, UnavailablePaymentApproval>();
+}
+builder.Services.AddSingleton<PaymentRecordingService>();
+
+// --- Shared application services (Component Reuse Policy: reused, not
+// reimplemented) --------------------------------------------------------
+// Durable audit: every IAuditSink consumer (staff authorization, catalog management, customer catalog access)
+// writes to the append-only audit_log, fail-open with Error logging; each entry carries its own actor kind.
+builder.Services.AddDurableAuditSink();
+builder.Services.AddSingleton<TenantAuthorizationService>();
+builder.Services.AddSingleton<CatalogManagementService>();
+builder.Services.AddSingleton<CustomerCatalogAccessService>();
+builder.Services.AddSingleton<CustomerOrderingAccessService>();
+
+// --- Cloud.Api-local composition --------------------------------------------
+builder.Services.AddSingleton<CloudSyncReceiver>();
+builder.Services.AddSingleton<CloudCatalogManagementAdapter>();
+// persist-web-orders: orders live in Postgres (survive restarts, carry P{branch}-W-{seq} numbers).
+builder.Services.AddSingleton<IOrderStore>(sp => new PostgresOrderStore(sp.GetRequiredService<NpgsqlDataSource>()));
+// order-fulfillment-and-delivery (0045): order tracking, delivery runs, remitos and the document data they print.
+builder.Services.AddSingleton<PostgresFulfillmentStore>();
+// payment-terms-and-treasury (0046): the company's money accounts per branch and payment method.
+builder.Services.AddSingleton<PostgresTreasuryStore>();
+builder.Services.AddSingleton<PostgresTreasuryRecurrenceStore>();
+// Records the recurring treasury movements on their dates (every few hours; needs the platform-read connection).
+builder.Services.AddHostedService<TreasuryRecurrenceJob>();
+builder.Services.AddSingleton<PostgresEmployeeStore>();
+builder.Services.AddSingleton<PostgresEmployeeGoodsStore>();
+builder.Services.AddSingleton<PostgresVehicleStore>();
+builder.Services.AddSingleton<PostgresPayrollStore>();
+// commerce-price-composition slice 2: resolution composes the effective rate
+// components onto the entry's base price, so the submission service needs the
+// component store. Registered here rather than defaulted to null inside the
+// service — a missing registration must fail at startup, not reprice silently.
+builder.Services.AddSingleton<PostgresRateComponentStore>();
+builder.Services.AddSingleton<Commerce.Cloud.Api.Pricing.PriceFloorValidator>();
+builder.Services.AddSingleton<CloudOrderSubmissionService>();
+// Effective dates of pricing and stock follow the business day, not the UTC date (config `Business:TimeZone`, default Buenos Aires).
+builder.Services.AddSingleton<IBusinessClock>(_ =>
+    new BusinessClock(TimeProvider.System, BusinessTimeZone.Resolve(builder.Configuration["Business:TimeZone"])));
+
+// --- Auth: Identity cookie (browser, same-origin SPA) + device bearer
+// (Pos.Windows sync) — design.md "Browser auth" / "Device auth" -------------
+builder.Services
+    .AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+    .AddCookie(CookieAuthenticationDefaults.AuthenticationScheme, options =>
+    {
+        options.Cookie.HttpOnly = true;
+        options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+        options.Cookie.SameSite = SameSiteMode.Lax;
+        // commerce-password-recovery design.md "Session invalidation": every
+        // authenticated request re-validates the `session_ver` claim against
+        // SessionVersionCache; missing claim (pre-change cookie) or mismatch
+        // (post-password-change cookie) is rejected fail-closed.
+        options.Events.OnValidatePrincipal = context =>
+        {
+            var validator = context.HttpContext.RequestServices.GetRequiredService<SessionVersionValidator>();
+            return validator.ValidateAsync(context);
+        };
+        // The SPA calls this API with fetch: a denied or anonymous request must answer 403/401, never the cookie
+        // handler's default 302 to /Account/AccessDenied or /Account/Login (pages this API does not have). Behind the
+        // local HTTPS proxy that redirect pointed at http:// on the HTTPS port, fetch failed at the network level and the
+        // SPA reported "Commerce.Cloud.Api no está disponible" for what was really a missing permission.
+        options.Events.OnRedirectToLogin = context =>
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            return Task.CompletedTask;
+        };
+        options.Events.OnRedirectToAccessDenied = context =>
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            return Task.CompletedTask;
+        };
+    })
+    .AddScheme<DeviceBearerAuthenticationOptions, DeviceBearerAuthenticationHandler>(
+        CloudAuthenticationSchemes.DeviceBearer, _ => { })
+    // admin-console-field-fixes T5: a bearer request is the device, anything else the browser cookie. Named ONLY
+    // by the StaffOrDeviceOperator policy, which only the endpoints that opt in carry; the default scheme stays
+    // the cookie, so every other staff endpoint still refuses a device credential.
+    .AddPolicyScheme(CloudAuthenticationSchemes.StaffOrDevice, CloudAuthenticationSchemes.StaffOrDevice, options =>
+        options.ForwardDefaultSelector = DeviceOperatorAccess.SelectScheme)
+    // Fourth, genuinely separate cookie scheme (commerce-guest-ordering
+    // design.md "Customer session"): the separate staff-cookie pattern applied
+    // a second time — its own Cookie.Name and Cookie.Path = "/customer", so
+    // a customer cookie is not even SENT to a staff path, and the "Customer"
+    // policy below names only this scheme.
+    .AddCookie(CloudAuthenticationSchemes.CustomerCookie, options =>
+    {
+        options.Cookie.Name = "commerce.customer";
+        options.Cookie.Path = "/customer";
+        options.Cookie.HttpOnly = true;
+        options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+        options.Cookie.SameSite = SameSiteMode.Lax;
+        options.Events.OnRedirectToLogin = context =>
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            return Task.CompletedTask;
+        };
+        options.Events.OnRedirectToAccessDenied = context =>
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            return Task.CompletedTask;
+        };
+    });
+
+builder.Services.AddAuthorizationBuilder()
+    .AddPolicy("DeviceBearer", policy => policy
+        .AddAuthenticationSchemes(CloudAuthenticationSchemes.DeviceBearer)
+        .RequireAuthenticatedUser())
+    .AddPolicy("Customer", policy => policy
+        .AddAuthenticationSchemes(CloudAuthenticationSchemes.CustomerCookie)
+        .RequireAuthenticatedUser())
+    .AddPolicy(DeviceOperatorAccess.PolicyName, policy => policy
+        .AddAuthenticationSchemes(CloudAuthenticationSchemes.StaffOrDevice)
+        .RequireAuthenticatedUser());
+
+// --- Rate limiting (commerce-guest-ordering design.md "Rate limiting"):
+// built-in Microsoft.AspNetCore.RateLimiting, shared framework, zero new
+// PackageReference. Four named fixed-window policies attached ONLY to the
+// `/public` group via RequireRateLimiting in PublicOrdering.cs — the staff,
+// customer, and device endpoint groups mapped below carry NO limiter policy,
+// so an abusive public burst cannot degrade them. Partitioned by remote IP;
+// rejects with 429 + Retry-After. Sized for a two-branch operation (tens of
+// orders/day), each ceiling ~50-100x realistic per-person traffic. --------
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.OnRejected = (context, ct) =>
+    {
+        context.HttpContext.Response.Headers.RetryAfter = "60";
+        return ValueTask.CompletedTask;
+    };
+
+    static string IpPartitionKey(HttpContext httpContext) =>
+        httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+    options.AddPolicy(PublicRateLimitPolicies.GuestVerificationRequest, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(IpPartitionKey(httpContext), _ => new FixedWindowRateLimiterOptions
+        {
+            Window = TimeSpan.FromMinutes(15),
+            PermitLimit = 5,
+            QueueLimit = 0,
+        }));
+
+    options.AddPolicy(PublicRateLimitPolicies.GuestVerificationConfirm, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(IpPartitionKey(httpContext), _ => new FixedWindowRateLimiterOptions
+        {
+            Window = TimeSpan.FromMinutes(15),
+            PermitLimit = 10,
+            QueueLimit = 0,
+        }));
+
+    options.AddPolicy(PublicRateLimitPolicies.GuestOrderSubmit, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(IpPartitionKey(httpContext), _ => new FixedWindowRateLimiterOptions
+        {
+            Window = TimeSpan.FromHours(1),
+            PermitLimit = 10,
+            QueueLimit = 0,
+        }));
+
+    // POST /device/pair is anonymous and accepts a client-chosen InstallationId:
+    // every fresh GUID that pairs consumes one of its branch's 999 register
+    // numbers for good. Per-IP fixed window; the ceiling is far above a real
+    // fit-out (a handful of terminals) and configurable per environment.
+    var devicePairPermitLimit = builder.Configuration.GetValue("RateLimits:DevicePairPermitLimit", DeviceRateLimitPolicies.DefaultPairPermitLimit);
+    options.AddPolicy(DeviceRateLimitPolicies.Pair, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(IpPartitionKey(httpContext), _ => new FixedWindowRateLimiterOptions
+        {
+            Window = DeviceRateLimitPolicies.PairWindow,
+            PermitLimit = devicePairPermitLimit,
+            QueueLimit = 0,
+        }));
+
+    options.AddPolicy(PublicRateLimitPolicies.PublicCatalogRead, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(IpPartitionKey(httpContext), _ => new FixedWindowRateLimiterOptions
+        {
+            Window = TimeSpan.FromMinutes(1),
+            PermitLimit = 60,
+            QueueLimit = 0,
+        }));
+});
+
+// --- Health -----------------------------------------------------------------
+// /health = liveness, no DB dependency. /health/ready = verifies (never
+// applies) schema/RLS shape (design.md "Schema/RLS application").
+builder.Services.AddHealthChecks()
+    .AddCheck("self", () => HealthCheckResult.Healthy(), tags: new[] { "live" })
+    .AddCheck<PostgresReadinessHealthCheck>("postgres-rls-ready", tags: new[] { "ready" });
+
+var app = builder.Build();
+
+app.UseAuthentication();
+app.UseAuthorization();
+// organization-account-standing T4: a suspended organization gets 403 organization-suspended on the web; the POS is never touched.
+app.UseMiddleware<OrganizationSuspensionMiddleware>();
+app.UseRateLimiter();
+
+app.MapHealthChecks("/health", new HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains("live")
+});
+
+app.MapHealthChecks("/health/ready", new HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains("ready")
+});
+
+app.MapAccountEndpoints();
+app.MapOrganizationAccountStandingEndpoints();
+app.MapDeviceEndpoints();
+app.MapSyncEndpoints();
+app.MapCatalogEndpoints();
+app.MapCategoryEndpoints();
+app.MapMasterDataEndpoints();
+app.MapSupplierEndpoints();
+app.MapSupplierAccountEndpoints();
+app.MapCustomerAccountEndpoints();
+app.MapEmployeeAccountEndpoints();
+app.MapPurchaseReceptionEndpoints();
+app.MapStockEndpoints();
+app.MapGeographyEndpoints();
+app.MapBranchDiscountPinEndpoints();
+app.MapOrderingEndpoints();
+app.MapStaffOrderingEndpoints();
+app.MapFulfillmentEndpoints();
+app.MapTreasuryEndpoints();
+app.MapEmployeeEndpoints();
+app.MapVehicleEndpoints();
+app.MapCustomerEndpoints();
+app.MapCustomerSessionEndpoints();
+app.MapPricingEndpoints();
+app.MapPaymentEndpoints();
+
+// Config-gated (design.md "Org/branch resolution point" / Migration and
+// Rollout "narrowest rollback"): with GuestOrdering__* absent,
+// MapPublicOrderingEndpoints is NEVER called, so every /public/* route 404s
+// (never mapped) rather than existing half-configured.
+if (guestOrderTargetConfigured)
+{
+    app.MapPublicOrderingEndpoints();
+}
+
+// TEST-ONLY, Development-gated seeding for the Playwright E2E suite (see
+// TestSeedEndpoints.cs remarks) — never mapped outside ASPNETCORE_ENVIRONMENT
+// = Development, so never reachable in a real deploy.
+if (app.Environment.IsDevelopment())
+{
+    app.MapTestSeedEndpoints();
+}
+
+// --- SPA static hosting -------------------------------------------------
+// Same-origin SPA (design.md "SPA delivery"): the Dockerfile's Node build
+// stage copies the built Commerce.Web bundle into wwwroot. UseDefaultFiles
+// must run before UseStaticFiles so `/` resolves to index.html; the
+// fallback keeps client-side routes working on a hard refresh without
+// swallowing the API route groups mapped above (fallback only applies to
+// requests that don't match an existing endpoint).
+app.UseDefaultFiles();
+app.UseStaticFiles();
+app.MapFallbackToFile("index.html");
+
+app.Run();
+
+// Exposed for WebApplicationFactory-based integration tests.
+public partial class Program;

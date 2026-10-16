@@ -1,0 +1,133 @@
+{
+  "placeOrder": {
+    "title": "Place an order",
+    "tabsLabel": "Order as",
+    "guestTab": "Order as guest",
+    "registeredTab": "Sign in to order",
+    "errors": {
+      "unexpectedCatalogLoad": "Unexpected error loading the catalog.",
+      "unexpectedRequestCode": "Unexpected error requesting the verification code.",
+      "unexpectedConfirmCode": "Unexpected error confirming the verification code.",
+      "confirmBeforeSubmitting": "Confirm your verification code before submitting the order.",
+      "unexpectedSubmit": "Unexpected error submitting the order.",
+      "unexpectedSignIn": "Unexpected error signing in."
+    },
+    "guest": {
+      "documentLabel": "Document (DNI)",
+      "emailLabel": "Email",
+      "nameLabel": "Name",
+      "deliveryNotesLabel": "Delivery notes (optional)",
+      "sending": "Sending…",
+      "resendCode": "Resend verification code",
+      "sendCode": "Send verification code",
+      "codeLabel": "Verification code",
+      "confirming": "Confirming…",
+      "confirmCode": "Confirm code",
+      "verificationConfirmed": "Verification confirmed.",
+      "confirmBeforeSubmitting": "Confirm your verification code before submitting the order."
+    },
+    "registered": {
+      "emailLabel": "Email",
+      "passwordLabel": "Password",
+      "signingIn": "Signing in…",
+      "signIn": "Sign in",
+      "signedInAs": "Signed in as {{email}}"
+    },
+    "outcome": {
+      "accepted": "Order accepted.",
+      "received": "Order <number>{{number}}</number> received",
+      "numberHint": "{{type}} = Order · {{branch}} = Branch · {{origin}} = Web · {{sequence}} = branch order number",
+      "denied": "Denied: {{reason}}"
+    },
+    "submitting": "Submitting…",
+    "submit": "Submit order"
+  },
+  "staffOrder": {
+    "title": "Take order",
+    "description": "Choose the customer, add the products and confirm the order with the prices of their list.",
+    "noAccess": "Your user is not allowed to take orders.",
+    "branchRequired": "Choose a branch in the top bar to take orders.",
+    "customer": {
+      "title": "Customer",
+      "searchLabel": "Search customer",
+      "searchPlaceholder": "Name, tax id or phone",
+      "hint": "Type to search the organization's customers.",
+      "searching": "Searching…",
+      "noResults": "No customer matches the search.",
+      "searchError": "The customers could not be searched.",
+      "disabled": "Customer disabled",
+      "noCity": "No city",
+      "priceList": "{{name}} list",
+      "defaultPriceList": "Default list",
+      "discount": "{{discount}}% discount",
+      "change": "Change"
+    },
+    "products": {
+      "title": "Products",
+      "searchLabel": "Search product",
+      "searchPlaceholder": "Name or code",
+      "searching": "Searching…",
+      "noResults": "No product matches the search.",
+      "searchError": "The products could not be searched.",
+      "add": "Add {{name}}",
+      "addShort": "Add",
+      "empty": "No products added yet.",
+      "linesLabel": "Order products"
+    },
+    "lines": {
+      "quantityLabel": "Quantity of {{name}}",
+      "remove": "Remove {{name}}",
+      "unitPrice": "{{price}} each",
+      "priceList": "{{name}} list",
+      "fellBack": "No price in the customer's list: {{name}} was used",
+      "unpriced": "No price for this customer",
+      "pricing": "Pricing…",
+      "invalidInteger": "Enter a whole quantity greater than zero.",
+      "invalidDecimal": "Enter a quantity greater than zero."
+    },
+    "note": {
+      "label": "Note (optional)",
+      "placeholder": "Delivery or preparation instructions",
+      "counter": "{{length}}/{{max}}"
+    },
+    "summary": {
+      "title": "Summary",
+      "total": "Total",
+      "lineCount_one": "{{count}} product",
+      "lineCount_other": "{{count}} products",
+      "chooseCustomer": "Choose a customer to see the prices.",
+      "addProducts": "Add at least one product.",
+      "fixQuantities": "Fix the highlighted quantities.",
+      "pricing": "Pricing…",
+      "unpricedBlock": "Remove the products without a price to confirm the order.",
+      "submit": "Confirm order",
+      "submitting": "Sending…"
+    },
+    "errors": {
+      "notFound": "The customer or a product no longer exists.",
+      "customerDisabled": "The customer is disabled: orders cannot be taken for them.",
+      "noEffectivePrice": "A product has no price for this customer.",
+      "denied": "The order could not be registered ({{reason}}).",
+      "validation": "Check the order details.",
+      "forbidden": "Your user is not allowed to take orders.",
+      "unexpectedQuote": "The prices could not be calculated.",
+      "unexpectedSubmit": "Unexpected error while sending the order."
+    },
+    "confirmation": {
+      "title": "Order <number>{{number}}</number> registered",
+      "titleWithoutNumber": "Order registered",
+      "replay": "This order was already registered: it was not duplicated.",
+      "customer": "Customer: {{name}}",
+      "total": "Total: {{total}}",
+      "newOrder": "New order",
+      "viewOrders": "View orders"
+    }
+  },
+  "lineEditor": {
+    "presentationLabel": "Presentation",
+    "quantityLabel": "Quantity",
+    "addLine": "Add line",
+    "remove": "Remove",
+    "lineSummary": "{{name}} — qty: {{quantity}}"
+  }
+}
