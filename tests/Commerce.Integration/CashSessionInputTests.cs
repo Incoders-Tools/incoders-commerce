@@ -39,7 +39,7 @@ public sealed class CashSessionInputTests
     [Theory]
     [InlineData("abc")]
     [InlineData("-5")]
-    [InlineData("10.005")]
+    [InlineData("10,005")]
     [InlineData("1,000.00")]
     public void ReadAmount_RefusesAnythingElseWithASpanishMessage(string text)
     {

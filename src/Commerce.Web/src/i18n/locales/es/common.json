@@ -71,5 +71,10 @@
     "pick": "Elegir fecha",
     "min": "La fecha tiene que ser desde el {{date}}.",
     "max": "La fecha tiene que ser hasta el {{date}}."
+  },
+  "money": {
+    "placeholder": "Ej.: 15.000 o 15.000,50",
+    "placeholderShort": "15.000,50",
+    "readAs": "Se toma como {{amount}}"
   }
 }

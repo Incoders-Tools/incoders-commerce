@@ -12,10 +12,15 @@
      its SHA256; also writes a build-info.json used by the release workflow.
 
   Version mapping (semver tag -> MSIX 4-part version, and manifest version):
-    1.4.0            -> 1.4.0.0   (manifest "1.4.0")
-    1.4.0-internal.3 -> 1.4.0.3   (manifest "1.4.0.3")
-  The trailing number of a prerelease suffix becomes the 4th part, so
-  ReleaseDiscovery's System.Version comparison orders internal builds.
+    1.4.0            -> 1.4.0.65534 (manifest "1.4.0")
+    1.4.0-rc.2       -> 1.4.0.2     (manifest "1.4.0.2")
+    1.4.0-internal.3 -> 1.4.0.3     (manifest "1.4.0.3")
+  The trailing number of a prerelease suffix becomes the 4th part (at most
+  65533). A final release takes the highest 4th part an AssemblyVersion
+  accepts (65534), so Windows installs it over its own prereleases (MSIX
+  refuses a lower version), and its manifest version keeps three parts, which
+  Commerce.Updater's ReleaseVersion ranks above every prerelease of the same
+  core (semver: 1.4.0-rc.2 < 1.4.0).
 
 .EXAMPLE
   $env:POS_SIGNING_PFX_PASSWORD = '...'
@@ -25,7 +30,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$Version,
-    [ValidateSet('stable', 'internal')][string]$Channel = 'internal',
+    [ValidateSet('stable', 'pilot', 'internal')][string]$Channel = 'internal',
     [Parameter(Mandatory = $true)][string]$PfxPath,
     [string]$PasswordEnvVar = 'POS_SIGNING_PFX_PASSWORD',
     [Parameter(Mandatory = $true)][string]$OutputDir,
@@ -42,8 +47,10 @@ function Convert-ToPackageVersion([string]$SemVer) {
     $m = [regex]::Match($SemVer.TrimStart('v'), '^(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z.-]+)?(\+.*)?$')
     if (-not $m.Success) { throw "Version '$SemVer' is not a valid semver (expected 1.2.3 or 1.2.3-internal.4)." }
     $tail = [regex]::Match($m.Groups[4].Value, '(\d+)$')
-    $rev = if ($tail.Success) { [int]$tail.Groups[1].Value } else { 0 }
-    if ($rev -gt 65535) { throw "Prerelease number $rev exceeds the MSIX 4th-part limit (65535)." }
+    if (-not $m.Groups[4].Success) { $rev = 65534 }
+    elseif ($tail.Success) { $rev = [int]$tail.Groups[1].Value }
+    else { $rev = 0 }
+    if ($m.Groups[4].Success -and $rev -gt 65533) { throw "Prerelease number $rev exceeds the 4th-part limit (65533; 65534 is the final release)." }
     $core = "$($m.Groups[1].Value).$($m.Groups[2].Value).$($m.Groups[3].Value)"
     return [pscustomobject]@{
         Msix     = "$core.$rev"

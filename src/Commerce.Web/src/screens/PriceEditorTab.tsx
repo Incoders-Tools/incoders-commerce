@@ -9,7 +9,8 @@ import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
 import { formatMoney } from '@/dashboard/format'
 import { todayIso } from '@/lib/isoDate'
-import { parseAmount } from '@/lib/quantity'
+import { parseMoney } from '@/lib/money'
+import { MoneyInput } from '@/components/form/MoneyField'
 import { applyPercent, composeFinal, differencePercent, hasAtMostTwoDecimals, round2 } from '@/lib/priceEditing'
 import { useNumberFormat } from '@/organization/NumberFormatContext'
 import { ApiError } from '@/api/client'
@@ -67,7 +68,7 @@ const normalize = (text: string) =>
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
 
-/** What the remark writes into "Nueva base": cents with a decimal comma, readable back by `parseAmount`. */
+/** What the remark writes into "Nueva base": cents with a decimal comma, readable back by `parseMoney`. */
 const toInputText = (value: number) => value.toFixed(2).replace('.', ',')
 
 /**
@@ -305,7 +306,7 @@ function PriceEditorGrid({
   const editOf = (row: EditorRow): RowEdit => {
     const text = edits[row.presentationId]?.trim() ?? ''
     if (text === '') return { status: 'unchanged' }
-    const value = parseAmount(text)
+    const value = parseMoney(text)
     if (value === null || value <= 0 || !hasAtMostTwoDecimals(value)) return { status: 'invalid' }
     if (row.base !== null && round2(value) === row.base) return { status: 'unchanged' }
     return { status: 'changed', value: round2(value) }
@@ -420,7 +421,7 @@ function PriceEditorGrid({
       setEdits((current) =>
         Object.fromEntries(
           Object.entries(current).filter(([presentationId, text]) => {
-            const value = parseAmount(text.trim())
+            const value = parseMoney(text)
             return value === null || round2(value) !== published.get(presentationId)
           }),
         ),
@@ -747,9 +748,9 @@ function EditorGridRow({
       </td>
       <td className="px-3 py-2">
         <div className="flex min-w-40 flex-col gap-1">
-          <Input
+          <MoneyInput
+            compact
             id={inputId}
-            inputMode="decimal"
             className="h-8 w-32"
             aria-label={t('editor.newBaseOf', { name: row.label })}
             aria-invalid={invalid ? true : undefined}
@@ -759,7 +760,7 @@ function EditorGridRow({
             data-presentation-id={row.presentationId}
             value={text}
             disabled={locked}
-            onChange={(e) => onEdit(e.target.value)}
+            onChange={onEdit}
           />
           <div id={messageId} className="flex flex-col gap-0.5 text-xs">
             {edit.status === 'changed' && !baselineStale && (

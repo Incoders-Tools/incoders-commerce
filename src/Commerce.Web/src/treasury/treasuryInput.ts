@@ -1,4 +1,5 @@
 import type { TreasuryAccount, TreasuryMovement } from '@/api/treasury'
+import { parseMoney } from '@/lib/money'
 
 /** yyyy-mm-dd of a local date. */
 export function isoDay(date: Date): string {
@@ -7,12 +8,10 @@ export function isoDay(date: Date): string {
   return `${date.getFullYear()}-${month}-${day}`
 }
 
-/** "15000", "$ 15000" or "15000,50" -> the amount; null when it is not positive with at most two decimals. */
+/** "15.000", "$ 15000" or "15.000,50" (the shared `readMoney` rule) -> the amount; null unless positive with at most two decimals. */
 export function parseAmount(text: string): number | null {
-  const normalized = text.trim().replace(/^\$/, '').trim().replace(',', '.')
-  if (!/^\d+(\.\d{1,2})?$/.test(normalized)) return null
-  const value = Number(normalized)
-  return value > 0 ? value : null
+  const value = parseMoney(text)
+  return value !== null && value > 0 ? value : null
 }
 
 /** The account's display name: "Caja efectivo · Centro", "Banco Nación (Toda la empresa)". */

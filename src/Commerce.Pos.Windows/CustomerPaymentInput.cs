@@ -21,7 +21,7 @@ public static class CustomerPaymentInput
         if (!TryReadAmount(amountText, out var amount))
         {
             return new CustomerPaymentEntry(false, null, null, null,
-                string.IsNullOrWhiteSpace(amountText) ? null : "Ingrese el importe a cobrar, por ejemplo 15000 o 15000,50.");
+                string.IsNullOrWhiteSpace(amountText) ? null : "Ingrese el importe a cobrar, por ejemplo 15.000 o 15.000,50.");
         }
 
         if (amount <= 0m)
@@ -45,12 +45,8 @@ public static class CustomerPaymentInput
         }
     }
 
-    internal static bool TryReadAmount(string? text, out decimal amount)
-    {
-        var normalized = (text ?? string.Empty).Trim().TrimStart('$').Trim().Replace(',', '.');
-        return decimal.TryParse(normalized, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out amount)
-               && Money.Round2(amount) == amount;
-    }
+    /// <summary>The shared money rule (<see cref="MoneyInput"/>), at most two decimals.</summary>
+    internal static bool TryReadAmount(string? text, out decimal amount) => MoneyInput.TryRead(text, out amount);
 
     /// <summary>The amount to suggest: what the customer owes, when it owes something; otherwise empty.</summary>
     public static string SuggestedAmount(CustomerAccountView view) =>

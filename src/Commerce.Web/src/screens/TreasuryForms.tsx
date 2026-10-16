@@ -17,6 +17,7 @@ import {
   type TreasuryMovement,
 } from '@/api/treasury'
 import { accountLabel, baseConcept, isoDay, parseAmount, type BranchOption } from '@/treasury/treasuryInput'
+import { MoneyInput } from '@/components/form/MoneyField'
 
 /** The message of a refused write: the known machine codes in plain words, else what the server said. */
 function useErrorText() {
@@ -261,13 +262,7 @@ export function MovementForm({
           )}
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="treasuryMovementAmount">{t('movementForm.amount')}</Label>
-            <Input
-              id="treasuryMovementAmount"
-              inputMode="decimal"
-              value={amount}
-              placeholder={t('movementForm.amountPlaceholder')}
-              onChange={(e) => setAmount(e.target.value)}
-            />
+            <MoneyInput id="treasuryMovementAmount" value={amount} onChange={setAmount} />
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="treasuryMovementDate">{t('movementForm.date')}</Label>
@@ -391,7 +386,7 @@ export function MovementEditForm({
             <>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="treasuryEditAmount">{t('movementForm.amount')}</Label>
-                <Input id="treasuryEditAmount" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
+                <MoneyInput id="treasuryEditAmount" value={amount} onChange={setAmount} />
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="treasuryEditDate">{t('movementForm.date')}</Label>

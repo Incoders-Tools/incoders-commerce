@@ -21,9 +21,14 @@ public partial class SettingsWindow : Window
         Func<string> getVersionStatus,
         Func<Task<string>> syncPendingAsync,
         Func<Window, bool> reconfigureTerminal,
-        Func<Task<string>> checkForUpdatesAsync)
+        Func<Task<string>> checkForUpdatesAsync,
+        bool showTechnicalSections)
     {
         InitializeComponent();
+
+        // A cashier keeps Apariencia, Sincronización and Sucursal y estado (TerminalSettingsAccess).
+        TechnicalIdentitySection.Visibility = showTechnicalSections ? Visibility.Visible : Visibility.Collapsed;
+        UpdatesSection.Visibility = showTechnicalSections ? Visibility.Visible : Visibility.Collapsed;
 
         _getStatusSummary = getStatusSummary;
         _getIdentitySummary = getIdentitySummary;

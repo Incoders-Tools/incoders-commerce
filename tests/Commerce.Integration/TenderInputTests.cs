@@ -43,7 +43,7 @@ public sealed class TenderInputTests
 
     [Theory]
     [InlineData("abc")]
-    [InlineData("1.000,50")]   // no thousands separator is ever accepted
+    [InlineData("1,000.50")]   // the US convention is never read
     [InlineData("1000.005")]
     [InlineData("-5")]
     [InlineData("1e3")]

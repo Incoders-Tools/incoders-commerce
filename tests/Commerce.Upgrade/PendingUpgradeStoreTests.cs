@@ -60,6 +60,18 @@ public sealed class PendingUpgradeStoreTests : IDisposable
     }
 
     [Fact]
+    public void StartupStillOnTheReleaseCandidate_OfAFinalTarget_ReportsNotCompleted()
+    {
+        var store = new PendingUpgradeStore(_path);
+        store.Record(new PendingUpgrade("1.5.0.2", "1.5.0", null, DateTimeOffset.Parse("2026-10-01T10:00:00Z")));
+
+        var report = store.ResolveOnStartup(new Version(1, 5, 0, 2));
+
+        Assert.Equal(PendingUpgradeStatus.NotCompleted, report.Status);
+        Assert.Equal("La actualización a 1.5.0 no se completó; la terminal sigue en 1.5.0.2.", report.Message);
+    }
+
+    [Fact]
     public void CorruptFile_IsTreatedAsNoPendingUpgrade_NeverThrows()
     {
         File.WriteAllText(_path, "{ not json");

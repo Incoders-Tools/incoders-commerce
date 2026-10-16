@@ -136,6 +136,23 @@ public sealed class PosLockScreenMarkupTests
     }
 
     [Fact]
+    public void LockScreenView_DrawsTheSixthPinDot_BeforeTheCheckRuns()
+    {
+        // The PIN check takes about a second on the UI thread: run inside PasswordChanged it froze the screen before
+        // the sixth dot was drawn. It must be queued below Render, behind "Verificando…".
+        var code = Src("LockScreenView.xaml.cs");
+        var changed = Regex.Match(code, @"void PinBox_PasswordChanged\([\s\S]*?\n    }").Value;
+        var queue = Regex.Match(code, @"void QueuePinSubmit\(\)[\s\S]*?\n    }").Value;
+
+        Assert.DoesNotContain("SubmitPin()", changed);
+        Assert.Contains("QueuePinSubmit()", changed);
+        Assert.Contains("PosMessages.Verifying", queue);
+        Assert.Contains("DispatcherPriority.Background", queue);
+        Assert.Contains("SubmitPin()", queue);
+        Assert.Contains("QueuePinSubmit()", Regex.Match(code, @"void PinBox_KeyDown\([\s\S]*?\n    }").Value);
+    }
+
+    [Fact]
     public void LockScreenView_ShowsTheTerminalAndBranch()
     {
         Assert.Contains("BranchText", Src("LockScreenView.xaml.cs"));

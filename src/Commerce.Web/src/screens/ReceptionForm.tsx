@@ -19,10 +19,11 @@ import type {
 } from '@/api/types'
 import { formatMoney } from '@/dashboard/format'
 import { todayIso } from '@/lib/isoDate'
-import { parseAmount } from '@/lib/quantity'
+import { parseMoney } from '@/lib/money'
 import { useNumberFormat } from '@/organization/NumberFormatContext'
 import {
   ReceptionLinesEditor,
+  UNIT_COST_DECIMALS,
   newLineDraft,
   receptionTotal,
   type LineDraft,
@@ -131,7 +132,7 @@ export function ReceptionForm({ reception, suppliers, onCreated, savedNotice = f
     lines.forEach((line, index) => {
       const lineError: LineErrors = {}
       const quantity = numberFormat.parse(line.quantity)
-      const unitCost = parseAmount(line.unitCost)
+      const unitCost = parseMoney(line.unitCost, UNIT_COST_DECIMALS)
       if (!line.presentation) lineError.presentationId = t('lines.errors.presentationRequired')
       if (quantity === null || quantity <= 0) {
         lineError.quantity = numberFormat.errorFor(line.quantity) ?? t('lines.errors.quantityRequired')

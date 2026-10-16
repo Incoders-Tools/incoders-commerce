@@ -34,9 +34,56 @@ Branches have these roles:
 | Source | Purpose | Release channel |
 | --- | --- | --- |
 | `dev` | Integration builds for local/internal validation | `internal` |
-| `staging` | Pilot validation when introduced | `pilot` |
+| `staging` | Release candidates validated by pilot terminals | `pilot` |
 | `main` | Stable releasable source | `stable` |
 | GitHub Release | Downloadable product version with assets and manifest | channel declared by release metadata |
+
+## Release channels
+
+`pos-release.yml` derives the channel from the tag and the branch that contains the commit:
+
+| Tag | Commit reachable from | Channel | GitHub Release |
+| --- | --- | --- | --- |
+| `vX.Y.Z` | `main` | `stable` | release |
+| `vX.Y.Z-rc.N` | `staging` | `pilot` | prerelease |
+| any other prerelease (`vX.Y.Z-internal.N`), or `vX.Y.Z` not on `main` | any | `internal` | prerelease |
+
+A manual run can pick `internal`, `pilot` or `stable`, and the run fails clearly if the version does not fit the channel:
+`stable` needs a plain version on `main`; `pilot` needs an `-rc.N` version on `staging`; an `-rc.N` version can only
+be published to `pilot`, because terminals recognize pilot releases by that tag. Each channel's publication is still
+gated by `.github/release-authorization.yml`.
+
+What a terminal is offered depends on `Commerce:UpdateChannel`:
+
+| Terminal channel | Offered releases |
+| --- | --- |
+| `stable` (default, also when blank) | the newest non-prerelease release |
+| `pilot` | the newest of the stable releases and the `vX.Y.Z-rc.N` prereleases; never an internal build |
+| `internal` | the newest release of any kind, prereleases included |
+
+Any other value is a configuration error. The terminal does not fall back to `stable`: it reads no release feed and
+the footer shows `Canal de updates no válido (Commerce:UpdateChannel)`. Sales are not affected.
+
+To enroll a terminal in the pilot, set a machine environment variable and restart the POS (set it back to `stable`,
+or remove it, to leave the pilot):
+
+```powershell
+[Environment]::SetEnvironmentVariable('Commerce__UpdateChannel', 'pilot', 'Machine')
+```
+
+Versions follow semver precedence: `1.5.0-rc.2` is older than `1.5.0`, so a pilot terminal on a release candidate
+is offered the final release when it ships. A tag maps to the version the POS compares (and to the 4-part MSIX
+version) like this:
+
+| Tag | Manifest and app version | MSIX version |
+| --- | --- | --- |
+| `v1.5.0-rc.2` | `1.5.0.2` | `1.5.0.2` |
+| `v1.5.0-internal.3` | `1.5.0.3` | `1.5.0.3` |
+| `v1.5.0` | `1.5.0` | `1.5.0.65534` |
+
+A final release keeps three parts, and the updater ranks it above every 4-part prerelease of the same `X.Y.Z`. Its MSIX
+version takes the highest 4th part an assembly version accepts (65534), so Windows installs it over a prerelease of the
+same `X.Y.Z` (Windows refuses to install a lower MSIX version). Prerelease numbers stop at 65533.
 
 A merge to `main` makes code eligible for a stable release. It does not by itself make a terminal update available. A release becomes available only when the release pipeline publishes an immutable manifest and signed artifacts.
 
@@ -194,8 +241,8 @@ typed (`UpdateFailureReason`): hash mismatch, signature invalid, signer or
 publisher mismatch, sale in progress, terminal busy, not packaged, backup
 failed, install failed, download failed, cancelled.
 
-Update checks call the public GitHub Releases API (`stable` = non-prerelease
-releases, `internal` also prereleases; `Commerce:UpdateChannel`,
+Update checks call the public GitHub Releases API (channels as in
+[Release channels](#release-channels); `Commerce:UpdateChannel`,
 `Commerce:UpdateRepository`) off the UI thread with short timeouts; any
 failure is the typed "could not check" outcome and never blocks sales.
 `Commerce:UpdateManifestPath` (a local manifest file) wins when set. Settings
@@ -205,7 +252,7 @@ Configuration summary:
 
 | Key | Default | Purpose |
 | --- | --- | --- |
-| `Commerce:UpdateChannel` | `stable` | `stable` or `internal` |
+| `Commerce:UpdateChannel` | `stable` | `stable`, `pilot` or `internal`; any other value disables the check |
 | `Commerce:UpdateRepository` | `Incoders-Tools/incoders-commerce` | GitHub repository to read releases from |
 | `Commerce:UpdateManifestPath` | unset | Local manifest override (VM testing) |
 | `Commerce:UpdateTrustedPublisher` | `CN=Incoders Commerce (Interim)` | Required signer subject (ADR-013 swap is config-only) |
@@ -230,7 +277,7 @@ Research (installing the update of the running app):
 Large-product pattern recommended for this project:
 
 1. **Internal**: every releasable `dev` build can publish an internal manifest for VM/manual validation.
-2. **Pilot**: selected store/terminal cohort validates a candidate from `staging` when the project introduces staging.
+2. **Pilot**: terminals enrolled with `Commerce:UpdateChannel=pilot` validate a `vX.Y.Z-rc.N` candidate cut on `staging`. They also receive every stable release, so they never fall behind production.
 3. **Stable**: `main` release becomes available to production terminals only after a GitHub Release is published and authorized.
 4. **Progressive rollout**: stable manifest can advertise rollout percentage or allowlist cohorts later.
 5. **Rollback**: never overwrite an existing release. Publish a newer version that rolls forward to the desired state, unless ADR-004 typed rollback path is explicitly required on the terminal.
@@ -277,7 +324,7 @@ and `odd/tasks/product-update-service.md`):
 | Question | Decision |
 | --- | --- |
 | Release source | GitHub Releases, called directly by the POS. The repository is public, so no credentials are needed. A first-party mirror API stays a later option. |
-| Availability scope | Global per product channel (`stable` from `main`, `internal` from prereleases cut on `dev`), not per organization or branch. |
+| Availability scope | Global per product channel (`stable` from `main`, `pilot` from `-rc.N` candidates cut on `staging`, `internal` from other prereleases cut on `dev`), not per organization or branch. |
 | Package technology | MSIX first. The signed-MSI fallback of ADR-005 stays a follow-up and becomes a go-live item only if a terminal below Windows 10 2004 appears. |
 | Signing | Interim self-signed certificate installed once per terminal; a commercial certificate is a go-live requirement. Swapping it needs no code change (ADR-013). |
 | How a release is cut | Push a `v<semver>` tag or run `pos-release.yml` manually; the tag is the version source. Scripts: `deploy/release/`. |
