@@ -49,19 +49,14 @@ new. The guard would then reject `0012_admin_console.sql`,
 `0028_core_geography.sql`, and `0029_customer_contacts.sql`: historical contract
 changes that predate the approval marker.
 
-Fast-forward `staging` to `main` once, from an up-to-date clone, **before**
-turning on the protection in the required-checks runbook (afterwards, direct
-pushes to `staging` are blocked):
+**Done on 2026-10-16** through pull request #78 (`main` → `staging`, merge
+commit `0e2471b`). `staging` already required a pull request, so a direct push
+was rejected. After the merge, `staging`'s tree equals `main`'s, it holds all
+60 migrations, and the guard run against it from `dev` passes.
 
-```powershell
-git fetch incoders
-git push incoders incoders/main:refs/heads/staging
-```
-
-The remote is named `incoders` in the maintainers' clone; use your own remote
-name otherwise. The push fails unless it is a fast-forward, which is what you
-want. This is a one-time step: from then on `staging` only moves through gated
-pull requests.
+If `staging` ever falls behind `main` again (for example after a hotfix),
+repeat the same way: open a `main` → `staging` pull request and merge it with a
+merge commit. From then on `staging` only moves through gated pull requests.
 
 ## Version numbers
 
