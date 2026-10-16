@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import {
   formatSignedQuantity,
   formatStockQuantity,
-  parseAmount,
   parseQuantity,
   readQuantity,
   unitLabel,
@@ -48,16 +47,6 @@ describe('readQuantity', () => {
     expect(readQuantity('  ', 'Dot')).toEqual({ ok: false, reason: 'blank' })
     expect(readQuantity('abc', 'Dot')).toEqual({ ok: false, reason: 'format' })
     expect(parseQuantity('abc', 'Comma')).toBeNull()
-  })
-})
-
-describe('parseAmount (money, always es-AR)', () => {
-  it('keeps reading a decimal comma, a decimal point and a thousands separator', () => {
-    expect(parseAmount('2,5')).toBe(2.5)
-    expect(parseAmount('2.5')).toBe(2.5)
-    expect(parseAmount('4.000')).toBe(4000)
-    expect(parseAmount('1.234,56')).toBe(1234.56)
-    expect(parseAmount('')).toBeNull()
   })
 })
 

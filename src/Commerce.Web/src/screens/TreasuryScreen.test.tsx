@@ -311,6 +311,9 @@ describe('TreasuryScreen', () => {
     ])
     expect(parseAmount('$ 15000,5')).toBe(15000.5)
     expect(parseAmount('1,555')).toBeNull()
+    expect(parseAmount('15.000')).toBe(15000)
+    expect(parseAmount('1.234,50')).toBe(1234.5)
+    expect(parseAmount('0')).toBeNull()
     expect(baseConcept({ ...manual, kind: 'Transfer', concept: 'Transferencia a Banco: Depósito: lunes' })).toBe('Depósito: lunes')
   })
 

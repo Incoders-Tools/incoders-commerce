@@ -63,7 +63,7 @@ public sealed class PendingUpgradeStore(string path)
             return new PendingUpgradeReport(PendingUpgradeStatus.None, string.Empty);
         }
 
-        if (Version.TryParse(pending.TargetVersion, out var target) && running >= target)
+        if (Version.TryParse(pending.TargetVersion, out var target) && ReleaseVersion.Compare(running, target) >= 0)
         {
             return new PendingUpgradeReport(PendingUpgradeStatus.Completed,
                 $"Actualización a la versión {pending.TargetVersion} completada.");

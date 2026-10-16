@@ -13,7 +13,7 @@
 #
 # Decision matrix:
 #   changes  must be exactly "success", else FAIL.
-#   web-tests / web-e2e / build:
+#   web-tests / web-e2e / build / migrations:
 #     success  -> pass (ran and passed)
 #     skipped  -> pass (legitimately not selected by the path filter)
 #     anything else (failure, cancelled, null, ...) -> FAIL
@@ -32,7 +32,7 @@ if [ "$detector" != "success" ]; then
 fi
 
 rc=0
-for job in web-tests web-e2e build; do
+for job in web-tests web-e2e build migrations; do
   r=$(jq -r --arg j "$job" '.[$j].result' <<<"$needs_json")
   case "$r" in
   success) echo "PASS    ${job}" ;;

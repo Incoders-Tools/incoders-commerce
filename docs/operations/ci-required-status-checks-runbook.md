@@ -16,16 +16,38 @@ conditionally skipped by path. A path-filtered job still reports a `skipped`
 conclusion, which the new always-run `ci-gate` job (see design.md)
 aggregates into a single pass/fail signal.
 
-**The one required status check is `ci-gate`.** `changes`, `web-tests`,
-`web-e2e`, `build`, `determine-channel`, and `verify-protected-source` MUST
-NOT be named as required checks — naming a path-filtered job directly would
+Since ADR-016 (`docs/architecture/decisions/ADR-016-migrations-at-deploy-and-rollback.md`)
+the workflow runs on pull requests into `staging` and `main` only, and
+`ci-gate` also aggregates the `migrations` job (expand-only guard plus the
+migrator applied twice to an empty Postgres 16). Merging into `staging` or
+`main` deploys that Railway environment and migrates its database, so those
+two branches are the gated ones.
+
+**The one required status check is `ci-gate`, on `staging` and `main`
+only.** `changes`, `web-tests`, `web-e2e`, `build`, `migrations`,
+`determine-channel`, and `verify-protected-source` MUST NOT be named as
+required checks — naming a path-filtered job directly would
 let GitHub treat its `skipped` conclusion as a passing required check even
 when the filter was wrong, defeating the point of `ci-gate`'s explicit
 `changes` must be `success` assertion.
 
+| Branch | Required check | Require a pull request before merging | Direct pushes |
+|---|---|---|---|
+| `staging` | `ci-gate` | Yes | Blocked by the PR requirement |
+| `main` | `ci-gate` | Yes | Blocked by the PR requirement |
+| `dev` | None | No | Allowed |
+
+**Why `dev` is excluded:** the owner's rule is that `dev` is pure
+development, with no gates and no migration policies (ADR-016). The workflow
+does not run on pull requests into `dev`, so a required `ci-gate` there would
+never be reported and every PR into `dev` would hang Pending. `dev` gets no
+protection rule that blocks direct pushes either.
+
 ## Step 1 — record the prior required-check list (do this FIRST)
 
-Run this before touching branch protection. Rollback depends on this
+Run this before touching branch protection. Record all three branches,
+`dev` included: Step 4 may remove `dev`'s protection, and rollback restores
+it from this record. Rollback depends on this
 output; a 404 is **inconclusive**, per `release.yml:41-44`'s existing
 "never treat inconclusive as proof of absence" principle — record the raw
 status, never record it as "no checks were required":
@@ -34,6 +56,8 @@ status, never record it as "no checks were required":
 for b in dev staging main; do
   gh api "repos/Incoders-Tools/incoders-commerce/branches/$b/protection/required_status_checks" \
     --jq '{strict, checks}' || echo "$b: endpoint inconclusive"
+  gh api "repos/Incoders-Tools/incoders-commerce/branches/$b/protection" \
+    || echo "$b: protection endpoint inconclusive"
 done
 ```
 
@@ -47,20 +71,37 @@ Apply the `required_status_checks` PATCH below **only after**
 branch being protected. Patching branch protection before `ci-gate` exists
 on that branch means every PR hangs on a required check that never runs.
 
-Recommended rollout order (per design.md "Migration / Rollout"):
+Recommended rollout order:
 
-1. Merge `release.yml` + `openspec/config.yaml` to `dev`.
-2. Confirm one push run on `dev` still shows all five original jobs and the
-   publication-gate log line for channel `internal`.
-3. Open the four evidence PRs (Web-only, .NET-only, docs-only, both);
-   confirm `ci-gate` is green in all four.
-4. Only then apply the PATCH below — to `dev`, then `staging`, then `main`.
-5. Promote `dev -> staging -> main` by the project's existing branch flow.
+1. Merge the `release.yml` change to `dev` (no CI runs there).
+2. Once, before the first `dev -> staging` PR, align `staging` with `main`.
+   **Done on 2026-10-16** through PR #78 (`main -> staging`, merge commit;
+   `staging` already required a pull request, so a direct push was rejected).
+   Without it, the `migrations` guard would see every file as added and reject
+   the historical contract changes in `0012`, `0028`, and `0029`. Details in
+   the release guide's
+   [one-time setup](release-guide.md#one-time-setup-align-staging-before-the-first-gated-promotion).
+3. Open the promotion PR `dev -> staging`. A pull request runs the workflow
+   as it exists in the PR, so this first PR already runs `ci-gate`, including
+   `migrations`. Confirm it is green.
+4. Merge it, then apply Step 3 to `staging`.
+5. Promote `staging -> main` the same way, then apply Step 3 to `main`.
+6. Apply Step 4 to `dev`.
 
-## Step 3 — apply the PATCH
+## Step 3 — protect `staging` and `main`
+
+For each of `staging` and `main`, in GitHub → Settings → Branches, edit (or
+add) the branch protection rule and enable:
+
+- **Require a pull request before merging.**
+- **Require status checks to pass before merging**, with `ci-gate` as the
+  only check.
+
+Then set the required check with the API (the endpoint needs the rule from
+the step above to exist):
 
 ```bash
-for b in dev staging main; do
+for b in staging main; do
   gh api --method PATCH \
     "repos/Incoders-Tools/incoders-commerce/branches/$b/protection/required_status_checks" \
     --input - <<'JSON'
@@ -75,10 +116,23 @@ proposal's motivating pain (c) (CI-minutes waste is a co-equal concern, not
 subordinate to gate strictness). **If Step 1's output shows `strict: true`
 today, preserve that value instead of overwriting it to `false`.**
 
+## Step 4 — leave `dev` ungated
+
+If Step 1 shows any required check or protection rule on `dev`, remove the
+rule in GitHub → Settings → Branches, or with the API:
+
+```bash
+gh api --method DELETE "repos/Incoders-Tools/incoders-commerce/branches/dev/protection"
+```
+
+Never add `ci-gate` to `dev`: the workflow does not run on pull requests into
+`dev`, so the check would never be reported.
+
 ## Rollback ordering (inverts the apply order)
 
-1. Remove `ci-gate` from required checks **first**.
-2. Restore the exact prior list recorded in Step 1.
+1. Remove `ci-gate` from required checks on `staging` and `main` **first**.
+2. Restore the exact prior lists and protection recorded in Step 1, `dev`
+   included.
 3. Only then revert the `release.yml` commit.
 
 Reverting the workflow before un-requiring `ci-gate` leaves branch

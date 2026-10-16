@@ -52,6 +52,39 @@ public sealed class UpdateDiscoveryTests : IDisposable
         Assert.Equal("Update 1.1.0 disponible", ReleaseDiscovery.FormatCompactStatus(result));
     }
 
+    // Semver precedence: 1.5.0-rc.2 ships as the four-part 1.5.0.2 and the
+    // final 1.5.0 as three parts, which must rank above every prerelease of
+    // the same core (a pilot terminal must be offered the final).
+    [Theory]
+    [InlineData("1.5.0.2", "1.5.0")]
+    [InlineData("1.5.0.2", "1.5.0.3")]
+    [InlineData("1.4.0", "1.5.0.1")]
+    [InlineData("1.5.0.9", "1.5.1.1")]
+    public void ReleaseCandidateTerminal_IsOfferedANewerRelease(string local, string manifest)
+    {
+        WriteManifest(manifest);
+
+        var result = CheckLocal(Version.Parse(local), _manifestPath, CompatibleMachine);
+
+        Assert.Equal(UpdateCheckStatus.Available, result.Status);
+        Assert.Equal(Version.Parse(manifest), result.AvailableVersion);
+    }
+
+    [Theory]
+    [InlineData("1.5.0", "1.5.0.2")]
+    [InlineData("1.5.0", "1.5.0")]
+    [InlineData("1.5.0.2", "1.5.0.2")]
+    [InlineData("1.5.0.3", "1.5.0.2")]
+    [InlineData("1.5.1", "1.5.0")]
+    public void FinalReleaseTerminal_IsNotOfferedItsOwnOrAnOlderPrerelease(string local, string manifest)
+    {
+        WriteManifest(manifest);
+
+        var result = CheckLocal(Version.Parse(local), _manifestPath, CompatibleMachine);
+
+        Assert.Equal(UpdateCheckStatus.UpToDate, result.Status);
+    }
+
     [Fact]
     public void HigherVersionBelowWindowsFloor_ReturnsIncompatibleWindows()
     {

@@ -141,6 +141,13 @@ SQL, or `.env.example`.
 
 ## Unit 2 — Transaction-pooler proof-of-concept outcome
 
+> **Superseded for deployed environments by
+> [ADR-014](../docs/architecture/decisions/ADR-014-railway-hosted-postgres.md).**
+> Cloud.Api now connects directly to a Railway Postgres service over the
+> private network, with no transaction-mode pooler in between. This section
+> stays as the record of the local PgBouncer proof, which still runs in
+> `deploy/dev/compose.yaml`.
+
 **Result: PASS (for the tested local approximation) — transaction-mode pooling accepted, with a documented gap.**
 
 `design.md`'s "Pooling + tenant scope" decision requires a runnable PoC before
@@ -224,50 +231,37 @@ runner that was never given the infrastructure to begin with.
 ## Unit 5 — One-time-per-environment schema/RLS migration
 
 `deploy/db/migrations/0001_init_rls.sql` is the repo-owned, idempotent
-migration that must be applied ONCE per real environment (staging now,
-production later) directly against that environment's own Supabase project —
-never auto-applied by Cloud.Api. `Program.cs`'s `/health/ready` only
+migration applied to each real environment (staging and production) by
+`Commerce.Migrator`, Railway's pre-deploy command, before the new Cloud.Api
+version starts (ADR-016). Cloud.Api itself never applies DDL: `Program.cs`'s
+`/health/ready` only
 *verifies* the table/RLS/policy already exist and fails readiness otherwise
 (design.md "Schema/RLS application").
 
 ### Applying the migration
 
-1. In the Supabase dashboard for the target project, copy the **direct**
-   (non-pooled, port `5432`) Postgres connection string — not the transaction
-   pooler (`6543`) one used at runtime by Cloud.Api. Applying DDL through the
-   pooler is unnecessary and the direct connection is the standard tool for
-   one-off admin operations.
-2. Generate a fresh, strong password for the `app_runtime` role (a password
-   manager or `openssl rand -base64 32`); this becomes a Railway environment
-   secret in the next step, never a repo commit.
-3. Substitute the migration's `__APP_RUNTIME_PASSWORD__` placeholder with
-   that password and pipe the result into `psql`, without ever writing the
-   substituted file to disk:
+See [the Railway runbook, section 4](./railway-runbook.md#4-migrations-automatic-and-the-runtime-roles).
+Every deployment runs `Commerce.Migrator`, which applies pending files in
+numeric order, records each in the `schema_migrations` ledger, and substitutes
+the `__APP_RUNTIME_PASSWORD__` (0001) and `__PLATFORM_READONLY_PASSWORD__`
+(0007) placeholders in memory from the `APP_RUNTIME_PASSWORD` and
+`PLATFORM_READONLY_PASSWORD` variables. A failure cancels the deployment. The
+same program runs by hand through a `railway connect` tunnel.
 
-   ```bash
-   # macOS/Linux/WSL:
-   sed "s/__APP_RUNTIME_PASSWORD__/$APP_RUNTIME_PASSWORD/" \
-     deploy/db/migrations/0001_init_rls.sql \
-     | psql "postgresql://postgres:<db-password>@<project-ref>.supabase.co:5432/postgres"
-   ```
+Confirm success with `SELECT rolname FROM pg_roles WHERE rolname = 'app_runtime';`
+(one row) and `SELECT polname FROM pg_policies WHERE tablename = 'sync_inbox';`
+(`sync_inbox_tenant_isolation`).
 
-   ```powershell
-   # Windows PowerShell:
-   (Get-Content deploy/db/migrations/0001_init_rls.sql) `
-     -replace '__APP_RUNTIME_PASSWORD__', $env:APP_RUNTIME_PASSWORD |
-     psql "postgresql://postgres:<db-password>@<project-ref>.supabase.co:5432/postgres"
-   ```
+The `app_runtime` connection string
+(`Host=postgres.railway.internal;Port=5432;Database=railway;Username=app_runtime;Password=<app_runtime password>`)
+becomes that environment's `ConnectionStrings__Commerce` Railway variable. See
+[`deploy/railway-runbook.md`](./railway-runbook.md) for the full
+per-environment provisioning checklist and the complete list of variables.
 
-4. Confirm success: `psql ... -c "SELECT rolname FROM pg_roles WHERE rolname = 'app_runtime';"`
-   returns one row, and `SELECT polname FROM pg_policies WHERE tablename = 'sync_inbox';`
-   returns `sync_inbox_tenant_isolation`.
-5. Re-running the same command later (e.g. to rotate the password, or as a
-   drift check) is safe — every statement in the migration is idempotent.
-
-The `app_runtime` connection string (`Host=<pooler-host>;Port=6543;Database=postgres;Username=app_runtime;Password=<the-password-from-step-2>`)
-becomes that environment's `ConnectionStrings__Commerce` Railway variable —
-see `deploy/staging-runbook.md` for the full per-environment provisioning
-checklist and the complete list of required Railway variables.
+The per-migration sections below keep their original Supabase `psql` targets
+as historical examples. On Railway, the migrator applies all of them;
+when a single file has to be applied by hand, use the tunnel target from the
+runbook (`host=localhost port=<tunnel port> dbname=railway user=postgres`).
 
 ### commerce-user-credentials — `0002_users.sql`
 
@@ -416,7 +410,13 @@ remain), and the post-condition assertion still passes.
 (`Host=<pooler-host>;Port=6543;Database=postgres;Username=platform_readonly;Password=<the-password-from-0007>`).
 Absent, `GET /platform/organizations` fails closed with `503` and NEVER
 falls back to the shared `app_runtime` pool — see
-`deploy/staging-runbook.md` for the full per-environment checklist.
+[`deploy/railway-runbook.md`](./railway-runbook.md) for the full per-environment checklist.
+
+> **Stale as of 2026-10-15:** `/platform/bootstrap` no longer exists in
+> `src/`. `0012_admin_console.sql` replaced `platform_admins` with
+> `users.is_system_admin`, and only the Development test seed sets that flag.
+> See [the Railway runbook, section 8](./railway-runbook.md#8-first-identities)
+> for the current first-identity steps.
 
 **Platform-genesis runbook** (run ONCE, immediately after the first deploy
 that includes this change — the window does not close itself until the

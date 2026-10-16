@@ -8,10 +8,15 @@
       "src/Commerce.Domain/**",
       "src/Commerce.Application/**",
       "src/Commerce.BranchNode/**",
-      "Dockerfile"
+      "src/Commerce.Web/**",
+      "src/Commerce.Migrator/**",
+      "deploy/db/migrations/**",
+      "Dockerfile",
+      "railway.json"
     ]
   },
   "deploy": {
+    "preDeployCommand": ["dotnet /app/migrator/Commerce.Migrator.dll"],
     "startCommand": "dotnet Commerce.Cloud.Api.dll",
     "healthcheckPath": "/health",
     "healthcheckTimeout": 30,

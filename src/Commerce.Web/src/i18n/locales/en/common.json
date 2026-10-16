@@ -71,5 +71,10 @@
     "pick": "Pick a date",
     "min": "The date must be on or after {{date}}.",
     "max": "The date must be on or before {{date}}."
+  },
+  "money": {
+    "placeholder": "E.g. 15.000 or 15.000,50",
+    "placeholderShort": "15.000,50",
+    "readAs": "Read as {{amount}}"
   }
 }

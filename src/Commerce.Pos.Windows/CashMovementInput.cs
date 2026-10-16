@@ -18,7 +18,7 @@ public static class CashMovementInput
         if (!CustomerPaymentInput.TryReadAmount(amountText, out var amount))
         {
             return new CashMovementEntry(false, null,
-                string.IsNullOrWhiteSpace(amountText) ? null : "Ingrese el importe, por ejemplo 15000 o 15000,50.");
+                string.IsNullOrWhiteSpace(amountText) ? null : "Ingrese el importe, por ejemplo 15.000 o 15.000,50.");
         }
 
         if (amount <= 0m)

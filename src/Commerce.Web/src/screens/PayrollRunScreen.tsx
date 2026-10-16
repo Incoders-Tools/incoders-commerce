@@ -24,6 +24,7 @@ import { formatIsoDate, formatMoney } from '@/dashboard/format'
 import { todayIso } from '@/lib/isoDate'
 import { cn } from '@/lib/utils'
 import { parseAmount } from '@/treasury/treasuryInput'
+import { MoneyInput } from '@/components/form/MoneyField'
 import { formatFileNumber } from '@/lib/fileNumber'
 import { goodsDiscount, itemDiscount } from '@/lib/goodsDiscount'
 import { parsePercentage } from '@/lib/percentage'
@@ -483,12 +484,12 @@ function PaymentSplits({
                             </option>
                           ))}
                         </Select>
-                        <Input
+                        <MoneyInput
+                          compact
                           aria-label={t('pay.partAmount', { n: index + 1, name })}
                           className="h-8 w-36"
-                          inputMode="decimal"
                           value={part.amount}
-                          onChange={(e) => change(part.key, { amount: e.target.value })}
+                          onChange={(amount) => change(part.key, { amount })}
                         />
                         <Button
                           type="button"
@@ -654,13 +655,13 @@ function PayslipEditor({
               placeholder={line.kind === 'Earning' ? t('editor.earningPlaceholder') : t('editor.deductionPlaceholder')}
               onChange={(e) => change(line.key, { concept: e.target.value })}
             />
-            <Input
+            <MoneyInput
+              compact
               aria-label={t('editor.amount')}
               className="h-8 w-36"
-              inputMode="decimal"
               value={line.amount}
               readOnly={line.source === 'Overtime'}
-              onChange={(e) => change(line.key, { amount: e.target.value })}
+              onChange={(amount) => change(line.key, { amount })}
             />
             <Button type="button" variant="outline" size="sm" onClick={() => setLines((current) => current.filter((item) => item.key !== line.key))}>
               {t('editor.removeLine')}

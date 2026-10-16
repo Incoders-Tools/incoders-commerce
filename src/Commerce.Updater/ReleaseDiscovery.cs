@@ -15,6 +15,9 @@ public enum UpdateCheckStatus
     IncompatibleArchitecture,
     NoCompatiblePackage,
 
+    /// <summary><c>Commerce:UpdateChannel</c> is not stable, pilot or internal; nothing is checked.</summary>
+    InvalidUpdateChannel,
+
     /// <summary>The asynchronous startup or manual check has not completed yet.</summary>
     Checking
 }
@@ -84,7 +87,7 @@ public sealed class ReleaseDiscovery
             return new UpdateCheckResult(UpdateCheckStatus.CheckFailedInvalid, localVersion);
         }
 
-        if (manifestVersion <= localVersion)
+        if (ReleaseVersion.Compare(manifestVersion, localVersion) <= 0)
         {
             return new UpdateCheckResult(UpdateCheckStatus.UpToDate, localVersion, manifestVersion);
         }
@@ -128,6 +131,7 @@ public sealed class ReleaseDiscovery
         UpdateCheckStatus.IncompatibleWindows => "Update requiere una versión de Windows compatible",
         UpdateCheckStatus.IncompatibleArchitecture => "Update no compatible con esta arquitectura",
         UpdateCheckStatus.NoCompatiblePackage => "Update sin paquete compatible",
+        UpdateCheckStatus.InvalidUpdateChannel => "Canal de updates no válido (Commerce:UpdateChannel)",
         UpdateCheckStatus.Checking => "Comprobando actualizaciones...",
         _ => "No se pudo comprobar updates"
     };
@@ -140,6 +144,34 @@ public sealed class ReleaseDiscovery
         "x86" => "x86",
         var value => value
     };
+}
+
+/// <summary>
+/// Release ordering with semver prerelease precedence. A release tag maps to a
+/// <see cref="Version"/> like <c>deploy/release/build-pos-msix.ps1</c> does: a
+/// final <c>1.5.0</c> keeps three parts and a prerelease <c>1.5.0-rc.2</c>
+/// becomes <c>1.5.0.2</c>. Plain <see cref="Version"/> comparison would rank
+/// <c>1.5.0.2</c> above <c>1.5.0</c>; here a version without a fourth part is
+/// the final release and ranks above every prerelease of the same core, so
+/// <c>1.5.0-rc.2</c> &lt; <c>1.5.0</c> &lt; <c>1.5.1-rc.1</c>.
+/// </summary>
+public static class ReleaseVersion
+{
+    public static int Compare(Version left, Version right)
+    {
+        var core = (left.Major, left.Minor, Math.Max(left.Build, 0))
+            .CompareTo((right.Major, right.Minor, Math.Max(right.Build, 0)));
+        if (core != 0)
+        {
+            return core;
+        }
+
+        var leftFinal = left.Revision < 0;
+        var rightFinal = right.Revision < 0;
+        return leftFinal || rightFinal
+            ? leftFinal.CompareTo(rightFinal)
+            : left.Revision.CompareTo(right.Revision);
+    }
 }
 
 public sealed record ReleaseDiscoveryManifest

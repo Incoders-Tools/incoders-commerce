@@ -130,7 +130,7 @@
                                         <StackPanel Style="{StaticResource FormCell}">
                                             <TextBlock Text="Sueldo pactado por período" Style="{StaticResource FieldLabel}" />
                                             <TextBox x:Name="SalaryTextBox" Style="{StaticResource FieldBox}" AutomationProperties.Name="Sueldo pactado por período"
-                                                     ToolTip="Ej.: 650000" />
+                                                     ToolTip="Ej.: 15.000 o 15.000,50" />
                                         </StackPanel>
                                     </UniformGrid>
                                     <TextBlock Text="Es el importe base que se propone en cada liquidación de su frecuencia. En cada liquidación se pueden sumar horas extra, premios, aguinaldo, etc."
@@ -138,7 +138,7 @@
                                     <!-- employee-lifecycle E2: what an hour of overtime pays (x the multiplier). -->
                                     <TextBlock Text="Valor de la hora extra" Style="{StaticResource FieldLabel}" />
                                     <TextBox x:Name="OvertimeRateTextBox" Style="{StaticResource FieldBox}" AutomationProperties.Name="Valor de la hora extra"
-                                             ToolTip="Ej.: 2500" />
+                                             ToolTip="Ej.: 15.000 o 15.000,50" />
                                     <TextBlock Text="Para las horas extra: horas × este valor × el multiplicador (el domingo, ×2). Vacío: no se cargan horas extra."
                                                Style="{StaticResource FieldHint}" />
                                     <CheckBox x:Name="TakesGoodsCheckBox" Margin="0,0,0,4"
@@ -164,7 +164,7 @@
                             <TextBlock Text="El dinero sale de la cuenta de Tesorería que elijas y queda en la cuenta del empleado: la próxima liquidación lo descuenta."
                                        Style="{StaticResource MutedTextBlock}" TextWrapping="Wrap" Margin="0,0,0,12" />
                             <TextBlock Text="Importe" Style="{StaticResource FieldLabel}" />
-                            <TextBox x:Name="AdvanceAmountTextBox" Style="{StaticResource FieldBox}" AutomationProperties.Name="Importe" ToolTip="Ej.: 50000" />
+                            <TextBox x:Name="AdvanceAmountTextBox" Style="{StaticResource FieldBox}" AutomationProperties.Name="Importe" ToolTip="Ej.: 15.000 o 15.000,50" />
                             <TextBlock Text="Sale de" Style="{StaticResource FieldLabel}" />
                             <ComboBox x:Name="AdvanceAccountComboBox" Style="{StaticResource FieldCombo}" AutomationProperties.Name="Sale de" />
                             <TextBlock Text="Fecha" Style="{StaticResource FieldLabel}" />

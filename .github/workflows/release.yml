@@ -5,9 +5,13 @@ name: Release
 # produce a release candidate; any other ref is not releasable.
 on:
   # Keep CI off push events and off development branches. The only automatic
-  # gate left is a pre-merge signal for pull requests targeting `main`.
+  # gate is a pre-merge signal for pull requests targeting `staging` or
+  # `main` (ADR-016): merging into either one deploys that Railway
+  # environment and migrates its database. `dev` is pure development and is
+  # never gated here.
   pull_request:
     branches:
+      - staging
       - main
 
 permissions:
@@ -304,6 +308,94 @@ jobs:
           path: src/Commerce.Web/playwright-report/
           retention-days: 7
 
+  migrations:
+    # ADR-016: Railway applies pending migrations as the pre-deploy command of
+    # every `staging`/`main` deploy, so a PR into either branch proves here
+    # that (1) it only adds expand-only migration files and never edits an
+    # existing one, and (2) the migrator applies every file to an empty
+    # Postgres 16 and a second run skips them all (each file re-runs safely
+    # and the ledger records it). The classifier counts `deploy/*` and
+    # `src/*` as .NET, so any migration or migrator change selects this job.
+    needs: changes
+    if: needs.changes.outputs.dotnet == 'true'
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: postgres
+          POSTGRES_USER: commerce_owner
+          POSTGRES_PASSWORD: dev-only-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U commerce_owner -d postgres"
+          --health-interval 2s
+          --health-timeout 2s
+          --health-retries 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The guard diffs against the base branch, which a shallow clone
+          # does not have.
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Reject edited migrations and unapproved contract changes
+        shell: bash
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        # `origin/<base>` rather than `pull_request.base.sha`: the event's
+        # base SHA is frozen when the event fires, so if the base branch
+        # moved since, `base.sha...HEAD` would also count the base's newer
+        # commits as this PR's changes. The fetched `origin/<base>` is at
+        # least as new as the base of the checked-out merge commit, so the
+        # merge base is exactly where this PR's changes start.
+        run: |
+          set -euo pipefail
+          bash "${GITHUB_WORKSPACE}/.github/scripts/check-migrations.sh" "origin/${BASE_REF}"
+
+      - name: Create an empty database
+        env:
+          PGPASSWORD: dev-only-password
+        run: psql -h localhost -U commerce_owner -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE commerce_migrations;"
+
+      - name: Publish the migrator (as the Dockerfile does)
+        run: dotnet publish src/Commerce.Migrator/Commerce.Migrator.csproj -c Release -o "${RUNNER_TEMP}/migrator"
+
+      - name: Apply every migration twice
+        shell: bash
+        env:
+          ConnectionStrings__Migrations: "Host=localhost;Port=5432;Database=commerce_migrations;Username=commerce_owner;Password=dev-only-password"
+          APP_RUNTIME_PASSWORD: dev-only-password
+          PLATFORM_READONLY_PASSWORD: dev-only-platform-readonly-password
+        run: |
+          set -euo pipefail
+          count=$(find deploy/db/migrations -maxdepth 1 -name '*.sql' | wc -l)
+          for run in 1 2; do
+            if [ "$run" = 1 ]; then
+              expected="migrations: ${count} applied, 0 skipped"
+            else
+              expected="migrations: 0 applied, ${count} skipped"
+            fi
+            echo "Run ${run}:"
+            if ! output=$(dotnet "${RUNNER_TEMP}/migrator/Commerce.Migrator.dll" --migrations deploy/db/migrations); then
+              printf '%s\n' "$output"
+              echo "::error::Migrator run ${run} exited non-zero (see stderr above)."
+              exit 1
+            fi
+            printf '%s\n' "$output"
+            summary=$(printf '%s\n' "$output" | tail -n 1)
+            if [ "$summary" != "$expected" ]; then
+              echo "::error::Migrator run ${run} reported '${summary}', expected '${expected}'."
+              exit 1
+            fi
+          done
+
   build:
     needs: [changes, determine-channel, verify-protected-source]
     # `always()` lets `build` run on a PR where `determine-channel` and
@@ -497,7 +589,7 @@ jobs:
     # matters for PR merges, `ci-gate` no longer needs to exist on `push`
     # runs at all — removing it there removes the confusing, irrelevant
     # second check run entirely rather than trying to make it pass.
-    needs: [changes, web-tests, web-e2e, build]
+    needs: [changes, web-tests, web-e2e, build, migrations]
     if: always() && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:

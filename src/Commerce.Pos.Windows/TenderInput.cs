@@ -13,26 +13,26 @@ public sealed record CashEntry(bool IsValid, decimal? Received, decimal? Change,
 
 /// <summary>
 /// The pure logic behind the tender prompts (pos-scan-sale "Tender Recorded at
-/// the Moment of Sale"): parsing the amount received, the change, the
-/// exact-amount fill and the Spanish labels. Spanish keyboards type a decimal
-/// comma, so both "1000,50" and "1000.50" are read (with an optional leading
-/// currency sign); a thousands separator is never accepted.
+/// the Moment of Sale"): reading the amount received with the shared money rule
+/// (<see cref="MoneyInput"/>: "15.000" is fifteen thousand, "1000,50" and
+/// "1000.50" carry cents), the change, the exact-amount fill and the Spanish labels.
 /// </summary>
 public static class TenderInput
 {
     public static CashEntry EvaluateCash(decimal total, string? text)
     {
-        var normalized = (text ?? string.Empty).Trim().TrimStart('$').Trim().Replace(',', '.');
-        if (normalized.Length == 0)
+        var reading = MoneyInput.Read(text);
+        switch (reading.Failure)
         {
-            return new CashEntry(false, null, null, null);
+            case MoneyReadFailure.Blank:
+                return new CashEntry(false, null, null, null);
+            case MoneyReadFailure.Decimals:
+                return new CashEntry(false, null, null, "Use como máximo dos decimales.");
+            case MoneyReadFailure.Format:
+                return new CashEntry(false, null, null, "Ingrese el importe recibido, por ejemplo 15.000 o 15.000,50.");
         }
 
-        if (!decimal.TryParse(normalized, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var received))
-        {
-            return new CashEntry(false, null, null, "Ingrese el importe recibido, por ejemplo 1000 o 1000,50.");
-        }
-
+        var received = reading.Amount!.Value;
         if (Money.Round2(received) != received)
         {
             return new CashEntry(false, received, null, "Use como máximo dos decimales.");

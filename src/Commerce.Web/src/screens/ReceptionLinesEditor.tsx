@@ -5,7 +5,9 @@ import { Field } from '@/components/form/FormParts'
 import { PresentationPicker } from '@/components/purchasing/PresentationPicker'
 import type { PresentationOption } from '@/components/purchasing/presentationOptions'
 import { formatMoney } from '@/dashboard/format'
-import { parseAmount, parseQuantity, type DecimalSeparator } from '@/lib/quantity'
+import { parseQuantity, type DecimalSeparator } from '@/lib/quantity'
+import { parseMoney } from '@/lib/money'
+import { MoneyField } from '@/components/form/MoneyField'
 import { useNumberFormat } from '@/organization/NumberFormatContext'
 
 /** One editable line. Numbers stay as the text the operator typed until the form is submitted. */
@@ -32,10 +34,13 @@ export const newLineDraft = (): LineDraft => ({
 
 const roundCents = (value: number) => Math.round(value * 100) / 100
 
+/** A unit cost takes up to four decimals (the server's `ReceptionRules.MaxUnitCostDecimals`), typed with a comma. */
+export const UNIT_COST_DECIMALS = 4
+
 /** Quantity (in the organization's format) times unit cost (es-AR money), to the cent; 0 while either is blank or unreadable. */
 export function lineTotal(line: Pick<LineDraft, 'quantity' | 'unitCost'>, separator: DecimalSeparator): number {
   const quantity = parseQuantity(line.quantity, separator)
-  const unitCost = parseAmount(line.unitCost)
+  const unitCost = parseMoney(line.unitCost, UNIT_COST_DECIMALS)
   return quantity === null || unitCost === null ? 0 : roundCents(quantity * unitCost)
 }
 
@@ -99,12 +104,13 @@ export function ReceptionLinesEditor({ lines, options, optionsFailed, errors, on
                 inputMode="decimal"
               />
             </div>
-            <Field
+            <MoneyField
               id={`${line.key}-unitCost`}
               className="col-span-1 md:col-span-2"
               label={t('lines.unitCost', { n })}
               value={line.unitCost}
               onChange={(unitCost) => update(line.key, { unitCost })}
+              maxDecimals={UNIT_COST_DECIMALS}
               error={lineErrors.unitCost ?? null}
             />
             <div className="col-span-1 flex flex-col gap-1.5 md:col-span-2">

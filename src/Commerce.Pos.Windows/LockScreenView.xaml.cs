@@ -190,7 +190,7 @@ public partial class LockScreenView : UserControl
     {
         if (PinBox.Password.Length == OperatorPinCredential.PinLength)
         {
-            SubmitPin();
+            QueuePinSubmit();
         }
     }
 
@@ -198,9 +198,39 @@ public partial class LockScreenView : UserControl
     {
         if (e.Key == Key.Enter)
         {
-            SubmitPin();
+            QueuePinSubmit();
             e.Handled = true;
         }
+    }
+
+    private bool _pinQueued;
+
+    /// <summary>
+    /// The PIN check takes about a second on this thread. Run straight from the keystroke it froze the screen before
+    /// the sixth dot was drawn, so the operator never saw every digit typed: show "Verificando…" and every dot first
+    /// (Background runs after Render), then check.
+    /// </summary>
+    private void QueuePinSubmit()
+    {
+        if (_pinQueued)
+        {
+            return;
+        }
+
+        _pinQueued = true;
+        ApplyBusy(true, PosMessages.Verifying);
+        Dispatcher.BeginInvoke(() =>
+        {
+            try
+            {
+                SubmitPin();
+            }
+            finally
+            {
+                _pinQueued = false;
+                ApplyBusy(false, null);
+            }
+        }, System.Windows.Threading.DispatcherPriority.Background);
     }
 
     private void SubmitPin()

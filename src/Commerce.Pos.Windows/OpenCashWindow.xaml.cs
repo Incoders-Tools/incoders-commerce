@@ -21,6 +21,7 @@ public partial class OpenCashWindow : Window
 
         _hasOperator = CashSessionInput.CanPromptOpenCash(operatorLabel);
         OperatorText.Text = operatorLabel ?? string.Empty;
+        OpeningFloatPlaceholder.Text = MoneyInput.Placeholder;
         Refresh();
         Loaded += (_, _) =>
         {
@@ -39,6 +40,12 @@ public partial class OpenCashWindow : Window
 
         MessageText.Text = entry.Message ?? string.Empty;
         MessageBorder.Visibility = entry.Message is null ? Visibility.Collapsed : Visibility.Visible;
+
+        // "15.000" must never open the cash with 15 unseen: the example while empty, then the amount as read.
+        OpeningFloatPlaceholder.Visibility = OpeningFloatTextBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        var readBack = CashSessionInput.OpeningReadBack(OpeningFloatTextBox.Text);
+        OpeningReadBackText.Text = readBack ?? string.Empty;
+        OpeningReadBackText.Visibility = readBack is null ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private void OpeningFloatTextBox_TextChanged(object sender, TextChangedEventArgs e)

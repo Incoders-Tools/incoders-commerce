@@ -18,6 +18,7 @@ import {
 import { formatIsoDate, formatMoney } from '@/dashboard/format'
 import { cn } from '@/lib/utils'
 import { accountLabel, isoDay, parseAmount, recurrenceDates } from '@/treasury/treasuryInput'
+import { MoneyInput } from '@/components/form/MoneyField'
 
 const WEEKDAYS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado']
 
@@ -308,7 +309,7 @@ function RecurrenceForm({
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="recurrenceAmount">{t('movementForm.amount')}</Label>
-          <Input id="recurrenceAmount" inputMode="decimal" value={amount} placeholder="45000" onChange={(e) => setAmount(e.target.value)} />
+          <MoneyInput id="recurrenceAmount" value={amount} onChange={setAmount} />
           {recurrence && <p className="text-xs text-muted-foreground">{t('recurrences.amountHint')}</p>}
         </div>
         <div className="flex flex-col gap-1.5">

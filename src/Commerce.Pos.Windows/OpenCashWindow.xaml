@@ -17,8 +17,13 @@
                 </StackPanel>
 
                 <TextBlock Text="Efectivo inicial" Style="{StaticResource MutedTextBlock}" Margin="0,0,0,5" />
-                <TextBox x:Name="OpeningFloatTextBox" FontSize="20" Text="0" Margin="0,0,0,10" TextChanged="OpeningFloatTextBox_TextChanged"
-                         KeyDown="OpeningFloatTextBox_KeyDown" AutomationProperties.Name="Efectivo inicial" />
+                <!-- The example shows while the box is empty (MoneyInput.Placeholder); the amount as read shows under it. -->
+                <Grid Margin="0,0,0,4">
+                    <TextBox x:Name="OpeningFloatTextBox" FontSize="20" TextChanged="OpeningFloatTextBox_TextChanged"
+                             KeyDown="OpeningFloatTextBox_KeyDown" AutomationProperties.Name="Efectivo inicial" />
+                    <TextBlock x:Name="OpeningFloatPlaceholder" FontSize="20" Margin="10,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False" Style="{StaticResource MutedTextBlock}" />
+                </Grid>
+                <TextBlock x:Name="OpeningReadBackText" Style="{StaticResource MutedTextBlock}" Margin="0,0,0,10" />
 
                 <Border x:Name="MessageBorder" Background="{DynamicResource DangerSurfaceBrush}" BorderBrush="{DynamicResource DangerBrush}"
                         BorderThickness="1" CornerRadius="10" Padding="10" Margin="0,0,0,10" Visibility="Collapsed">

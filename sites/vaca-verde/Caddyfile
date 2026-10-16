@@ -1,0 +1,19 @@
+{
+	admin off
+	persist_config off
+	# Railway terminates TLS in front of the container.
+	auto_https off
+	servers {
+		trusted_proxies static private_ranges
+	}
+}
+
+:{$PORT:8080} {
+	# Railway's healthcheck; the site has no server logic.
+	respond /health 200
+
+	root * /srv/dist
+	encode gzip
+	try_files {path} /index.html
+	file_server
+}

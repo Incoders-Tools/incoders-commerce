@@ -13,7 +13,10 @@ public enum ManifestFetchKind
     NotAvailable,
 
     /// <summary>The source could not be read (network, HTTP status, timeout, malformed payload).</summary>
-    Failed
+    Failed,
+
+    /// <summary><c>Commerce:UpdateChannel</c> names no known channel, so no release feed is read.</summary>
+    InvalidChannel
 }
 
 public sealed record ManifestFetchResult(ManifestFetchKind Kind, string? Json = null, string? Detail = null);
@@ -48,31 +51,50 @@ public sealed class LocalFileManifestSource(string path) : IUpdateManifestSource
 /// <summary>
 /// Finds the newest release of a channel through the public, unauthenticated
 /// GitHub REST API and downloads its <c>commerce-pos-release-manifest.json</c>
-/// asset. <c>stable</c> considers only non-prerelease releases; <c>internal</c>
-/// also considers prereleases. Every network, HTTP or parse failure is reported
-/// as <see cref="ManifestFetchKind.Failed"/>; nothing throws to the caller
-/// (except the caller's own cancellation).
+/// asset. <c>stable</c> considers only non-prerelease releases; <c>pilot</c>
+/// also considers release candidates (<c>vX.Y.Z-rc.N</c>, the only prereleases
+/// pos-release.yml publishes to pilot); <c>internal</c> considers every
+/// prerelease. A blank channel is the <c>stable</c> default; any other name is
+/// <see cref="ManifestFetchKind.InvalidChannel"/> and reads nothing. Every
+/// network, HTTP or parse failure is reported as
+/// <see cref="ManifestFetchKind.Failed"/>; nothing throws to the caller (except
+/// the caller's own cancellation).
 /// </summary>
 public sealed partial class GitHubReleaseManifestSource : IUpdateManifestSource
 {
     public const string ManifestAssetName = "commerce-pos-release-manifest.json";
+    public const string StableChannel = "stable";
+    public const string PilotChannel = "pilot";
     public const string InternalChannel = "internal";
 
     private readonly HttpClient _http;
     private readonly string _repository;
-    private readonly bool _includePrereleases;
+    private readonly string? _channel;
+    private readonly string? _invalidChannelDetail;
     private readonly TimeSpan _timeout;
 
     public GitHubReleaseManifestSource(HttpClient http, string repository, string channel, TimeSpan? timeout = null)
     {
         _http = http;
         _repository = repository;
-        _includePrereleases = string.Equals(channel?.Trim(), InternalChannel, StringComparison.OrdinalIgnoreCase);
+        _channel = NormalizeChannel(channel);
+        if (_channel is null)
+        {
+            _invalidChannelDetail = $"Unknown update channel '{channel}' (expected stable, pilot or internal).";
+        }
+
         _timeout = timeout ?? TimeSpan.FromSeconds(10);
     }
 
     public async Task<ManifestFetchResult> FetchAsync(CancellationToken cancellationToken)
     {
+        // A misconfigured channel is never treated as stable: the check
+        // reports it (footer status) and reads no release feed.
+        if (_invalidChannelDetail is not null)
+        {
+            return new ManifestFetchResult(ManifestFetchKind.InvalidChannel, Detail: _invalidChannelDetail);
+        }
+
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         budget.CancelAfter(_timeout);
         try
@@ -138,15 +160,15 @@ public sealed partial class GitHubReleaseManifestSource : IUpdateManifestSource
         {
             if (release.ValueKind != JsonValueKind.Object ||
                 Flag(release, "draft") ||
-                (Flag(release, "prerelease") && !_includePrereleases) ||
                 !release.TryGetProperty("tag_name", out var tagElement) ||
                 tagElement.GetString() is not { } tag ||
+                (Flag(release, "prerelease") && !AcceptsPrerelease(tag)) ||
                 !TryMapTagToVersion(tag, out var version))
             {
                 continue;
             }
 
-            if (best is not null && version <= best.Version)
+            if (best is not null && ReleaseVersion.Compare(version, best.Version) <= 0)
             {
                 continue;
             }
@@ -155,6 +177,25 @@ public sealed partial class GitHubReleaseManifestSource : IUpdateManifestSource
         }
 
         return best;
+    }
+
+    private bool AcceptsPrerelease(string tag) => _channel switch
+    {
+        InternalChannel => true,
+        PilotChannel => ReleaseCandidateTag().IsMatch(tag.Trim()),
+        _ => false
+    };
+
+    /// <summary>Trimmed and case-insensitive; blank is the stable default, an unknown name is null.</summary>
+    private static string? NormalizeChannel(string? channel)
+    {
+        var value = channel?.Trim().ToLowerInvariant();
+        return value switch
+        {
+            null or "" => StableChannel,
+            StableChannel or PilotChannel or InternalChannel => value,
+            _ => null
+        };
     }
 
     private static bool Flag(JsonElement release, string name) =>
@@ -185,7 +226,7 @@ public sealed partial class GitHubReleaseManifestSource : IUpdateManifestSource
     /// Mirrors <c>deploy/release/build-pos-msix.ps1</c>: <c>1.4.0</c> maps to
     /// <c>1.4.0</c> and <c>1.4.0-internal.3</c> to <c>1.4.0.3</c>, which is the
     /// version the release manifest declares, so releases order like the
-    /// updater compares them.
+    /// updater compares them (<see cref="ReleaseVersion.Compare"/>).
     /// </summary>
     internal static bool TryMapTagToVersion(string tag, out Version version)
     {
@@ -213,6 +254,9 @@ public sealed partial class GitHubReleaseManifestSource : IUpdateManifestSource
     [GeneratedRegex(@"(\d+)$")]
     private static partial Regex TrailingNumber();
 
+    [GeneratedRegex(@"^v?\d+\.\d+\.\d+-rc\.\d+$", RegexOptions.IgnoreCase)]
+    private static partial Regex ReleaseCandidateTag();
+
     private sealed record ReleaseCandidate(Version Version, string? ManifestUrl);
 }
 
@@ -235,6 +279,7 @@ public sealed class UpdateChecker(IUpdateManifestSource source, ReleaseDiscovery
             {
                 ManifestFetchKind.Found when fetch.Json is not null => discovery.Evaluate(localVersion, fetch.Json, environment),
                 ManifestFetchKind.NotAvailable => new UpdateCheckResult(UpdateCheckStatus.ManifestNotConfigured, localVersion),
+                ManifestFetchKind.InvalidChannel => new UpdateCheckResult(UpdateCheckStatus.InvalidUpdateChannel, localVersion, Detail: fetch.Detail),
                 _ => new UpdateCheckResult(UpdateCheckStatus.CheckFailedInvalid, localVersion, Detail: fetch.Detail)
             };
         }

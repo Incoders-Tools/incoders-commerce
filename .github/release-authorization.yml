@@ -2,7 +2,7 @@
 #
 # This is a long-lived REPO POLICY file, not SDD change state. It MUST survive
 # any SDD change being archived. The release pipeline's publication gate step
-# (.github/workflows/release.yml) reads the `publication_authorized` flag for
+# (.github/workflows/release.yml and .github/workflows/pos-release.yml) reads the `publication_authorized` flag for
 # the channel resolved from the branch->channel mapping (ADR-004):
 #   dev -> internal, staging -> pilot, main -> stable
 #

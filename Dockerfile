@@ -35,6 +35,15 @@ RUN dotnet publish src/Commerce.Cloud.Api/Commerce.Cloud.Api.csproj \
     -o /app/publish \
     --no-restore
 
+# Migration runner, executed by Railway's preDeployCommand (railway.json)
+# before each new deployment serves traffic. It ships next to its migrations,
+# its default directory (ADR-016).
+COPY src/Commerce.Migrator/ src/Commerce.Migrator/
+RUN dotnet publish src/Commerce.Migrator/Commerce.Migrator.csproj \
+    -c Release \
+    -o /app/migrator
+COPY deploy/db/migrations/ /app/migrator/migrations/
+
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 COPY --from=build /app/publish .
@@ -42,9 +51,12 @@ COPY --from=build /app/publish .
 # UseStaticFiles/MapFallbackToFile("index.html") — never built or committed
 # separately (see .gitignore's src/Commerce.Cloud.Api/wwwroot/ entry).
 COPY --from=web-build /web/dist ./wwwroot
+COPY --from=build /app/migrator ./migrator
 
 # Kestrel binds 0.0.0.0 and reads the injected PORT env var at runtime
 # (Program.cs's explicit ConfigureKestrel/ListenAnyIP) — no hardcoded port
 # here; Railway injects PORT at deploy time.
 
-ENTRYPOINT ["dotnet", "Commerce.Cloud.Api.dll"]
+# CMD, not ENTRYPOINT: Railway's start and pre-deploy commands replace it, so
+# the pre-deploy container runs the migrator instead of the API.
+CMD ["dotnet", "Commerce.Cloud.Api.dll"]

@@ -16,9 +16,9 @@ public sealed record CloseEntry(bool IsValid, decimal? Counted, decimal? Differe
 /// <summary>
 /// The pure logic behind the cash session prompts (pos-cash-session "Cash
 /// Session Operator Interface"): reading the opening float or the counted cash
-/// (Spanish keyboards type a decimal comma, so "1000,50" and "1000.50" are both
-/// read, with an optional leading currency sign, and a thousands separator is
-/// never accepted), the live difference, and the Spanish labels.
+/// with the shared money rule (<see cref="MoneyInput"/>: "15.000" is fifteen
+/// thousand, "15.000,50" and "15.50" carry cents), the live difference, and the
+/// Spanish labels.
 /// </summary>
 public static class CashSessionInput
 {
@@ -27,30 +27,20 @@ public static class CashSessionInput
 
     public static AmountEntry ReadAmount(string? text)
     {
-        var normalized = (text ?? string.Empty).Trim().TrimStart('$').Trim().Replace(',', '.');
-        if (normalized.Length == 0)
+        var reading = MoneyInput.Read(text);
+        return reading.Failure switch
         {
-            return new AmountEntry(false, null, null);
-        }
-
-        // A second separator ("1,000.00") is a thousands separator: refused, like the tender prompt.
-        if (!decimal.TryParse(normalized, NumberStyles.AllowDecimalPoint | NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var amount))
-        {
-            return new AmountEntry(false, null, "Ingrese un importe, por ejemplo 5000 o 5000,50.");
-        }
-
-        if (amount < 0m)
-        {
-            return new AmountEntry(false, amount, "El importe no puede ser negativo.");
-        }
-
-        if (!CashSessionMath.IsValidAmount(amount))
-        {
-            return new AmountEntry(false, amount, "Use como máximo dos decimales.");
-        }
-
-        return new AmountEntry(true, amount, null);
+            MoneyReadFailure.Blank => new AmountEntry(false, null, null),
+            MoneyReadFailure.Decimals => new AmountEntry(false, null, "Use como máximo dos decimales."),
+            MoneyReadFailure.Format => new AmountEntry(false, null, "Ingrese un importe, por ejemplo 15.000 o 15.000,50."),
+            _ when !CashSessionMath.IsValidAmount(reading.Amount!.Value) => new AmountEntry(false, reading.Amount, "Use como máximo dos decimales."),
+            _ => new AmountEntry(true, reading.Amount, null),
+        };
     }
+
+    /// <summary>Under the opening float: "Se abrirá con $ 15.000,00"; null while nothing readable is typed.</summary>
+    public static string? OpeningReadBack(string? text) =>
+        ReadAmount(text) is { IsValid: true, Amount: { } amount } ? $"Se abrirá con {MoneyInput.Format(amount)}" : null;
 
     public static CloseEntry EvaluateClose(decimal expectedCash, string? text)
     {

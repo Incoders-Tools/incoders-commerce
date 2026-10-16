@@ -77,7 +77,6 @@
     "fromAccount": "Desde la cuenta",
     "toAccount": "Hacia la cuenta",
     "amount": "Importe",
-    "amountPlaceholder": "Ej.: 150000 o 150000,50",
     "date": "Fecha",
     "concept": "Concepto",
     "conceptPlaceholder": {
