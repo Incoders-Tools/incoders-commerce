@@ -19,9 +19,9 @@ Delivery strategy: ask-on-risk; forecast ~450 authored lines across three docs c
 
 ## Tasks
 
-- T1 [S1, S3, S4, S6, S9] ADR-014: Railway-hosted Postgres replaces Supabase. Route: inline. Commit: pending.
-- T2 [S1, S2, S3, S4, S5, S7, S8, S9] Railway runbook for staging and production (replaces `deploy/staging-runbook.md`); update Supabase references in `deploy/README.md`. Route: inline. Commit: pending.
-- T3 [S7, S8, S10] Release and versioning guide; add the Railway go-live items to `docs/launch/go-live-requirements.md`. Route: inline. Commit: pending.
+- T1 [S1, S3, S4, S6, S9] ADR-014: Railway-hosted Postgres replaces Supabase. Route: inline. Commit: 0f0eb6e (assess: passive).
+- T2 [S1, S2, S3, S4, S5, S6, S7, S8, S9] Railway runbook for staging and production (replaces `deploy/staging-runbook.md`); update Supabase references in `deploy/README.md`, ADR-006/007 links, and `openspec/specs/cloud-deployment/spec.md`; add the Railway go-live items to `docs/launch/go-live-requirements.md`. Route: inline. Commit: ffcba31.
+- T3 [S7, S8, S10] Release and versioning guide. Route: inline. Commit: a0935e9.
 
 ## Log
 
@@ -32,3 +32,5 @@ Delivery strategy: ask-on-risk; forecast ~450 authored lines across three docs c
 - L5 (user): "Si vamos con la version de 20 USD mensuales"
 - L6 (user answers): environments "Staging + producción (Recomendado)"; language "Inglés (convención del repo)"; starting state "De cero".
 - L7 (evidence): The web SPA is already served from Cloud.Api's `wwwroot` (Dockerfile web-build stage; `src/Commerce.Cloud.Api/Program.cs:409-416`). Railway facts come from docs.railway.com (pricing, cost-control, volumes/backups, volumes/point-in-time-recovery, private-networking, domains), Oct 2026. Whether scheduled backups exist on Hobby is undocumented; Pro was chosen.
+- L8 (evidence): The `/platform/bootstrap` genesis flow documented in `deploy/README.md` no longer exists in `src/`. `/account/bootstrap` (`src/Commerce.Cloud.Api/Endpoints/Account.cs:1123-1197`) creates the organization and its business-admin in any environment; `is_system_admin` is set only by the Development test seed (`TestSeedEndpoints.cs:91`). Recorded as a go-live decision.
+- L9 (evidence, T2): The runbook's migration loop, run in pwsh 7 against a throwaway `postgres:16` container with database `railway`, applied all 60 migrations twice with `ON_ERROR_STOP=1` and no errors. `app_runtime|f|f` and `platform_readonly|f|f` (not superuser, no BYPASSRLS). UTF-8 survived the pipe: `Córdoba|43c3b372646f6261`. The container was removed afterwards.
