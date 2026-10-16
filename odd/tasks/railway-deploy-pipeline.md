@@ -27,7 +27,7 @@ gets a pilot channel. Delivery strategy: ask-on-risk; forecast ~900 authored lin
 - T3 [S5, S6a] Image and Railway wiring: Dockerfile, `railway.json` `preDeployCommand` and watch patterns, runbook sections 4-5. Route: inline. Commit: c305183.
 - T4 [S5, S6b, S6c] CI: `release.yml` gates PRs to `staging` and `main`; a `migrations` job (runner twice + expand-only guard) aggregated by `ci-gate`; required-checks runbook (`staging` and `main` only). Route: inline. Commit: 424f983.
 - T5 [S7] POS pilot channel: `pos-release.yml`, `build-pos-msix.ps1`, updater prerelease selection, with tests. Route: gentle-ai-worker. Commit: 16dab71.
-- T6 [S5, S6d, S7, S8] Release guide rewrite (automatic flow, rollback matrix, POS channels, client onboarding, storage note). Route: inline. Commit: pending.
+- T6 [S5, S6d, S7, S8] Release guide rewrite (automatic flow, rollback matrix, POS channels, client onboarding, storage note). Route: inline. Commit: 52b57b8.
 - T7 Independent verification (high risk: delivery/CI and migrations). Route: gentle-ai-verify. Commit: n/a.
 
 ### Runner contract (shared by T2, T3, T4)
