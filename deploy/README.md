@@ -231,21 +231,22 @@ runner that was never given the infrastructure to begin with.
 ## Unit 5 — One-time-per-environment schema/RLS migration
 
 `deploy/db/migrations/0001_init_rls.sql` is the repo-owned, idempotent
-migration that must be applied ONCE per real environment (staging and
-production) directly against that environment's own Railway Postgres service —
-never auto-applied by Cloud.Api. `Program.cs`'s `/health/ready` only
+migration applied to each real environment (staging and production) by
+`Commerce.Migrator`, Railway's pre-deploy command, before the new Cloud.Api
+version starts (ADR-016). Cloud.Api itself never applies DDL: `Program.cs`'s
+`/health/ready` only
 *verifies* the table/RLS/policy already exist and fails readiness otherwise
 (design.md "Schema/RLS application").
 
 ### Applying the migration
 
-Follow [the Railway runbook, section 4](./railway-runbook.md#4-apply-migrations-and-create-the-runtime-roles):
-it opens an SSH tunnel with `railway connect`, applies every migration in
-numeric order, and substitutes the `__APP_RUNTIME_PASSWORD__` (0001) and
-`__PLATFORM_READONLY_PASSWORD__` (0007) placeholders in memory, without
-writing the substituted file to disk. Re-running it later (to rotate a
-password, or as a drift check) is safe, because every migration is
-idempotent.
+See [the Railway runbook, section 4](./railway-runbook.md#4-migrations-automatic-and-the-runtime-roles).
+Every deployment runs `Commerce.Migrator`, which applies pending files in
+numeric order, records each in the `schema_migrations` ledger, and substitutes
+the `__APP_RUNTIME_PASSWORD__` (0001) and `__PLATFORM_READONLY_PASSWORD__`
+(0007) placeholders in memory from the `APP_RUNTIME_PASSWORD` and
+`PLATFORM_READONLY_PASSWORD` variables. A failure cancels the deployment. The
+same program runs by hand through a `railway connect` tunnel.
 
 Confirm success with `SELECT rolname FROM pg_roles WHERE rolname = 'app_runtime';`
 (one row) and `SELECT polname FROM pg_policies WHERE tablename = 'sync_inbox';`
@@ -258,7 +259,7 @@ becomes that environment's `ConnectionStrings__Commerce` Railway variable. See
 per-environment provisioning checklist and the complete list of variables.
 
 The per-migration sections below keep their original Supabase `psql` targets
-as historical examples. On Railway, the runbook's loop applies all of them;
+as historical examples. On Railway, the migrator applies all of them;
 when a single file has to be applied by hand, use the tunnel target from the
 runbook (`host=localhost port=<tunnel port> dbname=railway user=postgres`).
 

@@ -87,62 +87,65 @@ The `postgres` user Railway creates is a **superuser, and a superuser bypasses
 RLS**. Use it only to apply migrations. Cloud.Api must never connect as
 `postgres`.
 
-## 4. Apply migrations and create the runtime roles
+## 4. Migrations (automatic) and the runtime roles
 
-1. Generate two independent passwords, one for `app_runtime` and one for
-   `platform_readonly`, and store both in the password manager. Base64 output
-   contains no quote characters, so it is safe inside the SQL literal:
+Migrations are not applied by hand. Every Cloud.Api deployment first runs
+`Commerce.Migrator` as Railway's **pre-deploy command** (`railway.json`), in a
+separate container on the private network
+([ADR-016](../docs/architecture/decisions/ADR-016-migrations-at-deploy-and-rollback.md)):
 
-   ```powershell
-   [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
-   ```
+- It applies pending files from `deploy/db/migrations` in order and records each
+  one (name and checksum) in `public.schema_migrations`. Applied files are
+  skipped, so every deploy is idempotent.
+- It refuses to run if an applied file was edited, and holds an advisory lock
+  so two deployments never migrate at once.
+- **If anything fails, the deployment is cancelled and the previous version
+  keeps serving.** The deploy log shows which file failed.
 
-2. In one terminal, open a tunnel to the database. It prints a local host, port,
-   and the `postgres` password, and stays open until you press Ctrl+C:
+The first deployment of an environment creates every table and both runtime
+roles (`app_runtime`, `platform_readonly`). Their passwords come from
+Cloud.Api's variables (section 5), so generate them first and store them in the
+password manager. Base64 output contains no quote characters, so it is safe in
+the SQL literal:
 
-   ```powershell
-   railway connect Postgres --environment staging --tunnel-only
-   ```
+```powershell
+[Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+```
 
-3. In a second `pwsh` terminal at the repository root, apply every migration in
-   order. The two role passwords are substituted in memory and never written to
-   disk:
+**Running the migrator by hand** (for example to inspect a failure) uses the
+same program through a tunnel. In one terminal, open the tunnel; it prints the
+port and the `postgres` password, and stays open until Ctrl+C:
 
-   ```powershell
-   $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
-   $env:PGCLIENTENCODING = 'UTF8'
-   $env:PGPASSWORD = '<postgres password printed by the tunnel>'
-   $target = 'host=localhost port=<tunnel port> dbname=railway user=postgres'
-   $secrets = @{
-       '__APP_RUNTIME_PASSWORD__'       = '<app_runtime password>'
-       '__PLATFORM_READONLY_PASSWORD__' = '<platform_readonly password>'
-   }
-   foreach ($file in Get-ChildItem deploy/db/migrations/*.sql | Sort-Object Name) {
-       $sql = Get-Content $file.FullName -Raw -Encoding UTF8
-       foreach ($key in $secrets.Keys) { $sql = $sql.Replace($key, $secrets[$key]) }
-       $sql | psql $target -v ON_ERROR_STOP=1 -q
-       if ($LASTEXITCODE -ne 0) { throw "Migration failed: $($file.Name)" }
-       "applied $($file.Name)"
-   }
-   ```
+```powershell
+railway connect Postgres --environment staging --tunnel-only
+```
 
-   Every migration is idempotent, so a later release runs the same loop and the
-   migrations already applied are no-ops. Do not use `--single-transaction`:
-   some migrations commit their own transactions.
+In a second terminal at the repository root:
 
-4. Verify the result in the same terminal:
+```powershell
+$env:ConnectionStrings__Migrations = 'Host=localhost;Port=<tunnel port>;Database=railway;Username=postgres;Password=<postgres password>'
+$env:APP_RUNTIME_PASSWORD = '<app_runtime password>'
+$env:PLATFORM_READONLY_PASSWORD = '<platform_readonly password>'
+dotnet run --project src/Commerce.Migrator -- --migrations deploy/db/migrations
+```
 
-   ```powershell
-   psql $target -c "SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname IN ('app_runtime', 'platform_readonly');"
-   ```
+To check the roles through the same tunnel (with `psql` installed):
+`SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname IN ('app_runtime', 'platform_readonly');`
+returns two rows with `f` and `f`.
 
-   Two rows, both with `rolsuper = f` and `rolbypassrls = f`.
+**Rotating a role password:** the migration that created the role does not run
+again, so rotate it explicitly. Run
+`ALTER ROLE app_runtime WITH PASSWORD '<new>';` through the tunnel, then update
+both `APP_RUNTIME_PASSWORD` and `ConnectionStrings__Commerce` (section 5). Do
+the same for `platform_readonly`.
 
 ## 5. Cloud.Api service
 
 1. Add a service from the GitHub repository and name it `Cloud.Api`. Railway
-   reads `railway.json` (Dockerfile build, `/health` healthcheck, restart on
-   failure); nothing else needs configuring for the build.
+   reads `railway.json` (Dockerfile build, pre-deploy migrations, `/health`
+   healthcheck, restart on failure); nothing else needs configuring for the
+   build. Set the variables (step 3) before the first deployment, because the
+   migrator needs them.
 2. In **Settings → Source**, set the trigger branch: `staging` in the staging
    environment, `main` in production. A push to that branch that touches a
    watched path deploys that environment only.
@@ -152,6 +155,8 @@ RLS**. Use it only to apply migrations. Cloud.Api must never connect as
 |---|---|
 | `ConnectionStrings__Commerce` | `Host=postgres.railway.internal;Port=5432;Database=railway;Username=app_runtime;Password=<app_runtime password>` |
 | `ConnectionStrings__CommercePlatformRead` | `Host=postgres.railway.internal;Port=5432;Database=railway;Username=platform_readonly;Password=<platform_readonly password>`. When it is absent, `GET /account/organizations` answers 503. It never falls back to `app_runtime`. |
+| `ConnectionStrings__Migrations` | `Host=postgres.railway.internal;Port=5432;Database=railway;Username=postgres;Password=${{Postgres.PGPASSWORD}}`. A reference variable, so the superuser password is never copied. Only the migrator reads it; Cloud.Api never does. |
+| `APP_RUNTIME_PASSWORD`, `PLATFORM_READONLY_PASSWORD` | The two passwords from section 4. They must match the passwords in the two connection strings above. |
 | `ASPNETCORE_ENVIRONMENT` | `Staging` or `Production`. Never `Development`: that enables the test-seed endpoints. |
 | `PUBLIC_BASE_URL` | The environment's public origin, with no trailing slash. Password-reset links are built from it. Use the Railway domain until the custom domain is verified (section 6). |
 | `RESEND_API_KEY` | The Resend API key. |

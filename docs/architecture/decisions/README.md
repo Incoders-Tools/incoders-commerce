@@ -20,6 +20,7 @@ Architecture decisions are versioned in the repository. This index intentionally
 | [ADR-013](./ADR-013-interim-self-signed-code-signing.md) | Interim self-signed code signing for POS MSIX releases; commercial certificate is a go-live requirement. |
 | [ADR-014](./ADR-014-railway-hosted-postgres.md) | PostgreSQL as a Railway service on the private network (Railway Pro, staging and production), replacing Supabase; three backup layers; usage alert without a hard limit. |
 | [ADR-015](./ADR-015-shared-multi-client-platform.md) | One shared deployment for every client (organizations with RLS); client rules as configuration; each client's public website as its own static site. |
+| [ADR-016](./ADR-016-migrations-at-deploy-and-rollback.md) | Ledger-tracked migrations run by Railway's pre-deploy command; gates on PRs to `staging` and `main` only; expand-only migrations; rollback per failure type; POS `pilot` channel. |
 
 ## Planned ADR topics
 

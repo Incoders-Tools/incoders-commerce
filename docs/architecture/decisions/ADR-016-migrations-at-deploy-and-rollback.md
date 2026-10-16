@@ -1,0 +1,62 @@
+# ADR-016: Migrations at deploy time, branch gates, and rollback
+
+## Status
+
+Accepted (owner decision, 2026-10-16). Supersedes the manual migration step of
+[ADR-014](./ADR-014-railway-hosted-postgres.md) and the "applied by hand" rule in `deploy/README.md` ("Unit 5").
+
+## Context
+
+The owner's rules: `dev` is pure development, with no gates and no migration policies. `staging` and `main` must run
+the gates and apply migrations to their own Railway environment, idempotently, and every failure, whether in the system
+or in the database, must have a way back. The same applies to POS versions.
+
+Until now migrations were applied by an operator through a tunnel, with no record of what had run. The Postgres
+service has no public access, so GitHub Actions cannot reach it.
+
+## Decision
+
+- **The migrator runs inside Railway at every deploy.** `src/Commerce.Migrator` ships in the Cloud.Api image with the
+  `deploy/db/migrations` files, and `railway.json` runs it as the `preDeployCommand`. Railway runs it in a separate
+  container with the service's variables and the private network, before the new version serves traffic. A failure
+  cancels the deployment, and the previous version keeps running.
+- **Idempotency.** The ledger `public.schema_migrations` records each applied file with a checksum (SHA-256, line
+  endings normalized). Applied files are skipped, and an edited applied file stops the run before anything executes.
+  A session advisory lock serializes concurrent runs. Each migration file is also written to be safe to re-run
+  (`AGENTS.md`), so a run interrupted between a file and its ledger row repeats that file harmlessly.
+- **Migrations only expand.** A release may add tables, columns, constraints and policies. Dropping or renaming a
+  table or column is a separate, later release, once no running version uses it, and carries the marker comment
+  `-- contract-change: approved` in that file. This keeps the previous application version compatible with the
+  current schema, which is what makes a code rollback safe.
+- **Branch gates.** No workflow gates `dev`. Pull requests into `staging` and into `main` run the CI gate (`ci-gate`
+  in `.github/workflows/release.yml`), which now includes a `migrations` job:
+  1. It applies every migration twice to an empty Postgres 16 with the migrator, and the second run must skip
+     everything.
+  2. It rejects edits to existing migration files.
+  3. It rejects a `DROP TABLE`, `DROP COLUMN`, or `RENAME` without the marker.
+
+  Merging is the deploy: Railway deploys `staging` and `main` to their environments.
+- **POS channels follow the branches.** `vX.Y.Z-rc.N` tags (from `staging`) publish to `pilot`, plain `vX.Y.Z` tags
+  on `main` publish to `stable`, and other prereleases stay `internal`.
+
+## Rollback
+
+| Failure | What happens / what to do |
+|---|---|
+| A migration fails | The pre-deploy command exits non-zero, Railway cancels the deployment, and the previous version keeps serving. The failed file has no ledger row; fix it in a new commit, and the next deploy retries it. |
+| The new version fails its healthcheck | Railway never switches traffic to it; the previous deployment keeps serving. |
+| A bad deployment that passed its healthcheck | Roll back to the previous deployment in Railway (one action). The schema is compatible because migrations only expand. Fix forward on the branch. |
+| Data damaged by a bug or a migration | Point-in-time restore into a sibling service, verify it, and switch the connection strings to it (`deploy/railway-runbook.md` section 10). |
+| A bad POS release | Never overwrite a published release: publish a newer version (roll forward, `docs/pos-product-updates.md`). |
+
+There are no down-migrations: reversing a schema change is a new forward migration, and reversing data is a restore.
+
+## Consequences
+
+- `ConnectionStrings__Migrations` (the `postgres` superuser, set as a reference to the Postgres service's password)
+  is visible to the Cloud.Api runtime container, because Railway's pre-deploy command shares the service's
+  variables. Cloud.Api never reads that key. Moving the migrator to a non-superuser owner role is possible later.
+- The first deploy of an existing database with no ledger re-runs every migration. That is safe because each one is
+  idempotent; CI proves it on every pull request.
+- A deploy waits on the advisory lock while another one migrates. The second deployment proceeds once the first one
+  finishes.
