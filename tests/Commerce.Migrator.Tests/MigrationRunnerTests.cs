@@ -169,23 +169,144 @@ public sealed class MigrationRunnerTests : IDisposable
         Assert.Equal(count, Ledger().Count);
     }
 
+    [Fact]
+    public void Crlf_only_change_to_an_applied_file_is_skipped()
+    {
+        if (!_available) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        Assert.Equal(0, Run(_workDir).Exit);
+        var before = LedgerWithTimes();
+        var path = Path.Combine(_workDir, "0002_seed_widgets.sql");
+        File.WriteAllText(path, File.ReadAllText(path).Replace("\r\n", "\n").Replace("\n", "\r\n"));
+
+        var run = Run(_workDir);
+
+        Assert.Equal(0, run.Exit);
+        Assert.Equal("migrations: 0 applied, 3 skipped", run.StdoutLines[^1]);
+        Assert.Equal(before, LedgerWithTimes());
+    }
+
+    [Fact]
+    public void Dropped_ledger_re_applies_every_repository_migration()
+    {
+        if (!_available) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var migrations = Path.Combine(RepoRoot(), "deploy", "db", "migrations");
+        var count = Directory.GetFiles(migrations, "*.sql").Length;
+        Assert.True(Run(migrations).Exit == 0);
+        Execute(ScratchConnectionString, "DROP TABLE public.schema_migrations");
+
+        var run = Run(migrations);
+
+        Assert.True(run.Exit == 0, run.Stderr);
+        Assert.Equal($"migrations: {count} applied, 0 skipped", run.StdoutLines[^1]);
+        Assert.Equal(count, Ledger().Count);
+    }
+
+    [Fact]
+    public void Runtime_roles_cannot_read_the_ledger_after_the_repository_migrations()
+    {
+        if (!_available) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var run = Run(Path.Combine(RepoRoot(), "deploy", "db", "migrations"));
+
+        Assert.True(run.Exit == 0, run.Stderr);
+        Assert.Equal(false, Scalar("SELECT has_table_privilege('app_runtime', 'public.schema_migrations', 'SELECT')"));
+        Assert.Equal(false, Scalar("SELECT has_table_privilege('platform_readonly', 'public.schema_migrations', 'SELECT')"));
+    }
+
+    [Fact]
+    public void Lock_held_past_the_timeout_fails_and_applies_nothing()
+    {
+        if (!_available) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        using var holder = HoldMigrationLock();
+
+        var run = Run(_workDir, lockTimeoutSeconds: "2");
+
+        Assert.Equal(1, run.Exit);
+        Assert.Contains("migration lock", run.Stderr);
+        Assert.DoesNotContain(run.StdoutLines, line => line.StartsWith("applied "));
+        Assert.Null(Scalar("SELECT to_regclass('public.widgets')::text"));
+        Assert.Null(Scalar("SELECT to_regclass('public.schema_migrations')::text"));
+    }
+
+    [Fact]
+    public async Task Lock_released_within_the_timeout_waits_then_applies()
+    {
+        if (!_available) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var holder = HoldMigrationLock();
+        var release = Task.Run(async () =>
+        {
+            await Task.Delay(TimeSpan.FromSeconds(2));
+            holder.Dispose();
+        });
+
+        var run = Run(_workDir, lockTimeoutSeconds: "30");
+        await release;
+
+        Assert.True(run.Exit == 0, run.Stderr);
+        Assert.StartsWith("waiting for the migration lock", run.StdoutLines[0]);
+        Assert.Equal("migrations: 3 applied, 0 skipped", run.StdoutLines[^1]);
+    }
+
+    [Fact]
+    public void Invalid_lock_timeout_fails()
+    {
+        if (!_available) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var run = Run(_workDir, lockTimeoutSeconds: "soon");
+
+        Assert.Equal(2, run.Exit);
+        Assert.Contains("MIGRATOR_LOCK_TIMEOUT_SECONDS", run.Stderr);
+        Assert.Empty(run.StdoutLines);
+    }
+
+    [Fact]
+    public void File_without_a_lowercase_sql_extension_fails_naming_it_before_anything_runs()
+    {
+        if (!_available) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        File.WriteAllText(Path.Combine(_workDir, "0004_more.SQL"), "CREATE TABLE public.more (id int);\n");
+
+        var run = Run(_workDir);
+
+        Assert.Equal(2, run.Exit);
+        Assert.Contains("0004_more.SQL", run.Stderr);
+        Assert.Empty(run.StdoutLines);
+        Assert.Null(Scalar("SELECT to_regclass('public.widgets')::text"));
+    }
+
     private sealed record RunResult(int Exit, string Stdout, string Stderr)
     {
         public string[] StdoutLines => Stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
     }
 
-    private RunResult Run(string migrations, string? appRuntimePassword = AppRuntimePassword)
+    private RunResult Run(
+        string migrations, string? appRuntimePassword = AppRuntimePassword, string? lockTimeoutSeconds = null)
     {
         var env = new Dictionary<string, string?>
         {
             ["ConnectionStrings__Migrations"] = ScratchConnectionString,
             ["APP_RUNTIME_PASSWORD"] = appRuntimePassword,
             ["PLATFORM_READONLY_PASSWORD"] = PlatformReadonlyPassword,
+            ["MIGRATOR_LOCK_TIMEOUT_SECONDS"] = lockTimeoutSeconds,
         };
         var stdout = new StringWriter();
         var stderr = new StringWriter();
         var exit = MigrationRunner.Run(["--migrations", migrations], name => env.GetValueOrDefault(name), stdout, stderr);
         return new RunResult(exit, stdout.ToString(), stderr.ToString());
+    }
+
+    // The advisory lock is per database, so holding it here blocks only this test's runs.
+    private NpgsqlConnection HoldMigrationLock()
+    {
+        var connection = new NpgsqlConnection(ScratchConnectionString);
+        connection.Open();
+        using var cmd = new NpgsqlCommand($"SELECT pg_advisory_lock({MigrationRunner.LockKey})", connection);
+        cmd.ExecuteNonQuery();
+        return connection;
     }
 
     private string ChecksumOf(string file) => MigrationPlanner.Checksum(File.ReadAllText(Path.Combine(_workDir, file)));

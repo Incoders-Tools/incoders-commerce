@@ -3,7 +3,8 @@ name: POS Release
 # Publishes a signed POS MSIX and its update manifest as a GitHub Release.
 # Cut a release by pushing a `v<semver>` tag (the tag is the version source) or
 # by manual dispatch. This workflow is release-only: the CI gates in
-# release.yml stay PR-to-main only and are not triggered here.
+# release.yml run on pull requests into staging and main and are not
+# triggered here.
 #
 # Channel mapping (ADR-004 / ADR-013 / ADR-016):
 #   tag without a `-` suffix on a commit reachable from `main` -> stable

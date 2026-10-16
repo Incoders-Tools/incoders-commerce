@@ -18,7 +18,7 @@ Each environment contains two services: **Cloud.Api** (the API, which also serve
 the web SPA from its `wwwroot`) and **Postgres**. They talk over the
 environment's private network, and staging cannot reach production. Production
 also runs **vaca-verde-site**, Vaca Verde's public website, on
-`vaca-verde.com.ar` and `www.vaca-verde.com.ar` (section 6b). The hostnames come
+`vaca-verde.com.ar` and `www.vaca-verde.com.ar` (section 6c). The hostnames come
 from the [ADR-006 amendment](../docs/architecture/decisions/ADR-006-domain-and-subdomain-topology.md).
 
 ## 0. Prerequisites
@@ -98,7 +98,13 @@ separate container on the private network
   one (name and checksum) in `public.schema_migrations`. Applied files are
   skipped, so every deploy is idempotent.
 - It refuses to run if an applied file was edited, and holds an advisory lock
-  so two deployments never migrate at once.
+  so two deployments never migrate at once. A deployment that finds the lock
+  taken prints `waiting for the migration lock` (at most every 30 seconds) and
+  gives up after 10 minutes: it exits 1 with nothing applied, so that
+  deployment is cancelled. To change the wait, set
+  `MIGRATOR_LOCK_TIMEOUT_SECONDS` (whole seconds, at least 1) on Cloud.Api; the
+  pre-deploy command shares its variables. Only the wait for the lock is
+  bounded; a migration that is running is never cut off.
 - **If anything fails, the deployment is cancelled and the previous version
   keeps serving.** The deploy log shows which file failed.
 
@@ -106,7 +112,8 @@ The first deployment of an environment creates every table and both runtime
 roles (`app_runtime`, `platform_readonly`). Their passwords come from
 Cloud.Api's variables (section 5), so generate them first and store them in the
 password manager. Base64 output contains no quote characters, so it is safe in
-the SQL literal:
+the SQL literal (the migrator refuses a value that contains `'`, naming the
+variable but never printing the value):
 
 ```powershell
 [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))

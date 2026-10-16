@@ -58,5 +58,7 @@ There are no down-migrations: reversing a schema change is a new forward migrati
   variables. Cloud.Api never reads that key. Moving the migrator to a non-superuser owner role is possible later.
 - The first deploy of an existing database with no ledger re-runs every migration. That is safe because each one is
   idempotent; CI proves it on every pull request.
-- A deploy waits on the advisory lock while another one migrates. The second deployment proceeds once the first one
-  finishes.
+- A deploy that finds the advisory lock taken polls for it, printing a waiting line at most every 30 seconds, and
+  proceeds once the other run finishes. The wait is bounded: after `MIGRATOR_LOCK_TIMEOUT_SECONDS` (default 600) the
+  migrator exits 1 with nothing applied, so a stuck lock holder cancels the deploy instead of hanging it. Migration
+  statements themselves have no timeout.

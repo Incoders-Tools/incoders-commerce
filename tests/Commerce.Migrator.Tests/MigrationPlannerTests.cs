@@ -103,6 +103,24 @@ public sealed class MigrationPlannerTests
     }
 
     [Fact]
+    public void Substituted_value_with_a_single_quote_fails_naming_the_variable_without_its_value()
+    {
+        const string value = "pa'ss; DROP TABLE x; --";
+
+        var plan = MigrationPlanner.Plan(
+            [new("0001_a.sql", "a"), new("0002_roles.sql", "PASSWORD '__APP_RUNTIME_PASSWORD__'")],
+            NoLedger,
+            name => name == "APP_RUNTIME_PASSWORD" ? value : null);
+
+        Assert.True(plan.Failed);
+        Assert.Contains("0002_roles.sql", plan.Error);
+        Assert.Contains("APP_RUNTIME_PASSWORD", plan.Error);
+        Assert.DoesNotContain("pa'ss", plan.Error);
+        Assert.DoesNotContain("DROP TABLE", plan.Error);
+        Assert.Empty(plan.Steps);
+    }
+
+    [Fact]
     public void Missing_variable_needed_only_by_an_applied_file_is_not_an_error()
     {
         const string roles = "PASSWORD '__APP_RUNTIME_PASSWORD__'";

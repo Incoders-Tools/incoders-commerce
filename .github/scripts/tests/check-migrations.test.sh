@@ -171,6 +171,51 @@ add_migration "$repo" 0003_renamed_at.sql $'ALTER TABLE widgets ADD COLUMN IF NO
 assert_guard "an identifier that merely contains 'rename' -> pass" "$repo" true \
   "check-migrations: OK"
 
+repo=$(new_fixture_repo)
+add_migration "$repo" 0003_drop_bare.sql $'ALTER TABLE widgets DROP name;\n'
+assert_guard "ALTER TABLE ... DROP <column> without COLUMN -> fail" "$repo" false \
+  "::error::" "$MIGRATIONS/0003_drop_bare.sql"
+
+repo=$(new_fixture_repo)
+add_migration "$repo" 0003_drop_bare.sql $'ALTER TABLE widgets DROP IF EXISTS name;\n'
+assert_guard "ALTER TABLE ... DROP IF EXISTS <column> -> fail" "$repo" false \
+  "::error::" "$MIGRATIONS/0003_drop_bare.sql"
+
+repo=$(new_fixture_repo)
+add_migration "$repo" 0003_drop_split.sql $'ALTER TABLE widgets DROP\n  COLUMN name;\n'
+assert_guard "DROP COLUMN split across lines -> fail" "$repo" false \
+  "::error::" "$MIGRATIONS/0003_drop_split.sql"
+
+repo=$(new_fixture_repo)
+add_migration "$repo" 0003_literal.sql $'SELECT \'--x\'; DROP TABLE customers;\n'
+assert_guard "-- inside a string literal does not hide a DROP TABLE -> fail" "$repo" false \
+  "::error::" "$MIGRATIONS/0003_literal.sql"
+
+repo=$(new_fixture_repo)
+add_migration "$repo" 0003_drop_schema.sql $'DROP SCHEMA IF EXISTS reporting CASCADE;\n'
+assert_guard "DROP SCHEMA -> fail" "$repo" false \
+  "::error::" "$MIGRATIONS/0003_drop_schema.sql"
+
+repo=$(new_fixture_repo)
+add_migration "$repo" 0003_drop_type.sql $'DROP TYPE widget_kind;\n'
+assert_guard "DROP TYPE -> fail" "$repo" false \
+  "::error::" "$MIGRATIONS/0003_drop_type.sql"
+
+repo=$(new_fixture_repo)
+add_migration "$repo" 0003_alter_drops.sql $'ALTER TABLE widgets DROP CONSTRAINT IF EXISTS widgets_name_check;\nALTER TABLE widgets ALTER COLUMN name DROP NOT NULL;\nALTER TABLE widgets ALTER COLUMN name DROP DEFAULT;\nALTER TABLE widgets\n  DROP CONSTRAINT widgets_other_check;\nALTER TABLE widgets ALTER COLUMN id DROP IDENTITY IF EXISTS;\nALTER TABLE widgets ALTER COLUMN total DROP EXPRESSION;\nSELECT \'it\'\'s -- fine\';\n'
+assert_guard "ALTER TABLE ... DROP CONSTRAINT IF EXISTS / NOT NULL / DEFAULT / IDENTITY / EXPRESSION -> pass" "$repo" true \
+  "check-migrations: OK"
+
+repo=$(new_fixture_repo)
+add_migration "$repo" 0003_approved.sql $'-- contract-change: approved\nALTER TABLE widgets DROP name;\nALTER TABLE widgets DROP\n  COLUMN other;\nSELECT \'--x\'; DROP TABLE customers;\nDROP SCHEMA reporting;\nDROP TYPE widget_kind;\n'
+assert_guard "every failing form with the approval marker -> pass" "$repo" true \
+  "check-migrations: OK"
+
+repo=$(new_fixture_repo)
+add_migration "$repo" 0003_upper.SQL $'CREATE TABLE IF NOT EXISTS gadgets (id uuid PRIMARY KEY);\n'
+assert_guard "added migration whose extension is not lowercase .sql -> fail" "$repo" false \
+  "::error::" "$MIGRATIONS/0003_upper.SQL"
+
 echo ""
 echo "check-migrations: ${pass_count} passed, ${fail_count} failed"
 [ "$fail_count" -eq 0 ]

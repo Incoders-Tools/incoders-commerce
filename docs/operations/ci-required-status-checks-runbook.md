@@ -74,12 +74,25 @@ on that branch means every PR hangs on a required check that never runs.
 Recommended rollout order:
 
 1. Merge the `release.yml` change to `dev` (no CI runs there).
-2. Open the promotion PR `dev -> staging`. A pull request runs the workflow
+2. Once, before the first `dev -> staging` PR, fast-forward `staging` to
+   `main`:
+
+   ```powershell
+   git fetch incoders
+   git push incoders incoders/main:refs/heads/staging
+   ```
+
+   `staging` has none of the migrations, so the `migrations` guard would see
+   every file as added and reject the historical contract changes in `0012`,
+   `0028`, and `0029`. The push fails unless it is a fast-forward. Details in
+   the release guide's
+   [one-time setup](release-guide.md#one-time-setup-align-staging-before-the-first-gated-promotion).
+3. Open the promotion PR `dev -> staging`. A pull request runs the workflow
    as it exists in the PR, so this first PR already runs `ci-gate`, including
    `migrations`. Confirm it is green.
-3. Merge it, then apply Step 3 to `staging`.
-4. Promote `staging -> main` the same way, then apply Step 3 to `main`.
-5. Apply Step 4 to `dev`.
+4. Merge it, then apply Step 3 to `staging`.
+5. Promote `staging -> main` the same way, then apply Step 3 to `main`.
+6. Apply Step 4 to `dev`.
 
 ## Step 3 — protect `staging` and `main`
 

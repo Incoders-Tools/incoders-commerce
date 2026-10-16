@@ -65,6 +65,12 @@ public static class MigrationPlanner
                 {
                     return MigrationPlan.Fail($"{file.Name} needs {variable}, which is not set");
                 }
+                // The placeholder sits inside a '...' literal; a quote would end it early and
+                // put the rest of the value into the executed SQL (and its error message).
+                if (value.Contains('\''))
+                {
+                    return MigrationPlan.Fail($"{file.Name} needs {variable}, whose value contains a single quote (')");
+                }
                 sql = sql.Replace(placeholder, value, StringComparison.Ordinal);
             }
             steps.Add(new(file.Name, checksum, Skip: false, Sql: sql));
