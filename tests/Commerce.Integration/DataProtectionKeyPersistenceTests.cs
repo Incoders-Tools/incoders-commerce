@@ -75,6 +75,21 @@ public sealed class DataProtectionKeyPersistenceTests
     }
 
     [Fact]
+    public void KeyRing_IsStoredInPostgres_WithNoOtherEncryptorOrRepositoryTakingOver()
+    {
+        // Guards S10 against a later PersistKeysTo*/ProtectKeysWith* call or a
+        // platform default (DPAPI on Windows) silently replacing the store.
+        var (services, _) = BuildInstance();
+        using (services)
+        {
+            var options = services.GetRequiredService<Microsoft.Extensions.Options.IOptions<
+                Microsoft.AspNetCore.DataProtection.KeyManagement.KeyManagementOptions>>().Value;
+            Assert.IsType<PostgresDataProtectionKeyRepository>(options.XmlRepository);
+            Assert.Null(options.XmlEncryptor);
+        }
+    }
+
+    [Fact]
     public void PayloadProtectedByOneInstance_IsUnprotectedByAnIndependentlyBuiltSecondInstance()
     {
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml."); return; }
