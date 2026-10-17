@@ -71,4 +71,23 @@ describe('SignInScreen', () => {
     const alert = await screen.findByRole('alert')
     expect(alert).toBeInTheDocument()
   })
+
+  // railway-deploy-pipeline S13: the server limits sign-in attempts and answers 429 with Retry-After (seconds).
+  it('shows a clear Spanish message with the wait in minutes when sign-in attempts are limited (429)', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 429, statusText: 'Too Many Requests', headers: { 'Retry-After': '290' } }))
+
+    const user = userEvent.setup()
+    render(
+      <AuthProvider>
+        <SignInScreen />
+      </AuthProvider>,
+    )
+
+    await user.type(screen.getByLabelText('Correo electrónico'), 'jane@example.com')
+    await user.type(screen.getByLabelText('Contraseña'), 'wrong-password')
+    await user.click(screen.getByRole('button', { name: /iniciar sesión/i }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('Demasiados intentos. Vuelva a intentarlo en 5 minutos.')
+  })
 })

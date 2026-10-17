@@ -262,11 +262,23 @@ public sealed class PostgresUserAccountStore
 
         await SetTenantScopeAsync(connection, tx, scope, ct);
 
+        await PromoteToSystemAdminAsync(connection, tx, userId, ct);
+
+        await tx.CommitAsync(ct);
+    }
+
+    /// <summary>
+    /// Transaction-participating form of <see cref="PromoteToSystemAdminAsync(CloudTenantScope, Guid, CancellationToken)"/>,
+    /// following <see cref="InsertAsync"/>'s convention: the caller owns the connection, the transaction and
+    /// `set_config`, so creating and promoting a system administrator commit together
+    /// (<see cref="PostgresOrganizationStore.TryCreateSystemAdministratorAsync"/>).
+    /// </summary>
+    internal static async Task PromoteToSystemAdminAsync(
+        NpgsqlConnection connection, NpgsqlTransaction tx, Guid userId, CancellationToken ct)
+    {
         await using var cmd = new NpgsqlCommand("UPDATE users SET is_system_admin = true WHERE id = $1", connection, tx);
         cmd.Parameters.AddWithValue(userId);
         await cmd.ExecuteNonQueryAsync(ct);
-
-        await tx.CommitAsync(ct);
     }
 
     /// <summary>

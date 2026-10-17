@@ -1,4 +1,7 @@
 {
   "apiUnreachable": "Commerce.Cloud.Api is unreachable.",
-  "requestFailedWithStatus": "Request failed with status {{status}}"
+  "requestFailedWithStatus": "Request failed with status {{status}}",
+  "tooManyRequests": "Too many attempts. Wait a few minutes and try again.",
+  "tooManyRequestsRetryIn_one": "Too many attempts. Try again in {{count}} minute.",
+  "tooManyRequestsRetryIn_other": "Too many attempts. Try again in {{count}} minutes."
 }

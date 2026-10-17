@@ -10,12 +10,14 @@ using Commerce.Cloud.Api.Email;
 using Commerce.Cloud.Api.Endpoints;
 using Commerce.Cloud.Api.HealthChecks;
 using Commerce.Cloud.Api.Management;
+using Commerce.Cloud.Api.Operations;
 using Commerce.Cloud.Api.Ordering;
 using Commerce.Cloud.Api.Persistence;
 using Commerce.Cloud.Api.Tenancy;
 using Commerce.Domain.Identity;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Commerce.Application.Time;
 using Microsoft.AspNetCore.RateLimiting;
@@ -24,6 +26,14 @@ using Npgsql;
 using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Operator commands (railway-deploy-pipeline S12), e.g. `dotnet Commerce.Cloud.Api.dll create-system-admin --email ...`:
+// they run against the same configuration and exit before the web host is built. Any other first argument (or none)
+// starts the web host unchanged.
+if (await OperationsCommands.TryRunAsync(args, builder.Configuration, CommandConsole.System, CancellationToken.None) is { } commandExitCode)
+{
+    return commandExitCode;
+}
 
 // Kestrel MUST bind 0.0.0.0 and the environment-injected PORT (Railway), not
 // a hardcoded port (design.md "Deploy mechanism").
@@ -274,25 +284,50 @@ builder.Services.AddAuthorizationBuilder()
         .AddAuthenticationSchemes(CloudAuthenticationSchemes.StaffOrDevice)
         .RequireAuthenticatedUser());
 
+// --- Real client address (railway-deploy-pipeline S13): Railway's edge is the only ingress, so every connection comes
+// from a proxy and RemoteIpAddress would be the same for every user, merging all of them into one rate-limit partition.
+// The edge appends the address it accepted the connection from to X-Forwarded-For; only that LAST hop is trusted
+// (ForwardLimit = 1). Anything a client wrote to the left of it is ignored, so it cannot choose its own partition. The
+// known-proxy lists are cleared because the edge's addresses are not published; that is safe only while the container
+// is reachable solely through the edge (no public TCP proxy on the service, and the private network holds only this
+// project's own services). Only the address is rewritten; the scheme and host are left as they are. -----------------
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor;
+    options.ForwardLimit = 1;
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+
 // --- Rate limiting (commerce-guest-ordering design.md "Rate limiting"):
 // built-in Microsoft.AspNetCore.RateLimiting, shared framework, zero new
 // PackageReference. Four named fixed-window policies attached ONLY to the
 // `/public` group via RequireRateLimiting in PublicOrdering.cs — the staff,
 // customer, and device endpoint groups mapped below carry NO limiter policy,
-// so an abusive public burst cannot degrade them. Partitioned by remote IP;
-// rejects with 429 + Retry-After. Sized for a two-branch operation (tens of
-// orders/day), each ceiling ~50-100x realistic per-person traffic. --------
+// so an abusive public burst cannot degrade them. Partitioned by the real
+// client address (forwarded headers above); rejects with 429 + Retry-After.
+// Sized for a two-branch operation (tens of orders/day), each ceiling
+// ~50-100x realistic per-person traffic. The global limiter covers only the
+// two sign-in routes (SignInRateLimiting). --------------------------------
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
     options.OnRejected = (context, ct) =>
     {
-        context.HttpContext.Response.Headers.RetryAfter = "60";
+        context.HttpContext.Response.Headers.RetryAfter =
+            context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter)
+                ? Math.Max(1, (int)Math.Ceiling(retryAfter.TotalSeconds)).ToString()
+                : "60";
         return ValueTask.CompletedTask;
     };
 
     static string IpPartitionKey(HttpContext httpContext) =>
         httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+    options.GlobalLimiter = SignInRateLimiting.CreateLimiter(
+        IpPartitionKey,
+        builder.Configuration.GetValue("RateLimits:SignInPerClientPermitLimit", SignInRateLimiting.DefaultPerClientPermitLimit),
+        builder.Configuration.GetValue("RateLimits:SignInPerAccountPermitLimit", SignInRateLimiting.DefaultPerAccountPermitLimit));
 
     options.AddPolicy(PublicRateLimitPolicies.GuestVerificationRequest, httpContext =>
         RateLimitPartition.GetFixedWindowLimiter(IpPartitionKey(httpContext), _ => new FixedWindowRateLimiterOptions
@@ -349,10 +384,14 @@ builder.Services.AddHealthChecks()
 
 var app = builder.Build();
 
+// First, so every later component (the limiters included) sees the real client address.
+app.UseForwardedHeaders();
 app.UseAuthentication();
 app.UseAuthorization();
 // organization-account-standing T4: a suspended organization gets 403 organization-suspended on the web; the POS is never touched.
 app.UseMiddleware<OrganizationSuspensionMiddleware>();
+// The sign-in limiter's account partition reads the submitted email captured here.
+app.Use(SignInRateLimiting.CaptureAccountAsync);
 app.UseRateLimiter();
 
 app.MapHealthChecks("/health", new HealthCheckOptions
@@ -420,6 +459,7 @@ app.UseStaticFiles();
 app.MapFallbackToFile("index.html");
 
 app.Run();
+return 0;
 
 // Exposed for WebApplicationFactory-based integration tests.
 public partial class Program;
