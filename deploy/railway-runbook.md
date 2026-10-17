@@ -371,15 +371,25 @@ organization user, the command refuses and exits 1: it never promotes an
 existing user. Both writes are recorded in `audit_log` with actor kind
 `console`. A usage error (for example a missing `--email`) exits 2.
 
-Sign-in is limited for every account, the system administrator included: 20
-attempts per 5 minutes per client address, and 5 attempts per 15 minutes per
-account. Past the limit, sign-in answers `429` with `Retry-After`, and the web
-app tells the user how many minutes to wait. The limits (and the `/public` and
-`/device/pair` ones) key on the client address that Railway's edge appends to
-`X-Forwarded-For`. Never add a **TCP Proxy** to Cloud.Api: a connection that
-bypasses the edge could choose that address. To raise a ceiling, for example
-for an office behind one shared address, set `RateLimits__SignInPerClientPermitLimit`
-or `RateLimits__SignInPerAccountPermitLimit`.
+Sign-in is limited for every account, the system administrator included:
+
+- 20 attempts per 5 minutes per client address;
+- 5 attempts per 15 minutes per account from one client address;
+- 100 attempts per 15 minutes per account from all addresses together.
+
+One address cannot reach the last limit on its own, so nobody can lock another
+person out of their account from a single address. Staff and customer accounts
+with the same email are counted apart. Past a limit, sign-in answers `429` with
+`Retry-After`, and the web app tells the user how many minutes to wait. The
+limits (and the `/public` and `/device/pair` ones) key on the client address
+that Railway's edge appends to `X-Forwarded-For`. Never add a **TCP Proxy** to
+Cloud.Api, and never put a proxying CDN (for example Cloudflare's orange cloud)
+in front of it: either one would replace the client address, and every user
+would share one limit. To raise a ceiling, for example for an office behind one
+shared address, set `RateLimits__SignInPerClientPermitLimit`,
+`RateLimits__SignInPerAccountPermitLimit` or `RateLimits__SignInPerAccountCeiling`.
+Keep the account ceiling above what one address can send in 15 minutes (three
+times the per-client limit).
 
 **Fallback: the organization and its first `business-admin`** from the
 one-time bootstrap flow, which works in every environment and needs no system

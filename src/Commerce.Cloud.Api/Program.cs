@@ -327,7 +327,8 @@ builder.Services.AddRateLimiter(options =>
     options.GlobalLimiter = SignInRateLimiting.CreateLimiter(
         IpPartitionKey,
         builder.Configuration.GetValue("RateLimits:SignInPerClientPermitLimit", SignInRateLimiting.DefaultPerClientPermitLimit),
-        builder.Configuration.GetValue("RateLimits:SignInPerAccountPermitLimit", SignInRateLimiting.DefaultPerAccountPermitLimit));
+        builder.Configuration.GetValue("RateLimits:SignInPerAccountPermitLimit", SignInRateLimiting.DefaultPerAccountPermitLimit),
+        builder.Configuration.GetValue("RateLimits:SignInPerAccountCeiling", SignInRateLimiting.DefaultPerAccountCeiling));
 
     options.AddPolicy(PublicRateLimitPolicies.GuestVerificationRequest, httpContext =>
         RateLimitPartition.GetFixedWindowLimiter(IpPartitionKey(httpContext), _ => new FixedWindowRateLimiterOptions

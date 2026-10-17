@@ -66,7 +66,8 @@ link) rather than deleting them.
   Why: a system administrator can create organizations and act on every
   organization, and today a password alone protects the account. Sign-in
   attempts are limited per client and per account (5 per 15 minutes per
-  account), which slows guessing but does not stop a leaked password. Add a
+  account from one address, 100 from all addresses), which slows guessing but
+  does not stop a leaked password. Add a
   second factor (for example TOTP) for `is_system_admin` accounts at least.
 
 - [ ] **MSI fallback (ADR-005).**

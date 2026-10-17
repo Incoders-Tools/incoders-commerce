@@ -103,7 +103,12 @@ public sealed class SignInRateLimitTests
         Assert.Equal(20, SignInRateLimiting.DefaultPerClientPermitLimit);
         Assert.Equal(TimeSpan.FromMinutes(5), SignInRateLimiting.PerClientWindow);
         Assert.Equal(5, SignInRateLimiting.DefaultPerAccountPermitLimit);
+        Assert.Equal(100, SignInRateLimiting.DefaultPerAccountCeiling);
         Assert.Equal(TimeSpan.FromMinutes(15), SignInRateLimiting.PerAccountWindow);
+        // One address can never reach the account-wide ceiling on its own, so it cannot lock anyone out.
+        Assert.True(
+            SignInRateLimiting.DefaultPerAccountCeiling >
+            SignInRateLimiting.DefaultPerClientPermitLimit * (SignInRateLimiting.PerAccountWindow / SignInRateLimiting.PerClientWindow));
     }
 
     [Fact]
@@ -124,27 +129,99 @@ public sealed class SignInRateLimitTests
     }
 
     [Fact]
-    public async Task OneAccount_FromDifferentClients_IsLimitedByTheAccountPartition()
+    public async Task OneAccount_FromOneClient_IsLimitedByTheAccountAndClientPartition()
     {
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml."); return; }
 
-        await SeedStaffUserAsync("victim@example.com");
+        await SeedStaffUserAsync("guessed@example.com");
         await using var factory = NewFactory();
         var client = NewClient(factory);
 
         for (var i = 0; i < SignInRateLimiting.DefaultPerAccountPermitLimit; i++)
         {
-            Assert.Equal(HttpStatusCode.Unauthorized, (await SignInAsync(client, $"198.51.100.{i + 1}", "victim@example.com")).StatusCode);
+            Assert.Equal(HttpStatusCode.Unauthorized, (await SignInAsync(client, "198.51.100.1", "guessed@example.com")).StatusCode);
         }
 
-        // Exhausted even with the right password and from a fresh address; the case and spacing of the email and the
-        // casing of the JSON property do not open a new partition.
+        // Exhausted for that address even with the right password; the case and spacing of the email and the casing of
+        // the JSON property do not open a new partition.
         AssertLimited(
-            await SignInAsync(client, "198.51.100.200", new { EMAIL = "  Victim@Example.COM ", password = Password }),
+            await SignInAsync(client, "198.51.100.1", new { EMAIL = "  Guessed@Example.COM ", password = Password }),
             SignInRateLimiting.PerAccountWindow);
 
         // Another account from the same address is unaffected.
-        Assert.Equal(HttpStatusCode.Unauthorized, (await SignInAsync(client, "198.51.100.200", "someone-else@example.com")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await SignInAsync(client, "198.51.100.1", "someone-else@example.com")).StatusCode);
+    }
+
+    [Fact]
+    public async Task OneAddress_CannotLockOutAnAccount_ForItsOwner()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml."); return; }
+
+        await SeedStaffUserAsync("lock-victim@example.com");
+        await using var factory = NewFactory();
+        var client = NewClient(factory);
+
+        for (var i = 0; i < SignInRateLimiting.DefaultPerAccountPermitLimit + 1; i++)
+        {
+            await SignInAsync(client, "203.0.113.91", "lock-victim@example.com");
+        }
+
+        Assert.Equal(HttpStatusCode.OK, (await SignInAsync(client, "198.51.100.77", "lock-victim@example.com", Password)).StatusCode);
+    }
+
+    [Fact]
+    public async Task OneAccount_FromManyClients_HitsTheAccountWideCeiling()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml."); return; }
+
+        await SeedStaffUserAsync("victim@example.com");
+        await using var factory = NewFactory(("RateLimits:SignInPerAccountCeiling", "4"));
+        var client = NewClient(factory);
+
+        for (var i = 0; i < 4; i++)
+        {
+            Assert.Equal(HttpStatusCode.Unauthorized, (await SignInAsync(client, $"198.51.100.{i + 10}", "victim@example.com")).StatusCode);
+        }
+
+        // Distributed guessing is capped: exhausted even with the right password and from a fresh address.
+        AssertLimited(
+            await SignInAsync(client, "198.51.100.200", "victim@example.com", Password),
+            SignInRateLimiting.PerAccountWindow);
+    }
+
+    [Theory]
+    [InlineData("/account/sign-in/")]
+    [InlineData("/customer/sign-in/")]
+    [InlineData("/ACCOUNT/SIGN-IN")]
+    public async Task AnotherSpellingOfTheSignInPath_IsLimitedToo(string path)
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml."); return; }
+
+        await using var factory = NewFactory(("RateLimits:SignInPerClientPermitLimit", "1"));
+        var client = NewClient(factory);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, (await SignInAsync(client, "203.0.113.90", new { email = "slash@example.com", password = "x" }, path)).StatusCode);
+        AssertLimited(
+            await SignInAsync(client, "203.0.113.90", new { email = "slash2@example.com", password = "x" }, path),
+            SignInRateLimiting.PerClientWindow);
+    }
+
+    [Fact]
+    public async Task StaffAndCustomerSignIns_WithTheSameEmail_AreLimitedSeparately()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml."); return; }
+
+        await using var factory = NewFactory();
+        var client = NewClient(factory);
+
+        for (var i = 0; i < SignInRateLimiting.DefaultPerAccountPermitLimit; i++)
+        {
+            await SignInAsync(client, "203.0.113.95", "both@example.com");
+        }
+        AssertLimited(await SignInAsync(client, "203.0.113.95", "both@example.com"), SignInRateLimiting.PerAccountWindow);
+
+        var customer = await SignInAsync(client, "203.0.113.95", new { email = "both@example.com", password = "wrong" }, "/customer/sign-in");
+        Assert.Equal(HttpStatusCode.Unauthorized, customer.StatusCode);
     }
 
     [Fact]
@@ -208,13 +285,17 @@ public sealed class SignInRateLimitTests
 
         for (var i = 0; i < SignInRateLimiting.DefaultPerAccountPermitLimit; i++)
         {
-            var attempt = await SignInAsync(client, $"192.0.2.{i + 1}", new { email = "customer@example.com", password = "wrong" }, "/customer/sign-in");
+            var attempt = await SignInAsync(client, "192.0.2.1", new { email = "customer@example.com", password = "wrong" }, "/customer/sign-in");
             Assert.Equal(HttpStatusCode.Unauthorized, attempt.StatusCode);
         }
 
         AssertLimited(
-            await SignInAsync(client, "192.0.2.100", new { email = "customer@example.com", password = "wrong" }, "/customer/sign-in"),
+            await SignInAsync(client, "192.0.2.1", new { email = "customer@example.com", password = "wrong" }, "/customer/sign-in"),
             SignInRateLimiting.PerAccountWindow);
+
+        // The customer, from their own address, is not locked out.
+        var owner = await SignInAsync(client, "192.0.2.100", new { email = "customer@example.com", password = "wrong" }, "/customer/sign-in");
+        Assert.Equal(HttpStatusCode.Unauthorized, owner.StatusCode);
     }
 
     [Fact]

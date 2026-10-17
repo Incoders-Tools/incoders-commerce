@@ -185,6 +185,8 @@ public sealed class SystemAdminCommandTests
         }
         var hashBefore = Scalar<string>("SELECT password_hash FROM users WHERE email = $1", Email);
         var versionBefore = Scalar<int>("SELECT session_version FROM users WHERE email = $1", Email);
+        // audit_log outlives the per-test reset, so compare with the rows other tests left behind.
+        var systemAdminAuditBefore = Scalar<long>("SELECT count(*) FROM audit_log WHERE action LIKE 'system-admin.%'");
 
         var run = await CreateSystemAdminAsync(SecondPassword);
 
@@ -195,7 +197,7 @@ public sealed class SystemAdminCommandTests
         Assert.Equal(hashBefore, Scalar<string>("SELECT password_hash FROM users WHERE email = $1", Email));
         Assert.Equal(versionBefore, Scalar<int>("SELECT session_version FROM users WHERE email = $1", Email));
         Assert.False(Scalar<bool>("SELECT is_system_admin FROM users WHERE email = $1", Email));
-        Assert.Equal(0L, Scalar<long>("SELECT count(*) FROM audit_log WHERE action LIKE 'system-admin.%'"));
+        Assert.Equal(systemAdminAuditBefore, Scalar<long>("SELECT count(*) FROM audit_log WHERE action LIKE 'system-admin.%'"));
     }
 
     [Fact]

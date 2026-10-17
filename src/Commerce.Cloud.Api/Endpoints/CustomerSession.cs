@@ -131,7 +131,7 @@ public static class CustomerSessionEndpoints
             await httpContext.SignInAsync(CloudAuthenticationSchemes.CustomerCookie, new ClaimsPrincipal(identity));
 
             return Results.Ok(new CustomerSignedInResponse(customerId, credential.Email));
-        }).AllowAnonymous();
+        }).AllowAnonymous().WithMetadata(SignInRateLimiting.Customer);
 
         group.MapPost("/sign-out", async (HttpContext httpContext) =>
         {

@@ -217,7 +217,8 @@ public static class AccountEndpoints
                 selectableBranches.Select(b => new SelectableBranch(b.Id, b.Name, b.Code)).ToList(),
                 // The SPA keeps this response as its session, so it carries the standing exactly like /account/me.
                 await OrganizationAccountStandingEndpoints.SummaryForAsync(credential.OrganizationId, signedInActor, standings, clock, ct)));
-        }).AllowAnonymous(); // Explicit, so OrganizationSuspensionCoverageTests can tell it from a forgotten RequireAuthorization.
+        }).AllowAnonymous() // Explicit, so OrganizationSuspensionCoverageTests can tell it from a forgotten RequireAuthorization.
+            .WithMetadata(SignInRateLimiting.Staff);
 
         // --- Renew: authenticated, self-service, known-current-password
         // change (commerce-password-recovery design.md "Renew (authenticated)").
