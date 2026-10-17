@@ -48,9 +48,25 @@ public sealed class PostgresOrganizationStore
     /// written inside this SAME transaction — the audit row and the
     /// created organization/branch/admin commit together or not at all.
     /// </summary>
-    public async Task<BootstrapOutcome> TryCreateBootstrapAsync(
+    public Task<BootstrapOutcome> TryCreateBootstrapAsync(
         CloudTenantScope scope, NewOrganization organization, NewBranch branch, NewUserAccount admin,
-        UserManagementAuditEntry? audit, CancellationToken ct)
+        UserManagementAuditEntry? audit, CancellationToken ct) =>
+        CreateBootstrapAsync(scope, organization, branch, admin, audit, promoteToSystemAdmin: false, ct);
+
+    /// <summary>
+    /// The platform system administrator (railway-deploy-pipeline S12, the `create-system-admin` console command):
+    /// the same organization + branch + user rows the bootstrap writes, with <paramref name="admin"/> granted zero
+    /// roles and an empty branch scope by the caller, then `is_system_admin` set and the audit row written — all in
+    /// this ONE transaction, so a failure never leaves an ordinary user behind under the administrator's email.
+    /// </summary>
+    public Task<BootstrapOutcome> TryCreateSystemAdministratorAsync(
+        CloudTenantScope scope, NewOrganization organization, NewBranch branch, NewUserAccount admin,
+        UserManagementAuditEntry audit, CancellationToken ct) =>
+        CreateBootstrapAsync(scope, organization, branch, admin, audit, promoteToSystemAdmin: true, ct);
+
+    private async Task<BootstrapOutcome> CreateBootstrapAsync(
+        CloudTenantScope scope, NewOrganization organization, NewBranch branch, NewUserAccount admin,
+        UserManagementAuditEntry? audit, bool promoteToSystemAdmin, CancellationToken ct)
     {
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
@@ -119,6 +135,11 @@ public sealed class PostgresOrganizationStore
         {
             await tx.RollbackAsync(ct);
             return BootstrapOutcome.EmailAlreadyRegistered;
+        }
+
+        if (promoteToSystemAdmin)
+        {
+            await PostgresUserAccountStore.PromoteToSystemAdminAsync(connection, tx, admin.Id, ct);
         }
 
         if (audit is not null)
@@ -287,6 +308,38 @@ public sealed class PostgresOrganizationStore
 
         await tx.CommitAsync(ct);
         return branding;
+    }
+
+    /// <summary>
+    /// The name, logo and color system emails show for one organization
+    /// (railway-deploy-pipeline S14). Same trust note as
+    /// <see cref="GetBrandingAsync"/>: callers pass an organization id they
+    /// already resolved server-side. Returns <c>null</c> when no organization
+    /// with that id exists.
+    /// </summary>
+    public async Task<Email.EmailBrand?> GetEmailBrandAsync(Guid organizationId, CancellationToken ct)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+
+        await TenantScopeSql.ApplyAsync(connection, tx, organizationId, branchId: null, ct);
+
+        Email.EmailBrand? brand = null;
+        await using (var cmd = new NpgsqlCommand("SELECT name, logo_url, primary_color FROM organizations WHERE id = $1", connection, tx))
+        {
+            cmd.Parameters.AddWithValue(organizationId);
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            if (await reader.ReadAsync(ct))
+            {
+                brand = new Email.EmailBrand(
+                    reader.GetString(0),
+                    reader.IsDBNull(1) ? null : reader.GetString(1),
+                    reader.IsDBNull(2) ? null : reader.GetString(2));
+            }
+        }
+
+        await tx.CommitAsync(ct);
+        return brand;
     }
 
     /// <summary>

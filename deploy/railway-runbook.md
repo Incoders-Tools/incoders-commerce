@@ -294,6 +294,13 @@ The site costs about $0.3-0.5/month of usage (a small Caddy server).
    `RESEND_API_KEY` on Cloud.Api, then request a password reset to confirm the
    email arrives and its link points at `https://app.vaca-verde.com.ar`.
 
+System emails (password reset, guest order verification code) are in Spanish,
+with an HTML body and a plain-text alternative. Each one shows the brand of the
+organization it belongs to: its name, its primary color, and its logo when the
+logo URL uses `https`. Set them in the organization's branding (system admin
+console). Links are built from `PUBLIC_BASE_URL`, so set it to the platform
+host without a trailing path, for example `https://app.vaca-verde.com.ar`.
+
 Another client's domain later becomes one more custom domain on this same
 Cloud.Api service, not another deployment ([ADR-015](../docs/architecture/decisions/ADR-015-shared-multi-client-platform.md)).
 Cloud.Api does not resolve an organization from the request host yet, so that
@@ -339,10 +346,62 @@ railway postgres pitr backup create --service Postgres --environment production 
 
 ## 8. First identities
 
-**The organization and its first `business-admin`** come from the one-time
-bootstrap flow, which works in every environment. The token reaches only the
-server log, never the HTTP response, and each step answers `409` once the
-organization has any user.
+**The platform system administrator** (`is_system_admin`) comes first, from a
+command inside the Cloud.Api image. It has no HTTP endpoint.
+
+1. In Railway, open the environment's **Cloud.Api** service, then the
+   **Console** tab (or run `railway ssh --service Cloud.Api --environment
+   <environment>` from a terminal).
+2. Run the command, and type the password twice when asked (it is not shown):
+
+   ```sh
+   dotnet /app/Commerce.Cloud.Api.dll create-system-admin --email <administrator email>
+   ```
+
+   It prints `Created system administrator <email>.` and exits 0. It uses the
+   service's own `ConnectionStrings__Commerce` (`app_runtime`), so it needs no
+   other secret. The password is never an argument or a variable, and the
+   command never prints it or its hash. With a redirected stdin, the command
+   reads the password from the first line and the confirmation from the
+   second, for scripted recovery.
+3. In the web app, sign in as that administrator and create each client
+   organization with its first `business-admin` from the organizations
+   console (`POST /account/organizations`).
+
+The account has its own organization ("Platform System Administrator", branch
+"Main"), zero roles, and no branches. Its reach over other organizations comes
+from the `is_system_admin` flag alone. Running the command again with the same
+email sets a new password (account recovery), prints
+`Password updated for system administrator <email>.`, and signs out every
+session opened with the old password. When the email belongs to an
+organization user, the command refuses and exits 1: it never promotes an
+existing user. Both writes are recorded in `audit_log` with actor kind
+`console`. A usage error (for example a missing `--email`) exits 2.
+
+Sign-in is limited for every account, the system administrator included:
+
+- 20 attempts per 5 minutes per client address;
+- 5 attempts per 15 minutes per account from one client address;
+- 100 attempts per 15 minutes per account from all addresses together.
+
+One address cannot reach the last limit on its own, so nobody can lock another
+person out of their account from a single address. Staff and customer accounts
+with the same email are counted apart. Past a limit, sign-in answers `429` with
+`Retry-After`, and the web app tells the user how many minutes to wait. The
+limits (and the `/public` and `/device/pair` ones) key on the client address
+that Railway's edge appends to `X-Forwarded-For`. Never add a **TCP Proxy** to
+Cloud.Api, and never put a proxying CDN (for example Cloudflare's orange cloud)
+in front of it: either one would replace the client address, and every user
+would share one limit. To raise a ceiling, for example for an office behind one
+shared address, set `RateLimits__SignInPerClientPermitLimit`,
+`RateLimits__SignInPerAccountPermitLimit` or `RateLimits__SignInPerAccountCeiling`.
+Keep the account ceiling above what one address can send in 15 minutes (three
+times the per-client limit).
+
+**Fallback: the organization and its first `business-admin`** from the
+one-time bootstrap flow, which works in every environment and needs no system
+administrator. The token reaches only the server log, never the HTTP response,
+and each step answers `409` once the organization has any user.
 
 ```powershell
 $origin = '<origin>'
@@ -366,13 +425,8 @@ Invoke-RestMethod -Method Post "$origin/account/bootstrap" -ContentType 'applica
 The token is single-use, and a failed bootstrap burns it: request a new one
 and repeat. Sign in with the `business-admin` credentials to confirm.
 
-**The platform system administrator** (`is_system_admin`) has no supported
-path outside Development. `deploy/dev/provision-admin.ps1` promotes one
-through the Development-only `/internal/test-seed/user` endpoint and refuses
-non-loopback APIs. The `/platform/bootstrap` genesis flow that
-`deploy/README.md` describes no longer exists in the code. Whether production
-needs a system administrator, and how to create one, is an open decision in
-[go-live requirements](../docs/launch/go-live-requirements.md).
+In Development, `deploy/dev/provision-admin.ps1` still creates a system
+administrator through the Development-only `/internal/test-seed/user` endpoint.
 
 ## 9. Verify the environment
 

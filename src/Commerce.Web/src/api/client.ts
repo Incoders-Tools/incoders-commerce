@@ -5,8 +5,22 @@ import { getSelectedOrganizationId } from '@/organization/OrganizationContext'
 // Not a React component: this module runs plain i18next (the singleton
 // `initReactI18next` initializes in `main.tsx`/`test/setup.ts`) rather than
 // the `useTranslation` hook, since `apiFetch` executes outside render.
-function t(key: 'apiUnreachable' | 'requestFailedWithStatus', options?: Record<string, unknown>): string {
+function t(
+  key: 'apiUnreachable' | 'requestFailedWithStatus' | 'tooManyRequests' | 'tooManyRequestsRetryIn',
+  options?: Record<string, unknown>,
+): string {
   return i18next.t(`errors:${key}`, options)
+}
+
+/**
+ * railway-deploy-pipeline S13: Cloud.Api limits sign-in attempts (and the public ordering routes) and answers 429 with
+ * `Retry-After` in seconds. The message says how long to wait instead of a bare status code.
+ */
+function tooManyRequestsMessage(response: Response): string {
+  const seconds = Number(response.headers.get('Retry-After'))
+  return Number.isFinite(seconds) && seconds > 0
+    ? t('tooManyRequestsRetryIn', { count: Math.ceil(seconds / 60) })
+    : t('tooManyRequests')
 }
 
 /**
@@ -98,6 +112,9 @@ export async function apiFetch<TResponse>(
     }
     if (response.status === 403 && code === ORGANIZATION_SUSPENDED_CODE) {
       window.dispatchEvent(new CustomEvent(ORGANIZATION_SUSPENDED_EVENT))
+    }
+    if (response.status === 429) {
+      detail = tooManyRequestsMessage(response)
     }
     throw new ApiError(
       detail || t('requestFailedWithStatus', { status: response.status }),

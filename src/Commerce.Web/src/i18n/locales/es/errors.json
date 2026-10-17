@@ -1,4 +1,7 @@
 {
   "apiUnreachable": "Commerce.Cloud.Api no está disponible.",
-  "requestFailedWithStatus": "La solicitud falló con estado {{status}}"
+  "requestFailedWithStatus": "La solicitud falló con estado {{status}}",
+  "tooManyRequests": "Demasiados intentos. Espere unos minutos y vuelva a intentarlo.",
+  "tooManyRequestsRetryIn_one": "Demasiados intentos. Vuelva a intentarlo en {{count}} minuto.",
+  "tooManyRequestsRetryIn_other": "Demasiados intentos. Vuelva a intentarlo en {{count}} minutos."
 }

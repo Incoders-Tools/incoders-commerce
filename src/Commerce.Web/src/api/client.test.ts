@@ -81,3 +81,32 @@ describe('organization suspension', () => {
     expect(listener).not.toHaveBeenCalled()
   })
 })
+
+// railway-deploy-pipeline S13: a rate-limited request (sign-in attempts, public ordering bursts) explains itself.
+describe('429 Too Many Requests', () => {
+  const fetchMock = vi.fn()
+
+  beforeEach(() => vi.stubGlobal('fetch', fetchMock))
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    fetchMock.mockReset()
+  })
+
+  it('says how many minutes to wait, rounded up from Retry-After seconds, at least one', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 429, headers: { 'Retry-After': '30' } }))
+
+    const error = await apiFetch('/account/sign-in', { method: 'POST' }).catch((err: unknown) => err)
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as ApiError).status).toBe(429)
+    expect((error as ApiError).message).toBe('Demasiados intentos. Vuelva a intentarlo en 1 minuto.')
+  })
+
+  it('falls back to a wait of a few minutes without Retry-After', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 429 }))
+
+    const error = await apiFetch('/customer/sign-in', { method: 'POST' }).catch((err: unknown) => err)
+
+    expect((error as ApiError).message).toBe('Demasiados intentos. Espere unos minutos y vuelva a intentarlo.')
+  })
+})

@@ -55,11 +55,20 @@ link) rather than deleting them.
 
 ## Decide before go-live
 
-- [ ] **Production platform system administrator.**
+- [x] **Production platform system administrator.**
   Why: `/account/bootstrap` creates the organization and its `business-admin`
-  in any environment, but `users.is_system_admin` is only set by the
-  Development test seed (runbook section 8). Decide whether production needs a
-  system administrator; if it does, build a supported way to create one.
+  in any environment, but `users.is_system_admin` was only set by the
+  Development test seed. Resolved 2026-10-17 (railway-deploy-pipeline S12):
+  production has one, created from the Cloud.Api service console with
+  `dotnet Commerce.Cloud.Api.dll create-system-admin --email <address>`, with no
+  HTTP endpoint. The same command resets its password (runbook section 8).
+- [ ] **Multi-factor authentication for system administrators** (recommended).
+  Why: a system administrator can create organizations and act on every
+  organization, and today a password alone protects the account. Sign-in
+  attempts are limited per client and per account (5 per 15 minutes per
+  account from one address, 100 from all addresses), which slows guessing but
+  does not stop a leaked password. Add a
+  second factor (for example TOTP) for `is_system_admin` accounts at least.
 
 - [ ] **MSI fallback (ADR-005).**
   Why: MSIX needs Windows 10 2004 (build 19041) or later. Confirm every terminal

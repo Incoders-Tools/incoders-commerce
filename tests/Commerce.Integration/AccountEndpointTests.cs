@@ -776,6 +776,9 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
         Assert.Equal(1, CountTokenRowsForUser(userId));
         Assert.Single(sender.Sent);
         Assert.Equal("reset-known@example.com", sender.Sent[0].To);
+        Assert.Equal("Restablezca su contraseña de Seeded Org", sender.Sent[0].Subject);
+        Assert.Contains("/reset-password/", sender.Sent[0].HtmlBody);
+        Assert.Contains("<html lang=\"es\">", sender.Sent[0].HtmlBody);
     }
 
     [Fact]
