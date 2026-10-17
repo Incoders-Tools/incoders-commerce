@@ -28,7 +28,7 @@ gets a pilot channel. Delivery strategy: ask-on-risk; forecast ~900 authored lin
 - T4 [S5, S6b, S6c] CI: `release.yml` gates PRs to `staging` and `main`; a `migrations` job (runner twice + expand-only guard) aggregated by `ci-gate`; required-checks runbook (`staging` and `main` only). Route: inline. Commit: 424f983.
 - T5 [S7] POS pilot channel: `pos-release.yml`, `build-pos-msix.ps1`, updater prerelease selection, with tests. Route: gentle-ai-worker. Commit: 16dab71.
 - T6 [S5, S6d, S7, S8] Release guide rewrite (automatic flow, rollback matrix, POS channels, client onboarding, storage note). Route: inline. Commit: 52b57b8.
-- T8 [S5, S6a] Replace config-as-code: railway.json is ignored for new Railway services (deprecated; no opt-in since 2026-08-28, unread after 2026-12-01). Service settings live in the dashboard; remove both railway.json files, their test pin and the classifier entry; document the dashboard settings and the variable-reference pattern. Route: gentle-ai-worker. Commit: pending.
+- T8 [S5, S6a] Replace config-as-code: railway.json is ignored for new Railway services (deprecated; no opt-in since 2026-08-28, unread after 2026-12-01). Service settings live in the dashboard; remove both railway.json files, their test pin and the classifier entry; document the dashboard settings and the variable-reference pattern. Route: gentle-ai-worker. Commit: 0ecac83.
 - T7 Independent verification (high risk: delivery/CI and migrations). Route: gentle-ai-verify. Commit: fixes in 8ab2281.
 
 ### Runner contract (shared by T2, T3, T4)
