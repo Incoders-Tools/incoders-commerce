@@ -195,6 +195,10 @@ builder.Services.AddSingleton<CloudOrderSubmissionService>();
 builder.Services.AddSingleton<IBusinessClock>(_ =>
     new BusinessClock(TimeProvider.System, BusinessTimeZone.Resolve(builder.Configuration["Business:TimeZone"])));
 
+// Auth cookies are protected with a key ring kept in Postgres (0061), so a redeploy or restart keeps users signed in
+// (railway-deploy-pipeline S10).
+builder.Services.AddCommerceDataProtection();
+
 // --- Auth: Identity cookie (browser, same-origin SPA) + device bearer
 // (Pos.Windows sync) — design.md "Browser auth" / "Device auth" -------------
 builder.Services

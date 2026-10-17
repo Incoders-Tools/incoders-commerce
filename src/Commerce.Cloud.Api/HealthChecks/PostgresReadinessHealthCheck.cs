@@ -281,7 +281,10 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
                     EXISTS (
                         SELECT 1 FROM pg_policies
                         WHERE tablename = 'order_lines' AND policyname = 'order_lines_tenant_isolation'
-                    ) AS order_lines_policy_exists
+                    ) AS order_lines_policy_exists,
+                    -- Data Protection key ring (0061, railway-deploy-pipeline S10). Every cookie sign-in and every
+                    -- authenticated request needs it; without the table nobody could sign in.
+                    EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'data_protection_keys') AS data_protection_keys_table_exists
                 """, connection);
 
             await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
@@ -363,6 +366,7 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
             var orderLinesTableExists = reader.GetBoolean(71);
             var orderLinesRlsForced = reader.GetBoolean(72);
             var orderLinesPolicyExists = reader.GetBoolean(73);
+            var dataProtectionKeysTableExists = reader.GetBoolean(74);
             var ordersSchemaOk = ordersTableExists && ordersRlsForced && ordersPolicyExists
                 && orderLinesTableExists && orderLinesRlsForced && orderLinesPolicyExists;
 
@@ -393,7 +397,8 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
                 && rateComponentSetsTableExists && rateComponentSetsRlsForced && rateComponentSetsPolicyExists
                 && rateComponentsTableExists && rateComponentsRlsForced && rateComponentsPolicyExists
                 && branchesCodeColumnExists && terminalRegistersTableExists && terminalRegistersRlsForced && terminalRegistersAssignExists
-                && ordersSchemaOk;
+                && ordersSchemaOk
+                && dataProtectionKeysTableExists;
 
             if (allHealthy)
             {
@@ -401,7 +406,7 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
                     "sync_inbox, users, user_directory, organizations, branches, device_credentials, " +
                     "password_reset_tokens, audit_log, customers, customer_ordering_access, " +
                     "products, presentations, price_lists, price_list_entries, guest_order_verifications, " +
-                    "payment_entries, rate_component_sets, rate_components, terminal_registers, orders, and order_lines tables, forced RLS, " +
+                    "payment_entries, rate_component_sets, rate_components, terminal_registers, orders, order_lines, and data_protection_keys tables, forced RLS, " +
                     "tenant-isolation policies, and app_runtime/platform_readonly roles all verified.");
             }
 
@@ -415,6 +420,11 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
             {
                 _logger?.LogError("Readiness failed: migration 0025 missing (orders={Orders}, orders_rls_forced={OrdersRls}, orders_policy={OrdersPolicy}, order_lines={Lines}, order_lines_rls_forced={LinesRls}, order_lines_policy={LinesPolicy}); web orders could not be stored. Apply deploy/db/migrations/0025_orders.sql before this API version.",
                     ordersTableExists, ordersRlsForced, ordersPolicyExists, orderLinesTableExists, orderLinesRlsForced, orderLinesPolicyExists);
+            }
+
+            if (!dataProtectionKeysTableExists)
+            {
+                _logger?.LogError("Readiness failed: migration 0061 missing (data_protection_keys table absent); no auth cookie could be issued or read. Apply deploy/db/migrations/0061_data_protection_keys.sql before this API version.");
             }
 
             return HealthCheckResult.Unhealthy(
@@ -444,8 +454,10 @@ public sealed class PostgresReadinessHealthCheck : IHealthCheck
                 $"branches.code(column={branchesCodeColumnExists}), terminal_registers(table={terminalRegistersTableExists}, rls_forced={terminalRegistersRlsForced}, " +
                 $"assign_function={terminalRegistersAssignExists}), " +
                 $"orders(table={ordersTableExists}, rls_forced={ordersRlsForced}, policy={ordersPolicyExists}), " +
-                $"order_lines(table={orderLinesTableExists}, rls_forced={orderLinesRlsForced}, policy={orderLinesPolicyExists}). " +
-                "Apply deploy/db/migrations/0001_init_rls.sql through 0025_orders.sql (0022/0024 missing means pairing would fail, 0025 missing means orders could not be stored).");
+                $"order_lines(table={orderLinesTableExists}, rls_forced={orderLinesRlsForced}, policy={orderLinesPolicyExists}), " +
+                $"data_protection_keys(table={dataProtectionKeysTableExists}). " +
+                "Apply deploy/db/migrations/0001_init_rls.sql through 0061_data_protection_keys.sql (0022/0024 missing means pairing would fail, " +
+                "0025 missing means orders could not be stored, 0061 missing means nobody could sign in).");
         }
         catch (Exception ex)
         {

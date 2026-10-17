@@ -67,6 +67,13 @@ There are no down-migrations: reversing a schema change is a new forward migrati
 - `ConnectionStrings__Migrations` (the `postgres` superuser, set as a reference to the Postgres service's password)
   is visible to the Cloud.Api runtime container, because Railway's pre-deploy command shares the service's
   variables. Cloud.Api never reads that key. Moving the migrator to a non-superuser owner role is possible later.
+- A deploy, restart or rollback does not sign anyone out. Cloud.Api keeps its ASP.NET Core Data Protection key ring
+  (the keys that protect auth cookies) in `data_protection_keys` (migration `0061`), not inside the container, so
+  every instance and every version reads the same keys. The deploy that introduces it signs users out one last time
+  (their cookies were protected with the old container's keys). `/health/ready` fails while the table is missing. Rolling
+  back to a version older than `0061` still works, but that version keeps keys inside the container again, so its
+  users are signed out once. The keys are stored unencrypted, protected by the private network, the grants (only
+  `app_runtime`, SELECT and INSERT) and the encrypted backups.
 - The first deploy of an existing database with no ledger re-runs every migration. That is safe because each one is
   idempotent; CI proves it on every pull request.
 - A deploy that finds the advisory lock taken polls for it, printing a waiting line at most every 30 seconds, and
