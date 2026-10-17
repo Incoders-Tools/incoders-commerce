@@ -66,7 +66,7 @@ public sealed class GuestVerificationTests : IDisposable
                  {
                      "0002_users.sql", "0003_organizations_branches.sql",
                      "0004_device_credentials.sql", "0005_password_recovery.sql",
-                     "0010_guest_ordering.sql",
+                     "0010_guest_ordering.sql", "0015_organization_branding.sql",
                  })
         {
             var sql = File.ReadAllText(Path.Combine(root, "deploy", "db", "migrations", file));
@@ -152,6 +152,33 @@ public sealed class GuestVerificationTests : IDisposable
         var code = ExtractCode(sender.Sent[0]);
         Assert.NotEqual(code, record.CodeHash);
         Assert.Equal(64, record.CodeHash.Length);
+    }
+
+    [Fact]
+    public async Task RequestAsync_BrandsTheEmail_WithTheOrganizationNameAndColor()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var scope = SeedOrganization();
+        using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            owner.Open();
+            using var cmd = new NpgsqlCommand("UPDATE organizations SET primary_color = '#2f5d3a' WHERE id = $1", owner);
+            cmd.Parameters.AddWithValue(scope.OrganizationId);
+            cmd.ExecuteNonQuery();
+        }
+        var sender = new FakeEmailSender();
+        var store = new PostgresGuestVerificationStore(_dataSource!);
+        var organizations = new PostgresOrganizationStore(_dataSource!, new PostgresUserAccountStore(_dataSource!));
+        var service = new GuestVerificationService(store, sender, organizations: organizations);
+
+        await service.RequestAsync(
+            scope, "30111222333", GuestContactChannel.Email, "guest@example.com", CancellationToken.None);
+
+        var message = Assert.Single(sender.Sent);
+        Assert.Equal("Su código de verificación de Org A", message.Subject);
+        Assert.StartsWith($"Su código de verificación es {ExtractCode(message)}.", message.TextBody);
+        Assert.Contains("#2f5d3a", message.HtmlBody);
     }
 
     [Fact]

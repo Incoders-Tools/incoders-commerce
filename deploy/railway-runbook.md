@@ -294,6 +294,13 @@ The site costs about $0.3-0.5/month of usage (a small Caddy server).
    `RESEND_API_KEY` on Cloud.Api, then request a password reset to confirm the
    email arrives and its link points at `https://app.vaca-verde.com.ar`.
 
+System emails (password reset, guest order verification code) are in Spanish,
+with an HTML body and a plain-text alternative. Each one shows the brand of the
+organization it belongs to: its name, its primary color, and its logo when the
+logo URL uses `https`. Set them in the organization's branding (system admin
+console). Links are built from `PUBLIC_BASE_URL`, so set it to the platform
+host without a trailing path, for example `https://app.vaca-verde.com.ar`.
+
 Another client's domain later becomes one more custom domain on this same
 Cloud.Api service, not another deployment ([ADR-015](../docs/architecture/decisions/ADR-015-shared-multi-client-platform.md)).
 Cloud.Api does not resolve an organization from the request host yet, so that

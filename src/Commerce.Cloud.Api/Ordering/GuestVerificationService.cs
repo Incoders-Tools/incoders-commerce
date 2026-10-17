@@ -37,13 +37,18 @@ public sealed class GuestVerificationService
     private readonly PostgresGuestVerificationStore _store;
     private readonly IEmailSender _emailSender;
     private readonly Func<DateTimeOffset> _clock;
+    private readonly PostgresOrganizationStore? _organizations;
 
+    /// <param name="organizations">Source of the email brand; without it the
+    /// email uses <see cref="EmailBrand.Default"/>.</param>
     public GuestVerificationService(
-        PostgresGuestVerificationStore store, IEmailSender emailSender, Func<DateTimeOffset>? clock = null)
+        PostgresGuestVerificationStore store, IEmailSender emailSender, Func<DateTimeOffset>? clock = null,
+        PostgresOrganizationStore? organizations = null)
     {
         _store = store;
         _emailSender = emailSender;
         _clock = clock ?? (() => DateTimeOffset.UtcNow);
+        _organizations = organizations;
     }
 
     /// <summary>
@@ -62,18 +67,16 @@ public sealed class GuestVerificationService
         var codeHash = Hash(code);
         var expiresAt = _clock().Add(CodeExpiry);
 
-        var verificationId = await _store.IssueAsync(scope, documentId, channel, contactAddress, codeHash, expiresAt, ct);
+        // Read before issuing, so a failed read leaves no row behind.
+        var brand = _organizations is null
+            ? EmailBrand.Default
+            : await _organizations.GetEmailBrandAsync(scope.OrganizationId, ct) ?? EmailBrand.Default;
 
-        var textBody =
-            $"Your Commerce guest order verification code is {code}. " +
-            "This code expires in 10 minutes and can be used once.";
-        var htmlBody = $"<p>Your Commerce guest order verification code is <strong>{code}</strong>.</p>" +
-            "<p>This code expires in 10 minutes and can be used once.</p>";
+        var verificationId = await _store.IssueAsync(scope, documentId, channel, contactAddress, codeHash, expiresAt, ct);
 
         // Delivery outcome does not gate issuance — the reset-password/request
         // precedent verbatim.
-        await _emailSender.SendAsync(
-            new EmailMessage(contactAddress, "Your Commerce guest order verification code", htmlBody, textBody), ct);
+        await _emailSender.SendAsync(EmailTemplates.GuestVerificationCode(contactAddress, brand, code), ct);
 
         return verificationId;
     }

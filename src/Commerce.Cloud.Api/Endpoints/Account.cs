@@ -295,6 +295,7 @@ public static class AccountEndpoints
             HttpContext httpContext,
             PostgresUserAccountStore userStore,
             PostgresPasswordRecoveryStore recoveryStore,
+            PostgresOrganizationStore organizationStore,
             ResetRequestThrottle throttle,
             IEmailSender emailSender,
             EmailOptions emailOptions,
@@ -341,20 +342,13 @@ public static class AccountEndpoints
             var tokenHash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
             var expiresAt = DateTimeOffset.UtcNow.AddHours(1);
 
+            // Read before issuing, so a failed read leaves no token behind.
+            var brand = await organizationStore.GetEmailBrandAsync(scope.OrganizationId, ct) ?? EmailBrand.Default;
+
             await recoveryStore.IssueTokenAsync(scope, credential.Id, tokenHash, expiresAt, ct);
 
-            var link = $"{emailOptions.PublicBaseUrl}/reset-password/{token}";
-            var textBody =
-                $"Reset your Commerce password by visiting {link}\n\n" +
-                "This link expires in 1 hour and can be used once. " +
-                "If you did not request this, ignore this email.";
-            var htmlBody =
-                $"<p>Reset your Commerce password by <a href=\"{link}\">clicking here</a>.</p>" +
-                "<p>This link expires in 1 hour and can be used once. " +
-                "If you did not request this, ignore this email.</p>";
-
-            var sent = await emailSender.SendAsync(
-                new EmailMessage(credential.Email, "Reset your Commerce password", htmlBody, textBody), ct);
+            var link = $"{emailOptions.PublicBaseUrl.TrimEnd('/')}/reset-password/{token}";
+            var sent = await emailSender.SendAsync(EmailTemplates.PasswordReset(credential.Email, brand, link), ct);
             if (!sent)
             {
                 var logger = loggerFactory.CreateLogger("Commerce.Cloud.Api.PasswordRecovery");
