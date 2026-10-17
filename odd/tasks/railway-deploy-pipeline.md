@@ -20,6 +20,9 @@ gets a pilot channel. Delivery strategy: ask-on-risk; forecast ~900 authored lin
 - S8. Multi-client: "este sistema debe poder implementarse para cualquier otro cliente, es decir con su propia web, sus propias reglas, pero tomando como base nuestro sistema. Mas que nada el pos, pero el pos termina dependiendo de la web." + decision "Compartido (Recomendado)" → ADR: one shared deployment; each client is an organization (RLS) with its own domain, branding and settings; client rules are configuration, never per-client code; onboarding steps documented; host-based organization resolution is named as future work.
 - S10. Deploys must not affect signed-in users: owner: "Si hacelo como sugeris. Debe resolverse de la mejor manera posible. Asi cada imple no afecta a la operacion de los usuarios logueados en ese momento" (answering the recommendation to store ASP.NET Core Data Protection keys in Postgres). A redeploy or restart of Cloud.Api keeps existing auth cookies valid.
 - S11. The web app's browser title is a build input: the Docker build fails when `VITE_SITE_NAME` is missing instead of shipping `%VITE_SITE_NAME%`.
+- S12. Platform super-admin outside Development: owner: "Si esta bien eso" (to a console command run from the Railway service Console: `dotnet Commerce.Cloud.Api.dll create-system-admin --email ...`, password read from the terminal, idempotent, no new HTTP endpoint) and "esta bien que quede alineado a admin@incoders porque solo lo manejo yo a esa cuenta".
+- S13. Sign-in attempt limiting: owner: "Si esta bien el inicio de sesion debe ser igual de estricto para todos, solo que en este caso existe un usuario privilegiado que va a acceder al sistema antes que existan otros." Limits must key on the real client (behind Railway's proxy) so one user cannot lock out everyone.
+- S14. Email: owner: "si necesitamos enviar alguna config el recupero de contrasenia, eso lo podemos manejar con algun servicio gratuito de railway al envio de email y tener un buen html template para el envio de esos mails y las redirecciones?" → Resend (Railway's recommended provider, already integrated), Spanish branded HTML templates with a plain-text alternative for every system email, links built from PUBLIC_BASE_URL.
 - S9. Scope decision: "Sí, implementarlo (Recomendado)" → implement the runner, the pre-deploy wiring, the CI gates, and the POS pilot channel, with tests and docs.
 
 ## Tasks
@@ -33,6 +36,9 @@ gets a pilot channel. Delivery strategy: ask-on-risk; forecast ~900 authored lin
 - T8 [S5, S6a] Replace config-as-code: railway.json is ignored for new Railway services (deprecated; no opt-in since 2026-08-28, unread after 2026-12-01). Service settings live in the dashboard; remove both railway.json files, their test pin and the classifier entry; document the dashboard settings and the variable-reference pattern. Route: gentle-ai-worker. Commit: 0ecac83.
 - T9 [S10] Persist Data Protection keys in Postgres (migration + IXmlRepository over NpgsqlDataSource + fixed application name), with tests. Route: gentle-ai-worker. Commit: 6b26134.
 - T10 [S11] `VITE_SITE_NAME` as a required Docker build argument (Dockerfile, compose, runbook). Route: inline. Commit: a5d253a.
+- T11 [S12] `create-system-admin` console command in the Cloud.Api image, with tests. Route: gentle-ai-worker. Commit: pending.
+- T12 [S13] Sign-in rate limiting for every user, partitioned by the real client IP behind Railway's proxy, with tests. Route: gentle-ai-worker (with T11). Commit: pending.
+- T13 [S14] Spanish HTML email templates (password reset, guest verification), with tests. Route: gentle-ai-worker after T11/T12. Commit: pending.
 - T7 Independent verification (high risk: delivery/CI and migrations). Route: gentle-ai-verify. Commit: fixes in 8ab2281.
 
 ### Runner contract (shared by T2, T3, T4)
