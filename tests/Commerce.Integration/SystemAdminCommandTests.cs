@@ -230,6 +230,45 @@ public sealed class SystemAdminCommandTests
     }
 
     [Fact]
+    public async Task ElevenCharacterPassword_IsRefused_WithoutWritingAnything_TwelveIsAccepted()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml."); return; }
+
+        var run = await CreateSystemAdminAsync("eleven-char");
+
+        Assert.Equal(1, run.ExitCode);
+        Assert.Equal("error: The password must be at least 12 characters." + Environment.NewLine, run.Error);
+        Assert.Equal(string.Empty, run.Output);
+        AssertNoSecretPrinted(run, "eleven-char");
+        Assert.Equal(0L, Scalar<long>("SELECT count(*) FROM users"));
+        Assert.Equal(0L, Scalar<long>("SELECT count(*) FROM organizations"));
+
+        Assert.Equal(0, (await CreateSystemAdminAsync("twelve-chars")).ExitCode);
+    }
+
+    [Fact]
+    public async Task RecoveryWithAnElevenCharacterPassword_IsRefused_AndKeepsTheCurrentPassword()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml."); return; }
+
+        Assert.Equal(0, (await CreateSystemAdminAsync(FirstPassword)).ExitCode);
+        var hashBefore = Scalar<string>("SELECT password_hash FROM users WHERE email = $1", Email);
+        var versionBefore = Scalar<int>("SELECT session_version FROM users WHERE email = $1", Email);
+
+        var run = await CreateSystemAdminAsync("eleven-char");
+
+        Assert.Equal(1, run.ExitCode);
+        Assert.Equal("error: The password must be at least 12 characters." + Environment.NewLine, run.Error);
+        AssertNoSecretPrinted(run, "eleven-char", FirstPassword);
+        Assert.Equal(hashBefore, Scalar<string>("SELECT password_hash FROM users WHERE email = $1", Email));
+        Assert.Equal(versionBefore, Scalar<int>("SELECT session_version FROM users WHERE email = $1", Email));
+
+        await using var factory = NewFactory();
+        var signIn = await NewClient(factory).PostAsJsonAsync("/account/sign-in", new { email = Email, password = FirstPassword });
+        Assert.Equal(HttpStatusCode.OK, signIn.StatusCode);
+    }
+
+    [Fact]
     public async Task PasswordAsAnArgument_IsRejected_WithoutWritingAnything()
     {
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres. Start deploy/dev/compose.yaml."); return; }

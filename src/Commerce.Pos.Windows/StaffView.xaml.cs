@@ -142,6 +142,12 @@ public partial class StaffView : UserControl, ISectionView
             return;
         }
 
+        if (StaffList.PasswordProblem(request.Password) is { } createProblem)
+        {
+            ShowStatus(createProblem, isError: true);
+            return;
+        }
+
         await _busy.RunAsync(PosMessages.Saving, async () =>
         {
             ShowStatus(string.Empty, isError: false);
@@ -214,9 +220,9 @@ public partial class StaffView : UserControl, ISectionView
         }
 
         var newPassword = ResetPasswordBox.Password;
-        if (newPassword.Length == 0)
+        if (StaffList.ResetPasswordProblem(newPassword) is { } resetProblem)
         {
-            ShowStatus(PosMessages.NewPasswordRequired, isError: true);
+            ShowStatus(resetProblem, isError: true);
             return;
         }
 

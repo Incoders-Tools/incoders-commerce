@@ -29,6 +29,7 @@ describe('ResetPasswordScreen', () => {
     render(<ResetPasswordScreen token="the-real-token" onSuccess={onSuccess} />)
 
     await user.type(screen.getByLabelText('Nueva contraseña'), 'brand-new-password')
+    await user.type(screen.getByLabelText('Confirmar contraseña'), 'brand-new-password')
     await user.click(screen.getByRole('button', { name: /restablecer contraseña/i }))
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
@@ -47,9 +48,57 @@ describe('ResetPasswordScreen', () => {
     render(<ResetPasswordScreen token="expired-token" onSuccess={onSuccess} />)
 
     await user.type(screen.getByLabelText('Nueva contraseña'), 'some-password')
+    await user.type(screen.getByLabelText('Confirmar contraseña'), 'some-password')
     await user.click(screen.getByRole('button', { name: /restablecer contraseña/i }))
 
-    expect(await screen.findByRole('alert')).toBeInTheDocument()
+    expect(await screen.findByRole('alert')).toHaveTextContent('Este enlace de restablecimiento no es válido o venció.')
+    expect(onSuccess).not.toHaveBeenCalled()
+  })
+
+  // railway-deploy-pipeline S15: the new password is asked twice; when they differ nothing is sent.
+  it('sends nothing and says so when the confirmation differs', async () => {
+    const onSuccess = vi.fn()
+
+    const user = userEvent.setup()
+    render(<ResetPasswordScreen token="the-real-token" onSuccess={onSuccess} />)
+
+    await user.type(screen.getByLabelText('Nueva contraseña'), 'brand-new-password')
+    await user.type(screen.getByLabelText('Confirmar contraseña'), 'brand-new-passwort')
+    await user.click(screen.getByRole('button', { name: /restablecer contraseña/i }))
+
+    expect((await screen.findByRole('alert')).textContent).toBe('Las contraseñas no coinciden.')
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(onSuccess).not.toHaveBeenCalled()
+  })
+
+  // railway-deploy-pipeline S16: the 12-character minimum is said before sending, and 11 characters are not sent.
+  it('says the 12-character minimum and sends nothing for 11 characters', async () => {
+    const user = userEvent.setup()
+    render(<ResetPasswordScreen token="the-real-token" onSuccess={vi.fn()} />)
+
+    expect(screen.getByLabelText('Nueva contraseña')).toHaveAccessibleDescription('Mínimo 12 caracteres.')
+    await user.type(screen.getByLabelText('Nueva contraseña'), 'eleven-char')
+    await user.type(screen.getByLabelText('Confirmar contraseña'), 'eleven-char')
+    await user.click(screen.getByRole('button', { name: /restablecer contraseña/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('La contraseña debe tener al menos 12 caracteres.')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('reads the server refusing the password as the minimum, not as an invalid link', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ errors: { newPassword: ['newPassword must be at least 12 characters.'] } }), { status: 400 }),
+    )
+    const onSuccess = vi.fn()
+
+    const user = userEvent.setup()
+    render(<ResetPasswordScreen token="the-real-token" onSuccess={onSuccess} />)
+
+    await user.type(screen.getByLabelText('Nueva contraseña'), 'twelve-chars')
+    await user.type(screen.getByLabelText('Confirmar contraseña'), 'twelve-chars')
+    await user.click(screen.getByRole('button', { name: /restablecer contraseña/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('La contraseña debe tener al menos 12 caracteres.')
     expect(onSuccess).not.toHaveBeenCalled()
   })
 })

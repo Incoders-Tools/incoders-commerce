@@ -275,6 +275,12 @@ jobs:
           PORT: "8080"
           GuestOrdering__OrganizationId: ${{ env.GUEST_ORDERING_ORGANIZATION_ID }}
           GuestOrdering__BranchId: ${{ env.GUEST_ORDERING_BRANCH_ID }}
+          # Every spec signs in from the same address (localhost), more than the production sign-in limit of 20 per
+          # 5 minutes per address (SignInRateLimiting). SignInRateLimitTests pins the real limits; here they only
+          # need to stay out of the way.
+          RateLimits__SignInPerClientPermitLimit: "1000"
+          RateLimits__SignInPerAccountPermitLimit: "1000"
+          RateLimits__SignInPerAccountCeiling: "1000"
         run: |
           nohup dotnet run --project src/Commerce.Cloud.Api > cloud-api.log 2>&1 &
           for i in $(seq 1 30); do

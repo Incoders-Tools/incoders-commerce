@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { FormPage } from '@/components/layout/FormPage'
-import { createOrganization } from '@/api/account'
+import { PASSWORD_MINIMUM_LENGTH, createOrganization, isPasswordLongEnough, isPasswordRejection } from '@/api/account'
 import { ApiError } from '@/api/client'
 
 interface OrganizationFormProps {
@@ -41,6 +41,11 @@ export function OrganizationForm({ onCreated, onCancel }: OrganizationFormProps)
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault()
     setError(null)
+    // railway-deploy-pipeline S16: the administrator's password follows the staff minimum; refused before sending.
+    if (!isPasswordLongEnough(adminPassword)) {
+      setError(t('common:password.tooShort', { count: PASSWORD_MINIMUM_LENGTH }))
+      return
+    }
     setSubmitting(true)
     try {
       await createOrganization({
@@ -51,7 +56,11 @@ export function OrganizationForm({ onCreated, onCancel }: OrganizationFormProps)
       })
       onCreated()
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : t('createForm.unableToCreate'))
+      if (isPasswordRejection(err, 'adminPassword')) {
+        setError(t('common:password.tooShort', { count: PASSWORD_MINIMUM_LENGTH }))
+      } else {
+        setError(err instanceof ApiError ? err.message : t('createForm.unableToCreate'))
+      }
     } finally {
       setSubmitting(false)
     }
@@ -88,6 +97,7 @@ export function OrganizationForm({ onCreated, onCancel }: OrganizationFormProps)
             type="password"
             value={adminPassword}
             onChange={setAdminPassword}
+            hint={t('common:password.hint', { count: PASSWORD_MINIMUM_LENGTH })}
             required
           />
         </div>
@@ -117,6 +127,7 @@ function Field({
   value,
   onChange,
   type = 'text',
+  hint,
   required = false,
 }: {
   id: string
@@ -124,12 +135,25 @@ function Field({
   value: string
   onChange: (value: string) => void
   type?: string
+  hint?: string
   required?: boolean
 }) {
   return (
     <div className="flex flex-col gap-1.5">
       <Label htmlFor={id}>{label}</Label>
-      <Input id={id} type={type} value={value} onChange={(e) => onChange(e.target.value)} required={required} />
+      <Input
+        id={id}
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        aria-describedby={hint ? `${id}-hint` : undefined}
+        required={required}
+      />
+      {hint && (
+        <p id={`${id}-hint`} className="text-xs text-muted-foreground">
+          {hint}
+        </p>
+      )}
     </div>
   )
 }

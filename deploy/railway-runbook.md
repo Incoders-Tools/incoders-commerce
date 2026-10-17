@@ -298,7 +298,8 @@ System emails (password reset, guest order verification code) are in Spanish,
 with an HTML body and a plain-text alternative. Each one shows the brand of the
 organization it belongs to: its name, its primary color, and its logo when the
 logo URL uses `https`. Set them in the organization's branding (system admin
-console). Links are built from `PUBLIC_BASE_URL`, so set it to the platform
+console). The system administrator's emails show the platform's brand,
+"Incoders Commerce". Links are built from `PUBLIC_BASE_URL`, so set it to the platform
 host without a trailing path, for example `https://app.vaca-verde.com.ar`.
 
 Another client's domain later becomes one more custom domain on this same
@@ -352,7 +353,8 @@ command inside the Cloud.Api image. It has no HTTP endpoint.
 1. In Railway, open the environment's **Cloud.Api** service, then the
    **Console** tab (or run `railway ssh --service Cloud.Api --environment
    <environment>` from a terminal).
-2. Run the command, and type the password twice when asked (it is not shown):
+2. Run the command, and type the password twice when asked (it is not shown).
+   It needs at least 12 characters, like every staff password:
 
    ```sh
    dotnet /app/Commerce.Cloud.Api.dll create-system-admin --email <administrator email>
@@ -363,7 +365,10 @@ command inside the Cloud.Api image. It has no HTTP endpoint.
    other secret. The password is never an argument or a variable, and the
    command never prints it or its hash. With a redirected stdin, the command
    reads the password from the first line and the confirmation from the
-   second, for scripted recovery.
+   second, for scripted recovery. A password shorter than 12 characters is
+   refused with `error: The password must be at least 12 characters.` and
+   exit 1, before anything is written, also when recovering an existing
+   administrator.
 3. In the web app, sign in as that administrator and create each client
    organization with its first `business-admin` from the organizations
    console (`POST /account/organizations`).
@@ -422,8 +427,10 @@ Invoke-RestMethod -Method Post "$origin/account/bootstrap" -ContentType 'applica
 } | ConvertTo-Json)
 ```
 
-The token is single-use, and a failed bootstrap burns it: request a new one
-and repeat. Sign in with the `business-admin` credentials to confirm.
+The `business-admin` password needs at least 12 characters: a shorter one
+answers `400` before the token is used, so the same token still works with a
+longer password. The token is single-use, and a failed bootstrap burns it:
+request a new one and repeat. Sign in with the `business-admin` credentials to confirm.
 
 In Development, `deploy/dev/provision-admin.ps1` still creates a system
 administrator through the Development-only `/internal/test-seed/user` endpoint.

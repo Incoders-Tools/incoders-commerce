@@ -310,7 +310,7 @@ public sealed class SignInRateLimitTests
         {
             using var request = new HttpRequestMessage(HttpMethod.Post, "/account/reset-password/confirm")
             {
-                Content = JsonContent.Create(new { token = "x", newPassword = "y" }),
+                Content = JsonContent.Create(new { token = "x", newPassword = "new-password-y" }),
             };
             request.Headers.Add("X-Forwarded-For", "203.0.113.60");
             Assert.Equal(HttpStatusCode.Unauthorized, (await client.SendAsync(request)).StatusCode);

@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
+using System.Text.Json;
 
 namespace Commerce.Pos.Windows;
 
@@ -81,6 +82,8 @@ public sealed class UserAdminClient
                     };
                 case HttpStatusCode.NotFound:
                     return UserAdminMutationOutcome.NotFound();
+                case HttpStatusCode.BadRequest when RefusesPassword(body):
+                    return UserAdminMutationOutcome.Failed(PosMessages.PasswordTooShort);
                 case HttpStatusCode.BadRequest:
                     return UserAdminMutationOutcome.Failed(
                         PosHttp.ParseErrorCode(body) switch
@@ -99,6 +102,26 @@ public sealed class UserAdminClient
         {
             PosHttp.LogTransportFailure(endpoint, ex);
             return UserAdminMutationOutcome.Failed(PosMessages.ServerUnreachable);
+        }
+    }
+
+    /// <summary>
+    /// railway-deploy-pipeline S16: a 400 ValidationProblem keyed by the password field (`password` on create,
+    /// `newPassword` on reset). The form refuses a blank one before sending, so the server's reason is the minimum.
+    /// </summary>
+    private static bool RefusesPassword(string body)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            return document.RootElement.ValueKind == JsonValueKind.Object
+                && document.RootElement.TryGetProperty("errors", out var errors)
+                && errors.ValueKind == JsonValueKind.Object
+                && (errors.TryGetProperty("password", out _) || errors.TryGetProperty("newPassword", out _));
+        }
+        catch (JsonException)
+        {
+            return false;
         }
     }
 }

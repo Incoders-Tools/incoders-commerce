@@ -55,10 +55,17 @@ public static class CreateSystemAdminCommand
 
         var password = console.ReadSecret("Password: ");
         var confirmation = console.ReadSecret("Confirm password: ");
-        // The staff password rule of the web (Account.cs: staff creation, admin reset, organization creation).
+        // The staff password rule of the web (Account.cs: staff creation, admin reset, organization creation), for a
+        // new administrator and for a recovery alike.
         if (string.IsNullOrWhiteSpace(password))
         {
             console.Error.WriteLine("error: A password is required.");
+            return Failure;
+        }
+
+        if (!PasswordPolicy.IsLongEnough(password))
+        {
+            console.Error.WriteLine($"error: The password must be at least {PasswordPolicy.MinimumLength} characters.");
             return Failure;
         }
 

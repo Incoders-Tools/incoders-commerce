@@ -52,6 +52,10 @@
     "invalid": "Ingresá un correo electrónico válido, por ejemplo nombre@dominio.com.",
     "valid": "Correo electrónico válido"
   },
+  "password": {
+    "hint": "Mínimo {{count}} caracteres.",
+    "tooShort": "La contraseña debe tener al menos {{count}} caracteres."
+  },
   "unsavedChanges": {
     "title": "Cambios sin guardar",
     "discard": "Descartar",

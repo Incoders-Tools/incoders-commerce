@@ -394,7 +394,7 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
         var client = _factory.CreateClient();
         var response = await client.PostAsJsonAsync(
             "/account/bootstrap",
-            new BootstrapRequest(organizationId, token, "Acme Corp", null, "mainbranch@example.com", "password"));
+            new BootstrapRequest(organizationId, token, "Acme Corp", null, "mainbranch@example.com", "staff-password"));
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<BootstrapResponse>();
 
@@ -418,13 +418,13 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
         var client = _factory.CreateClient();
         var first = await client.PostAsJsonAsync(
             "/account/bootstrap",
-            new BootstrapRequest(organizationId, firstToken, "Acme Corp", null, "second-boot-1@example.com", "password"));
+            new BootstrapRequest(organizationId, firstToken, "Acme Corp", null, "second-boot-1@example.com", "staff-password"));
         Assert.Equal(HttpStatusCode.OK, first.StatusCode);
 
         var secondToken = registry.Issue(organizationId);
         var second = await client.PostAsJsonAsync(
             "/account/bootstrap",
-            new BootstrapRequest(organizationId, secondToken, "Acme Corp Again", null, "second-boot-2@example.com", "password"));
+            new BootstrapRequest(organizationId, secondToken, "Acme Corp Again", null, "second-boot-2@example.com", "staff-password"));
 
         Assert.Equal(HttpStatusCode.Conflict, second.StatusCode);
     }
@@ -441,7 +441,7 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
         var client = _factory.CreateClient();
         var blankResponse = await client.PostAsJsonAsync(
             "/account/bootstrap",
-            new BootstrapRequest(organizationId, token, "   ", null, "blankname@example.com", "password"));
+            new BootstrapRequest(organizationId, token, "   ", null, "blankname@example.com", "staff-password"));
 
         Assert.Equal(HttpStatusCode.BadRequest, blankResponse.StatusCode);
 
@@ -449,7 +449,7 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
         // TryConsume, so this mistake did not burn it.
         var retry = await client.PostAsJsonAsync(
             "/account/bootstrap",
-            new BootstrapRequest(organizationId, token, "Now A Real Name", null, "blankname@example.com", "password"));
+            new BootstrapRequest(organizationId, token, "Now A Real Name", null, "blankname@example.com", "staff-password"));
 
         Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
     }
@@ -466,14 +466,14 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
         var client = _factory.CreateClient();
         var first = await client.PostAsJsonAsync(
             "/account/bootstrap",
-            new BootstrapRequest(organizationId, token, "Acme Corp", null, "replay1@example.com", "password"));
+            new BootstrapRequest(organizationId, token, "Acme Corp", null, "replay1@example.com", "staff-password"));
         Assert.Equal(HttpStatusCode.OK, first.StatusCode);
 
         // Same org already has a user now, but the more specific assertion is
         // that the SAME token cannot be reused at all.
         var replay = await client.PostAsJsonAsync(
             "/account/bootstrap",
-            new BootstrapRequest(organizationId, token, "Acme Corp", null, "replay2@example.com", "password"));
+            new BootstrapRequest(organizationId, token, "Acme Corp", null, "replay2@example.com", "staff-password"));
 
         Assert.Equal(HttpStatusCode.Unauthorized, replay.StatusCode);
     }
@@ -501,7 +501,7 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
 
         var response = await client.PostAsJsonAsync(
             "/account/bootstrap",
-            new BootstrapRequest(organizationId, token, "Acme Corp", null, "expired@example.com", "password"));
+            new BootstrapRequest(organizationId, token, "Acme Corp", null, "expired@example.com", "staff-password"));
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
@@ -519,7 +519,7 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
         var client = _factory.CreateClient();
         var response = await client.PostAsJsonAsync(
             "/account/bootstrap",
-            new BootstrapRequest(otherOrganizationId, token, "Acme Corp", null, "wrongorg@example.com", "password"));
+            new BootstrapRequest(otherOrganizationId, token, "Acme Corp", null, "wrongorg@example.com", "staff-password"));
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
@@ -779,6 +779,36 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
         Assert.Equal("Restablezca su contraseña de Seeded Org", sender.Sent[0].Subject);
         Assert.Contains("/reset-password/", sender.Sent[0].HtmlBody);
         Assert.Contains("<html lang=\"es\">", sender.Sent[0].HtmlBody);
+    }
+
+    [Fact]
+    public async Task ResetRequest_ForTheSystemAdmin_IsBrandedAsThePlatform_NotItsInternalOrganization()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var organizationId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        await SeedUserAsync(organizationId, userId, "reset-sysadmin@example.com", "old-password");
+        using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            owner.Open();
+            using var cmd = new NpgsqlCommand("UPDATE users SET is_system_admin = true WHERE id = $1", owner);
+            cmd.Parameters.AddWithValue(userId);
+            cmd.ExecuteNonQuery();
+        }
+
+        var sender = new FakeEmailSender();
+        using var factory = CreateFactoryWithFakeEmailSender(sender);
+        var client = factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync(
+            "/account/reset-password/request", new Commerce.Cloud.Api.Endpoints.ResetPasswordRequest("reset-sysadmin@example.com"));
+
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        var message = Assert.Single(sender.Sent);
+        Assert.Equal("Restablezca su contraseña de Incoders Commerce", message.Subject);
+        Assert.DoesNotContain("Seeded Org", message.HtmlBody);
+        Assert.Equal(1, CountTokenRowsForUser(userId));
     }
 
     [Fact]

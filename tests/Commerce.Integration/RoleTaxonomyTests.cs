@@ -257,7 +257,7 @@ public sealed class RoleTaxonomyTests : IClassFixture<WebApplicationFactory<Prog
 
         var response = await client.PostAsJsonAsync(
             "/account/users",
-            new CreateUserRequest("3-2-unknown@example.com", "password", ["not-a-real-role"], [branchId]));
+            new CreateUserRequest("3-2-unknown@example.com", "staff-password", ["not-a-real-role"], [branchId]));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal(0, CountUsersByEmail("3-2-unknown@example.com"));
@@ -274,7 +274,7 @@ public sealed class RoleTaxonomyTests : IClassFixture<WebApplicationFactory<Prog
 
         var response = await client.PostAsJsonAsync(
             "/account/users",
-            new CreateUserRequest("3-3-vendedor@example.com", "password", ["Vendedor"], [branchId]));
+            new CreateUserRequest("3-3-vendedor@example.com", "staff-password", ["Vendedor"], [branchId]));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal(0, CountUsersByEmail("3-3-vendedor@example.com"));
@@ -291,7 +291,7 @@ public sealed class RoleTaxonomyTests : IClassFixture<WebApplicationFactory<Prog
 
         var response = await client.PostAsJsonAsync(
             "/account/users",
-            new CreateUserRequest("3-4-provider@example.com", "password", [RoleCatalog.Provider], [branchId]));
+            new CreateUserRequest("3-4-provider@example.com", "staff-password", [RoleCatalog.Provider], [branchId]));
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<CreateUserResponse>();
 
@@ -325,7 +325,7 @@ public sealed class RoleTaxonomyTests : IClassFixture<WebApplicationFactory<Prog
 
         var response = await clientA.PostAsJsonAsync(
             "/account/users",
-            new CreateUserRequest("3-5-crossbranch@example.com", "password", [RoleCatalog.Seller], [branchIdB]));
+            new CreateUserRequest("3-5-crossbranch@example.com", "staff-password", [RoleCatalog.Seller], [branchIdB]));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal(0, CountUsersByEmail("3-5-crossbranch@example.com"));
@@ -356,7 +356,7 @@ public sealed class RoleTaxonomyTests : IClassFixture<WebApplicationFactory<Prog
         // caller does not hold.
         var response = await limitedClient.PostAsJsonAsync(
             "/account/users",
-            new CreateUserRequest("3-6-escalated@example.com", "password", [RoleCatalog.BusinessAdmin], [branchId]));
+            new CreateUserRequest("3-6-escalated@example.com", "staff-password", [RoleCatalog.BusinessAdmin], [branchId]));
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         Assert.Equal(0, CountUsersByEmail("3-6-escalated@example.com"));
@@ -381,7 +381,7 @@ public sealed class RoleTaxonomyTests : IClassFixture<WebApplicationFactory<Prog
 
         var response = await noPermClient.PostAsJsonAsync(
             "/account/users",
-            new CreateUserRequest("3-7-target@example.com", "password", [RoleCatalog.Seller], [branchId]));
+            new CreateUserRequest("3-7-target@example.com", "staff-password", [RoleCatalog.Seller], [branchId]));
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
@@ -397,7 +397,7 @@ public sealed class RoleTaxonomyTests : IClassFixture<WebApplicationFactory<Prog
 
         var response = await client.PostAsJsonAsync(
             "/account/users",
-            new CreateUserRequest("3-8-seller@example.com", "password", [RoleCatalog.Seller], [branchId]));
+            new CreateUserRequest("3-8-seller@example.com", "staff-password", [RoleCatalog.Seller], [branchId]));
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<CreateUserResponse>();
 
@@ -423,7 +423,7 @@ public sealed class RoleTaxonomyTests : IClassFixture<WebApplicationFactory<Prog
 
         var create = await client.PostAsJsonAsync(
             "/account/users",
-            new CreateUserRequest("3-11-target@example.com", "password", [RoleCatalog.Seller], [branchId]));
+            new CreateUserRequest("3-11-target@example.com", "staff-password", [RoleCatalog.Seller], [branchId]));
         var created = await create.Content.ReadFromJsonAsync<CreateUserResponse>();
 
         var response = await client.PutAsJsonAsync(
@@ -472,7 +472,7 @@ public sealed class RoleTaxonomyTests : IClassFixture<WebApplicationFactory<Prog
 
         var create = await client.PostAsJsonAsync(
             "/account/users",
-            new CreateUserRequest("3-13-target@example.com", "password", [RoleCatalog.Seller], [branchId]));
+            new CreateUserRequest("3-13-target@example.com", "staff-password", [RoleCatalog.Seller], [branchId]));
         var created = await create.Content.ReadFromJsonAsync<CreateUserResponse>();
 
         var response = await client.PutAsJsonAsync(
@@ -494,7 +494,7 @@ public sealed class RoleTaxonomyTests : IClassFixture<WebApplicationFactory<Prog
 
         var create = await client.PostAsJsonAsync(
             "/account/users",
-            new CreateUserRequest("3-14-target@example.com", "password", [RoleCatalog.Seller], [branchId]));
+            new CreateUserRequest("3-14-target@example.com", "staff-password", [RoleCatalog.Seller], [branchId]));
         var created = await create.Content.ReadFromJsonAsync<CreateUserResponse>();
 
         var response = await client.PutAsJsonAsync(
@@ -527,7 +527,7 @@ public sealed class RoleTaxonomyTests : IClassFixture<WebApplicationFactory<Prog
         await client.PostAsJsonAsync("/account/sign-in", new SignInRequest("3-17-admin@example.com", "admin-password"));
         var createHttp = await client.PostAsJsonAsync(
             "/account/users",
-            new CreateUserRequest("3-17-target@example.com", "password", [RoleCatalog.Seller], [branchId]));
+            new CreateUserRequest("3-17-target@example.com", "staff-password", [RoleCatalog.Seller], [branchId]));
         var created = await createHttp.Content.ReadFromJsonAsync<CreateUserResponse>();
         var targetId = created!.UserId;
         var originalRolesJson = GetRolesJson(targetId);
@@ -625,7 +625,7 @@ public sealed class RoleTaxonomyTests : IClassFixture<WebApplicationFactory<Prog
 
         var response = await client.PostAsJsonAsync(
             "/account/users",
-            new CreateUserRequest("b1-nobranch@example.com", "password", [RoleCatalog.Seller], []));
+            new CreateUserRequest("b1-nobranch@example.com", "staff-password", [RoleCatalog.Seller], []));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal("branch-required", await ReadErrorCodeAsync(response));
@@ -643,7 +643,7 @@ public sealed class RoleTaxonomyTests : IClassFixture<WebApplicationFactory<Prog
 
         var response = await client.PostAsJsonAsync(
             "/account/users",
-            new { email = "b2-omitted@example.com", password = "password", roleNames = new[] { RoleCatalog.Seller } });
+            new { email = "b2-omitted@example.com", password = "staff-password", roleNames = new[] { RoleCatalog.Seller } });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal("branch-required", await ReadErrorCodeAsync(response));
@@ -662,7 +662,7 @@ public sealed class RoleTaxonomyTests : IClassFixture<WebApplicationFactory<Prog
 
         var response = await clientA.PostAsJsonAsync(
             "/account/users",
-            new CreateUserRequest("b3-cross@example.com", "password", [RoleCatalog.Seller], [branchIdB]));
+            new CreateUserRequest("b3-cross@example.com", "staff-password", [RoleCatalog.Seller], [branchIdB]));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal("branch-not-in-organization", await ReadErrorCodeAsync(response));
@@ -681,10 +681,10 @@ public sealed class RoleTaxonomyTests : IClassFixture<WebApplicationFactory<Prog
 
         var outside = await scoped.PostAsJsonAsync(
             "/account/users",
-            new CreateUserRequest("b4-outside@example.com", "password", [RoleCatalog.Seller], [otherBranchId]));
+            new CreateUserRequest("b4-outside@example.com", "staff-password", [RoleCatalog.Seller], [otherBranchId]));
         var inside = await scoped.PostAsJsonAsync(
             "/account/users",
-            new CreateUserRequest("b4-inside@example.com", "password", [RoleCatalog.Seller], [branchId]));
+            new CreateUserRequest("b4-inside@example.com", "staff-password", [RoleCatalog.Seller], [branchId]));
 
         Assert.Equal(HttpStatusCode.Forbidden, outside.StatusCode);
         Assert.Equal(0, CountUsersByEmail("b4-outside@example.com"));
@@ -703,7 +703,7 @@ public sealed class RoleTaxonomyTests : IClassFixture<WebApplicationFactory<Prog
         AddToBranchScope(adminUserId, secondBranchId); // a new branch is not automatically in its creator's scope
         var create = await admin.PostAsJsonAsync(
             "/account/users",
-            new CreateUserRequest("b5-target@example.com", "password", [RoleCatalog.Seller], [branchId]));
+            new CreateUserRequest("b5-target@example.com", "staff-password", [RoleCatalog.Seller], [branchId]));
         var created = await create.Content.ReadFromJsonAsync<CreateUserResponse>();
 
         var response = await admin.PutAsJsonAsync(
@@ -748,7 +748,7 @@ public sealed class RoleTaxonomyTests : IClassFixture<WebApplicationFactory<Prog
         await admin.PostAsJsonAsync("/account/sign-in", new SignInRequest("b6-admin@example.com", "admin-password"));
         var create = await admin.PostAsJsonAsync(
             "/account/users",
-            new CreateUserRequest("b6-target@example.com", "password", [RoleCatalog.Seller], [branchId]));
+            new CreateUserRequest("b6-target@example.com", "staff-password", [RoleCatalog.Seller], [branchId]));
         var created = await create.Content.ReadFromJsonAsync<CreateUserResponse>();
 
         var response = await admin.PutAsJsonAsync(
@@ -770,7 +770,7 @@ public sealed class RoleTaxonomyTests : IClassFixture<WebApplicationFactory<Prog
         var (_, foreignBranchId, _) = await BootstrapOrgAsync(_factory.CreateClient(), "b7-admin-b@example.com", "admin-password-b");
         var create = await admin.PostAsJsonAsync(
             "/account/users",
-            new CreateUserRequest("b7-target@example.com", "password", [RoleCatalog.Seller], [branchId]));
+            new CreateUserRequest("b7-target@example.com", "staff-password", [RoleCatalog.Seller], [branchId]));
         var created = await create.Content.ReadFromJsonAsync<CreateUserResponse>();
 
         var response = await admin.PutAsJsonAsync(
@@ -829,7 +829,7 @@ public sealed class RoleTaxonomyTests : IClassFixture<WebApplicationFactory<Prog
         var otherBranchId = await CreateBranchAsync(admin, "Second branch");
         var create = await admin.PostAsJsonAsync(
             "/account/users",
-            new CreateUserRequest("b10-target@example.com", "password", [RoleCatalog.Seller], [branchId]));
+            new CreateUserRequest("b10-target@example.com", "staff-password", [RoleCatalog.Seller], [branchId]));
         var created = await create.Content.ReadFromJsonAsync<CreateUserResponse>();
         var scoped = await SignInScopedManagerAsync(organizationId, branchId, "b10-scoped@example.com");
 

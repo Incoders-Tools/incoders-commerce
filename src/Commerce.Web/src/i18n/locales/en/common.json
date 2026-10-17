@@ -52,6 +52,10 @@
     "invalid": "Enter a valid email address, for example name@domain.com.",
     "valid": "Valid email address"
   },
+  "password": {
+    "hint": "At least {{count}} characters.",
+    "tooShort": "The password must be at least {{count}} characters long."
+  },
   "unsavedChanges": {
     "title": "Unsaved changes",
     "discard": "Discard",

@@ -256,6 +256,46 @@ public sealed class PosStaffListTests
         Assert.Null(List().CreateRequest(email, password, RoleCatalog.Cashier));
     }
 
+    // railway-deploy-pipeline S16: the server's staff password minimum (PasswordPolicy), said before sending.
+    [Theory]
+    [InlineData("eleven-char", PosMessages.PasswordTooShort)]
+    [InlineData("twelve-chars", null)]
+    [InlineData("a much longer password", null)]
+    public void PasswordProblem_RefusesFewerThanTwelveCharacters(string password, string? expected)
+    {
+        Assert.Equal(expected, StaffList.PasswordProblem(password));
+    }
+
+    [Theory]
+    [InlineData("", PosMessages.NewPasswordRequired)]
+    [InlineData("            ", PosMessages.NewPasswordRequired)]
+    [InlineData("eleven-char", PosMessages.PasswordTooShort)]
+    [InlineData("twelve-chars", null)]
+    public void ResetPasswordProblem_AsksForAPasswordWhenBlank_ElseAppliesTheMinimum(string password, string? expected)
+    {
+        // The server answers a blank (or whitespace-only) new password with "newPassword is required.", so the POS
+        // must not call it too short.
+        Assert.Equal(expected, StaffList.ResetPasswordProblem(password));
+    }
+
+    [Fact]
+    public void PasswordTooShort_ReadsLikeTheWeb()
+    {
+        Assert.Equal("La contraseña debe tener al menos 12 caracteres.", PosMessages.PasswordTooShort);
+        Assert.Equal("Mínimo 12 caracteres.", PosMessages.PasswordMinimumHint);
+    }
+
+    [Fact]
+    public void BothPasswordForms_SayTheMinimum_AndCheckItBeforeSending()
+    {
+        var xaml = Src("StaffView.xaml");
+        var code = Src("StaffView.xaml.cs");
+
+        Assert.Equal(2, Regex.Matches(xaml, Regex.Escape("Mínimo 12 caracteres.")).Count);
+        Assert.Equal(1, Regex.Matches(code, Regex.Escape("StaffList.PasswordProblem(")).Count);
+        Assert.Equal(1, Regex.Matches(code, Regex.Escape("StaffList.ResetPasswordProblem(")).Count);
+    }
+
     [Fact]
     public void CreateRequest_FallsBackToTheDefaultRole_AndNeverOffersARoleOutsideTheOptions()
     {

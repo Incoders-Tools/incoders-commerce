@@ -79,6 +79,63 @@ describe('UsersScreen', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
+  // railway-deploy-pipeline S16: the staff password minimum, before sending and from the server.
+  it('says the 12-character minimum on the create form and sends nothing for 11 characters', async () => {
+    listOnce([])
+
+    const user = userEvent.setup()
+    renderScreen()
+
+    await screen.findByText('Todavía no hay usuarios.')
+    expect(screen.getByLabelText('Contraseña del usuario')).toHaveAccessibleDescription('Mínimo 12 caracteres.')
+    await user.type(screen.getByLabelText('Correo electrónico del usuario'), 'staff@example.com')
+    await user.type(screen.getByLabelText('Contraseña del usuario'), 'eleven-char')
+    await user.click(screen.getByRole('button', { name: 'Crear usuario' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('La contraseña debe tener al menos 12 caracteres.')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('reads the server refusing the new user password as the minimum', async () => {
+    listOnce([]).mockResolvedValueOnce(
+      new Response(JSON.stringify({ errors: { password: ['password must be at least 12 characters.'] } }), { status: 400 }),
+    )
+
+    const user = userEvent.setup()
+    renderScreen()
+
+    await screen.findByText('Todavía no hay usuarios.')
+    await user.type(screen.getByLabelText('Correo electrónico del usuario'), 'staff@example.com')
+    await user.type(screen.getByLabelText('Contraseña del usuario'), 'twelve-chars')
+    await user.click(screen.getByRole('button', { name: 'Crear usuario' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('La contraseña debe tener al menos 12 caracteres.')
+  })
+
+  it('refuses an 11-character forced reset before sending, and reads the server refusing one', async () => {
+    listOnce([seller]).mockResolvedValueOnce(
+      new Response(JSON.stringify({ errors: { newPassword: ['newPassword must be at least 12 characters.'] } }), { status: 400 }),
+    )
+
+    const user = userEvent.setup()
+    renderScreen()
+
+    await screen.findByText('staff@example.com')
+    const field = screen.getByLabelText('Contraseña de reemplazo para staff@example.com')
+    expect(field).toHaveAttribute('placeholder', 'Nueva contraseña (mín. 12)')
+    await user.type(field, 'eleven-char')
+    await user.click(screen.getByRole('button', { name: 'Forzar restablecimiento' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('La contraseña debe tener al menos 12 caracteres.')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    await user.type(field, 'x')
+    await user.click(screen.getByRole('button', { name: 'Forzar restablecimiento' }))
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    expect(await screen.findByRole('alert')).toHaveTextContent('La contraseña debe tener al menos 12 caracteres.')
+  })
+
   it('creates a user with the selected branch from the always-visible create form and refreshes the list', async () => {
     listOnce([])
       .mockResolvedValueOnce(new Response(JSON.stringify({ userId: 'user-2' }), { status: 201 }))

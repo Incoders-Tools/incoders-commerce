@@ -1,4 +1,4 @@
-import { apiFetch } from './client'
+import { ApiError, apiFetch } from './client'
 import type {
   AdminResetPasswordRequest,
   ConfirmResetPasswordRequest,
@@ -7,6 +7,19 @@ import type {
   SignedInResponse,
   SignInRequest,
 } from './types'
+
+/**
+ * railway-deploy-pipeline S16: the server's minimum for a new staff or system-admin password
+ * (`Commerce.Domain/Identity/PasswordPolicy.cs`), counted as typed. The forms say it before sending; the server
+ * still decides.
+ */
+export const PASSWORD_MINIMUM_LENGTH = 12
+
+export const isPasswordLongEnough = (password: string) => password.length >= PASSWORD_MINIMUM_LENGTH
+
+/** True when the server refused the password field `field` (a 400 ValidationProblem keyed by it). */
+export const isPasswordRejection = (err: unknown, field: string) =>
+  err instanceof ApiError && err.status === 400 && Boolean(err.fieldErrors?.[field])
 
 export function signIn(request: SignInRequest): Promise<SignedInResponse> {
   return apiFetch<SignedInResponse>('/account/sign-in', {

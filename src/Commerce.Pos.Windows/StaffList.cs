@@ -1,3 +1,5 @@
+using Commerce.Domain.Identity;
+
 namespace Commerce.Pos.Windows;
 
 /// <summary>Which form the Personal editor shows: none (closed), the new user, a user's role, or a new password.</summary>
@@ -74,6 +76,20 @@ public sealed class StaffList
 
         return new CreateUserAdminRequestDto(trimmed, password, [OfferedOrDefault(role)], [_terminalBranchId]);
     }
+
+    /// <summary>
+    /// Why the server would refuse <paramref name="password"/> as a new staff password (railway-deploy-pipeline S16,
+    /// <see cref="PasswordPolicy"/>), so the form says it before sending; null when it is long enough.
+    /// </summary>
+    public static string? PasswordProblem(string password) =>
+        PasswordPolicy.IsLongEnough(password) ? null : PosMessages.PasswordTooShort;
+
+    /// <summary>
+    /// The reset form's check: a blank or whitespace-only password is missing (the server answers it as required,
+    /// not as too short); anything else follows <see cref="PasswordProblem"/>.
+    /// </summary>
+    public static string? ResetPasswordProblem(string password) =>
+        string.IsNullOrWhiteSpace(password) ? PosMessages.NewPasswordRequired : PasswordProblem(password);
 
     /// <summary>The role the role form starts on: the user's first offered role, or the default one.</summary>
     public static string InitialRole(UserAdminRecordDto user) =>

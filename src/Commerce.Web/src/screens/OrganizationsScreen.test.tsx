@@ -198,6 +198,43 @@ describe('OrganizationsScreen', () => {
     expect(screen.getByRole('button', { name: 'Nueva organización' })).toBeInTheDocument()
   })
 
+  // railway-deploy-pipeline S16: the administrator's password follows the staff minimum.
+  it('says the 12-character minimum for the administrator password and sends nothing for 11 characters', async () => {
+    listOnce([])
+
+    const user = userEvent.setup()
+    renderScreen()
+
+    await screen.findByText('Todavía no hay organizaciones.')
+    await user.click(screen.getByRole('button', { name: 'Nueva organización' }))
+    expect(screen.getByLabelText('Contraseña del administrador')).toHaveAccessibleDescription('Mínimo 12 caracteres.')
+    await user.type(screen.getByLabelText('Nombre de la organización'), 'Acme Co')
+    await user.type(screen.getByLabelText('Correo electrónico del administrador'), 'admin@acme.test')
+    await user.type(screen.getByLabelText('Contraseña del administrador'), 'eleven-char')
+    await user.click(screen.getByRole('button', { name: 'Crear organización' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('La contraseña debe tener al menos 12 caracteres.')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('reads the server refusing the administrator password as the minimum', async () => {
+    listOnce([]).mockResolvedValueOnce(
+      new Response(JSON.stringify({ errors: { adminPassword: ['adminPassword must be at least 12 characters.'] } }), { status: 400 }),
+    )
+
+    const user = userEvent.setup()
+    renderScreen()
+
+    await screen.findByText('Todavía no hay organizaciones.')
+    await user.click(screen.getByRole('button', { name: 'Nueva organización' }))
+    await user.type(screen.getByLabelText('Nombre de la organización'), 'Acme Co')
+    await user.type(screen.getByLabelText('Correo electrónico del administrador'), 'admin@acme.test')
+    await user.type(screen.getByLabelText('Contraseña del administrador'), 'twelve-chars')
+    await user.click(screen.getByRole('button', { name: 'Crear organización' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('La contraseña debe tener al menos 12 caracteres.')
+  })
+
   it('creates an organization without a branch name when the optional field is left blank', async () => {
     listOnce([])
       .mockResolvedValueOnce(

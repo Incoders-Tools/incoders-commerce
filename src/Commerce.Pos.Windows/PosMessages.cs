@@ -191,6 +191,11 @@ public static class PosMessages
 
     public const string NewPasswordRequired = "Ingresá la nueva contraseña.";
 
+    /// <summary>railway-deploy-pipeline S16: the staff password minimum (PasswordPolicy), worded like the web.</summary>
+    public const string PasswordTooShort = "La contraseña debe tener al menos 12 caracteres.";
+
+    public const string PasswordMinimumHint = "Mínimo 12 caracteres.";
+
     public const string UpdatingStatus = "Actualizando…";
 
     public const string OperatorRemoved = "Operador quitado de esta terminal.";
