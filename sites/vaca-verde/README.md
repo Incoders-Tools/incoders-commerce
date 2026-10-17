@@ -51,8 +51,9 @@ so a site whose buttons go nowhere is never published. Set it in the hosting pro
 
 Production runs on Railway as the `vaca-verde-site` service, on `vaca-verde.com.ar` and `www.vaca-verde.com.ar`
 (`deploy/railway-runbook.md`, section 6c). `Dockerfile` builds the site with `VITE_APP_URL` as a build argument and
-serves `dist/` with Caddy (`Caddyfile`, which also answers Railway's `/health` check); `railway.json` holds the
-service config, so the service's config file path must be `/sites/vaca-verde/railway.json` and its root directory
-`sites/vaca-verde`. Production uses `VITE_APP_URL=https://app.vaca-verde.com.ar`.
+serves `dist/` with Caddy (`Caddyfile`, which also answers Railway's `/health` check). The service settings live in
+the Railway dashboard (Railway's Config as Code is deprecated): root directory `sites/vaca-verde`, branch `main`,
+watch path `/sites/vaca-verde/**`, and healthcheck path `/health`. Production uses
+`VITE_APP_URL=https://app.vaca-verde.com.ar`.
 
 Any other static host also works: build command `npm run build` with `VITE_APP_URL` set, output directory `dist`.

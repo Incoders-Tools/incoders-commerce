@@ -119,6 +119,9 @@ services:
     build:
       context: ../..
       dockerfile: Dockerfile
+      args:
+        # Required by the Dockerfile's web build (browser tab title).
+        VITE_SITE_NAME: ${VITE_SITE_NAME:-Vaca Verde}
     depends_on:
       postgres:
         condition: service_healthy

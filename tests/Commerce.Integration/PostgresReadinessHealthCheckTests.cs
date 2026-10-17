@@ -136,7 +136,7 @@ public sealed class PostgresReadinessHealthCheckTests : IClassFixture<WebApplica
         var paymentsSql = File.ReadAllText(Path.Combine(RepoRoot(), "deploy", "db", "migrations", "0011_payments.sql"));
         using (var cmd = new NpgsqlCommand(paymentsSql, owner)) cmd.ExecuteNonQuery();
 
-        foreach (var file in new[] { "0013_rate_components.sql", "0014_rate_component_tenancy.sql" })
+        foreach (var file in new[] { "0013_rate_components.sql", "0014_rate_component_tenancy.sql", "0061_data_protection_keys.sql" })
         {
             var sql = File.ReadAllText(Path.Combine(RepoRoot(), "deploy", "db", "migrations", file));
             using var cmd = new NpgsqlCommand(sql, owner);
@@ -660,6 +660,44 @@ public sealed class PostgresReadinessHealthCheckTests : IClassFixture<WebApplica
 
             Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
             Assert.Contains(logs.Errors, message => message.Contains("migration 0025 missing", StringComparison.Ordinal));
+        }
+        finally
+        {
+            using var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString);
+            owner.Open();
+            ApplyAllMigrations(owner);
+        }
+    }
+
+    /// <summary>
+    /// railway-deploy-pipeline S10. Every cookie sign-in and every authenticated request reads the Data Protection key
+    /// ring from `data_protection_keys`; an API deployed ahead of migration 0061 could not sign anyone in. Readiness makes
+    /// that visible instead and names the migration.
+    /// </summary>
+    [Fact]
+    public async Task HealthReady_IsUnhealthy_BeforeDataProtectionKeysMigrationApplied_AndNamesTheMigration()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            owner.Open();
+            ApplyAllMigrations(owner);
+            using var dropCmd = new NpgsqlCommand("DROP TABLE IF EXISTS data_protection_keys", owner);
+            dropCmd.ExecuteNonQuery();
+        }
+
+        try
+        {
+            var logs = new CapturedLogs();
+            var client = _factory
+                .WithWebHostBuilder(b => b.ConfigureServices(services => services.AddSingleton<ILoggerProvider>(logs)))
+                .CreateClient();
+
+            var response = await client.GetAsync("/health/ready");
+
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+            Assert.Contains(logs.Errors, message => message.Contains("migration 0061 missing", StringComparison.Ordinal));
         }
         finally
         {

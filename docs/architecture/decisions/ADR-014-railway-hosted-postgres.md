@@ -35,9 +35,13 @@ appears in a migration.
   connects to `postgres.railway.internal:5432`. The database has no public TCP
   proxy; administrators reach it with `railway connect --ssh`. The private network
   is isolated per environment, so staging cannot reach production.
-- **Image: `ghcr.io/railwayapp-templates/postgres-ssl:16`.** That is the Railway
-  image point-in-time recovery requires, on a major-version tag, and the same
-  major version as `deploy/dev/compose.yaml`.
+- **Image: `ghcr.io/railwayapp-templates/postgres-ssl:18`.** That is the Railway
+  image point-in-time recovery requires, on a major-version tag. Railway's
+  template installs 18 (staging, 2026-10-16), and 18 is supported until 2030,
+  so the database starts there instead of facing a dump-and-restore major
+  upgrade later. All 60 migrations applied twice on PostgreSQL 18.6, and the CI
+  `migrations` job runs on `postgres:18`. Local development
+  (`deploy/dev/compose.yaml`) stays on 16 until its data volume is recreated.
 - **No external pooler.** Cloud.Api connects directly and relies on Npgsql's
   built-in pool. Tenant scope is set per transaction with
   `set_config('app.current_org_id', v, true)`, which is correct with or without a

@@ -12,13 +12,15 @@ and [POS product updates](../pos-product-updates.md).
 
 | Product part | Artifact | How it ships | Who runs it |
 |---|---|---|---|
-| Cloud.Api + web SPA | One Docker image, built by Railway from `railway.json` | Merge into `staging` or `main` | Railway, automatically |
+| Cloud.Api + web SPA | One Docker image, built by Railway from the root `Dockerfile` | Merge into `staging` or `main` | Railway, automatically |
 | Database schema | `deploy/db/migrations/*.sql` | `Commerce.Migrator`, Railway's pre-deploy command, at every Cloud.Api deploy | Railway, automatically (runbook section 4) |
 | POS (Commerce.Pos.Windows) | Signed MSIX plus a release manifest | A `v<semver>` tag, through `.github/workflows/pos-release.yml` | GitHub Actions, then the terminal's update wizard |
 | Vaca Verde's public website | `sites/vaca-verde`, Railway service `vaca-verde-site` | Merge into `main` (production only) | Railway, automatically (runbook section 6c) |
 
-Railway rebuilds a service only when a merge touches one of its watched paths
-(`watchPatterns` in `railway.json` and `sites/vaca-verde/railway.json`).
+Railway rebuilds a service only when a merge touches one of its watch paths.
+Those, like the pre-deploy command and the healthcheck, are dashboard settings
+of each service and environment (runbook sections 5 and 6c): Railway's Config
+as Code (`railway.json`) is deprecated and ignored for new services.
 
 ## Branches, environments, and channels
 
@@ -32,7 +34,7 @@ Railway rebuilds a service only when a merge touches one of its watched paths
 end-to-end suite, the .NET build and tests, and the `migrations` job. Each one
 runs only when its paths changed. The `migrations` job rejects an edited
 migration or an unapproved drop or rename, and applies every migration twice to
-an empty Postgres 16 with the migrator; the second run must skip them all.
+an empty Postgres 18 with the migrator; the second run must skip them all.
 Branch protection is set up by hand with
 [the required-checks runbook](./ci-required-status-checks-runbook.md).
 
@@ -107,7 +109,7 @@ terminal on a candidate is offered the final release when it ships
 2. Merge it. Railway builds the staging image, runs the migrator in a separate
    container, starts the new version, waits for `/health`, and only then
    switches traffic to it.
-3. Verify at `https://staging.vaca-verde.com.ar` (runbook section 9):
+3. Verify at `https://app.staging.vaca-verde.com.ar` (runbook section 9):
    `/health` and `/health/ready` answer 200, a staff user can sign in, and the
    changed screens work. The deploy log lists `applied <file>` for each new
    migration.

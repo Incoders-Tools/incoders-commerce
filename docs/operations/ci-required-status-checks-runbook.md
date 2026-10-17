@@ -19,7 +19,7 @@ aggregates into a single pass/fail signal.
 Since ADR-016 (`docs/architecture/decisions/ADR-016-migrations-at-deploy-and-rollback.md`)
 the workflow runs on pull requests into `staging` and `main` only, and
 `ci-gate` also aggregates the `migrations` job (expand-only guard plus the
-migrator applied twice to an empty Postgres 16). Merging into `staging` or
+migrator applied twice to an empty Postgres 18). Merging into `staging` or
 `main` deploys that Railway environment and migrates its database, so those
 two branches are the gated ones.
 

@@ -69,7 +69,6 @@ is_shared_root_path() {
   .github/workflows/*) return 0 ;;
   deploy/*) return 0 ;;
   Commerce.sln) return 0 ;;
-  railway.json) return 0 ;;
   .editorconfig) return 0 ;;
   global.json) return 0 ;;
   Directory.*.props) return 0 ;;

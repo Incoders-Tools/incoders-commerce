@@ -26,21 +26,21 @@ The deploy mechanism MUST treat the environment/channel name as a configurable v
 - WHEN a production environment is provisioned later
 - THEN it reuses the same deploy configuration shape with a different environment value, without editing application source
 
-### Requirement: Railway Push-to-Deploy via Declarative Config
+### Requirement: Railway Push-to-Deploy via Dashboard Settings
 
-Deployment to Railway MUST use native GitHub push-to-deploy driven by an in-repo `railway.json` (Railway's schema: `build.builder: "DOCKERFILE"`, `build.dockerfilePath`, `build.watchPatterns`, `deploy.startCommand`, `deploy.healthcheckPath`, `deploy.healthcheckTimeout`, `deploy.restartPolicyType`, `deploy.restartPolicyMaxRetries`) plus a Dockerfile. It MUST NOT use a GitHub Actions CLI-based deploy step. The Dockerfile's build context MUST be the repository root regardless of `dockerfilePath`, and any `COPY` path MUST be repo-root-relative.
+Deployment to Railway MUST use native GitHub push-to-deploy of the repository's Dockerfile, configured in each service's Railway dashboard settings per environment: source branch, watch paths, pre-deploy command, and healthcheck path, as listed in `deploy/railway-runbook.md` section 5. The repository MUST NOT carry a `railway.json` or `railway.toml`: Railway's Config as Code is deprecated (services that never used it cannot opt in since 2026-08-28, and existing files stop being read on 2026-12-01), so such a file would be silently ignored. Railway's Infrastructure as Code (`.railway/railway.ts`) MAY replace the dashboard settings in a later change. Deployment MUST NOT use a GitHub Actions CLI-based deploy step. The Dockerfile's build context MUST be the repository root, and any `COPY` path MUST be repo-root-relative.
 
 #### Scenario: Push triggers Railway build and deploy
 
-- GIVEN `railway.json` and a Dockerfile exist in the repository
-- WHEN a commit is pushed to the environment's mapped branch
+- GIVEN a Dockerfile at the repository root and a Railway service whose source branch is the environment's mapped branch
+- WHEN a commit that touches one of the service's watch paths is pushed to that branch
 - THEN Railway builds the Dockerfile image using the repo root as build context and deploys it without a CLI deploy step in CI
 
 #### Scenario: Health check gates deploy completion
 
-- GIVEN `deploy.healthcheckPath` is configured
+- GIVEN the service's healthcheck path is set to `/health` in the dashboard
 - WHEN a new deployment starts
-- THEN Railway only marks the deployment healthy after the health endpoint responds successfully within `deploy.healthcheckTimeout`
+- THEN Railway only marks the deployment healthy, and switches traffic to it, after the health endpoint responds successfully within the healthcheck timeout
 
 ### Requirement: Railway-Hosted Postgres on the Private Network
 

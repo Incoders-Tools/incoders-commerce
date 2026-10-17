@@ -1,7 +1,6 @@
-# Repo-root build context (Railway's `build` object has no `dockerContext`
-# property outside a multi-service `services[]` array — design.md "Deploy
-# mechanism"). Every COPY below is repo-root-relative regardless of
-# `railway.json`'s `build.dockerfilePath`.
+# Repo-root build context (Railway builds from the service's root directory,
+# the repository root — design.md "Deploy mechanism"). Every COPY below is
+# repo-root-relative.
 
 # --- SPA build stage ---------------------------------------------------
 # Built separately from the .NET stage and copied into Cloud.Api's wwwroot
@@ -12,6 +11,11 @@ WORKDIR /web
 COPY src/Commerce.Web/package.json src/Commerce.Web/package-lock.json ./
 RUN npm ci
 COPY src/Commerce.Web/ ./
+# Site name shown in the browser tab (index.html's %VITE_SITE_NAME%). Railway
+# passes the service variable of the same name as this build argument; the
+# build fails without it instead of shipping a literal placeholder.
+ARG VITE_SITE_NAME
+RUN [ -n "$(printf %s "$VITE_SITE_NAME" | tr -d "[:space:]")" ] || { echo "error: the VITE_SITE_NAME build argument is required (the web app's site name)." >&2; exit 1; }
 RUN npm run build
 
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
@@ -35,7 +39,8 @@ RUN dotnet publish src/Commerce.Cloud.Api/Commerce.Cloud.Api.csproj \
     -o /app/publish \
     --no-restore
 
-# Migration runner, executed by Railway's preDeployCommand (railway.json)
+# Migration runner, executed by the Railway service's Pre-deploy Command (a
+# dashboard setting per environment, deploy/railway-runbook.md section 5)
 # before each new deployment serves traffic. It ships next to its migrations,
 # its default directory (ADR-016).
 COPY src/Commerce.Migrator/ src/Commerce.Migrator/
