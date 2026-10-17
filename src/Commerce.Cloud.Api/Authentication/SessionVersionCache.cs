@@ -10,8 +10,8 @@ namespace Commerce.Cloud.Api.Authentication;
 /// reads through this on every authenticated request instead of hitting
 /// Postgres directly; every password-change path calls <see cref="Set"/> in
 /// the SAME request that changes the password, so invalidation is immediate
-/// on a single-replica deployment (the accepted assumption `railway.json`
-/// already documents) and degrades to a documented <= 60s staleness bound on
+/// on a single-replica deployment (the accepted assumption; the replica
+/// count is a Railway dashboard setting) and degrades to a documented <= 60s staleness bound on
 /// a future second replica — never to "never".
 /// </summary>
 public sealed class SessionVersionCache

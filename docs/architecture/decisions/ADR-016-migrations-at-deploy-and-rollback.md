@@ -5,6 +5,13 @@
 Accepted (owner decision, 2026-10-16). Supersedes the manual migration step of
 [ADR-014](./ADR-014-railway-hosted-postgres.md) and the "applied by hand" rule in `deploy/README.md` ("Unit 5").
 
+**Amended 2026-10-17:** the pre-deploy command, healthcheck, and watch paths are Railway dashboard settings, set
+once per environment ([runbook section 5](../../../deploy/railway-runbook.md#5-cloudapi-service)), not a `railway.json`.
+Railway's Config as Code is deprecated: a service that never used it cannot opt in since 2026-08-28, and existing files
+stop being read on 2026-12-01, so staging's first deploy ignored the file and ran no pre-deploy stage. Its successor,
+Infrastructure as Code (`.railway/railway.ts` applied with the Railway CLI), is the option for versioning these
+settings again; it is not adopted now, to keep the setup simple.
+
 ## Context
 
 The owner's rules: `dev` is pure development, with no gates and no migration policies. `staging` and `main` must run
@@ -17,7 +24,8 @@ service has no public access, so GitHub Actions cannot reach it.
 ## Decision
 
 - **The migrator runs inside Railway at every deploy.** `src/Commerce.Migrator` ships in the Cloud.Api image with the
-  `deploy/db/migrations` files, and `railway.json` runs it as the `preDeployCommand`. Railway runs it in a separate
+  `deploy/db/migrations` files, and the service's Pre-deploy Command (a dashboard setting, see the amendment above)
+  runs it. Railway runs it in a separate
   container with the service's variables and the private network, before the new version serves traffic. A failure
   cancels the deployment, and the previous version keeps running.
 - **Idempotency.** The ledger `public.schema_migrations` records each applied file with a checksum (SHA-256, line
@@ -53,6 +61,9 @@ There are no down-migrations: reversing a schema change is a new forward migrati
 
 ## Consequences
 
+- The pre-deploy command is not versioned with the code. An environment whose dashboard lacks it deploys without
+  migrating, and `/health/ready` reports the missing schema; the runbook's checklist and troubleshooting steps cover
+  it.
 - `ConnectionStrings__Migrations` (the `postgres` superuser, set as a reference to the Postgres service's password)
   is visible to the Cloud.Api runtime container, because Railway's pre-deploy command shares the service's
   variables. Cloud.Api never reads that key. Moving the migrator to a non-superuser owner role is possible later.

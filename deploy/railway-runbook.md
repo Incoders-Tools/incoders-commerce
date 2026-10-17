@@ -90,8 +90,8 @@ RLS**. Use it only to apply migrations. Cloud.Api must never connect as
 ## 4. Migrations (automatic) and the runtime roles
 
 Migrations are not applied by hand. Every Cloud.Api deployment first runs
-`Commerce.Migrator` as Railway's **pre-deploy command** (`railway.json`), in a
-separate container on the private network
+`Commerce.Migrator` as Railway's **pre-deploy command** (a Cloud.Api setting in
+the dashboard, section 5), in a separate container on the private network
 ([ADR-016](../docs/architecture/decisions/ADR-016-migrations-at-deploy-and-rollback.md)):
 
 - It applies pending files from `deploy/db/migrations` in order and records each
@@ -143,27 +143,53 @@ returns two rows with `f` and `f`.
 **Rotating a role password:** the migration that created the role does not run
 again, so rotate it explicitly. Run
 `ALTER ROLE app_runtime WITH PASSWORD '<new>';` through the tunnel, then update
-both `APP_RUNTIME_PASSWORD` and `ConnectionStrings__Commerce` (section 5). Do
-the same for `platform_readonly`.
+`APP_RUNTIME_PASSWORD` (section 5); `ConnectionStrings__Commerce` references
+it, so it follows. Do the same for `platform_readonly`.
 
 ## 5. Cloud.Api service
 
+Every Cloud.Api setting lives in the Railway dashboard, once per environment.
+The repository has no `railway.json`: Railway's Config as Code is deprecated,
+and a service that never used it cannot opt in (since 2026-08-28), so Railway
+would ignore the file. Its successor, Infrastructure as Code
+(`.railway/railway.ts` applied with the Railway CLI), is not adopted yet
+([ADR-016](../docs/architecture/decisions/ADR-016-migrations-at-deploy-and-rollback.md)).
+
 1. Add a service from the GitHub repository and name it `Cloud.Api`. Railway
-   reads `railway.json` (Dockerfile build, pre-deploy migrations, `/health`
-   healthcheck, restart on failure); nothing else needs configuring for the
-   build. Set the variables (step 3) before the first deployment, because the
-   migrator needs them.
-2. In **Settings → Source**, set the trigger branch: `staging` in the staging
-   environment, `main` in production. A push to that branch that touches a
-   watched path deploys that environment only.
-3. Set the variables:
+   detects the root `Dockerfile` and builds it. Set the variables (step 3)
+   before the first deployment, because the migrator needs them.
+2. Set the service settings. Each one applies to the current environment only,
+   so repeat the list in the other environment:
+
+   | Where | Setting | Value |
+   |---|---|---|
+   | **Settings → Source** | Branch | `staging` in the staging environment, `main` in production |
+   | **Settings → Source** | Wait for CI | Off. The CI gate runs on the pull request, before the merge. |
+   | **Settings → Build** | Watch Paths | `/src/Commerce.Cloud.Api/**`, `/src/Commerce.Domain/**`, `/src/Commerce.Application/**`, `/src/Commerce.BranchNode/**`, `/src/Commerce.Web/**`, `/src/Commerce.Migrator/**`, `/deploy/db/migrations/**`, `/Dockerfile` |
+   | **Settings → Scale** | Region | US East |
+   | **Settings → Deploy** | Custom Start Command | Empty. The image's `CMD` starts the API. |
+   | **Settings → Deploy** | Pre-deploy Command | `dotnet /app/migrator/Commerce.Migrator.dll` |
+   | **Settings → Deploy** | Healthcheck Path | `/health` |
+   | **Settings → Deploy** | Restart Policy | Railway's default |
+   | **Settings → Scale** | Replicas | 1. Session invalidation assumes a single replica. |
+
+   A push to the branch that touches a watch path deploys that environment
+   only. Without the pre-deploy command, migrations never run and
+   `/health/ready` fails on the first deployment.
+3. Set the variables. **Enter them one by one with New Variable, not with the
+   Raw Editor**: the Raw Editor split `Password=...` off the connection strings
+   into a stray variable named `Password`, which left both strings without a
+   password. The connection strings reference the password variables instead
+   of repeating them, so each secret exists once. The dashboard shows the
+   reference text, not the resolved value; a purple variable name marks a
+   reference.
 
 | Variable | Value |
 |---|---|
-| `ConnectionStrings__Commerce` | `Host=postgres.railway.internal;Port=5432;Database=railway;Username=app_runtime;Password=<app_runtime password>` |
-| `ConnectionStrings__CommercePlatformRead` | `Host=postgres.railway.internal;Port=5432;Database=railway;Username=platform_readonly;Password=<platform_readonly password>`. When it is absent, `GET /account/organizations` answers 503. It never falls back to `app_runtime`. |
-| `ConnectionStrings__Migrations` | `Host=postgres.railway.internal;Port=5432;Database=railway;Username=postgres;Password=${{Postgres.PGPASSWORD}}`. A reference variable, so the superuser password is never copied. Only the migrator reads it; Cloud.Api never does. |
-| `APP_RUNTIME_PASSWORD`, `PLATFORM_READONLY_PASSWORD` | The two passwords from section 4. They must match the passwords in the two connection strings above. |
+| `APP_RUNTIME_PASSWORD`, `PLATFORM_READONLY_PASSWORD` | The two passwords from section 4. Rotating one means changing only this variable (and the role, section 4). |
+| `ConnectionStrings__Commerce` | `Host=postgres.railway.internal;Port=5432;Database=railway;Username=app_runtime;Password=${{APP_RUNTIME_PASSWORD}}` |
+| `ConnectionStrings__CommercePlatformRead` | `Host=postgres.railway.internal;Port=5432;Database=railway;Username=platform_readonly;Password=${{PLATFORM_READONLY_PASSWORD}}`. When it is absent, `GET /account/organizations` answers 503. It never falls back to `app_runtime`. |
+| `ConnectionStrings__Migrations` | `Host=postgres.railway.internal;Port=5432;Database=railway;Username=postgres;Password=${{Postgres.POSTGRES_PASSWORD}}`. A reference to the Postgres service's variable, so the superuser password is never copied. Reference `POSTGRES_PASSWORD`, the original: the template's `PGPASSWORD` is itself a reference to it. Only the migrator reads this string; Cloud.Api never does. |
 | `ASPNETCORE_ENVIRONMENT` | `Staging` or `Production`. Never `Development`: that enables the test-seed endpoints. |
 | `PUBLIC_BASE_URL` | The environment's public origin, with no trailing slash. Password-reset links are built from it. Use the Railway domain until the custom domain is verified (section 6). |
 | `RESEND_API_KEY` | The Resend API key. |
@@ -175,6 +201,23 @@ the same for `platform_readonly`.
 
 The Postgres host is the same name in both environments, but it resolves only
 inside the environment the service runs in.
+
+Variable changes, like other settings changes, are staged: click **Deploy**
+("Apply N changes") to apply them.
+
+### Troubleshooting a deploy
+
+- **Did the migrator run?** Open the deployment's **Details**. It lists the
+  stages, and a **Pre deploy command** stage must be there. If it is missing,
+  the Pre-deploy Command setting (step 2) is empty in this environment.
+- **What did it apply?** In **Deploy Logs**, search for `migrations:`. The
+  migrator's summary line reads, for example, `migrations: 60 applied, 0 skipped`.
+- **The healthcheck fails with `'Database unreachable.'`.** In **Deploy Logs**,
+  search for `Exception` and read the line under the health check message. For
+  example, Npgsql's `No password has been provided` means a connection string
+  lost its `Password=` part (see the Raw Editor warning in step 3).
+- **A failed pre-deploy command or healthcheck** cancels that deployment; the
+  previous one keeps serving.
 
 ## 6. Domain
 
@@ -217,17 +260,23 @@ which `vaca-verde.com.ar` needs to point at Railway.
 ### 6c. Vaca Verde's public website (production)
 
 `sites/vaca-verde` is a static site that sends clients to `/order` and staff to
-`/login` on the platform. It ships with its own `Dockerfile`, `Caddyfile`, and
-`railway.json`.
+`/login` on the platform. It ships with its own `Dockerfile` and `Caddyfile`;
+its service settings live in the dashboard, as Cloud.Api's do (section 5).
 
 1. In the production environment, add a service from the GitHub repository and
    name it `vaca-verde-site`.
-2. In **Settings → Source**, set the root directory to `sites/vaca-verde`, the
-   trigger branch to `main`, and the config file path to
-   `/sites/vaca-verde/railway.json` (Railway does not look for it under the root
-   directory by itself).
-3. Set the variable `VITE_APP_URL` to `https://app.vaca-verde.com.ar`. The build
-   fails on purpose without it.
+2. Set the service settings:
+
+   | Where | Setting | Value |
+   |---|---|---|
+   | **Settings → Source** | Root Directory | `sites/vaca-verde`. Railway then detects the site's `Dockerfile` and builds it. |
+   | **Settings → Source** | Branch | `main` |
+   | **Settings → Build** | Watch Paths | `/sites/vaca-verde/**` |
+   | **Settings → Deploy** | Healthcheck Path | `/health` |
+
+3. Set the variable `VITE_APP_URL` to `https://app.vaca-verde.com.ar`. Railway
+   passes it to the build as a build argument, and the build fails on purpose
+   without it.
 4. Add the custom domains `vaca-verde.com.ar` and `www.vaca-verde.com.ar`, and
    create their records in Cloudflare as in 6b. Cloudflare flattens the apex
    CNAME automatically.
@@ -256,8 +305,9 @@ volume backups, so only the third layer survives losing the volume or the
 account.
 
 1. **Scheduled volume backups.** On the Postgres service's **Backups** tab,
-   select **Daily**, **Weekly**, and **Monthly** (kept 6 days, about a month,
-   and about 3 months).
+   click **Edit schedule** and select **Daily**, **Weekly**, and **Monthly**
+   (kept 6 days, about a month, and about 3 months). Click **Deploy** ("Apply N
+   changes") to apply the staged change.
 2. **Point-in-time recovery.** On the same tab, click **Enable PITR**. Railway
    creates a `Postgres-PITR` bucket and redeploys the database. The restore
    window starts at the first base backup taken after enabling, and grows to
@@ -355,7 +405,7 @@ to the restored service: replace `postgres.railway.internal` with the restored
 service's private domain in **all three** connection strings
 (`ConnectionStrings__Commerce`, `ConnectionStrings__CommercePlatformRead`, and
 `ConnectionStrings__Migrations`, whose password reference becomes the
-restored service's `PGPASSWORD`), and redeploy. If `ConnectionStrings__Migrations`
+restored service's `POSTGRES_PASSWORD`), and redeploy. If `ConnectionStrings__Migrations`
 kept pointing at the old service, the next deploy would migrate the wrong
 database. The runtime roles and their passwords come back with the data, and so
 does the `schema_migrations` ledger. Keep the original service until the

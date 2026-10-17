@@ -12,13 +12,15 @@ and [POS product updates](../pos-product-updates.md).
 
 | Product part | Artifact | How it ships | Who runs it |
 |---|---|---|---|
-| Cloud.Api + web SPA | One Docker image, built by Railway from `railway.json` | Merge into `staging` or `main` | Railway, automatically |
+| Cloud.Api + web SPA | One Docker image, built by Railway from the root `Dockerfile` | Merge into `staging` or `main` | Railway, automatically |
 | Database schema | `deploy/db/migrations/*.sql` | `Commerce.Migrator`, Railway's pre-deploy command, at every Cloud.Api deploy | Railway, automatically (runbook section 4) |
 | POS (Commerce.Pos.Windows) | Signed MSIX plus a release manifest | A `v<semver>` tag, through `.github/workflows/pos-release.yml` | GitHub Actions, then the terminal's update wizard |
 | Vaca Verde's public website | `sites/vaca-verde`, Railway service `vaca-verde-site` | Merge into `main` (production only) | Railway, automatically (runbook section 6c) |
 
-Railway rebuilds a service only when a merge touches one of its watched paths
-(`watchPatterns` in `railway.json` and `sites/vaca-verde/railway.json`).
+Railway rebuilds a service only when a merge touches one of its watch paths.
+Those, like the pre-deploy command and the healthcheck, are dashboard settings
+of each service and environment (runbook sections 5 and 6c): Railway's Config
+as Code (`railway.json`) is deprecated and ignored for new services.
 
 ## Branches, environments, and channels
 

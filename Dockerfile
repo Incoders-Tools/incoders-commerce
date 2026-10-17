@@ -1,7 +1,6 @@
-# Repo-root build context (Railway's `build` object has no `dockerContext`
-# property outside a multi-service `services[]` array — design.md "Deploy
-# mechanism"). Every COPY below is repo-root-relative regardless of
-# `railway.json`'s `build.dockerfilePath`.
+# Repo-root build context (Railway builds from the service's root directory,
+# the repository root — design.md "Deploy mechanism"). Every COPY below is
+# repo-root-relative.
 
 # --- SPA build stage ---------------------------------------------------
 # Built separately from the .NET stage and copied into Cloud.Api's wwwroot
@@ -35,7 +34,8 @@ RUN dotnet publish src/Commerce.Cloud.Api/Commerce.Cloud.Api.csproj \
     -o /app/publish \
     --no-restore
 
-# Migration runner, executed by Railway's preDeployCommand (railway.json)
+# Migration runner, executed by the Railway service's Pre-deploy Command (a
+# dashboard setting per environment, deploy/railway-runbook.md section 5)
 # before each new deployment serves traffic. It ships next to its migrations,
 # its default directory (ADR-016).
 COPY src/Commerce.Migrator/ src/Commerce.Migrator/
