@@ -11,7 +11,8 @@ namespace Commerce.Cloud.Api.Email;
 /// </summary>
 public sealed record EmailBrand(string Name, string? LogoUrl, string? PrimaryColor)
 {
-    public static EmailBrand Default { get; } = new("Commerce", null, null);
+    /// <summary>The platform's own brand: the system administrator's emails, and any email without an organization.</summary>
+    public static EmailBrand Default { get; } = new("Incoders Commerce", null, null);
 }
 
 /// <summary>

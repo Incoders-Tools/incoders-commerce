@@ -298,7 +298,8 @@ System emails (password reset, guest order verification code) are in Spanish,
 with an HTML body and a plain-text alternative. Each one shows the brand of the
 organization it belongs to: its name, its primary color, and its logo when the
 logo URL uses `https`. Set them in the organization's branding (system admin
-console). Links are built from `PUBLIC_BASE_URL`, so set it to the platform
+console). The system administrator's emails show the platform's brand,
+"Incoders Commerce". Links are built from `PUBLIC_BASE_URL`, so set it to the platform
 host without a trailing path, for example `https://app.vaca-verde.com.ar`.
 
 Another client's domain later becomes one more custom domain on this same

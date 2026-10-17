@@ -342,8 +342,12 @@ public static class AccountEndpoints
             var tokenHash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
             var expiresAt = DateTimeOffset.UtcNow.AddHours(1);
 
-            // Read before issuing, so a failed read leaves no token behind.
-            var brand = await organizationStore.GetEmailBrandAsync(scope.OrganizationId, ct) ?? EmailBrand.Default;
+            // Read before issuing, so a failed read leaves no token behind. The system administrator's organization is
+            // internal ("Platform System Administrator"), so its emails carry the platform's brand.
+            var actor = await userStore.LoadActorAsync(scope, credential.Id, ct);
+            var brand = actor is { IsSystemAdmin: true }
+                ? EmailBrand.Default
+                : await organizationStore.GetEmailBrandAsync(scope.OrganizationId, ct) ?? EmailBrand.Default;
 
             await recoveryStore.IssueTokenAsync(scope, credential.Id, tokenHash, expiresAt, ct);
 

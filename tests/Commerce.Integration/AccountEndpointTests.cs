@@ -782,6 +782,36 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
     }
 
     [Fact]
+    public async Task ResetRequest_ForTheSystemAdmin_IsBrandedAsThePlatform_NotItsInternalOrganization()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var organizationId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        await SeedUserAsync(organizationId, userId, "reset-sysadmin@example.com", "old-password");
+        using (var owner = new NpgsqlConnection(PostgresTestFixture.OwnerConnectionString))
+        {
+            owner.Open();
+            using var cmd = new NpgsqlCommand("UPDATE users SET is_system_admin = true WHERE id = $1", owner);
+            cmd.Parameters.AddWithValue(userId);
+            cmd.ExecuteNonQuery();
+        }
+
+        var sender = new FakeEmailSender();
+        using var factory = CreateFactoryWithFakeEmailSender(sender);
+        var client = factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync(
+            "/account/reset-password/request", new Commerce.Cloud.Api.Endpoints.ResetPasswordRequest("reset-sysadmin@example.com"));
+
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        var message = Assert.Single(sender.Sent);
+        Assert.Equal("Restablezca su contraseña de Incoders Commerce", message.Subject);
+        Assert.DoesNotContain("Seeded Org", message.HtmlBody);
+        Assert.Equal(1, CountTokenRowsForUser(userId));
+    }
+
+    [Fact]
     public async Task ResetRequest_UnknownEmail_IssuesNoToken_SendsNoEmail_Returns202SameShape()
     {
         if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
