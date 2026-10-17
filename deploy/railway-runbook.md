@@ -116,7 +116,7 @@ the SQL literal (the migrator refuses a value that contains `'`, naming the
 variable but never printing the value):
 
 ```powershell
-[Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+$b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); [Convert]::ToBase64String($b)
 ```
 
 **Running the migrator by hand** (for example to inspect a failure) uses the
