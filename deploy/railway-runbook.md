@@ -191,6 +191,7 @@ would ignore the file. Its successor, Infrastructure as Code
 | `ConnectionStrings__CommercePlatformRead` | `Host=postgres.railway.internal;Port=5432;Database=railway;Username=platform_readonly;Password=${{PLATFORM_READONLY_PASSWORD}}`. When it is absent, `GET /account/organizations` answers 503. It never falls back to `app_runtime`. |
 | `ConnectionStrings__Migrations` | `Host=postgres.railway.internal;Port=5432;Database=railway;Username=postgres;Password=${{Postgres.POSTGRES_PASSWORD}}`. A reference to the Postgres service's variable, so the superuser password is never copied. Reference `POSTGRES_PASSWORD`, the original: the template's `PGPASSWORD` is itself a reference to it. Only the migrator reads this string; Cloud.Api never does. |
 | `ASPNETCORE_ENVIRONMENT` | `Staging` or `Production`. Never `Development`: that enables the test-seed endpoints. |
+| `VITE_SITE_NAME` | The web app's browser-tab title, for example `Vaca Verde`. Used at build time (the Dockerfile reads it as a build argument), so changing it needs a redeploy; the build fails without it. |
 | `PUBLIC_BASE_URL` | The environment's public origin, with no trailing slash. Password-reset links are built from it. Use the Railway domain until the custom domain is verified (section 6). |
 | `RESEND_API_KEY` | The Resend API key. |
 | `EMAIL_FROM_ADDRESS` | A sender on the Resend-verified domain, for example `no-reply@vaca-verde.com.ar`. |

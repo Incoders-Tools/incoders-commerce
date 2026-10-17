@@ -11,6 +11,11 @@ WORKDIR /web
 COPY src/Commerce.Web/package.json src/Commerce.Web/package-lock.json ./
 RUN npm ci
 COPY src/Commerce.Web/ ./
+# Site name shown in the browser tab (index.html's %VITE_SITE_NAME%). Railway
+# passes the service variable of the same name as this build argument; the
+# build fails without it instead of shipping a literal placeholder.
+ARG VITE_SITE_NAME
+RUN test -n "$VITE_SITE_NAME" || { echo "error: the VITE_SITE_NAME build argument is required (the web app's site name)." >&2; exit 1; }
 RUN npm run build
 
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
