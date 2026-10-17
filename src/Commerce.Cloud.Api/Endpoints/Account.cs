@@ -386,6 +386,7 @@ public static class AccountEndpoints
         group.MapPost("/reset-password/confirm", async (
             ConfirmResetPasswordRequest request,
             PostgresPasswordRecoveryStore recoveryStore,
+            PostgresUserAccountStore userStore,
             SessionVersionCache sessionVersionCache,
             PasswordHasher<UserAccount> hasher,
             CancellationToken ct) =>
@@ -400,12 +401,6 @@ public static class AccountEndpoints
                 });
             }
 
-            // The length rule is a weak input too: checked before the token is looked up or consumed.
-            if (RejectShortPassword(request.NewPassword, "newPassword") is { } confirmTooShort)
-            {
-                return confirmTooShort;
-            }
-
             var tokenHash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(request.Token)));
             var tokenRecord = await recoveryStore.FindTokenAsync(tokenHash, ct);
             if (tokenRecord is null || tokenRecord.ConsumedAt is not null || tokenRecord.ExpiresAt <= DateTimeOffset.UtcNow)
@@ -414,6 +409,15 @@ public static class AccountEndpoints
             }
 
             var scope = new CloudTenantScope(tokenRecord.OrganizationId);
+
+            // The length rule is a weak input too: checked after the read-only token lookup (it applies to staff
+            // accounts only, so the account decides) and before the token is consumed, so a short password never
+            // burns the link.
+            var account = await userStore.LoadActorAsync(scope, tokenRecord.UserId, ct);
+            if (account is { CustomerId: null } && RejectShortPassword(request.NewPassword, "newPassword") is { } confirmTooShort)
+            {
+                return confirmTooShort;
+            }
             var newPasswordHash = hasher.HashPassword(
                 new UserAccount(tokenRecord.UserId, tokenRecord.OrganizationId, [], []), request.NewPassword);
             var newVersion = await recoveryStore.ConsumeAndSetPasswordAsync(
@@ -712,11 +716,6 @@ public static class AccountEndpoints
                 });
             }
 
-            if (RejectShortPassword(request.NewPassword, "newPassword") is { } resetTooShort)
-            {
-                return resetTooShort;
-            }
-
             var scope = TenantScopeEndpointFilter.GetScope(httpContext);
 
             var callerIdClaim = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
@@ -752,6 +751,12 @@ public static class AccountEndpoints
             if (targetDenial is not null)
             {
                 return targetDenial;
+            }
+
+            // A customer-linked login is a customer account, outside the staff password rule.
+            if (target.CustomerId is null && RejectShortPassword(request.NewPassword, "newPassword") is { } resetTooShort)
+            {
+                return resetTooShort;
             }
 
             var newPasswordHash = hasher.HashPassword(

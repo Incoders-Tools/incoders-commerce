@@ -220,13 +220,7 @@ public partial class StaffView : UserControl, ISectionView
         }
 
         var newPassword = ResetPasswordBox.Password;
-        if (newPassword.Length == 0)
-        {
-            ShowStatus(PosMessages.NewPasswordRequired, isError: true);
-            return;
-        }
-
-        if (StaffList.PasswordProblem(newPassword) is { } resetProblem)
+        if (StaffList.ResetPasswordProblem(newPassword) is { } resetProblem)
         {
             ShowStatus(resetProblem, isError: true);
             return;

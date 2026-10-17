@@ -306,6 +306,64 @@ public sealed class PasswordMinimumLengthTests : IClassFixture<WebApplicationFac
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
     }
 
+    /// <summary>A customer-linked login created through the real endpoint, with a short password.</summary>
+    private async Task<(Guid OrganizationId, HttpClient Admin, Guid LoginId, string LoginEmail)> CustomerLinkedLoginAsync()
+    {
+        var adminEmail = Unique("customer-reset-admin");
+        var (organizationId, _, adminId) = await BootstrapAsync(adminEmail, Existing);
+        var customerId = Guid.NewGuid();
+        Execute(
+            "INSERT INTO customers (id, organization_id, customer_kind, display_name, created_by_user_id) VALUES ($1,$2,'Retail','Linked customer',$3)",
+            customerId, organizationId, adminId);
+        var admin = await SignInAsync(adminEmail, Existing);
+        var loginEmail = Unique("customer-reset-login");
+        var created = await admin.PostAsJsonAsync("/account/users", new CreateUserRequest(loginEmail, "short", [], [], customerId));
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        return (organizationId, admin, Scalar<Guid>("SELECT id FROM users WHERE email = $1", loginEmail), loginEmail);
+    }
+
+    [Fact]
+    public async Task AdminReset_OfACustomerLinkedLogin_IsOutsideTheStaffRule()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var (_, admin, loginId, _) = await CustomerLinkedLoginAsync();
+        var hashBefore = PasswordHash(loginId);
+
+        var response = await admin.PostAsJsonAsync($"/account/users/{loginId}/reset-password", new AdminResetPasswordRequest("short2"));
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.NotEqual(hashBefore, PasswordHash(loginId));
+    }
+
+    [Fact]
+    public async Task ResetConfirm_OfACustomerLinkedLogin_IsOutsideTheStaffRule()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var (organizationId, _, loginId, _) = await CustomerLinkedLoginAsync();
+        var token = "reset-token-" + Guid.NewGuid().ToString("N");
+        var tokenHash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
+        await _factory.Services.GetRequiredService<PostgresPasswordRecoveryStore>().IssueTokenAsync(
+            new CloudTenantScope(organizationId), loginId, tokenHash, DateTimeOffset.UtcNow.AddHours(1), CancellationToken.None);
+
+        var response = await NewClient().PostAsJsonAsync("/account/reset-password/confirm", new ConfirmResetPasswordRequest(token, "short2"));
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.False(Scalar<bool>("SELECT consumed_at IS NULL FROM password_reset_tokens WHERE token_hash = $1", tokenHash));
+    }
+
+    [Fact]
+    public async Task ResetConfirm_WithAnInvalidToken_AndAShortPassword_IsStill401()
+    {
+        if (!_postgresAvailable) { Console.WriteLine("SKIPPED: no live Postgres."); return; }
+
+        var response = await NewClient().PostAsJsonAsync(
+            "/account/reset-password/confirm", new ConfirmResetPasswordRequest("no-such-token", Eleven));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
     // ---- sign-in is not a write ----------------------------------------------------------------------
 
     [Fact]

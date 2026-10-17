@@ -266,6 +266,18 @@ public sealed class PosStaffListTests
         Assert.Equal(expected, StaffList.PasswordProblem(password));
     }
 
+    [Theory]
+    [InlineData("", PosMessages.NewPasswordRequired)]
+    [InlineData("            ", PosMessages.NewPasswordRequired)]
+    [InlineData("eleven-char", PosMessages.PasswordTooShort)]
+    [InlineData("twelve-chars", null)]
+    public void ResetPasswordProblem_AsksForAPasswordWhenBlank_ElseAppliesTheMinimum(string password, string? expected)
+    {
+        // The server answers a blank (or whitespace-only) new password with "newPassword is required.", so the POS
+        // must not call it too short.
+        Assert.Equal(expected, StaffList.ResetPasswordProblem(password));
+    }
+
     [Fact]
     public void PasswordTooShort_ReadsLikeTheWeb()
     {
@@ -280,7 +292,8 @@ public sealed class PosStaffListTests
         var code = Src("StaffView.xaml.cs");
 
         Assert.Equal(2, Regex.Matches(xaml, Regex.Escape("Mínimo 12 caracteres.")).Count);
-        Assert.Equal(2, Regex.Matches(code, Regex.Escape("StaffList.PasswordProblem(")).Count);
+        Assert.Equal(1, Regex.Matches(code, Regex.Escape("StaffList.PasswordProblem(")).Count);
+        Assert.Equal(1, Regex.Matches(code, Regex.Escape("StaffList.ResetPasswordProblem(")).Count);
     }
 
     [Fact]

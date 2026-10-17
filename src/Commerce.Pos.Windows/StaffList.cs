@@ -84,6 +84,13 @@ public sealed class StaffList
     public static string? PasswordProblem(string password) =>
         PasswordPolicy.IsLongEnough(password) ? null : PosMessages.PasswordTooShort;
 
+    /// <summary>
+    /// The reset form's check: a blank or whitespace-only password is missing (the server answers it as required,
+    /// not as too short); anything else follows <see cref="PasswordProblem"/>.
+    /// </summary>
+    public static string? ResetPasswordProblem(string password) =>
+        string.IsNullOrWhiteSpace(password) ? PosMessages.NewPasswordRequired : PasswordProblem(password);
+
     /// <summary>The role the role form starts on: the user's first offered role, or the default one.</summary>
     public static string InitialRole(UserAdminRecordDto user) =>
         user.RoleNames
