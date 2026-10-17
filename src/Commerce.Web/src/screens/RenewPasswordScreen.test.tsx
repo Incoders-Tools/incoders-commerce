@@ -50,4 +50,33 @@ describe('RenewPasswordScreen', () => {
     expect(await screen.findByRole('alert')).toBeInTheDocument()
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
+
+  // railway-deploy-pipeline S16.
+  it('says the 12-character minimum and sends nothing for an 11-character new password', async () => {
+    const user = userEvent.setup()
+    render(<RenewPasswordScreen />)
+
+    expect(screen.getByLabelText('Nueva contraseña')).toHaveAccessibleDescription('Mínimo 12 caracteres.')
+    await user.type(screen.getByLabelText('Contraseña actual'), 'old-password')
+    await user.type(screen.getByLabelText('Nueva contraseña'), 'eleven-char')
+    await user.click(screen.getByRole('button', { name: /cambiar contraseña/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('La contraseña debe tener al menos 12 caracteres.')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('reads the server refusing the new password as the minimum, not as a wrong current password', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ errors: { newPassword: ['newPassword must be at least 12 characters.'] } }), { status: 400 }),
+    )
+
+    const user = userEvent.setup()
+    render(<RenewPasswordScreen />)
+
+    await user.type(screen.getByLabelText('Contraseña actual'), 'old-password')
+    await user.type(screen.getByLabelText('Nueva contraseña'), 'twelve-chars')
+    await user.click(screen.getByRole('button', { name: /cambiar contraseña/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('La contraseña debe tener al menos 12 caracteres.')
+  })
 })

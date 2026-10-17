@@ -21,16 +21,25 @@ export function RenewPasswordScreen() {
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault()
-    setSubmitting(true)
     setError(null)
     setSuccess(false)
+    // railway-deploy-pipeline S16: a too-short new password is refused before sending.
+    if (!accountApi.isPasswordLongEnough(newPassword)) {
+      setError(t('common:password.tooShort', { count: accountApi.PASSWORD_MINIMUM_LENGTH }))
+      return
+    }
+    setSubmitting(true)
     try {
       await accountApi.renewPassword({ currentPassword, newPassword })
       setSuccess(true)
       setCurrentPassword('')
       setNewPassword('')
-    } catch {
-      setError(t('renewPassword.incorrectCurrentPassword'))
+    } catch (err) {
+      setError(
+        accountApi.isPasswordRejection(err, 'newPassword')
+          ? t('common:password.tooShort', { count: accountApi.PASSWORD_MINIMUM_LENGTH })
+          : t('renewPassword.incorrectCurrentPassword'),
+      )
     } finally {
       setSubmitting(false)
     }
@@ -60,8 +69,12 @@ export function RenewPasswordScreen() {
               type="password"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
+              aria-describedby="renew-new-password-hint"
               required
             />
+            <p id="renew-new-password-hint" className="text-xs text-muted-foreground">
+              {t('common:password.hint', { count: accountApi.PASSWORD_MINIMUM_LENGTH })}
+            </p>
           </div>
           {error && (
             <p role="alert" className="text-sm text-red-600">

@@ -1,6 +1,16 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
-import { adminResetPassword, createUser, listUsers, updateUserBranches, updateUserRoles, updateUserStatus } from '@/api/account'
+import {
+  PASSWORD_MINIMUM_LENGTH,
+  adminResetPassword,
+  createUser,
+  isPasswordLongEnough,
+  isPasswordRejection,
+  listUsers,
+  updateUserBranches,
+  updateUserRoles,
+  updateUserStatus,
+} from '@/api/account'
 import { ApiError } from '@/api/client'
 import type { UserSummary } from '@/api/types'
 import { useOptionalAuth } from '@/auth/AuthContext'
@@ -66,6 +76,9 @@ export function UsersScreen() {
   const [search, setSearch] = useState('')
   const [view, setView] = useViewPreference('users')
 
+  /** railway-deploy-pipeline S16: the server's minimum for a staff password, said before sending. */
+  const passwordTooShort = t('common:password.tooShort', { count: PASSWORD_MINIMUM_LENGTH })
+
   const roleLabel = useCallback((role: string) => t(`roles.${role}.label`, { defaultValue: role }), [t])
 
   const refresh = useCallback(async () => {
@@ -110,6 +123,10 @@ export function UsersScreen() {
       setEmailError(t('common:email.invalid'))
       return
     }
+    if (!isPasswordLongEnough(password)) {
+      setActionError(passwordTooShort)
+      return
+    }
     try {
       await createUser({ email: email.trim(), password, roleNames: roles, branchIds })
       setEmail('')
@@ -118,6 +135,10 @@ export function UsersScreen() {
     } catch (err) {
       if (err instanceof ApiError && err.status === 400 && err.fieldErrors?.email) {
         setEmailError(t('common:email.invalid'))
+        return
+      }
+      if (isPasswordRejection(err, 'password')) {
+        setActionError(passwordTooShort)
         return
       }
       setActionError(friendlyError(err) ?? t('errors.unableToCreate'))
@@ -219,12 +240,16 @@ export function UsersScreen() {
       setActionError(t('errors.enterReplacementPassword'))
       return
     }
+    if (!isPasswordLongEnough(newPassword)) {
+      setActionError(passwordTooShort)
+      return
+    }
     setActionError(null)
     try {
       await adminResetPassword(userId, { newPassword })
       setResetPasswords((current) => ({ ...current, [userId]: '' }))
-    } catch {
-      setActionError(t('errors.unableToResetPassword'))
+    } catch (err) {
+      setActionError(isPasswordRejection(err, 'newPassword') ? passwordTooShort : t('errors.unableToResetPassword'))
     }
   }
 
@@ -308,12 +333,17 @@ export function UsersScreen() {
         <Input
           aria-label={t('createForm.passwordAriaLabel')}
           className="sm:max-w-xs"
-          placeholder={t('createForm.passwordPlaceholder')}
+          placeholder={t('createForm.passwordPlaceholder', { count: PASSWORD_MINIMUM_LENGTH })}
+          title={t('common:password.hint', { count: PASSWORD_MINIMUM_LENGTH })}
+          aria-describedby="newUserPassword-hint"
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           required
         />
+        <span id="newUserPassword-hint" className="text-xs text-muted-foreground">
+          {t('common:password.hint', { count: PASSWORD_MINIMUM_LENGTH })}
+        </span>
         <div className="flex flex-wrap items-start gap-3">
           {assignableRoles.map((role) => (
             <label key={role} className="flex items-start gap-1.5 text-sm text-foreground">
@@ -402,7 +432,8 @@ export function UsersScreen() {
               aria-label={t('row.replacementPasswordAriaLabel', { email: user.email })}
               className="h-8 w-40"
               type="password"
-              placeholder={t('row.newPasswordPlaceholder')}
+              placeholder={t('row.newPasswordPlaceholder', { count: PASSWORD_MINIMUM_LENGTH })}
+              title={t('common:password.hint', { count: PASSWORD_MINIMUM_LENGTH })}
               value={resetPasswords[user.userId] ?? ''}
               onChange={(e) => setResetPasswords((current) => ({ ...current, [user.userId]: e.target.value }))}
             />

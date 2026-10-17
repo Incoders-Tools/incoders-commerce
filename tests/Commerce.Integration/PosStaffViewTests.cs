@@ -95,6 +95,40 @@ public sealed class PosStaffViewTests
         Assert.Equal(PosMessages.PermissionsExceedCaller, outcome.ErrorMessage);
     }
 
+    // railway-deploy-pipeline S16: the server's 400 ValidationProblem on the password field reads as the minimum.
+    [Fact]
+    public async Task CreateUser_AShortPasswordRefusal_ReadsAsTheMinimum()
+    {
+        var handler = new RecordingHandler(HttpStatusCode.BadRequest, """{"errors":{"password":["password must be at least 12 characters."]}}""");
+
+        var outcome = await ClientFor(handler).CreateUserAsync(new CreateUserAdminRequestDto("a@b.c", "twelve-chars", ["cashier"], [Guid.NewGuid()]));
+
+        Assert.Equal(UserAdminMutationKind.Failed, outcome.Kind);
+        Assert.Equal(PosMessages.PasswordTooShort, outcome.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task ResetPassword_AShortPasswordRefusal_ReadsAsTheMinimum()
+    {
+        var handler = new RecordingHandler(HttpStatusCode.BadRequest, """{"errors":{"newPassword":["newPassword must be at least 12 characters."]}}""");
+        var id = Guid.NewGuid();
+
+        var outcome = await ClientFor(handler).ResetPasswordAsync(id, new AdminResetPasswordRequestDto("twelve-chars"));
+
+        Assert.Equal($"/account/users/{id}/reset-password", handler.Path);
+        Assert.Equal(PosMessages.PasswordTooShort, outcome.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task CreateUser_AnotherFieldRefusal_StillReadsAsInvalidData()
+    {
+        var handler = new RecordingHandler(HttpStatusCode.BadRequest, """{"errors":{"roleNames":["one or more role names are not recognized."]}}""");
+
+        var outcome = await ClientFor(handler).CreateUserAsync(new CreateUserAdminRequestDto("a@b.c", "twelve-chars", ["x"], [Guid.NewGuid()]));
+
+        Assert.Equal(PosMessages.InvalidData, outcome.ErrorMessage);
+    }
+
     [Fact]
     public async Task ListUsers_ReadsTheBranchIds()
     {

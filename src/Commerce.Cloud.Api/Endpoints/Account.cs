@@ -46,6 +46,19 @@ public static class AccountEndpoints
     private static readonly Regex HexColorPattern = new("^#[0-9a-fA-F]{6}$", RegexOptions.Compiled);
 
     /// <summary>
+    /// railway-deploy-pipeline S16: a new staff or system-admin password shorter than
+    /// <see cref="PasswordPolicy.MinimumLength"/> is a 400 ValidationProblem keyed by the request field; null when it
+    /// is long enough. Every password write calls it before any I/O, so a rejected request changes nothing.
+    /// </summary>
+    private static IResult? RejectShortPassword(string? password, string field) =>
+        PasswordPolicy.IsLongEnough(password)
+            ? null
+            : Results.ValidationProblem(new Dictionary<string, string[]>
+            {
+                [field] = [PasswordPolicy.TooShortMessage(field)],
+            });
+
+    /// <summary>
     /// Shared branch-scope validation for staff creation and branch
     /// replacement. Returns null when the assignment is acceptable, otherwise
     /// the denial: 400 <c>branch-required</c> (empty when required), 400
@@ -239,6 +252,11 @@ public static class AccountEndpoints
                 });
             }
 
+            if (RejectShortPassword(request.NewPassword, "newPassword") is { } renewTooShort)
+            {
+                return renewTooShort;
+            }
+
             if (!TenantScopeResolver.TryResolve(httpContext.User, out var scope, out _))
             {
                 return Results.Unauthorized();
@@ -382,6 +400,12 @@ public static class AccountEndpoints
                 });
             }
 
+            // The length rule is a weak input too: checked before the token is looked up or consumed.
+            if (RejectShortPassword(request.NewPassword, "newPassword") is { } confirmTooShort)
+            {
+                return confirmTooShort;
+            }
+
             var tokenHash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(request.Token)));
             var tokenRecord = await recoveryStore.FindTokenAsync(tokenHash, ct);
             if (tokenRecord is null || tokenRecord.ConsumedAt is not null || tokenRecord.ExpiresAt <= DateTimeOffset.UtcNow)
@@ -425,6 +449,7 @@ public static class AccountEndpoints
         organizationGroup.MapPost("", async (CreateOrganizationRequest request, HttpContext httpContext, PostgresUserAccountStore userStore, PostgresOrganizationStore organizationStore, PasswordHasher<UserAccount> hasher, CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(request.OrganizationName) || string.IsNullOrWhiteSpace(request.AdminEmail) || string.IsNullOrWhiteSpace(request.AdminPassword)) return Results.ValidationProblem(new Dictionary<string,string[]> { ["request"] = ["organizationName, adminEmail and adminPassword are required."] });
+            if (RejectShortPassword(request.AdminPassword, "adminPassword") is { } adminPasswordTooShort) return adminPasswordTooShort;
             if (!TenantScopeResolver.TryResolve(httpContext.User, out var scope, out _)) return Results.StatusCode(StatusCodes.Status403Forbidden);
             var claim = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             if (claim is null || !Guid.TryParse(claim, out var actorId)) return Results.StatusCode(StatusCodes.Status403Forbidden);
@@ -687,6 +712,11 @@ public static class AccountEndpoints
                 });
             }
 
+            if (RejectShortPassword(request.NewPassword, "newPassword") is { } resetTooShort)
+            {
+                return resetTooShort;
+            }
+
             var scope = TenantScopeEndpointFilter.GetScope(httpContext);
 
             var callerIdClaim = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
@@ -759,6 +789,12 @@ public static class AccountEndpoints
                 {
                     ["request"] = ["email and password are required."],
                 });
+            }
+
+            // A customer-linked login is a customer account, outside the staff password rule.
+            if (request.CustomerId is null && RejectShortPassword(request.Password, "password") is { } createTooShort)
+            {
+                return createTooShort;
             }
 
             // admin-console-field-fixes: the shared email rule (the store normalizes case).
@@ -1159,6 +1195,11 @@ public static class AccountEndpoints
                 {
                     ["organizationName"] = ["organizationName is required."],
                 });
+            }
+
+            if (RejectShortPassword(request.Password, "password") is { } bootstrapTooShort)
+            {
+                return bootstrapTooShort;
             }
 
             // Bootstrap token vs. transaction ordering (design.md): TryConsume

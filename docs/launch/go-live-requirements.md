@@ -62,6 +62,8 @@ link) rather than deleting them.
   production has one, created from the Cloud.Api service console with
   `dotnet Commerce.Cloud.Api.dll create-system-admin --email <address>`, with no
   HTTP endpoint. The same command resets its password (runbook section 8).
+  Every new staff or system-admin password needs at least 12 characters
+  (railway-deploy-pipeline S16), on the web, the POS and this command alike.
 - [ ] **Multi-factor authentication for system administrators** (recommended).
   Why: a system administrator can create organizations and act on every
   organization, and today a password alone protects the account. Sign-in

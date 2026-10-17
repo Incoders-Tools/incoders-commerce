@@ -394,7 +394,7 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
         var client = _factory.CreateClient();
         var response = await client.PostAsJsonAsync(
             "/account/bootstrap",
-            new BootstrapRequest(organizationId, token, "Acme Corp", null, "mainbranch@example.com", "password"));
+            new BootstrapRequest(organizationId, token, "Acme Corp", null, "mainbranch@example.com", "staff-password"));
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<BootstrapResponse>();
 
@@ -418,13 +418,13 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
         var client = _factory.CreateClient();
         var first = await client.PostAsJsonAsync(
             "/account/bootstrap",
-            new BootstrapRequest(organizationId, firstToken, "Acme Corp", null, "second-boot-1@example.com", "password"));
+            new BootstrapRequest(organizationId, firstToken, "Acme Corp", null, "second-boot-1@example.com", "staff-password"));
         Assert.Equal(HttpStatusCode.OK, first.StatusCode);
 
         var secondToken = registry.Issue(organizationId);
         var second = await client.PostAsJsonAsync(
             "/account/bootstrap",
-            new BootstrapRequest(organizationId, secondToken, "Acme Corp Again", null, "second-boot-2@example.com", "password"));
+            new BootstrapRequest(organizationId, secondToken, "Acme Corp Again", null, "second-boot-2@example.com", "staff-password"));
 
         Assert.Equal(HttpStatusCode.Conflict, second.StatusCode);
     }
@@ -441,7 +441,7 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
         var client = _factory.CreateClient();
         var blankResponse = await client.PostAsJsonAsync(
             "/account/bootstrap",
-            new BootstrapRequest(organizationId, token, "   ", null, "blankname@example.com", "password"));
+            new BootstrapRequest(organizationId, token, "   ", null, "blankname@example.com", "staff-password"));
 
         Assert.Equal(HttpStatusCode.BadRequest, blankResponse.StatusCode);
 
@@ -449,7 +449,7 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
         // TryConsume, so this mistake did not burn it.
         var retry = await client.PostAsJsonAsync(
             "/account/bootstrap",
-            new BootstrapRequest(organizationId, token, "Now A Real Name", null, "blankname@example.com", "password"));
+            new BootstrapRequest(organizationId, token, "Now A Real Name", null, "blankname@example.com", "staff-password"));
 
         Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
     }
@@ -466,14 +466,14 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
         var client = _factory.CreateClient();
         var first = await client.PostAsJsonAsync(
             "/account/bootstrap",
-            new BootstrapRequest(organizationId, token, "Acme Corp", null, "replay1@example.com", "password"));
+            new BootstrapRequest(organizationId, token, "Acme Corp", null, "replay1@example.com", "staff-password"));
         Assert.Equal(HttpStatusCode.OK, first.StatusCode);
 
         // Same org already has a user now, but the more specific assertion is
         // that the SAME token cannot be reused at all.
         var replay = await client.PostAsJsonAsync(
             "/account/bootstrap",
-            new BootstrapRequest(organizationId, token, "Acme Corp", null, "replay2@example.com", "password"));
+            new BootstrapRequest(organizationId, token, "Acme Corp", null, "replay2@example.com", "staff-password"));
 
         Assert.Equal(HttpStatusCode.Unauthorized, replay.StatusCode);
     }
@@ -501,7 +501,7 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
 
         var response = await client.PostAsJsonAsync(
             "/account/bootstrap",
-            new BootstrapRequest(organizationId, token, "Acme Corp", null, "expired@example.com", "password"));
+            new BootstrapRequest(organizationId, token, "Acme Corp", null, "expired@example.com", "staff-password"));
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
@@ -519,7 +519,7 @@ public sealed class AccountEndpointTests : IClassFixture<WebApplicationFactory<P
         var client = _factory.CreateClient();
         var response = await client.PostAsJsonAsync(
             "/account/bootstrap",
-            new BootstrapRequest(otherOrganizationId, token, "Acme Corp", null, "wrongorg@example.com", "password"));
+            new BootstrapRequest(otherOrganizationId, token, "Acme Corp", null, "wrongorg@example.com", "staff-password"));
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }

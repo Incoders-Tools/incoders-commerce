@@ -63,6 +63,7 @@
                                 <TextBox x:Name="NewEmailTextBox" Style="{StaticResource FieldBox}" AutomationProperties.Name="Correo" />
                                 <TextBlock Text="Contraseña inicial" Style="{StaticResource FieldLabel}" />
                                 <PasswordBox x:Name="NewPasswordBox" Style="{StaticResource FieldPassword}" AutomationProperties.Name="Contraseña inicial" />
+                                <TextBlock Text="Mínimo 12 caracteres." Style="{StaticResource MutedTextBlock}" Margin="0,-6,0,10" />
                                 <TextBlock Text="Rol" Style="{StaticResource FieldLabel}" />
                                 <ComboBox x:Name="RoleComboBox" Style="{StaticResource FieldCombo}" AutomationProperties.Name="Rol" />
                                 <StackPanel Orientation="Horizontal" Margin="{StaticResource ActionGroupSpacing}">
@@ -85,6 +86,7 @@
                             <StackPanel x:Name="ResetPanel">
                                 <TextBlock Text="Nueva contraseña" Style="{StaticResource FieldLabel}" />
                                 <PasswordBox x:Name="ResetPasswordBox" Style="{StaticResource FieldPassword}" AutomationProperties.Name="Nueva contraseña" />
+                                <TextBlock Text="Mínimo 12 caracteres." Style="{StaticResource MutedTextBlock}" Margin="0,-6,0,10" />
                                 <StackPanel Orientation="Horizontal" Margin="{StaticResource ActionGroupSpacing}">
                                     <Button x:Name="ResetSaveButton" Content="Restablecer contraseña" Margin="{StaticResource ActionSpacing}" Click="ResetSaveButton_Click" />
                                     <Button x:Name="ResetCancelButton" Content="Cancelar" Style="{StaticResource GhostButton}" Click="CancelEditorButton_Click" />
