@@ -30,7 +30,7 @@ service has no public access, so GitHub Actions cannot reach it.
   current schema, which is what makes a code rollback safe.
 - **Branch gates.** No workflow gates `dev`. Pull requests into `staging` and into `main` run the CI gate (`ci-gate`
   in `.github/workflows/release.yml`), which now includes a `migrations` job:
-  1. It applies every migration twice to an empty Postgres 16 with the migrator, and the second run must skip
+  1. It applies every migration twice to an empty Postgres 18 (the production major) with the migrator, and the second run must skip
      everything.
   2. It rejects edits to existing migration files.
   3. It rejects a `DROP TABLE`, `DROP COLUMN`, or `RENAME` without the marker.

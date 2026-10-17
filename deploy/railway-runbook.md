@@ -76,8 +76,8 @@ Repeat sections 3 to 9 once per environment, staging first.
 1. In the environment, add **Database → PostgreSQL** and name the service
    `Postgres`.
 2. In **Settings → Source**, confirm the image is
-   `ghcr.io/railwayapp-templates/postgres-ssl:16`. Use the major-version tag
-   only: point-in-time recovery refuses minor tags such as `:16.10`.
+   `ghcr.io/railwayapp-templates/postgres-ssl:18`. Use the major-version tag
+   only: point-in-time recovery refuses minor tags such as `:18.6`.
 3. In **Settings → Networking**, **remove the TCP proxy** (public access). The
    template enables it by default. Without it, the database is reachable only
    from the private network and through `railway connect`'s SSH tunnel.

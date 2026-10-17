@@ -32,7 +32,7 @@ Railway rebuilds a service only when a merge touches one of its watched paths
 end-to-end suite, the .NET build and tests, and the `migrations` job. Each one
 runs only when its paths changed. The `migrations` job rejects an edited
 migration or an unapproved drop or rename, and applies every migration twice to
-an empty Postgres 16 with the migrator; the second run must skip them all.
+an empty Postgres 18 with the migrator; the second run must skip them all.
 Branch protection is set up by hand with
 [the required-checks runbook](./ci-required-status-checks-runbook.md).
 

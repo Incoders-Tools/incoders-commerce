@@ -313,7 +313,7 @@ jobs:
     # every `staging`/`main` deploy, so a PR into either branch proves here
     # that (1) it only adds expand-only migration files and never edits an
     # existing one, and (2) the migrator applies every file to an empty
-    # Postgres 16 and a second run skips them all (each file re-runs safely
+    # Postgres 18 (the production major) and a second run skips them all (each file re-runs safely
     # and the ledger records it). The classifier counts `deploy/*` and
     # `src/*` as .NET, so any migration or migrator change selects this job.
     needs: changes
@@ -321,7 +321,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16
+        image: postgres:18
         env:
           POSTGRES_DB: postgres
           POSTGRES_USER: commerce_owner
